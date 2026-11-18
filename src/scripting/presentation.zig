@@ -831,7 +831,7 @@ test "a display reads the cockpit's instruments in any view" {
     slot.object.armor = .all(combat.fullArmor());
     slot.object.armor.left = @floatFromInt(combat.armor_class * 2);
     var player: input.Player = .{};
-    player.matching_speed = true;
+    all.player_states[all.player].controls.matching_speed = true;
     all.player_states[all.player].shield_reserves = .{ .fore = 5 * @as(f32, @floatFromInt(combat.shield_power)) };
     var state: hud.State = .{};
     var hud_drawing: hud.Drawing = .{};

@@ -1000,23 +1000,28 @@ fn objectsPass(orders: aigeneric.Context) void {
 /// subtarget's parts are picked out (`hud.subtarget.Subtarget.pick`, `hud_subtarget`): those of the
 /// new one, or none.
 fn keepPlayerTarget(world: gameobj.World) void {
+    for (0..@min(world.objects.players, world.objects.slots.len)) |index| keepPlayerTargetFor(world, @intCast(index));
+}
+
+fn keepPlayerTargetFor(world: gameobj.World, owner: u16) void {
     const all = world.objects;
-    const entry = ai.playerControlEntry(all) orelse return;
+    const display = if (owner == all.player) world.display else null;
+    const entry = ai.controlEntry(all, owner) orelse return;
     if (entry.target.slotIn(all)) |index| {
         if (entry.target.part()) |component| {
-            if (all.slots[index].component(component) == null) input.cycleSubtarget(world.display, all, .next, false);
+            if (all.slots[index].component(component) == null) input.cycleSubtargetFor(display, all, owner, .next, false);
         } else if (all.slots[index].object.flags.exploding) {
-            world.player.matching_speed = false;
-            _ = input.cycleTarget(world.display, all, .next, .hostile, false);
+            all.player_states[owner].controls.matching_speed = false;
+            _ = input.cycleTargetFor(display, all, owner, .next, .hostile, false);
         }
     }
     if (entry.target.slotIn(all)) |index| {
         const target = &all.slots[index].object;
-        const away = math.distance(all.slots[all.player].object.nextPosition(), target.nextPosition());
-        if (away > hud.pick_reach) _ = input.cycleTarget(world.display, all, .next, if (target.side == .hostile) .hostile else .friendly, false);
+        const away = math.distance(all.slots[owner].object.nextPosition(), target.nextPosition());
+        if (away > hud.pick_reach) _ = input.cycleTargetFor(display, all, owner, .next, if (target.side == .hostile) .hostile else .friendly, false);
     }
-    const display = world.display orelse return;
-    if (!display.subtarget.shows(all, entry.target.resolve(all)) and world.view() == .cockpit) display.subtarget.pick(all);
+    const shown = display orelse return;
+    if (!shown.subtarget.shows(all, entry.target.resolve(all)) and world.view() == .cockpit) shown.subtarget.pick(all);
 }
 
 test keepPlayerTarget {
@@ -1044,10 +1049,10 @@ test keepPlayerTarget {
 
     // An exploding one stops MATCH SPEED and moves on too: here to none, the other being past
     // the reach.
-    mission.player.matching_speed = true;
+    mission.objects.player_states[mission.objects.player].controls.matching_speed = true;
     mission.slot(near).object.flags.exploding = true;
     keepPlayerTarget(mission.world());
-    try std.testing.expect(!mission.player.matching_speed);
+    try std.testing.expect(!mission.objects.player_states[mission.objects.player].controls.matching_speed);
     try std.testing.expectEqual(null, entry.target.resolve(all).slot());
 
     // A subtarget whose component has no part moves on; a ship that lists no components keeps it,
@@ -3338,4 +3343,32 @@ test "selecting the same component on a replacement refreshes its highlight" {
     keepPlayerTarget(world);
     try std.testing.expect(display.subtarget.target.?.object.valid(all));
     try std.testing.expectEqual(hud.subtarget.red, all.slots[index].model.?.parts[0].object.colour);
+}
+
+test "target upkeep searches from each participant's ship" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const local = try mission.add(.of(.predator), @splat(0));
+    const remote = try mission.add(.of(.predator), .{ 0, 0, hud.pick_reach * 3 });
+    const near_local = try mission.add(.of(.sabre), .{ 0, 0, 5000 });
+    const near_remote = try mission.add(.of(.sabre), .{ 0, 0, hud.pick_reach * 3 + 5000 });
+    all.players = 2;
+    for ([_]u16{ near_local, near_remote }) |index| {
+        all.slots[index].object.flags.targetable = true;
+        all.slots[index].object.side = .hostile;
+    }
+    try std.testing.expect(try aigeneric.push(mission.orders(), local, .player_control, .at(near_local, null)));
+    try std.testing.expect(try aigeneric.push(mission.orders(), remote, .multiplayer_control, .at(near_local, null)));
+    all.playerState(local).?.controls.matching_speed = true;
+    all.playerState(remote).?.controls.matching_speed = true;
+    keepPlayerTarget(mission.world());
+    try std.testing.expectEqual(near_local, ai.controlEntry(all, local).?.target.slotIn(all));
+    try std.testing.expectEqual(near_remote, ai.controlEntry(all, remote).?.target.slotIn(all));
+    all.slots[near_remote].object.flags.exploding = true;
+    keepPlayerTarget(mission.world());
+    try std.testing.expectEqual(null, ai.controlEntry(all, remote).?.target.slotIn(all));
+    try std.testing.expect(!all.playerState(remote).?.controls.matching_speed);
+    try std.testing.expect(all.playerState(local).?.controls.matching_speed);
 }

@@ -15,6 +15,7 @@ const language = @import("game/language.zig");
 pub const controls = @import("input/controls.zig");
 pub const force = @import("input/force.zig");
 pub const power = @import("input/power.zig");
+pub const flight = @import("input/flight.zig");
 
 /// DirectInput's `DIJOYSTATE`, which the game polls the joystick into at `joystick` each simulation
 /// step. The game sets the axes to run from -1000 to 1000.
@@ -1470,19 +1471,10 @@ const launch = @import("game/launch.zig");
 const events = @import("game/mission/events.zig");
 const math = @import("surrender/math.zig");
 
-/// What the player's controls keep between updates, which the game holds in globals.
+/// Local input latches, presentation and mission state, held in globals by the original.
+/// Simulation-owned flight state is `players.State.controls`; the remaining participant mission
+/// state follows in [#1367](https://github.com/OpenReliant/openreliant/issues/1367).
 pub const Player = struct {
-    /// `throttle_setting` (`0x0051CF7C`): the throttle the keys set, which the ship's follows
-    /// while the afterburner is off.
-    throttle: f32 = 0,
-    /// `matching_speed` (`0x00579984`), flipped by MATCH SPEED: the throttle follows the target's
-    /// speed (`matchSpeed`).
-    matching_speed: bool = false,
-    /// `throttle_before_match` (`0x00566794`): the throttle as matching last found it, which
-    /// matching puts back as it stops.
-    throttle_before_match: f32 = 0,
-    /// `afterburner_toggled` (`0x0051CEFE`), flipped by AFTERBURNER TOGGLE.
-    afterburner_toggled: bool = false,
     /// `mouse_missile_latched` (`0x0051CEFA`): set once the right button has launched a missile in
     /// the mouse's mode, until it is let go.
     mouse_launched: bool = false,
@@ -1573,28 +1565,18 @@ pub const Player = struct {
     };
 };
 
-/// How far a key steps a steering input each run (`0x004DC4C0`). The flight model clamps the
-/// input, so a held key reaches full deflection on the fourth run.
-const steering_step: f32 = 0.3;
-
-/// How far a key steps the throttle each run (`0x004DC4AC`): fifty runs from none to full.
-const throttle_step: f32 = 0.02;
-
-/// The share of the yaw added to the roll, which banks the ship into its turns (`0x004DC408`).
-const bank_share: f32 = 0.5;
-
 /// The factor from joystick axis units to steering input (`0x004DC418`): -1000 to 1000 becomes -1
 /// to 1.
 const axis_scale: f32 = 0.001;
 
 /// How far from the centre the mouse's stick reaches, in counts (`mouse_range`, `0x004E2378`), and
 /// the share of that about the centre that steers nothing (`mouse_dead_band`, `0x004E237C`).
-const mouse_range: i16 = 800;
+const mouse_range = flight.mouse_range;
 const mouse_dead_band: f32 = 0.3;
 
 /// What the mouse's movement is multiplied by, over `mouse_range`, to move the power or shift the
 /// shields (`0x004DC554`).
-const mouse_hold_scale: f32 = 64;
+const mouse_hold_scale = flight.mouse_hold_scale;
 
 /// The steering input from the mouse's stick along one axis (`player_controls`): nothing within the
 /// dead band of the centre, and from there out to the full deflection at the edge.
@@ -1607,25 +1589,16 @@ fn mouseAxis(position: i16) f32 {
 /// `player_throttle_keys` (`0x004132C0`): ACCELERATE and DECELERATE step the throttle setting and
 /// the ship's throttle, and ZERO THROTTLE and FULL THROTTLE set both and stop MATCH SPEED. The
 /// ship's throttle then follows the setting, unless its afterburner is burning.
-pub fn playerThrottleKeys(player: *Player, devices: *Devices, object: *gameobj.GameObject) void {
-    if (devices.active(.accelerate, false)) {
-        player.throttle = @min(player.throttle + throttle_step, 1);
-        object.throttle = @min(object.throttle + throttle_step, 1);
-    } else if (devices.active(.decelerate, false)) {
-        player.throttle = @max(player.throttle - throttle_step, 0);
-        object.throttle = @max(object.throttle - throttle_step, 0);
-    }
-    if (devices.active(.zero_throttle, true)) {
-        player.throttle = 0;
-        object.throttle = 0;
-        player.matching_speed = false;
-    }
-    if (devices.active(.full_throttle, true)) {
-        player.throttle = 1;
-        object.throttle = 1;
-        player.matching_speed = false;
-    }
-    if (!object.afterburner) object.throttle = player.throttle;
+pub fn playerThrottleKeys(state: *flight.State, devices: *Devices, object: *gameobj.GameObject) void {
+    flight.applyThrottle(state, object, throttleCommand(devices));
+}
+
+fn throttleCommand(devices: *Devices) flight.Throttle {
+    const accelerate = devices.active(.accelerate, false);
+    const decelerate = !accelerate and devices.active(.decelerate, false);
+    const zero = devices.active(.zero_throttle, true);
+    const full = devices.active(.full_throttle, true);
+    return .{ .keys = .{ .accelerate = accelerate, .decelerate = decelerate, .zero = zero, .full = full } };
 }
 
 /// `player_controls` (`0x00413410`): the update of the Player Control order (100), the player's own
@@ -1633,20 +1606,51 @@ pub fn playerThrottleKeys(player: *Player, devices: *Devices, object: *gameobj.G
 /// target's speed (`matchSpeed`), and the weapons and the ship's other actions (`playerWeapons`).
 /// The game reads MATCH SPEED among the keys after the throttle's and the strafe keys, and the
 /// weapons' keys among the rest; OpenReliant runs the parts in turn, since nothing between reads
-/// the throttle `matchSpeed` sets or what `playerWeapons` does. It needs the devices to read;
-/// without them the ship holds what it has.
+/// the throttle `matchSpeed` sets or what `playerWeapons` does. Local input reads devices here.
+/// **Improvement:** participant commands run without devices, using the same flight rules.
 pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
-    const devices = ctx.devices orelse return;
     const world = ctx.world;
-    const slot = &world.objects.slots[index];
+    const all = world.objects;
+    const slot = &all.slots[index];
     const combat = slot.combat orelse return;
-    // Controls still read local devices and state; normalised per-player commands follow in
-    // [#1366](https://github.com/OpenReliant/openreliant/issues/1366).
-    // The current order's data keeps the mouse's stick position.
-    const reserves = &world.objects.player_states[world.objects.player].shield_reserves;
-    playerControls(world.player, reserves, devices, &slot.object, combat, slot.orders[0].data.words[0..2], world.view(), world.clock.frame_duration);
+    // A queued participant command takes precedence even for slot zero on a headless host.
+    if (all.playerState(index)) |state| if (state.command) |*command| {
+        defer command.consumePresses();
+        switch (command.target) {
+            .keep => {},
+            .clear => {
+                if (ai.controlEntry(all, index)) |entry| entry.target = .none;
+                state.controls.matching_speed = false;
+                if (index == all.player) if (world.display) |display| display.targetChanged(all, false);
+            },
+            .aim => |aim| _ = aimPlayerFor(world, index, aim),
+        }
+        flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, command.flight, world.clock.frame_duration);
+        matchSpeedFor(world, index, command.match_speed, if (index == all.player) world.view() else .cockpit);
+        // Weapon selection and lock state still belong to the local display
+        // ([#1370](https://github.com/OpenReliant/openreliant/issues/1370)).
+        return;
+    };
+    // Remote participants never read this machine's devices. Non-player Player Control orders
+    // keep the original local-input behaviour used by existing missions and mods.
+    if (index < all.players and index != all.player) return;
+    const devices = ctx.devices orelse return;
+    const state = &all.player_states[all.player];
+    playerControls(world.player, &state.controls, &state.shield_reserves, devices, &slot.object, combat, slot.orders[0].data.words[0..2], world.view(), world.clock.frame_duration);
     matchSpeed(world, devices);
     playerWeapons(world, devices, index);
+}
+
+/// `order_multiplayer_control` (`0x00414F70`): disables a ship once it is sent off.
+/// **Improvement:** an active participant can also fly from the host's normalised commands.
+pub fn multiplayerControlOrder(ctx: aigeneric.Context, index: u16) void {
+    const slot = &ctx.world.objects.slots[index];
+    if (slot.object.flags.sent_off) {
+        slot.object.flags.disabled = true;
+        return;
+    }
+    const state = ctx.world.objects.playerState(index) orelse return;
+    if (state.command != null) playerControlOrder(ctx, index);
 }
 
 /// What `player_controls` (`playerControlOrder`) does with the ship's steering inputs, its
@@ -1669,7 +1673,8 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
 /// (`gameobj.PowerUp`); and the objectives window's use of the stick while `0x0051CF04` is set
 /// (`0x00413200`).
 pub fn playerControls(
-    player: *Player,
+    player: *const Player,
+    state: *flight.State,
     reserves: *gameobj.ShieldReserves,
     devices: *Devices,
     object: *gameobj.GameObject,
@@ -1678,141 +1683,93 @@ pub fn playerControls(
     view: camera.View,
     frame_duration: i32,
 ) void {
+    flight.apply(state, reserves, object, combat, sampleFlight(player, devices, stick, view), frame_duration);
+}
+
+/// Resolves local bindings in the order of `player_controls` (`0x00413410`). Only this side
+/// reads devices or camera settings; the simulation applies the resulting flight command.
+pub fn sampleFlight(player: *const Player, devices: *Devices, stick: *[2]i16, view: camera.View) flight.Command {
+    var command: flight.Command = .{};
     if (player.balancing_shields or player.power_held) {
-        holdStick(player, reserves, devices, object, combat, frame_duration);
+        const held = heldStick(devices);
+        command.steering = if (player.balancing_shields) .{ .shields = held[1] } else .{ .power = held };
+        command.throttle = .held;
     } else {
-        steer(player, devices, object, stick, view);
-    }
-
-    // If both strafe keys are held, STRAFE RIGHT wins, since the game checks it last.
-    object.lateral_input = 0;
-    if (devices.active(.strafe_left, false)) object.lateral_input = -1;
-    if (devices.active(.strafe_right, false)) object.lateral_input = 1;
-    object.throttle = std.math.clamp(object.throttle, 0, 1);
-
-    if (devices.active(.afterburner_toggle, true)) player.afterburner_toggled = !player.afterburner_toggled;
-    // `object_orders` clears both before each update, so each lasts until the order runs again.
-    object.afterburner = devices.active(.afterburners, false) or player.afterburner_toggled;
-    object.reverse_thrust = devices.active(.reverse_thrust, false);
-    // What `object_orders` does after the update: neither burns without fuel.
-    if (object.afterburner_fuel == 0) {
-        object.afterburner = false;
-        object.reverse_thrust = false;
-    }
-}
-
-/// The steering and the throttle of `player_controls`, while the stick is free.
-fn steer(player: *Player, devices: *Devices, object: *gameobj.GameObject, stick: *[2]i16, view: camera.View) void {
-    const pitch_sign: f32 = if (devices.settings.joystick_invert) 1 else -1;
-    switch (devices.controlMode()) {
-        .joystick => {
-            const joystick = &devices.joystick;
-            const state = joystick.state;
-            object.holdTurns();
-            const x = @as(f32, @floatFromInt(state.x)) * axis_scale;
-            const y = @as(f32, @floatFromInt(state.y)) * axis_scale;
-            if (devices.twistRolls() and joystick.axes.rz) {
-                object.yaw_input = x;
-                object.pitch_input = y * pitch_sign;
-                object.roll_input = @as(f32, @floatFromInt(state.rz)) * axis_scale;
-            } else {
-                if (devices.active(.joystick_roll, false)) {
-                    object.roll_input = x;
+        const pitch_sign: f32 = if (devices.settings.joystick_invert) 1 else -1;
+        switch (devices.controlMode()) {
+            .joystick => {
+                const joystick = &devices.joystick;
+                const state = joystick.state;
+                const x = @as(f32, @floatFromInt(state.x)) * axis_scale;
+                const y = @as(f32, @floatFromInt(state.y)) * axis_scale;
+                if (devices.twistRolls() and joystick.axes.rz) {
+                    command.steering = .{ .axes = .{ x, y * pitch_sign, @as(f32, @floatFromInt(state.rz)) * axis_scale } };
                 } else {
-                    object.yaw_input = x;
-                    object.roll_input = rollKeys(devices);
+                    const roll = devices.active(.joystick_roll, false);
+                    command.steering = .{ .axes = .{ if (roll) 0 else x, y * pitch_sign, if (roll) x else rollKeys(devices) } };
                 }
-                object.pitch_input = y * pitch_sign;
-            }
-            const throttle: ?i32 = if (joystick.axes.z) state.z else if (joystick.axes.slider) state.sliders[0] else null;
-            if (throttle) |value| {
-                object.throttle = 1 - @as(f32, @floatFromInt(value)) * axis_scale;
-            } else {
-                playerThrottleKeys(player, devices, object);
-            }
-        },
-        .mouse => {
-            // Each axis of the stick gathers the mouse's movement, as a 16-bit count, and is held
-            // to `mouse_range` of the centre.
-            //
-            // **Fix:** the game adds the movement of the last read each time the order runs, once
-            // a frame as well as once a step, so the faster the frames the further the mouse
-            // steers. OpenReliant adds each read's once.
-            const mouse = &devices.mouse;
-            if (!mouse.gathered) {
-                for (stick, mouse.state.moved) |*position, moved| {
-                    position.* = std.math.clamp(position.* +% @as(i16, @truncate(moved)), -mouse_range, mouse_range);
+                const throttle: ?i32 = if (joystick.axes.z) state.z else if (joystick.axes.slider) state.sliders[0] else null;
+                command.throttle = if (throttle) |value| .{ .axis = 1 - @as(f32, @floatFromInt(value)) * axis_scale } else throttleCommand(devices);
+            },
+            .mouse => {
+                // **Fix:** add each read's movement once, even when an order runs again at a
+                // physical step. The original adds it again, making steering depend on frame rate.
+                const mouse = &devices.mouse;
+                if (!mouse.gathered) {
+                    for (stick, mouse.state.moved) |*position, moved| {
+                        position.* = std.math.clamp(position.* +% @as(i16, @truncate(moved)), -mouse_range, mouse_range);
+                    }
+                    mouse.gathered = true;
                 }
-                mouse.gathered = true;
-            }
-            object.yaw_input = mouseAxis(stick[0]);
-            object.pitch_input = -mouseAxis(stick[1]) * pitch_sign;
-            object.roll_input = rollKeys(devices);
-            playerThrottleKeys(player, devices, object);
-        },
-        .keyboard, _ => {
-            // The arrow keys orbit the target and external views, so they do not turn the ship in
-            // those.
-            if (view == .target or view == .external) {
-                object.yaw_input = 0;
-                object.pitch_input = 0;
-            } else {
-                // Each pair steps its input while one of its keys is held, in the order the game
-                // reads them, and zeroes it while neither is.
-                object.yaw_input = if (devices.active(.rotate_clockwise, false))
-                    object.yaw_input - steering_step
-                else if (devices.active(.rotate_anti_clockwise, false))
-                    object.yaw_input + steering_step
-                else
-                    0;
-                object.pitch_input = if (devices.active(.nose_up, false))
-                    object.pitch_input + steering_step * pitch_sign
-                else if (devices.active(.nose_down, false))
-                    object.pitch_input - steering_step * pitch_sign
-                else
-                    0;
-            }
-            object.roll_input = rollKeys(devices);
-            playerThrottleKeys(player, devices, object);
-        },
+                command.steering = .{ .axes = .{ mouseAxis(stick[0]), -mouseAxis(stick[1]) * pitch_sign, rollKeys(devices) } };
+                command.throttle = throttleCommand(devices);
+            },
+            .keyboard, _ => {
+                var yaw: flight.Direction = .neutral;
+                var pitch: flight.Direction = .neutral;
+                // These views use the arrow keys to orbit the camera rather than steer the ship.
+                if (view != .target and view != .external) {
+                    if (devices.active(.rotate_clockwise, false)) {
+                        yaw = .negative;
+                    } else if (devices.active(.rotate_anti_clockwise, false)) yaw = .positive;
+                    if (devices.active(.nose_up, false)) {
+                        pitch = if (pitch_sign > 0) .positive else .negative;
+                    } else if (devices.active(.nose_down, false)) pitch = if (pitch_sign > 0) .negative else .positive;
+                }
+                command.steering = .{ .keys = .{ .yaw = yaw, .pitch = pitch, .roll = rollKeys(devices) } };
+                command.throttle = throttleCommand(devices);
+            },
+        }
     }
-    object.roll_input += object.yaw_input * bank_share;
+    if (devices.active(.strafe_left, false)) command.strafe = .negative;
+    if (devices.active(.strafe_right, false)) command.strafe = .positive;
+    command.toggle_afterburner = devices.active(.afterburner_toggle, true);
+    command.afterburner = devices.active(.afterburners, false);
+    command.reverse = devices.active(.reverse_thrust, false);
+    return command;
 }
 
-/// What the stick does while POWERBALL WINDOW or SHIELD BALANCING is held (`player_controls`): the
-/// steering inputs are zeroed, and the joystick's X and Y, with the keyboard the yaw and pitch keys
-/// as a whole deflection each, or the mouse's last movement times `mouse_hold_scale` over
-/// `mouse_range`, move the power (`power.move`) or, while SHIELD BALANCING is held, shift the
-/// shields (`power.balanceShields`).
-fn holdStick(player: *Player, reserves: *gameobj.ShieldReserves, devices: *Devices, object: *gameobj.GameObject, combat: *const create.ShipCombat, frame_duration: i32) void {
-    object.holdTurns();
-    var stick: [2]f32 = .{ 0, 0 };
+/// The stick used by SHIELD BALANCING or POWERBALL WINDOW (`0x00413200`), after resolving devices.
+fn heldStick(devices: *Devices) [2]f32 {
     switch (devices.controlMode()) {
         .joystick => {
             const state = devices.joystick.state;
-            stick = .{ @as(f32, @floatFromInt(state.x)) * axis_scale, @as(f32, @floatFromInt(state.y)) * axis_scale };
+            return .{ @as(f32, @floatFromInt(state.x)) * axis_scale, @as(f32, @floatFromInt(state.y)) * axis_scale };
         },
         .mouse => {
             const moved: @Vector(2, f32) = @floatFromInt(@as(@Vector(2, i32), devices.mouse.state.moved));
-            stick = moved * @as(@Vector(2, f32), @splat(mouse_hold_scale / @as(f32, @floatFromInt(mouse_range))));
+            return moved * @as(@Vector(2, f32), @splat(mouse_hold_scale / @as(f32, @floatFromInt(mouse_range))));
         },
         .keyboard, _ => {
+            var stick: [2]f32 = .{ 0, 0 };
             if (devices.active(.rotate_clockwise, false)) {
                 stick[0] = -1;
-            } else if (devices.active(.rotate_anti_clockwise, false)) {
-                stick[0] = 1;
-            }
+            } else if (devices.active(.rotate_anti_clockwise, false)) stick[0] = 1;
             if (devices.active(.nose_up, false)) {
                 stick[1] = -1;
-            } else if (devices.active(.nose_down, false)) {
-                stick[1] = 1;
-            }
+            } else if (devices.active(.nose_down, false)) stick[1] = 1;
+            return stick;
         },
-    }
-    if (player.balancing_shields) {
-        power.balanceShields(object, reserves, combat, stick[1]);
-    } else {
-        power.move(object, stick[0], stick[1], frame_duration);
     }
 }
 
@@ -1908,14 +1865,22 @@ pub fn setPlayerTarget(display: *hud.State, all: *create.Objects, index: i16, co
 /// What `cmd_SetPlayerTarget` (`0x00458C80`) does once it knows its target: if the player can aim
 /// at `target` (`ai.targetValid`), it becomes the player's target. The player's Player Control order
 /// is aimed at it, the display follows (`hud.State.targetChanged`), and the player stops matching
-/// speeds (`Player.matching_speed`). Returns whether it worked.
+/// speeds (`flight.State.matching_speed`). Returns whether it worked.
 pub fn aimPlayer(world: gameobj.World, target: aigeneric.Target) bool {
+    return aimPlayerFor(world, world.objects.player, .selected(world.objects, target));
+}
+
+/// Selects a retained target for one participant, after validating it in the host's simulation.
+/// An expired selection cannot silently select a later ship in the same slot.
+pub fn aimPlayerFor(world: gameobj.World, player: u16, selected: aigeneric.Aim) bool {
     const all = world.objects;
+    const state = all.playerState(player) orelse return false;
+    const target = selected.resolve(all);
     if (!ai.targetValid(all, target, .{})) return false;
-    const entry = ai.playerControlEntry(all) orelse return false;
+    const entry = ai.controlEntry(all, player) orelse return false;
     entry.target = entry.target.retarget(all, target.index, target.component);
-    if (world.display) |display| display.targetChanged(all, false);
-    world.player.matching_speed = false;
+    if (player == all.player) if (world.display) |display| display.targetChanged(all, false);
+    state.controls.matching_speed = false;
     return true;
 }
 
@@ -2243,18 +2208,31 @@ pub fn playerJump(world: gameobj.World) void {
 /// as it turns on. The display sounds `off` as it turns off, and `on` as it turns on, or `refused`
 /// with no target the player can aim at. It runs after `playerControls` (`playerControlOrder`).
 pub fn matchSpeed(world: gameobj.World, devices: *Devices) void {
-    const player = world.player;
+    // Match before testing the press, as in the original. The device-independent path below
+    // makes the same first match before applying a command's press.
     const all = world.objects;
-    matchTargetSpeed(player, all, world.view());
-    if (!devices.active(.match_speed, true)) return;
-    player.matching_speed = !player.matching_speed;
-    if (player.matching_speed) {
-        const aimed = if (ai.playerControlEntry(all)) |entry| ai.targetValid(all, entry.target.resolve(all), .{}) else false;
-        hud.beep(world, if (aimed) .on else .refused);
-        matchTargetSpeed(player, all, world.view());
+    const state = &all.player_states[all.player].controls;
+    matchTargetSpeed(state, all, all.player, world.view());
+    toggleMatchSpeed(world, all.player, state, devices.active(.match_speed, true), world.view());
+}
+
+fn matchSpeedFor(world: gameobj.World, index: u16, pressed: bool, view: camera.View) void {
+    const state = &world.objects.player_states[index].controls;
+    matchTargetSpeed(state, world.objects, index, view);
+    toggleMatchSpeed(world, index, state, pressed, view);
+}
+
+fn toggleMatchSpeed(world: gameobj.World, index: u16, state: *flight.State, pressed: bool, view: camera.View) void {
+    if (!pressed) return;
+    const all = world.objects;
+    state.matching_speed = !state.matching_speed;
+    if (state.matching_speed) {
+        const aimed = if (ai.controlEntry(all, index)) |entry| ai.targetValid(all, entry.target.resolve(all), .{}) else false;
+        if (index == all.player) hud.beep(world, if (aimed) .on else .refused);
+        matchTargetSpeed(state, all, index, view);
     } else {
-        hud.beep(world, .off);
-        all.slots[all.player].object.throttle = player.throttle_before_match;
+        if (index == all.player) hud.beep(world, .off);
+        all.slots[index].object.throttle = state.throttle_before_match;
     }
 }
 
@@ -2264,10 +2242,10 @@ pub fn matchSpeed(world: gameobj.World, devices: *Devices) void {
 /// `throttle_before_match` and stops matching, as it does with no target at all, though then
 /// without putting anything back. It keeps the throttle it finds each time, so what it puts back
 /// is the throttle of its last match.
-pub fn matchTargetSpeed(player: *Player, all: *create.Objects, view: camera.View) void {
+pub fn matchTargetSpeed(player: *flight.State, all: *create.Objects, owner: u16, view: camera.View) void {
     if (!player.matching_speed) return;
-    const entry = ai.playerControlEntry(all) orelse return;
-    const ship = &all.slots[all.player];
+    const entry = ai.controlEntry(all, owner) orelse return;
+    const ship = &all.slots[owner];
     if (entry.target.slotIn(all)) |index| {
         const target = &all.slots[index];
         if (target.object.flags.cloaked) return;
@@ -2310,12 +2288,17 @@ pub const Among = enum { any, hostile, friendly, torpedo };
 /// where none is to be found. The display follows either way, where there is one. Returns whether
 /// one was found. Not yet ported: what it tells a multiplayer game.
 pub fn cycleTarget(display: ?*hud.State, all: *create.Objects, step: Step, among: Among, multiplayer: bool) bool {
-    const entry = ai.playerControlEntry(all) orelse return true;
+    return cycleTargetFor(display, all, all.player, step, among, multiplayer);
+}
+
+/// The same target search for a particular participant, without changing another player's HUD.
+pub fn cycleTargetFor(display: ?*hud.State, all: *create.Objects, owner: u16, step: Step, among: Among, multiplayer: bool) bool {
+    const entry = ai.controlEntry(all, owner) orelse return true;
     var target = entry.target.resolve(all);
-    const found = seekTarget(all, &target, step, among);
+    const found = seekTargetFor(all, owner, &target, step, among);
     if (!found) target.index = -1;
     entry.target = .selected(all, target);
-    if (display) |shown| shown.targetChanged(all, multiplayer);
+    if (owner == all.player) if (display) |shown| shown.targetChanged(all, multiplayer);
     return found;
 }
 
@@ -2324,15 +2307,20 @@ pub fn cycleTarget(display: ?*hud.State, all: *create.Objects, step: Step, among
 /// player can aim at: not the player's own ship, one ejected from included and, for a friendly
 /// one, one cloaked. Having tried every object, it stands where it started.
 pub fn seekTarget(all: *const create.Objects, target: *aigeneric.Target, step: Step, among: Among) bool {
+    return seekTargetFor(all, all.player, target, step, among);
+}
+
+/// Searches from this participant's ship and excludes its own slot.
+pub fn seekTargetFor(all: *const create.Objects, owner: u16, target: *aigeneric.Target, step: Step, among: Among) bool {
     const count: i16 = @intCast(all.count);
-    const from = all.slots[all.player].drawn.position;
+    const from = all.slots[owner].drawn.position;
     for (0..all.count) |_| {
         target.index = step.from(target.index, count);
         target.component = aigeneric.Target.whole;
         const slot = &all.slots[@intCast(target.index)];
         const object = &slot.object;
         if (!ai.targetValid(all, target.*, .{ .ejected = true, .cloaked = object.side == .friendly })) continue;
-        if (target.index == all.player) continue;
+        if (target.index == owner) continue;
         const within = math.distance(from, slot.drawn.position) <= hud.pick_reach;
         const taken = switch (among) {
             .any => true,
@@ -2356,12 +2344,18 @@ pub fn seekTarget(all: *const create.Objects, target: *aigeneric.Target, step: S
 /// display follows the new component on its next frame. Not yet ported: what it tells a
 /// multiplayer game.
 pub fn cycleSubtarget(display: ?*hud.State, all: *create.Objects, step: Step, multiplayer: bool) void {
-    const entry = ai.playerControlEntry(all) orelse return;
-    if (display) |shown| for ([_]hud.windows.Window{ .big_target, .target }) |window| shown.windows.renew(window);
+    cycleSubtargetFor(display, all, all.player, step, multiplayer);
+}
+
+/// Steps one participant's subtarget, with display effects only for the local participant.
+pub fn cycleSubtargetFor(display: ?*hud.State, all: *create.Objects, owner: u16, step: Step, multiplayer: bool) void {
+    const local_display = if (owner == all.player) display else null;
+    const entry = ai.controlEntry(all, owner) orelse return;
+    if (local_display) |shown| for ([_]hud.windows.Window{ .big_target, .target }) |window| shown.windows.renew(window);
     const slot = &all.slots[entry.target.slotIn(all) orelse return];
     if (!slot.object.flags.components or slot.object.side == .friendly) return;
     const window = hud.targetWindow(slot);
-    if (display) |shown| if (shown.windows.status.get(window).phase == .shut) {
+    if (local_display) |shown| if (shown.windows.status.get(window).phase == .shut) {
         _ = shown.windows.open(window, multiplayer);
     };
 
@@ -2393,10 +2387,10 @@ test aimPlayer {
     try std.testing.expectEqual(null, target.slotIn(mission.objects));
     // One that can is, and the player stops matching speeds.
     mission.slot(sabre).object.flags.targetable = true;
-    mission.player.matching_speed = true;
+    mission.objects.player_states[mission.objects.player].controls.matching_speed = true;
     try std.testing.expect(aimPlayer(world, .at(sabre, null)));
     try std.testing.expectEqual(sabre, target.slotIn(mission.objects).?);
-    try std.testing.expect(!mission.player.matching_speed);
+    try std.testing.expect(!mission.objects.player_states[mission.objects.player].controls.matching_speed);
     // A component the ship doesn't have isn't taken either.
     try std.testing.expect(!aimPlayer(world, .at(sabre, 2)));
 }
@@ -2421,7 +2415,7 @@ test matchSpeed {
     // With no target, matching stops as soon as the key starts it, and the throttle stands.
     devices.keyboard.down[key] = true;
     matchSpeed(mission.world(), &devices);
-    try std.testing.expect(!mission.player.matching_speed);
+    try std.testing.expect(!mission.objects.player_states[mission.objects.player].controls.matching_speed);
     try std.testing.expectEqual(0.9, ship.object.throttle);
     devices.keyboard.down[key] = false;
     devices.keyboard.read();
@@ -2430,19 +2424,19 @@ test matchSpeed {
     setPlayerTarget(&display, all, @intCast(sabre), -1, false);
     devices.keyboard.down[key] = true;
     matchSpeed(mission.world(), &devices);
-    try std.testing.expect(mission.player.matching_speed);
+    try std.testing.expect(mission.objects.player_states[mission.objects.player].controls.matching_speed);
     try std.testing.expectApproxEqAbs(0.25, ship.object.throttle, 1e-6);
     devices.keyboard.down[key] = false;
     devices.keyboard.read();
     // Each run keeps the throttle it finds, by now the matched one.
     matchSpeed(mission.world(), &devices);
-    try std.testing.expectApproxEqAbs(0.25, mission.player.throttle_before_match, 1e-6);
+    try std.testing.expectApproxEqAbs(0.25, mission.objects.player_states[mission.objects.player].controls.throttle_before_match, 1e-6);
 
     // Out of range, it puts that back and stops.
     ship.object.throttle = 0.6;
     objects.setPosition(&mission.slot(sabre).object, &mission.slot(sabre).drawn, .{ 0, 0, 400000 });
     matchSpeed(mission.world(), &devices);
-    try std.testing.expect(!mission.player.matching_speed);
+    try std.testing.expect(!mission.objects.player_states[mission.objects.player].controls.matching_speed);
     try std.testing.expectApproxEqAbs(0.25, ship.object.throttle, 1e-6);
 }
 
@@ -2998,13 +2992,14 @@ test "held, the stick moves the power or shifts the shields" {
     var devices: Devices = .{ .settings = .{ .control_mode = .keyboard } };
     const keyboard = &devices.keyboard;
     var reserves: gameobj.ShieldReserves = .{};
-    var player: Player = .{ .throttle = 0.5, .power_held = true };
+    var state: flight.State = .{ .throttle = 0.5 };
+    var player: Player = .{ .power_held = true };
     keyboard.down[controls.binding(.rotate_clockwise).key] = true;
     keyboard.down[controls.binding(.accelerate).key] = true;
     devices.read();
     // With POWERBALL WINDOW held, the yaw keys move the power a whole deflection, by the frame's
     // ticks, instead of steering, and the throttle keys do nothing.
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual(17, object.power_setting.x);
     try std.testing.expectEqual(0, object.yaw_input);
     try std.testing.expectEqual(0.5, object.throttle);
@@ -3012,7 +3007,7 @@ test "held, the stick moves the power or shifts the shields" {
     player.balancing_shields = true;
     keyboard.down[controls.binding(.nose_down).key] = true;
     devices.read();
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual(17, object.power_setting.x);
     try std.testing.expectEqual(45, object.shields.fore);
     try std.testing.expectEqual(40, object.shields.aft);
@@ -3025,54 +3020,55 @@ test playerControls {
     var devices: Devices = .{ .settings = .{ .control_mode = .keyboard } };
     const keyboard = &devices.keyboard;
     var reserves: gameobj.ShieldReserves = .{};
+    var state: flight.State = .{};
     var player: Player = .{};
     const nose_up = controls.binding(.nose_up).key;
     const accelerate = controls.binding(.accelerate).key;
 
     // A held key steps its input, and the fourth run has it past full deflection.
     keyboard.down[nose_up] = true;
-    for (0..4) |_| playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    for (0..4) |_| playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectApproxEqAbs(1.2, object.pitch_input, 1e-6);
     // Released, the input falls back to nothing on the next run.
     keyboard.down[nose_up] = false;
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual(0, object.pitch_input);
 
     // The orbiting views take the arrow keys for themselves.
     keyboard.down[nose_up] = true;
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .external, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .external, 16);
     try std.testing.expectEqual(0, object.pitch_input);
     keyboard.down[nose_up] = false;
 
     // Half the yaw banks the ship into its turn.
     keyboard.down[controls.binding(.rotate_anti_clockwise).key] = true;
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectApproxEqAbs(0.3, object.yaw_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.15, object.roll_input, 1e-6);
     keyboard.down[controls.binding(.rotate_anti_clockwise).key] = false;
 
     // ACCELERATE steps the throttle, fifty runs from none to full.
     keyboard.down[accelerate] = true;
-    for (0..50) |_| playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    for (0..50) |_| playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectApproxEqAbs(1, object.throttle, 1e-5);
     keyboard.down[accelerate] = false;
     // FULL THROTTLE and ZERO THROTTLE set it outright, once for each press.
     keyboard.down[controls.binding(.zero_throttle).key] = true;
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual(0, object.throttle);
     keyboard.down[controls.binding(.zero_throttle).key] = false;
 
     // With JoystickInvert off, the nose keys pitch the other way.
     devices.settings.joystick_invert = false;
     keyboard.down[nose_up] = true;
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectApproxEqAbs(-0.3, object.pitch_input, 1e-6);
     keyboard.down[nose_up] = false;
 
     // Both strafe keys held, STRAFE RIGHT wins.
     keyboard.down[controls.binding(.strafe_left).key] = true;
     keyboard.down[controls.binding(.strafe_right).key] = true;
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual(1, object.lateral_input);
 }
 
@@ -3083,13 +3079,14 @@ test "steering with the joystick" {
     var devices: Devices = .{};
     devices.joystick.open(stick.device(), default_dead_zone);
     var reserves: gameobj.ShieldReserves = .{};
+    var state: flight.State = .{};
     var player: Player = .{};
 
     // X yaws (and banks the ship by half as much), Y pitches, and the slider sets the throttle
     // directly: 1000 is none and 0 is full.
     stick.state = .{ .x = 500, .y = -250, .z = 0, .rx = 0, .ry = 0, .rz = 800, .sliders = .{ 250, 0 }, .pov = @splat(JoystickState.centred), .buttons = @splat(0) };
     devices.read();
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
     try std.testing.expectApproxEqAbs(0.5, object.yaw_input, 1e-6);
     try std.testing.expectApproxEqAbs(-0.25, object.pitch_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.25, object.roll_input, 1e-6);
@@ -3097,21 +3094,21 @@ test "steering with the joystick" {
 
     // Holding JOYSTICK ROLL makes X roll instead.
     devices.keyboard.down[controls.binding(.joystick_roll).key] = true;
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
     try std.testing.expectEqual(0, object.yaw_input);
     try std.testing.expectApproxEqAbs(0.5, object.roll_input, 1e-6);
     devices.keyboard.down[controls.binding(.joystick_roll).key] = false;
 
     // With TwistEnable, the twist rolls, and X still yaws and banks.
     devices.settings.twist_enabled = true;
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
     try std.testing.expectApproxEqAbs(0.5, object.yaw_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.8 + 0.25, object.roll_input, 1e-6);
     devices.settings.twist_enabled = false;
 
     // Turning JoystickInvert off reverses pitch; in the orbiting views the stick still steers.
     devices.settings.joystick_invert = false;
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &mouse_stick, .external, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &mouse_stick, .external, 16);
     try std.testing.expectApproxEqAbs(0.25, object.pitch_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.5, object.yaw_input, 1e-6);
 }
@@ -3121,31 +3118,32 @@ test "steering with the mouse" {
     var object: gameobj.GameObject = std.mem.zeroes(gameobj.GameObject);
     var devices: Devices = .{ .settings = .{ .control_mode = .mouse } };
     var reserves: gameobj.ShieldReserves = .{};
+    var state: flight.State = .{};
     var player: Player = .{};
 
     // Half the range to the right yaws at 0.35, and three quarters of it up pitches at 0.675.
     devices.mouse.motion = .{ 400, -600 };
     devices.read();
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual([2]i16{ 400, -600 }, stick);
     try std.testing.expectApproxEqAbs(0.35, object.yaw_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.675, object.pitch_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.175, object.roll_input, 1e-6);
     // Run again before the next read, the stick stays where it is.
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual([2]i16{ 400, -600 }, stick);
 
     // Held at the edge of the range, the deflection is whole.
     devices.mouse.motion = .{ 1000, 0 };
     devices.read();
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual(mouse_range, stick[0]);
     try std.testing.expectApproxEqAbs(1, object.yaw_input, 1e-6);
 
     // Back within the dead band, it steers nothing.
     devices.mouse.motion = .{ -700, 400 };
     devices.read();
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual([2]i16{ 100, -200 }, stick);
     try std.testing.expectEqual(0, object.yaw_input);
     try std.testing.expectEqual(0, object.pitch_input);
@@ -3197,10 +3195,11 @@ test "a joystick without a throttle leaves the throttle to the keys" {
     var devices: Devices = .{};
     devices.joystick.open(stick.device(), default_dead_zone);
     var reserves: gameobj.ShieldReserves = .{};
+    var state: flight.State = .{};
     var player: Player = .{};
     devices.read();
     devices.keyboard.down[controls.binding(.accelerate).key] = true;
-    for (0..5) |_| playerControls(&player, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
+    for (0..5) |_| playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
     try std.testing.expectApproxEqAbs(0.1, object.throttle, 1e-6);
 }
 
@@ -3210,27 +3209,28 @@ test "the burns last while their keys are held, and stop without fuel" {
     var devices: Devices = .{ .settings = .{ .control_mode = .keyboard } };
     const keyboard = &devices.keyboard;
     var reserves: gameobj.ShieldReserves = .{};
+    var state: flight.State = .{};
     var player: Player = .{};
     object.afterburner_fuel = 100;
 
     keyboard.down[controls.binding(.afterburners).key] = true;
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expect(object.afterburner);
     keyboard.down[controls.binding(.afterburners).key] = false;
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expect(!object.afterburner);
 
     // The toggle holds it on until it is pressed again.
     keyboard.down[controls.binding(.afterburner_toggle).key] = true;
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expect(object.afterburner);
     keyboard.read();
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expect(object.afterburner);
 
     // Out of fuel, neither burn runs.
     object.afterburner_fuel = 0;
-    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expect(!object.afterburner);
     try std.testing.expect(!object.reverse_thrust);
 }
@@ -3382,4 +3382,88 @@ test launchMissile {
     // None left on its rack, the next launches nothing.
     launchMissile(world, player);
     try std.testing.expectEqual(1, armed.live());
+}
+
+test "participant commands steer either slot without reading local devices" {
+    for ([_]u16{ 0, 1 }) |local| {
+        var mission: gameobj.testing.Mission = undefined;
+        try mission.init(std.testing.allocator);
+        defer mission.deinit();
+        const all = mission.objects;
+        _ = try mission.add(.of(.predator), @splat(0));
+        _ = try mission.add(.of(.predator), .{ 0, 0, 1000 });
+        const target = try mission.add(.of(.sabre), .{ 0, 0, 5000 });
+        all.slots[target].object.flags.targetable = true;
+        all.players = 2;
+        all.player = local;
+        const remote = 1 - local;
+        try std.testing.expect(try aigeneric.push(mission.orders(), local, .player_control, .none));
+        try std.testing.expect(try aigeneric.push(mission.orders(), remote, .multiplayer_control, .none));
+        const state = all.playerState(remote).?;
+        state.controls.throttle = 0.25;
+        all.playerState(local).?.controls.matching_speed = true;
+        const object = &all.slots[remote].object;
+        object.afterburner_fuel = 100;
+        var devices: Devices = .{};
+        devices.keyboard.down[controls.binding(.afterburner_toggle).key] = true;
+        var display: hud.State = .{};
+        var world = mission.world();
+        world.display = &display;
+        const ctx: aigeneric.Context = .{ .world = world, .devices = &devices };
+        try std.testing.expect(state.submit(.{
+            .flight = .{ .steering = .{ .keys = .{ .yaw = .positive } }, .throttle = .{ .keys = .{ .accelerate = true } }, .toggle_afterburner = true },
+            .target = .{ .aim = .at(all, target, null) },
+        }));
+        multiplayerControlOrder(ctx, remote);
+        try std.testing.expectApproxEqAbs(0.3, object.yaw_input, 1e-6);
+        try std.testing.expectApproxEqAbs(0.27, object.throttle, 1e-6);
+        try std.testing.expect(object.afterburner);
+        try std.testing.expectEqual(target, ai.controlEntry(all, remote).?.target.slotIn(all));
+        try std.testing.expectEqual(null, ai.controlEntry(all, local).?.target.slotIn(all));
+        try std.testing.expect(all.playerState(local).?.controls.matching_speed);
+        try std.testing.expectEqual(null, display.target);
+        // Continuous inputs repeat; the toggle and target selection have been consumed.
+        multiplayerControlOrder(ctx, remote);
+        try std.testing.expectApproxEqAbs(0.6, object.yaw_input, 1e-6);
+        try std.testing.expectApproxEqAbs(0.29, object.throttle, 1e-6);
+        try std.testing.expect(object.afterburner);
+        try std.testing.expect(devices.active(.afterburner_toggle, true));
+        try std.testing.expectEqual(0, all.slots[local].object.yaw_input);
+        // No command means the remote ship still does not take local input.
+        state.command = null;
+        multiplayerControlOrder(ctx, remote);
+        playerControlOrder(ctx, remote);
+        try std.testing.expectApproxEqAbs(0.6, object.yaw_input, 1e-6);
+        // The original remote order disables a ship once it has been sent off.
+        object.flags.sent_off = true;
+        multiplayerControlOrder(ctx, remote);
+        try std.testing.expect(object.flags.disabled);
+    }
+}
+
+test "queued targets reject a reused slot and invalid commands leave input intact" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const first = try mission.add(.of(.predator), @splat(0));
+    const second = try mission.add(.of(.predator), .{ 0, 0, 1000 });
+    const target = try mission.add(.of(.sabre), .{ 0, 0, 5000 });
+    all.players = 2;
+    all.slots[first].object.flags.targetable = true;
+    all.slots[target].object.flags.targetable = true;
+    try std.testing.expect(try aigeneric.push(mission.orders(), second, .multiplayer_control, .at(first, null)));
+    const selected: aigeneric.Aim = .at(all, target, null);
+    create.resetSlot(mission.orders(), target);
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, target, .of(.sabre), 0, .{ 0, 0, 5000 }, &mission.random);
+    all.slots[target].object.flags.targetable = true;
+    const state = all.playerState(second).?;
+    try std.testing.expect(state.submit(.{ .target = .{ .aim = selected }, .flight = .{ .throttle = .{ .axis = 0.5 } } }));
+    try std.testing.expect(!state.submit(.{ .flight = .{ .throttle = .{ .axis = std.math.nan(f32) } } }));
+    multiplayerControlOrder(mission.orders(), second);
+    try std.testing.expectEqual(first, ai.controlEntry(all, second).?.target.slotIn(all));
+    try std.testing.expectEqual(0.5, all.slots[second].object.throttle);
+    try std.testing.expect(state.submit(.{ .target = .clear }));
+    multiplayerControlOrder(mission.orders(), second);
+    try std.testing.expectEqual(null, ai.controlEntry(all, second).?.target.slotIn(all));
 }

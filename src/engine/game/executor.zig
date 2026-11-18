@@ -1454,11 +1454,12 @@ fn matchSpeed(call: Call, game: aigeneric.Context) void {
     const world = game.world;
     const all = world.objects;
     if (machine.mission.shipIndex(call.args[0]) != all.player) return;
+    const controls = &all.player_states[all.player].controls;
     if (call.args[1] != 0) {
-        input.matchTargetSpeed(world.player, all, world.view());
-        world.player.matching_speed = true;
+        input.matchTargetSpeed(controls, all, all.player, world.view());
+        controls.matching_speed = true;
     } else {
-        world.player.matching_speed = false;
+        controls.matching_speed = false;
     }
 }
 
@@ -2024,7 +2025,7 @@ test "the commands mission 1 runs at the convoy" {
     try std.testing.expect(all.slots[5].object.flags.disabled);
     try std.testing.expectEqual(answer_yes, fixture.global(0));
     try std.testing.expectEqual(answer_no, fixture.global(1));
-    try std.testing.expect(world.player.matching_speed);
+    try std.testing.expect(world.objects.player_states[world.objects.player].controls.matching_speed);
     try std.testing.expectEqual(0, all.slots[1].object.order_count);
     // The player's ship, 30000 from the nav point, points back to it.
     input.nextNavPoint(game.world());

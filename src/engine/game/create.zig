@@ -873,7 +873,7 @@ pub const Objects = struct {
         for (&all.reuses) |*count| count.* +%= 1;
         all.types = @splat(.{});
         all.count = 0;
-        all.player_states = @splat(.{});
+        for (&all.player_states) |*state| state.resetMission();
         all.camera_marker = null;
         all.bombarded = null;
         all.in_stalag = false;
@@ -2919,6 +2919,9 @@ test "player state follows participants across ship replacement and is copied fo
     all.player = second;
     all.playerState(first).?.shield_reserves.fore = 20;
     all.playerState(second).?.shield_reserves.aft = 30;
+    all.playerState(second).?.controls.throttle = 0.7;
+    all.playerState(second).?.controls.afterburner_toggled = true;
+    try std.testing.expect(all.playerState(second).?.submit(.{ .match_speed = true }));
     try std.testing.expectEqual(null, all.playerState(all.players));
     try std.testing.expectEqual(null, all.playerState(gameobj.max_objects));
     try std.testing.expectEqual(30, all.localPlayerState().shield_reserves.aft);
@@ -2933,5 +2936,5 @@ test "player state follows participants across ship replacement and is copied fo
     try std.testing.expectEqual(30, drawn.localPlayerState().shield_reserves.aft);
     all.reset(&mission.random);
     try std.testing.expectEqual(players.State{}, all.playerState(first).?.*);
-    try std.testing.expectEqual(players.State{}, all.playerState(second).?.*);
+    try std.testing.expectEqual(players.State{ .controls = .{ .throttle = 0.7, .afterburner_toggled = true } }, all.playerState(second).?.*);
 }

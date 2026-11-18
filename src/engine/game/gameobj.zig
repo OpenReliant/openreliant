@@ -2258,15 +2258,13 @@ pub const World = struct {
 /// reads the input devices and moves `simulation_turn` on (`nextTurn`). Then each live object in
 /// the loops' order (`create.Objects.walk`), stand-ins and disabled ones passed over, has its own
 /// updates: the one whose turn it is is orthonormalized (`orthonormalizeTurn`), then comes its
-/// node update (`updateTree`), its shields' recharge (`rechargeShields`) and its guns' step
-/// (`guns.step`). Then
-/// the player's controls fly the player's ship, `objects_update` moves them all
-/// (`create.objectsUpdate`), and the missiles (`missiles.move`) and the shots (`guns.moveBullets`)
-/// move after them. Last, mods' scripts run their `on_step` handlers. Returns whether it did that
-/// work.
+/// node update (`updateTree`), shield recharge (`rechargeShields`) and gun step (`guns.step`).
+/// Then the player's controls run, `objects_update` moves every object (`create.objectsUpdate`),
+/// and missiles (`missiles.move`) and shots (`guns.moveBullets`) move after them. Last, mods'
+/// scripts run their `on_step` handlers. Returns whether it did that work.
 ///
-/// The player's own order runs here as well as once a frame, while its top order is Player
-/// Control, so the controls are read on every step.
+/// **Improvement:** each participant's control order receives this extra update before movement.
+/// Remote orders apply commands without reading local devices.
 pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool {
     clock.simulation_counter += 1;
     if (clock.simulation_counter < ticks_per_step) return false;
@@ -2286,11 +2284,15 @@ pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool
         rechargeShields(object, combat, if (all.playerState(index)) |state| state.shield_reserves else null);
         guns.step(world, clock, index);
     }
-    // The player's own order runs again here, before the objects move, so the controls tell on
-    // every step rather than once a frame.
-    const player = &all.slots[all.player];
-    if (player.running(.player_control) != null) {
-        aigeneric.objectOrders(.{ .world = world, .devices = devices }, all.player);
+    // Each participant's controls run again before movement, at the original local player's
+    // extra physical-step update. Remote orders read commands, never this machine's devices.
+    for (0..@min(all.players, all.slots.len)) |at| {
+        const index: u16 = @intCast(at);
+        const slot = &all.slots[index];
+        const remote = slot.running(.multiplayer_control) != null and all.player_states[index].command != null;
+        if (slot.running(.player_control) != null or remote) {
+            aigeneric.objectOrders(.{ .world = world, .devices = devices }, index);
+        }
     }
     create.objectsUpdate(world);
     missiles.move(world.objects);
@@ -3141,4 +3143,23 @@ test "a simulation step recharges each player from their own reserves" {
     try std.testing.expectEqual(full - 9, all.slots[first].object.shields.fore);
     try std.testing.expectEqual(full - 3, all.slots[second].object.shields.fore);
     try std.testing.expectEqual(full, all.slots[ordinary].object.shields.fore);
+}
+
+test "each participant receives the extra physical-step control update" {
+    var mission: testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const first = try mission.add(.of(.predator), @splat(0));
+    const second = try mission.add(.of(.predator), .{ 0, 0, 1000 });
+    all.players = 2;
+    for ([_]u16{ first, second }) |index| {
+        try std.testing.expect(try aigeneric.push(mission.orders(), index, .multiplayer_control, .none));
+        try std.testing.expect(all.playerState(index).?.submit(.{ .flight = .{ .throttle = .{ .keys = .{ .accelerate = true } } } }));
+    }
+    var devices: input.Devices = .{};
+    mission.clock.simulation_counter = ticks_per_step - 1;
+    try std.testing.expect(simulationStep(&mission.clock, &devices, mission.world()));
+    try std.testing.expectApproxEqAbs(0.02, all.playerState(first).?.controls.throttle, 1e-6);
+    try std.testing.expectApproxEqAbs(0.02, all.playerState(second).?.controls.throttle, 1e-6);
 }

@@ -567,7 +567,8 @@ pub const ship_status = api.Field(?ShipStatus, "The ship status indicator, as it
 pub const lights = api.Field(Lights, "The status lights that show, steady or flashing, in the order the display packs them; none outside a mission.", struct {
     pub fn get(call: Call) Lights {
         const flight, const slot = flightOf(call) orelse return .{};
-        return lightsOf(flight.hud.lightsShown(&slot.object, flight.player.matching_speed, flight.multiplayer));
+        const all = call.runtime().objects orelse return .{};
+        return lightsOf(flight.hud.lightsShown(&slot.object, all.localPlayerState().controls.matching_speed, flight.multiplayer));
     }
 });
 
