@@ -79,7 +79,7 @@ pub const Spec = struct {
     size: f32,
     life: i32,
     velocity: Vector = @splat(0),
-    owner: u16,
+    owner: gameobj.DamageSource,
     /// The side a missile's shockwave spares, its launcher's; null for the rest.
     side: ?gameobj.Side(i32) = null,
 };
@@ -105,7 +105,7 @@ pub const Shockwave = struct {
     size: f32,
     born: i32,
     life: i32,
-    owner: u16,
+    owner: gameobj.DamageSource,
     side: ?gameobj.Side(i32),
 
     /// Whether the ring passed what stands at `at` this frame: from how far it had spread to how
@@ -188,7 +188,7 @@ pub const Shockwave = struct {
     /// cube of `left`.
     fn harm(wave: *const Shockwave, all: *const create.Objects, left: f32) f32 {
         if (wave.kind != .split) return left * wave.size * torpedo_harm;
-        const owner = all.slots[wave.owner].object.type;
+        const owner = wave.owner.typeIn(all);
         const scale = if (std.mem.findScalar(gameobj.Type, &lighter_splits, owner) != null) lighter_split_harm else split_harm;
         return left * wave.size * left * left * scale;
     }
@@ -217,7 +217,7 @@ pub const Shockwave = struct {
                 reserve.* = 0;
                 break :through held;
             } else value;
-            collision.damage(world, all.player, quadrant, through, 1, wave.owner, .collision);
+            collision.damageFrom(world, all.player, quadrant, through, 1, wave.owner, .collision);
         }
     }
 };
@@ -496,7 +496,7 @@ test Shockwaves {
 
     // A tenth through its life it has spread a tenth of its size, faded a tenth and drifted on;
     // passing the player, it shakes the view by that tenth.
-    setOff(world, .{}, .{ .kind = .blast_02, .size = 10000, .life = 100, .velocity = .{ 1, 0, 0 }, .owner = player });
+    setOff(world, .{}, .{ .kind = .blast_02, .size = 10000, .life = 100, .velocity = .{ 1, 0, 0 }, .owner = .of(world.objects, player) });
     const wave = &built.waves.waves[0].?;
     mission.clock.frame_start = 10;
     built.waves.frame(world);
@@ -521,7 +521,7 @@ test Shockwaves {
     try std.testing.expectEqual(null, built.waves.waves[0]);
 
     // With every slot spreading, one more is not set off.
-    for (0..max_shockwaves + 1) |_| setOff(world, .{}, .{ .kind = .blast_03, .size = 1, .life = 1000, .owner = player });
+    for (0..max_shockwaves + 1) |_| setOff(world, .{}, .{ .kind = .blast_03, .size = 1, .life = 1000, .owner = .of(world.objects, player) });
     for (built.waves.waves) |slot| try std.testing.expect(slot != null);
 }
 
@@ -545,7 +545,7 @@ test "a split's shockwave" {
     // A fifth through its life it passes the player: each quadrant takes the cube of what is left
     // of its life times its size, 0.015 of it for a Badanov's, half of that landing at medium
     // difficulty.
-    setOff(world, .{}, .{ .kind = .split, .size = 6000, .life = 100, .owner = badanov });
+    setOff(world, .{}, .{ .kind = .split, .size = 6000, .life = 100, .owner = .of(world.objects, badanov) });
     mission.clock.frame_start = 20;
     built.waves.frame(world);
     const heavy = 0.8 * 0.8 * 0.8 * 6000 * split_harm / 2.0;
@@ -557,11 +557,23 @@ test "a split's shockwave" {
     mission.clock.frame_start = 100;
     built.waves.frame(world);
     slot.object.shields = .all(1000);
-    setOff(world, .{}, .{ .kind = .split, .size = 6000, .life = 100, .owner = stalag });
+    setOff(world, .{}, .{ .kind = .split, .size = 6000, .life = 100, .owner = .of(world.objects, stalag) });
     mission.clock.frame_start = 120;
     built.waves.frame(world);
     const light = 0.8 * 0.8 * 0.8 * 6000 * lighter_split_harm / 2.0;
     try std.testing.expectApproxEqAbs(1000 - light, slot.object.shields.at(.right).*, 1e-2);
+
+    // A delayed wave keeps its owner's blast strength after that slot holds a different type.
+    mission.clock.frame_start = 200;
+    built.waves.frame(world);
+    slot.object.shields = .all(1000);
+    setOff(world, .{}, .{ .kind = .split, .size = 6000, .life = 100, .owner = .of(world.objects, stalag) });
+    create.resetSlot(mission.orders(), stalag);
+    _ = try create.createObject(mission.objects, &mission.tables, create.testing.no_models, stalag, .of(.badanov), 0, @splat(0), &mission.random);
+    mission.clock.frame_start = 220;
+    built.waves.frame(world);
+    try std.testing.expectApproxEqAbs(1000 - light, slot.object.shields.at(.right).*, 1e-2);
+    try std.testing.expectEqual(null, slot.attacker(mission.objects));
 }
 
 test "a torpedo's shockwave" {
@@ -583,7 +595,7 @@ test "a torpedo's shockwave" {
     // A fifth through its life it passes the player: each quadrant takes 240, which lands on the
     // player's ship at half at medium difficulty; the fore's reserve runs out and the shield takes
     // half what it held, and the aft's reserve holds.
-    setOff(world, .{}, .{ .kind = .torpedo, .size = 6000, .life = 100, .owner = torpedo });
+    setOff(world, .{}, .{ .kind = .torpedo, .size = 6000, .life = 100, .owner = .of(world.objects, torpedo) });
     mission.clock.frame_start = 20;
     built.waves.frame(world);
     const shields = &slot.object.shields;
@@ -598,7 +610,7 @@ test "a torpedo's shockwave" {
     try std.testing.expectEqual(20 + harm_pause, slot.object.shockwave_until);
 
     // Another passing within the pause leaves it alone.
-    setOff(world, .{}, .{ .kind = .torpedo, .size = 6000, .life = 100, .owner = torpedo });
+    setOff(world, .{}, .{ .kind = .torpedo, .size = 6000, .life = 100, .owner = .of(world.objects, torpedo) });
     mission.clock.frame_start = 40;
     built.waves.frame(world);
     try std.testing.expectApproxEqAbs(880, shields.at(.left).*, 1e-3);

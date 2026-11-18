@@ -1019,7 +1019,7 @@ pub fn retaliate(ctx: Context, index: u16) void {
     if (combat.fullArmor() * retaliation_share > object.recent_damage) return;
     if (object.flags.do_not_disturb) return;
 
-    const attacking = object.last_attacker.index() orelse return;
+    const attacking = slot.attacker(all) orelse return;
     const attacker: Target = .at(attacking, null);
     if (!ai.targetValid(all, attacker, .{})) return;
     if (attacker.index == slot.orders[0].target.resolve(all).index) return;
@@ -1667,7 +1667,7 @@ test retaliate {
     mission.slot(attacker).object.side = .friendly;
     mission.slot(attacker).object.flags.targetable = true;
     try std.testing.expect(try push(ctx, ship, .do_nothing, .none));
-    slot.object.last_attacker = .of(attacker);
+    slot.setAttacker(.of(mission.objects, attacker));
     const enough = slot.combat.?.fullArmor() * retaliation_share;
 
     // Short of enough damage, or told not to be disturbed, it stays on its order.

@@ -683,7 +683,7 @@ pub fn start(world: gameobj.World, index: u16) void {
         .size = object.radius * wave_size,
         .life = waveLife(sequence.duration),
         .velocity = velocity,
-        .owner = index,
+        .owner = .of(world.objects, index),
     });
     if (sequence.mode == .bursts) {
         var n: usize = 0;

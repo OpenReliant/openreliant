@@ -1128,7 +1128,7 @@ pub fn blast(world: gameobj.World, index: u16) void {
             .size = slot.object.radius * blast_shockwave_size,
             .life = life,
             .velocity = emitter.inherited,
-            .owner = index,
+            .owner = .of(world.objects, index),
         });
     }
     sparkles(world, at, velocity, blast_carried, .{});
@@ -1279,7 +1279,7 @@ pub fn loseHull(ctx: aigeneric.Context, index: u16) void {
         .kurgan, .antanov, .gurevich => true,
         else => false,
     };
-    if (object.last_attacker.index() == all.player and credited) {
+    if (all.slots[index].attacker(all) == all.player and credited) {
         deathmatch.addKills(world.player, all, all.player, 1);
         radio.killRemark(world, index);
     }
@@ -1708,14 +1708,14 @@ test loseHull {
 
     // The player's taking a Kurgan's hull is a kill; any ship so ends, its orders cleared.
     const kurgan = try mission.add(.of(.kurgan), .{ 0, 0, 1000 });
-    mission.slot(kurgan).object.last_attacker = .of(player);
+    mission.slot(kurgan).setAttacker(.of(mission.objects, player));
     loseHull(ctx, kurgan);
     try std.testing.expectEqual(1, mission.player.kills.count);
     try std.testing.expect(mission.slot(kurgan).object.flags.exploding);
 
     // A Badanov's is not.
     const badanov = try mission.add(.of(.badanov), .{ 0, 0, 2000 });
-    mission.slot(badanov).object.last_attacker = .of(player);
+    mission.slot(badanov).setAttacker(.of(mission.objects, player));
     loseHull(ctx, badanov);
     try std.testing.expectEqual(1, mission.player.kills.count);
     try std.testing.expect(mission.slot(badanov).object.flags.exploding);

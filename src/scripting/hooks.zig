@@ -728,6 +728,14 @@ fn accessOf(comptime hook: Hook) Access {
             const fields: *F = @ptrCast(@alignCast(call.fields));
             inline for (comptime values.shownFields(F)) |field| {
                 if (std.mem.eql(u8, key, field.name)) {
+                    if (comptime field.type == Object and std.mem.eql(u8, field.name, "attacker")) {
+                        const reference = values.read(state, objects.Handle, given, name ++ "." ++ field.name);
+                        const all = state.callbackData(Runtime).?.objects orelse state.raise("damage hooks only run during a mission", .{});
+                        const previous = @field(fields.*, field.name).reference(all);
+                        if (!reference.valid(all) and !std.meta.eql(reference, previous)) state.raise(name ++ "." ++ field.name ++ ": the object is no longer in the mission", .{});
+                        @field(fields.*, field.name) = .retained(reference);
+                        return true;
+                    }
                     @field(fields.*, field.name) = values.read(state, field.type, given, name ++ "." ++ field.name);
                     return true;
                 }

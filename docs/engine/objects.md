@@ -89,10 +89,11 @@ This is an **Improvement:** the original keeps slot numbers alone. Script object
 missile launcher's identity exposed to scripts and the highlighted subtarget use the checked
 reference. [Retained targets](orders.md#the-stack) use it too, including stacked and queued orders,
 missiles, turrets, the player's primary target and the HUD's cached target. The original's fixed
-layouts stay unchanged. Attackers and weapon damage owners
-([#1352](https://github.com/OpenReliant/openreliant/issues/1352)), and radio, camera and sound
-subjects ([#1353](https://github.com/OpenReliant/openreliant/issues/1353)), still need the same
-checks. These changes are tracked under
+layouts stay unchanged. Damage sources and last attackers also keep their original identities.
+Radio, camera and sound subjects ([#1353](https://github.com/OpenReliant/openreliant/issues/1353)),
+and retained collision candidates and blast victims
+([#1357](https://github.com/OpenReliant/openreliant/issues/1357)), still need the same checks.
+These changes are tracked under
 [#946](https://github.com/OpenReliant/openreliant/issues/946).
 
 ## Creating an object
@@ -603,6 +604,20 @@ its shield and half its armor.
 `armorConditions` and the warning as `armorWarning`. Not ported: the multiplayer case.
 
 ## Destruction
+
+**Fix:** `gameobj.DamageSource` keeps a damage source's object identity and fallback side, type
+and player classification. Bullets, missiles and shockwaves carry it until impact. A projectile
+still deals damage after its shooter leaves, but never reads or credits a replacement in that
+slot. Live allegiance and type changes still apply where the original reads them; after removal,
+the captured values supply the data a delayed effect needs. A split's shockwave therefore keeps
+its original blast strength after its owner disappears.
+
+`create.Slot.last_attacker` keeps the checked reference beside the original
+`GameObject.last_attacker` slot field. Retaliation, kill credit and script fields resolve that
+reference before naming a live attacker. Lua event handlers receive the original handle, which
+may have expired. Mission events still name the original mission ship record: those records
+persist after their physical objects leave, so delayed hits keep their original mission meaning.
+The damage calculations, invulnerability rules and event order remain unchanged.
 
 What gets through a shield wears the quadrant's armour (`object_armor_damage`, `0x004641F0`). An
 invulnerable object takes it only while it leaves armour to spare: one fully invulnerable from

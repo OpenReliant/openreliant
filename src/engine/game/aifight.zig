@@ -746,7 +746,7 @@ fn callForHelp(fighter: Fighter) void {
     const combat = fighter.slot.combat orelse return;
     const worth = combat.fullArmor();
     if (ship.recent_damage < worth * help_damage) return;
-    if (ship.last_attacker.index() != all.player) return;
+    if (fighter.slot.attacker(all) != all.player) return;
     for (ship.armor.values()) |armor| {
         if (armor < worth * help_armor) break;
     } else return;
@@ -1110,7 +1110,7 @@ test callForHelp {
 
     // Not hurt enough: nobody is called.
     const ship = fighter.ship();
-    ship.last_attacker = .of(0);
+    fighter.slot.setAttacker(.of(mission.objects, 0));
     callForHelp(fighter);
     try std.testing.expectEqual(Order.fly, mission.objects.slots[near].orders[0].order);
 

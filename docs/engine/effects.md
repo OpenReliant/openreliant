@@ -499,6 +499,12 @@ neither spinning nor ejecting). The owner's mission ship then raises its explosi
 (`0x0045AB50`). In a multiplayer game the blast spares its owner in place of the player, and counts
 and tells the players the kills.
 
+**Fix:** the blast keeps its original owner's identity. If that object has left, the completion
+sound plays at the captured blast position, and the explosion event keeps the original handle
+and mission ship record. A replacement cannot become the blast's owner. The blast's retained
+victim list still needs the checks tracked in
+[#1357](https://github.com/OpenReliant/openreliant/issues/1357).
+
 **Fix:** the game lists every object in reach, running past the end of its list with more than 80;
 OpenReliant lists the first 80. It colours one vertex of the halves' last ring with the rest, which
 shows a sliver of the rim; OpenReliant keeps the whole rim clear.
@@ -651,7 +657,9 @@ restores the octagon.
 
 `shockwave_create` (`0x004A15D0`) sets one off into the first free of thirty (`shockwaves`,
 `0x005937C8`) at a place and facing, with a kind, a size, a life in ticks, a velocity a tick, a
-side and an owner. The game fails an assertion where none is free. Once a frame after the
+side and an owner. **Fix:** OpenReliant retains the owner's identity and fallback type, so a
+replacement in its slot cannot change a split's blast strength or inherit its damage credit.
+The game fails an assertion where none is free. Once a frame after the
 explosions, `shockwaves_update` (`0x004A0F00`) moves each one on by its velocity times the frame's
 ticks, fades its colours from 1 to 0 over its life, and spreads it to its size times how far
 through its life it is, the ring's scale. What it passes, between how far it had spread and how

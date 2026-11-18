@@ -514,6 +514,8 @@ pub const Slot = struct {
     /// Its stack of orders, the current one first, `GameObject.order_count` of them
     /// (`GameObject.orders`), which the game allocates with the object's first order.
     orders: [aigeneric.max_stack]aigeneric.OrderState = @splat(.{}),
+    /// The original last attacker. `GameObject.last_attacker` keeps the binary slot field.
+    last_attacker: ?gameobj.ObjectRef = null,
     /// The ship chosen by Escort, including when its order names a group.
     escort_target: aigeneric.Aim = .none,
     /// What the current order keeps between its updates (`GameObject.order_state`), allocated with
@@ -540,6 +542,16 @@ pub const Slot = struct {
     /// What its type carries on one of its parts beyond its model, such as the Dark Reign's hat
     /// (`extra.Extra`, which the game hangs on the part's frame).
     extra: ?*extra.Extra = null,
+
+    /// Records the original attacker in native state and in the binary slot field.
+    pub fn setAttacker(slot: *Slot, by: ?gameobj.ObjectRef) void {
+        slot.last_attacker = by;
+        slot.object.last_attacker = .from(if (by) |reference| reference.slot else null);
+    }
+
+    pub fn attacker(slot: *const Slot, all: *const Objects) ?u16 {
+        return (slot.last_attacker orelse return null).resolve(all);
+    }
 
     /// Lets go of what the slot holds for its object: its cloak (`cloak.drop`), its model, its
     /// guns, its shield bubble and its extra (`object_free`). The extra, which a drawn frame's copy
@@ -1380,6 +1392,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     object.orders = .null;
     object.created = true;
     object.last_attacker = .none;
+    slot.last_attacker = null;
     object.nav_point = .none;
     object.escort_point = .none;
     object.fought_by = 0;

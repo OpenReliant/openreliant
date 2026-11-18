@@ -370,7 +370,7 @@ pub fn killCredit(world: gameobj.World, index: u16) void {
     const flags = object.flags;
     object.flags.exploding = false;
     defer object.flags = flags;
-    if (object.last_attacker.index() == all.player and object.side == .hostile and credited(slot)) {
+    if (slot.attacker(all) == all.player and object.side == .hostile and credited(slot)) {
         deathmatch.addKills(world.player, all, all.player, 1);
         radio.killRemark(world, index);
     }
@@ -484,7 +484,7 @@ fn haltInit(ctx: Context, index: u16) void {
         .size = torpedo_shockwave_size,
         .life = torpedo_shockwave_life,
         .velocity = slot.object.velocity.vector(),
-        .owner = index,
+        .owner = .of(ctx.world.objects, index),
     });
 }
 
@@ -743,7 +743,7 @@ test huge {
     // order below.
     aigeneric.objectOrders(ctx, ship);
     const blast = &stage.explosions.uber.blast.?;
-    try std.testing.expectEqual(ship, blast.owner);
+    try std.testing.expectEqual(ship, blast.owner.slot);
     try std.testing.expectEqual(@as(Vector, .{ 0, 0, 1000 }), blast.place.position);
     try std.testing.expectEqual(huge_size, blast.size);
     try std.testing.expectEqual(.do_nothing, stage.mission.objects.slots[ship].current().?.order);
@@ -793,7 +793,7 @@ test "a halting torpedo's shockwave" {
     const wave = built.waves.waves[0].?;
     try std.testing.expectEqual(shockwave.Kind.torpedo, wave.kind);
     try std.testing.expectEqual(torpedo_shockwave_size, wave.size);
-    try std.testing.expectEqual(torpedo, wave.owner);
+    try std.testing.expectEqual(torpedo, wave.owner.object.slot);
     try std.testing.expectEqual(1100, wave.at[2]);
     try std.testing.expectEqual(0, mission.slot(torpedo).state.explode.end);
     try std.testing.expect(mission.slot(torpedo).object.flags.unpowered);
@@ -817,7 +817,7 @@ test killCredit {
     const credit = struct {
         fn of(m: *gameobj.testing.Mission, w: gameobj.World, ship_type: gameobj.Type, by: u16) !i32 {
             const index = try m.add(ship_type, .{ 0, 0, 1000 });
-            m.slot(index).object.last_attacker = .of(by);
+            m.slot(index).setAttacker(.of(m.objects, by));
             const before = m.player.kills.count;
             killCredit(w, index);
             return m.player.kills.count - before;
