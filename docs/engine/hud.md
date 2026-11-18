@@ -369,6 +369,11 @@ for one frame only.
 
 ### The subtarget in red
 
+**Fix:** the refresh comparison checks the highlighted object's identity as well as its slot and
+component. Selecting the same component number on a replacement highlights the replacement's own
+parts. Component loss preserves the old identity across clearing and refreshes surviving parts
+immediately, while retaining copies still used by a drawn frame.
+
 `hud_subtarget` (`0x0048CC30`) picks the player's subtarget out on its target's model. It first puts
 back what is picked out, then, for a valid target that names a component, keeps the object and the
 component (`0x0057999C`, `0x0057999E`) and walks the parts of the model holding the component's part

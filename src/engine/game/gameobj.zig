@@ -105,6 +105,69 @@ pub const ObjectRef = struct {
     }
 };
 
+/// A selected object, or the first creation expected in a mission slot that still holds a
+/// stand-in. Orders and camera subjects share this rule; script handles use `ObjectRef` directly.
+pub const ObjectSelection = union(enum) {
+    existing: ObjectRef,
+    pending: ObjectRef,
+
+    pub fn of(all: *const create.Objects, slot: u16) ObjectSelection {
+        var held: ObjectRef = .of(all, slot);
+        if (all.slots[slot].object.type.base() != .stand_in) return .{ .existing = held };
+        held.reuse +%= 1;
+        return .{ .pending = held };
+    }
+
+    /// The identity selected, including the expected generation of a first creation.
+    pub fn reference(selection: ObjectSelection) ObjectRef {
+        return switch (selection) {
+            .existing, .pending => |held| held,
+        };
+    }
+
+    /// Keeps the slot while waiting for its first creation and while that object exists.
+    /// Removal, replacement or a mission reset expires the selection.
+    pub fn resolve(selection: ObjectSelection, all: *const create.Objects) ?u16 {
+        const held = selection.reference();
+        if (held.resolve(all)) |slot| return switch (selection) {
+            .existing => slot,
+            .pending => if (all.slots[slot].object.created) slot else null,
+        };
+        return switch (selection) {
+            .existing => null,
+            .pending => if (held.slot < all.reuses.len and
+                all.reuses[held.slot] +% 1 == held.reuse and
+                all.slots[held.slot].object.type.base() == .stand_in) held.slot else null,
+        };
+    }
+};
+
+test "object selections keep only the expected first creation" {
+    for ([_]u32{ 0, std.math.maxInt(u32) }) |reuse| {
+        var mission: testing.Mission = undefined;
+        try mission.init(std.testing.allocator);
+        defer mission.deinit();
+        const all = mission.objects;
+        const future: u16 = 1;
+        all.reuses[future] = reuse;
+        const selected: ObjectSelection = .of(all, future);
+        try std.testing.expectEqual(@as(?u16, future), selected.resolve(all));
+        _ = try create.createObject(all, &mission.tables, create.testing.no_models, future, .of(.predator), 0, @splat(0), &mission.random);
+        try std.testing.expectEqual(@as(?u16, future), selected.resolve(all));
+        const existing: ObjectSelection = .of(all, future);
+        create.resetSlot(mission.orders(), future);
+        try std.testing.expectEqual(null, selected.resolve(all));
+        try std.testing.expectEqual(null, existing.resolve(all));
+        _ = try create.createObject(all, &mission.tables, create.testing.no_models, future, .of(.sabre), 0, @splat(0), &mission.random);
+        try std.testing.expectEqual(null, selected.resolve(all));
+        const waiting: ObjectSelection = .of(all, future + 1);
+        all.reset(&mission.random);
+        try std.testing.expectEqual(null, waiting.resolve(all));
+        _ = try create.createObject(all, &mission.tables, create.testing.no_models, future + 1, .of(.predator), 0, @splat(0), &mission.random);
+        try std.testing.expectEqual(null, waiting.resolve(all));
+    }
+}
+
 /// The identity and fallback data of a damage source. Effects can outlive their shooter.
 /// **Fix:** a replacement object cannot inherit the original shooter's damage or attribution.
 pub const DamageSource = struct {

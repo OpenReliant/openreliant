@@ -36,10 +36,16 @@ they keep that meaning, including shots queued before a ship appears. A shot's h
 particular ships it finds when it starts. **Fix:** ending or starting that hold cannot change a
 replacement ship's jumping flag. Curve events and shot durations stay unchanged.
 
-The request handoff still needs to retain the particular missile selected by the drawn frame
-([#1361](https://github.com/OpenReliant/openreliant/issues/1361)). A mission camera selected before
-a ship's first spawn also needs to keep that expected creation without following later
-replacements ([#1362](https://github.com/OpenReliant/openreliant/issues/1362)).
+**Fix:** a queued missile view retains the flight selected by the drawn frame. The game replays
+that selection without searching again, including when drawing delays its cut. If the flight
+has ended or its record has been reused, the existing linger runs before returning to the
+cockpit. Locks, gate checks and request order still apply during replay.
+
+**Fix:** a mission camera selected before a ship appears keeps its first expected creation,
+using the same `ObjectSelection` rule as order targets. If the ship appears before the next
+camera game frame, the view follows it. If it is still absent, the original no-stats fallback
+applies. Removal or a mission reset expires the selection. Moving from a pending selection to
+that first ship keeps the chase distance; explicitly selecting a later replacement resets it.
 
 | View | Key | Camera | Named |
 |---|---|---|---|

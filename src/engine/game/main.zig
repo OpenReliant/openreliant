@@ -1016,7 +1016,7 @@ fn keepPlayerTarget(world: gameobj.World) void {
         if (away > hud.pick_reach) _ = input.cycleTarget(world.display, all, .next, if (target.side == .hostile) .hostile else .friendly, false);
     }
     const display = world.display orelse return;
-    if (!display.subtarget.shows(entry.target.resolve(all)) and world.view() == .cockpit) display.subtarget.pick(all);
+    if (!display.subtarget.shows(all, entry.target.resolve(all)) and world.view() == .cockpit) display.subtarget.pick(all);
 }
 
 test keepPlayerTarget {
@@ -3305,4 +3305,38 @@ test "a removed carrier does not become the replacement in its slot" {
     const yamato = try mission.add(.of(.yamato), @splat(0));
     followCarrier(mission.world());
     try std.testing.expectEqual(yamato, mission.player.carrierIn(mission.objects).?);
+}
+
+test "selecting the same component on a replacement refreshes its highlight" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var model: create.testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    model.withComponent();
+    const all = mission.objects;
+    mission.player.viewing.view = .cockpit;
+    const player = try mission.add(.of(.predator), @splat(0));
+    _ = try aigeneric.push(mission.orders(), player, .player_control, .none);
+    const index = try mission.addWith(model.types(), .of(.kamov), .{ 0, 0, 5000 });
+    all.slots[index].object.flags.targetable = true;
+    ai.playerControlEntry(all).?.target = .at(all, index, 0);
+    var display: hud.State = .{};
+    defer display.subtarget.clear(all);
+    display.subtarget.pick(all);
+    try std.testing.expect(display.subtarget.target != null);
+    create.resetSlot(mission.orders(), index);
+    _ = try create.createObject(all, &mission.tables, model.types(), index, .of(.kamov), 0, .{ 0, 0, 5000 }, &mission.random);
+    all.slots[index].object.flags.targetable = true;
+    ai.playerControlEntry(all).?.target = .at(all, index, 0);
+    try std.testing.expectEqual(index, display.subtarget.target.?.object.slot);
+    try std.testing.expectEqual(0, display.subtarget.target.?.component);
+    try std.testing.expect(!display.subtarget.shows(all, .at(index, 0)));
+    var world = mission.world();
+    world.display = &display;
+    keepPlayerTarget(world);
+    try std.testing.expect(display.subtarget.target.?.object.valid(all));
+    try std.testing.expectEqual(hud.subtarget.red, all.slots[index].model.?.parts[0].object.colour);
 }

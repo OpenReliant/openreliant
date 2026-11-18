@@ -95,9 +95,12 @@ shaders also use it. Camera shot holds capture each ship separately. Projectile 
 candidates and blast victims keep checked references too, from the initial search until impact
 or blast completion. These lists keep their original limits and order; later spawns do not enter
 an existing shot's or blast's search.
-The component highlight's refresh decision still needs an identity check, and its component-loss
-path needs to keep the highlight state across clearing
-([#1363](https://github.com/OpenReliant/openreliant/issues/1363)).
+
+Orders and camera subjects share `gameobj.ObjectSelection` when a mission can select a ship
+before it appears. It captures either the current object or the first creation expected in a
+stand-in slot. While waiting, it keeps the slot's meaning; after creation, only that object can
+resolve. Resetting the slot or starting a mission expires the selection.
+
 These changes are tracked under
 [#946](https://github.com/OpenReliant/openreliant/issues/946).
 
@@ -822,10 +825,11 @@ that has no flag `0x10`, in part order:
    (`0x00401F00`) gives its order way as to Explode, empties its stack and marks it exploding.
    Each hidden part of the assembly, its damaged model, is shown.
 
-Where the object's parts are the player's subtarget picked out in red, they are put back before the
-pass and picked out again after it; since putting them back leaves none picked out, the second never
-runs, and `mission_frame` picks them out on its next frame ([The subtarget in
-red](hud.md#the-subtarget-in-red)). Then the flag is cleared.
+Highlighted subtarget parts are restored before the pass. **Fix:** OpenReliant captures their
+object identity before clearing the highlight, then highlights surviving parts again if the same
+object still exists. The original tests the cleared state and waits until the next mission frame
+to restore the highlight. Copies that a drawn frame may still use stay alive until it finishes
+([The subtarget in red](hud.md#the-subtarget-in-red)). The model's destruction flag is then cleared.
 
 `node_forget` (`0x00499BB0`), as a node is destroyed, stops for good each of the owner's turrets
 whose base the node is (turret kind -1) and takes the node out of the owner's components and the
