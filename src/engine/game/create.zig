@@ -559,10 +559,7 @@ pub const Slot = struct {
     }
 
     pub fn attackerBinding(slot: *const Slot, all: *const Objects) ?players.ControlRef {
-        const generation = slot.last_attacker_generation orelse return null;
-        const index = slot.attacker(all) orelse return null;
-        const binding = all.playerBinding(index) orelse return null;
-        return if (binding.participant.generation == generation) binding else null;
+        return all.playerBindingFor(slot.last_attacker orelse return null, slot.last_attacker_generation);
     }
 
     /// Lets go of what the slot holds for its object: its cloak (`cloak.drop`), its model, its
@@ -987,6 +984,14 @@ pub const Objects = struct {
         const ship = joined.ship orelse return null;
         if (ship.resolve(all) != index) return null;
         return .{ .participant = .{ .slot = index, .generation = joined.generation }, .ship = ship };
+    }
+
+    /// Finds the pilot who owned a retained source. Both the ship and its admission must match.
+    pub fn playerBindingFor(all: *const Objects, ship: gameobj.ObjectRef, admission: ?u64) ?players.ControlRef {
+        const generation = admission orelse return null;
+        const binding = all.playerBinding(ship.slot) orelse return null;
+        if (binding.participant.generation != generation or !std.meta.eql(binding.ship, ship)) return null;
+        return binding;
     }
 
     pub fn hasBoundPlayerShip(all: *const Objects, index: u16) bool {

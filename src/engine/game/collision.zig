@@ -397,7 +397,7 @@ pub fn damageFrom(world: gameobj.World, index: u16, struck: Quadrant, value: f32
     const held = object.shields.at(struck);
     const blow = scaledBlow(world, index, struck, value, attacker, kind, held.* >= 0) orelse return;
     const scaled = blow.value;
-    if (attacker.resolve(all)) |by| friendly_fire.warn(world, index, by, kind, scaled);
+    friendly_fire.warn(world, index, attacker, kind, scaled);
     const through = @max(value - held.*, 0);
     if (held.* >= 0 and object.invulnerable != ._unknown_4) held.* -= scaled;
     if (held.* < 0) armorDamageFrom(world, index, struck, through * factor, attacker, kind);
@@ -476,7 +476,7 @@ pub fn armorDamageFrom(world: gameobj.World, index: u16, struck: Quadrant, value
     const blow = scaledBlow(world, index, struck, value, attacker, kind, false) orelse return;
     const scaled = blow.value;
     if (object.flags.exploding) return;
-    if (attacker.resolve(all)) |by| friendly_fire.warn(world, index, by, kind, scaled);
+    friendly_fire.warn(world, index, attacker, kind, scaled);
     if (kind == .bullet and object.flags.components) return events.shotAtFrom(world, index, attacker.object, null);
 
     const shielded = object.invulnerable.protects(attacker.player);
@@ -737,7 +737,7 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
     const model = struck_part.model;
     const component = struck_part.part();
     var share = byDifficulty(world, index, kind, value);
-    if (!object.flags.exploding) if (attacker.resolve(all)) |by| friendly_fire.warn(world, index, by, kind, share);
+    if (!object.flags.exploding) friendly_fire.warn(world, index, attacker, kind, share);
 
     // The assembly's first part that has armour takes the hit.
     const struck = model.hitPart(component);
@@ -1208,7 +1208,7 @@ test "damage from a removed shooter still lands without crediting its replacemen
 
     damageFrom(mission.world(), victim, .fore, 20, 1, source, .bullet);
     try std.testing.expectEqual(80, slot.object.shields.fore);
-    try std.testing.expectEqual(0, mission.player.friendly_fire.damage);
+    try std.testing.expectEqual(0, all.playerState(player).?.friendly_fire.damage);
     try std.testing.expectEqual(source.object, slot.last_attacker.?);
     try std.testing.expectEqual(null, slot.attacker(all));
     // Retaliation must not pick the new ship, even when it is an eligible enemy fighter.

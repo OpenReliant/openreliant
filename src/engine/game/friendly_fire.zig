@@ -1,13 +1,10 @@
-//! The player's hits on friends (`0x00474B20` to `0x004751A5`): Moose's warnings as the damage
-//! mounts (`warn`), and the player sent home for destroying a friend (`friendDestroyed`,
-//! `sendHome`), by the Friendly Fire order (117, `init`, `update`), which lands the ship on its
-//! carrier. **Unknown:** its source file. The code lies after the motion routines', between
-//! `explode.cpp`'s and `gameflow.cpp`'s, and no string places it; this module is named for what it
-//! does. docs/engine/orders.md describes it.
+//! Moose warns pilots who hit friendly ships (`0x00474B20` to `0x004751A5`). If a pilot destroys
+//! a friend, the Friendly Fire order (117) sends their ship back to its carrier. **Unknown:** the
+//! original source file. The code follows the motion routines, between `explode.cpp` and
+//! `gameflow.cpp`. See `docs/engine/orders.md`.
 //!
-//! Not ported: a multiplayer game's side of it, in which a player told of an ejected pilot's
-//! destruction hears the carrier abort the mission, and the other players' ships jump out
-//! ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+//! Co-op warnings follow the pilot who dealt the damage. Co-op recall and carrier abort are
+//! tracked in [#1395](https://github.com/OpenReliant/openreliant/issues/1395).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -21,14 +18,13 @@ const gameobj = @import("gameobj.zig");
 const input = @import("../input.zig");
 const radio = @import("radio.zig");
 
-/// What Moose's warnings keep, which `friendly_fire_reset` (`0x00474B20`) clears as `mission_run`
-/// starts a mission.
+/// The damage and cooldown for a pilot's warnings. `friendly_fire_reset` (`0x00474B20`) clears
+/// them at mission start.
 pub const Warnings = struct {
     /// The player's damage to friends since the last warning (`friendly_fire_damage`,
     /// `0x00562CEC`).
     damage: f32 = 0,
-    /// The warnings given, which the game holds at `held_count` (`friendly_fire_count`,
-    /// `0x00562CF0`).
+    /// The original caps its warning count at `held_count` (`friendly_fire_count`, `0x00562CF0`).
     count: u8 = 0,
     /// The game's tick up to which no warning comes (`friendly_fire_quiet_until`, `0x00562CE8`).
     quiet_until: u32 = 0,
@@ -48,48 +44,48 @@ const held_count = 1;
 /// Moose's first warnings (`0x00500820`).
 const warnings = [_][]const u8{ "ff_001.ut", "ff_002.ut", "ff_003.ut", "ff_004.ut" };
 
-/// Whether a blow of `kind` to the object in slot `index` by `attacker` is the player's on a friend,
-/// as `object_damage`, `object_armor_damage` and `component_damage` test it (`0x00463F6D`): a shot,
-/// a Screamer or a collision of the player's ship on a friendly object.
-fn onFriend(world: gameobj.World, index: u16, attacker: u16, kind: collision.Kind) bool {
-    const all = world.objects;
-    if (attacker != all.player or all.slots[index].object.side != .friendly) return false;
+/// Friendly-fire rules apply to shots, Screamers and collisions with friendly objects
+/// (`0x00463F6D`). The component damage path already excludes collisions.
+fn friendlyHit(world: gameobj.World, index: u16, kind: collision.Kind) bool {
+    if (world.objects.slots[index].object.side != .friendly) return false;
     return switch (kind) {
         .bullet, .screamer, .collision => true,
         else => false,
     };
 }
 
-/// `friendly_fire_warning` (`0x00474C80`), for a blow of `damage`, after the difficulty's scaling,
-/// that the damage routines find is the player's on a friend (`onFriend`): the damage mounts, and
-/// once past `warn_over` and `warn_every` after the last, Moose warns the player on the radio, and
-/// the damage counts from nothing again.
-pub fn warn(world: gameobj.World, index: u16, attacker: u16, kind: collision.Kind, damage: f32) void {
-    if (!onFriend(world, index, attacker, kind)) return;
-    const kept = &world.player.friendly_fire;
+/// `friendly_fire_warning` (`0x00474C80`) adds scaled damage to the pilot's total. Moose queues
+/// a line and clears the total when the damage and cooldown both pass their limits. The original
+/// skips warnings in arena missions at `0x00474C87`.
+pub fn warn(world: gameobj.World, index: u16, attacker: gameobj.DamageSource, kind: collision.Kind, damage: f32) void {
+    if (!friendlyHit(world, index, kind)) return;
+    const all = world.objects;
+    const audience: collision.HitFeedback.Audience = switch (world.damage_rules) {
+        .campaign => if (attacker.resolve(all) == all.player) .local else return,
+        .cooperative => .{ .participant = all.playerBindingFor(attacker.object, attacker.participant_generation) orelse return },
+        .arena => return,
+    };
+    const kept = &all.player_states[attacker.object.slot].friendly_fire;
     kept.damage += damage;
     if (kept.damage <= warn_over or kept.quiet_until >= world.clock.game_ticks) return;
     kept.count = @min(kept.count + 1, held_count);
-    kept.quiet_until = world.clock.game_ticks + warn_every;
+    kept.quiet_until = world.clock.game_ticks +% warn_every;
     kept.damage = 0;
-    radio.mooseSaysOneOf(world, &warnings);
+    radio.mooseSaysOneOfTo(world, audience, &warnings);
 }
 
-/// `player_friend_destroyed` (`0x00474E00`), as the player's blow destroys a friend (`onFriend`),
-/// where it is not a collision with a pilot's pod, or one of a friend's components by a shot or a
-/// Screamer, and as the script's `FriendlyFire` asks: the player's ship is to be sent home
-/// (`sendHome`).
+/// `player_friend_destroyed` (`0x00474E00`) marks the player's ship for recall. A qualifying
+/// friendly kill or the script's `FriendlyFire` command can set the mark.
 pub fn friendDestroyed(world: gameobj.World) void {
     const all = world.objects;
     all.slots[all.player].object.sent_home = .friend_destroyed;
 }
 
-/// Whether the object in slot `index`, just destroyed by a blow of `kind` from `attacker`, was the
-/// player's friend (`object_armor_damage`, `0x0046446D`): not where the blow was a collision with a
-/// pilot's pod that anything could harm.
+/// `object_armor_damage` (`0x0046446D`) checks if the local player's hit destroyed a friend.
+/// A collision with a pod counts only if its invulnerability allows only player hits.
 pub fn destroyedFriend(world: gameobj.World, index: u16, attacker: u16, kind: collision.Kind) bool {
     const object = &world.objects.slots[index].object;
-    if (!onFriend(world, index, attacker, kind)) return false;
+    if (attacker != world.objects.player or !friendlyHit(world, index, kind)) return false;
     return !(object.flags.ejected and kind == .collision and object.invulnerable != .player_can_hit);
 }
 
@@ -252,32 +248,133 @@ test warn {
     try heard.init();
     defer heard.deinit();
     const world = heard.world();
-    const kept = &heard.mission.player.friendly_fire;
-    heard.mission.clock.game_ticks = 100;
+    const all = world.objects;
+    const pilot: gameobj.DamageSource = .of(all, all.player);
+    const enemy: gameobj.DamageSource = .of(all, heard.enemy);
+    const kept = &all.player_states[all.player].friendly_fire;
+    const clock = &heard.mission.clock;
+    clock.game_ticks = 100;
 
     // The player's shots on a friend mount up; past `warn_over`, Moose warns the player.
-    warn(world, heard.wingman, 0, .bullet, 500);
+    warn(world, heard.wingman, pilot, .bullet, 500);
     try std.testing.expectEqual(0, heard.radio.count);
-    warn(world, heard.wingman, 0, .bullet, 500);
+    warn(world, heard.wingman, pilot, .bullet, 500);
     try heard.expectLine(0, radio.pilot_base + 4, &warnings);
     try std.testing.expectEqual(0, kept.damage);
     try std.testing.expectEqual(100 + warn_every, kept.quiet_until);
     // Within the quiet, the damage mounts unsaid; after it, the count holds at one.
     heard.radio.reset(&heard.speaker.asked);
-    warn(world, heard.wingman, 0, .screamer, 900);
+    warn(world, heard.wingman, pilot, .screamer, 900);
     try std.testing.expectEqual(0, heard.radio.count);
-    heard.mission.clock.game_ticks = 101 + warn_every;
-    warn(world, heard.wingman, 0, .collision, 1);
+    clock.game_ticks = 101 + warn_every;
+    warn(world, heard.wingman, pilot, .collision, 1);
     try std.testing.expectEqual(1, heard.radio.count);
     try std.testing.expectEqual(held_count, kept.count);
-    // Nor an enemy's, a missile's, nor another's blow counts.
+    // Hits on enemies, missile hits and another ship's hits do not count.
     heard.radio.reset(&heard.speaker.asked);
-    heard.mission.clock.game_ticks += 2 * warn_every;
-    warn(world, heard.enemy, 0, .bullet, 1000);
-    warn(world, heard.wingman, 0, .missile, 1000);
-    warn(world, heard.wingman, heard.enemy, .bullet, 1000);
+    clock.game_ticks += 2 * warn_every;
+    warn(world, heard.enemy, pilot, .bullet, 1000);
+    warn(world, heard.wingman, pilot, .missile, 1000);
+    warn(world, heard.wingman, enemy, .bullet, 1000);
     try std.testing.expectEqual(0, kept.damage);
     try std.testing.expectEqual(0, heard.radio.count);
+}
+
+test "hosted friendly-fire warnings track each shooter across damage paths" {
+    const create = @import("create.zig");
+    const objects = @import("objects.zig");
+    const gpa = std.testing.allocator;
+    var model: create.testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    model.data[0].part.flags.component = true;
+    model.data[0].part.component_armor = 100;
+    var heard: radio.testing.Heard = undefined;
+    try heard.init();
+    defer heard.deinit();
+    const mission = &heard.mission;
+    var host = mission.world();
+    host.damage_rules = .cooperative;
+    const all = host.objects;
+    const first = all.player;
+    const second = heard.wingman;
+    all.players = 2;
+    const first_pilot = all.joinParticipant(first).?;
+    const second_pilot = all.joinParticipant(second).?;
+    const first_binding = all.bindParticipant(first_pilot, .of(all, first)).?;
+    const second_binding = all.bindParticipant(second_pilot, .of(all, second)).?;
+    const first_state = &all.player_states[first].friendly_fire;
+    const second_state = &all.player_states[second].friendly_fire;
+
+    const Notice = collision.HitFeedback.Addressed;
+    const Recorder = struct {
+        notice: ?Notice = null,
+
+        fn enqueue(context: *anyopaque, notice: Notice) void {
+            if (notice.effect != .radio_line) return;
+            const recorder: *@This() = @ptrCast(@alignCast(context));
+            recorder.notice = notice;
+        }
+    };
+    var recorder: Recorder = .{};
+    host.hit_feedback = .{ .context = &recorder, .enqueue = Recorder.enqueue };
+    const friend = try mission.addWith(model.types(), .of(.kamov), .{ 0, 0, 3000 });
+    const target = mission.slot(friend);
+    target.object.side = .friendly;
+    target.object.shields = .all(5000);
+    target.object.armor = .all(5000);
+    const part: objects.PartRef = .{ .model = &target.model.?, .index = 0 };
+    const clock = &mission.clock;
+    clock.game_ticks = 100;
+    clock.frame_start = 150;
+    const old_shot: gameobj.DamageSource = .of(all, second);
+    const random_before = mission.random.fingerprint();
+
+    collision.damage(host, friend, .fore, 600, 1, first, .bullet);
+    collision.damageFrom(host, friend, .fore, 450, 1, old_shot, .bullet);
+    collision.armorDamageFrom(host, friend, .fore, 350, old_shot, .collision);
+    try std.testing.expectEqual(warn_over, second_state.damage);
+    try std.testing.expect(recorder.notice == null);
+    collision.componentDamageFrom(host, friend, part, 1, old_shot, .screamer);
+    const second_warning = recorder.notice.?;
+    try std.testing.expectEqual(second_binding, second_warning.recipient);
+    try std.testing.expectEqual(clock.frame_start, second_warning.tick);
+    try std.testing.expectEqual(0, second_state.damage);
+    try std.testing.expectEqual(600, first_state.damage);
+
+    recorder.notice = null;
+    clock.game_ticks = second_state.quiet_until;
+    collision.damageFrom(host, friend, .fore, 850, 1, old_shot, .bullet);
+    try std.testing.expectEqual(850, second_state.damage);
+    try std.testing.expect(recorder.notice == null);
+    collision.armorDamage(host, friend, .fore, 201, first, .collision);
+    const first_warning = recorder.notice.?;
+    try std.testing.expectEqual(first_binding, first_warning.recipient);
+    try std.testing.expectEqual(random_before, mission.random.fingerprint());
+
+    const client = heard.world();
+    try std.testing.expect(!second_warning.present(client));
+    all.player = second;
+    radio.mooseSays(client, "plck_001.ut", .queued, radio.no_expiry);
+    try std.testing.expect(second_warning.present(client));
+    try std.testing.expectEqual(2, heard.radio.count);
+    try heard.expectLine(1, radio.pilot_base + 4, &warnings);
+    try std.testing.expectEqual(null, heard.queued(1).expiry);
+
+    try std.testing.expect(create.Objects.leaveParticipant(host, second_pilot));
+    const rejoined = all.joinParticipant(second).?;
+    _ = all.bindParticipant(rejoined, second_binding.ship).?;
+    recorder.notice = null;
+    clock.game_ticks += 1;
+    collision.damageFrom(host, friend, .fore, 900, 1, old_shot, .bullet);
+    try std.testing.expect(!second_warning.present(client));
+    try std.testing.expectEqual(0, second_state.damage);
+    try std.testing.expect(recorder.notice == null);
+
+    host.damage_rules = .{ .arena = null };
+    collision.damage(host, friend, .fore, 900, 1, second, .bullet);
+    try std.testing.expectEqual(0, second_state.damage);
+    try std.testing.expect(recorder.notice == null);
 }
 
 test mix {

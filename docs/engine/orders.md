@@ -849,26 +849,28 @@ OpenReliant has no parent frames, so the ship on the pad is put back on it each 
 
 ### Friendly fire
 
-The player's hits on friends ([`friendly_fire.zig`](../../src/engine/game/friendly_fire.zig)):
-`object_damage` and `object_armor_damage` hand a blow of the player's ship on a friendly object, a
-shot's, a Screamer's or a collision's, to `friendly_fire_warning` (`0x00474C80`), the armour's only
-while the object is not exploding, as `component_damage` does a shot's or a Screamer's on a friend's
-component. The damage after the difficulty's scaling mounts (`friendly_fire_damage`, `0x00562CEC`),
-and once past 800 (`0x004DC5EC`) and 3000 game ticks after the last (`friendly_fire_quiet_until`,
-`0x00562CE8`), Moose warns the player on the radio, one of `ff_001` to `ff_004`, and the damage
-counts from nothing again. The count of warnings (`friendly_fire_count`, `0x00562CF0`) would pick
-`ff_005` to `ff_008` for a second and `ff_009` to `ff_012` for a third, but the game takes a second
-back to the first, so those are never said. `friendly_fire_reset` (`0x00474B20`) clears the three as
-`mission_run` starts a mission.
+`friendly_fire_warning` (`0x00474C80`) counts a pilot's scaled damage to friendly objects.
+Shield and armour hits count from shots, Screamers and collisions. Component hits count from
+shots and Screamers. Targets with the exploding flag ignore armour and component hits for warnings.
+Moose queues one of `ff_001` to `ff_004` when damage exceeds 800 (`0x004DC5EC`)
+and more than 3000 game ticks have passed since the last warning. The warning clears the damage
+total. The original caps the warning count at one, so it always uses the first set of lines.
+`friendly_fire_reset` (`0x00474B20`) clears the warning state at mission start. Arena missions
+skip warnings at `0x00474C87`. See [`friendly_fire.zig`](../../src/engine/game/friendly_fire.zig).
 
-Destroying a friend sends the player home: armour below zero from such a blow, but a collision with
-a pilot's pod that anything could harm, or a friend's component destroyed by a shot or a Screamer,
-calls `player_friend_destroyed` (`0x00474E00`), which marks the player's ship (`+0x678`, 1), as
-the script's `FriendlyFire` (`0x57`) does. Each frame after the orders, `mission_frame`
-(`0x0049298C`) runs `friendly_fire_send_home` (`0x00474B40`) for a player's ship in the action
-and marked: while the mission goes on and the ship's current order has no priority, the mission's
-ending becomes 6 (7 where the mark is 3), and the ship takes Friendly Fire (117), aimed as its
-current order is, and is sent off (flag `0x10000000`).
+In co-op, the host keeps the damage total and cooldown for each bound pilot. A projectile keeps
+the original pilot's admission. A new admission on the same ship starts with fresh warning state.
+The host runs `radio_say` and sends the approved line to the pilot who fired the shot or caused
+the collision. Their radio queues it with no expiry, as in the campaign.
+
+In the campaign, `player_friend_destroyed` (`0x00474E00`) marks the player's ship for recall
+(`+0x678`, value 1). A fatal hit from one of the same damage kinds, a shot or Screamer that
+destroys a friendly component, or the mission command `FriendlyFire` (`0x57`) can set the mark.
+A collision with a pilot's pod counts only if the pod can be damaged exclusively by players.
+Each frame after orders, `mission_frame` (`0x0049298C`) checks for recall. If the marked ship is
+still in action, the mission is running and the active order has no priority, `friendly_fire_send_home`
+(`0x00474B40`) sets mission ending 6 (7 for mark 3), gives the ship Friendly Fire (117) with its
+current target and sets the sent-off flag (`0x10000000`).
 
 Friendly Fire keeps its stage (`+0x00`) and the frame's tick it ends at (`+0x04`):
 
@@ -881,11 +883,10 @@ Friendly Fire keeps its stage (`+0x00`) and the frame's tick it ends at (`+0x04`
 **Fix:** the game reads the carrier through a null pointer where the player launched from none;
 OpenReliant lets the ship fly on as the player has it, and then ends the order.
 
-Not ported: a multiplayer game's side of it
-([#55](https://github.com/OpenReliant/openreliant/issues/55)). There, destroying a pilot's pod only a
-player could harm marks the ship 2 and tells the others, whose carrier then aborts the mission
-(`abrt_001`, said by pilot 27 for the Reliant and 28 for any other); and another player's ship
-sent off jumps out.
+Co-op recall and carrier abort are tracked in [#1395](https://github.com/OpenReliant/openreliant/issues/1395).
+The original sends a friendly-fire message from `net_send_friendly_fire` (`0x004BB920`). A
+qualifying pod kill marks the offender for the carrier's abort line and tells the other players
+to abort too. The Reliant uses pilot 27 for `abrt_001` (`0x00500990`). Other carriers use pilot 28.
 
 ### The Ripper
 
