@@ -889,6 +889,25 @@ pub const Objects = struct {
         return &all.player_states[index];
     }
 
+    /// Rebuilds the participant's missile selection after their ship is fitted or replenished.
+    pub fn fitPlayerWeapons(all: *Objects, index: u16) void {
+        const state = all.playerState(index) orelse return;
+        const ship: gameobj.ObjectRef = .of(all, index);
+        if (state.command != null and !std.meta.eql(state.weapons.ship, @as(?gameobj.ObjectRef, ship))) state.weapons.lock = .{};
+        state.weapons.ship = ship;
+        state.weapons.ring.build(&all.slots[index].object);
+    }
+
+    /// A submitted command always uses the current ship's loadout. Replacement ends the old lock.
+    pub fn commandedWeapons(all: *Objects, index: u16) ?*players.Weapons {
+        const state = all.playerState(index) orelse return null;
+        if (state.command == null) return null;
+        const ship = if (state.weapons.ship) |ref| ref.resolve(all) else null;
+        if (ship != index) all.fitPlayerWeapons(index);
+        state.weapons.ring.refreshCounts(&all.slots[index].object);
+        return &state.weapons;
+    }
+
     /// The displayed player's simulation state, also available in the immutable drawing copy.
     pub fn localPlayerState(all: *const Objects) players.State {
         return all.player_states[all.player];
@@ -1605,7 +1624,7 @@ pub fn rearm(world: gameobj.World, index: u16) Allocator.Error!void {
     else
         all.tierFit(index, std.math.cast(u2, slot.object.loadout_tier) orelse 0);
     try arm(all.gpa, slot, fit);
-    if (index == all.player) if (world.display) |display| display.missiles.build(&slot.object);
+    all.fitPlayerWeapons(index);
 }
 
 /// Each quadrant's shields and armour full, as `create_object` makes an object and

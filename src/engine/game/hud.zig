@@ -2843,7 +2843,7 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
         } else null,
         .gunnery = .{ .slot = slot, .wire_frame = state.wire_frame },
         .damage = .{ .object = live },
-        .missiles = .{ .ring = &state.missiles },
+        .missiles = .{ .ring = &frame.all.player_states[frame.all.player].weapons.ring },
         .power = .{ .ball = resources.ball, .object = live, .hit_shake = frame.hit_shake, .random = frame.random },
         .target_display = .{ .state = state, .drawing = drawing, .all = frame.all },
         .objectives = .{ .objectives = &state.objectives },
@@ -3911,11 +3911,11 @@ pub const State = struct {
     /// What the player aimed at as the display was last drawn, which the driver hands the game as
     /// input (`Drawing.aim`).
     aim: Aim = .{},
-    /// The player's missile lock (`main.cpp`'s), whose count dims the target's brackets and
-    /// shortens the lead cursor's line by `lock_shortening` for each short of 100.
-    lock: missile_lock.Lock = .{},
-    /// The missile display's ring of the player's missiles.
-    missiles: missile_display.Ring = .{},
+    lock_tone: missile_lock.Tone = .{},
+    /// Whether Betty's most recent missile name has a voice to end.
+    missile_name_kept: bool = false,
+    /// The next tick when Betty can repeat an empty missile warning (`0x00569978`).
+    missile_empty_warned_until: u32 = 0,
     /// What the game has done that drawing follows, which a mission's start leaves as it is.
     events: Events = .{},
 
@@ -3942,8 +3942,8 @@ pub const State = struct {
             "radar_zoom", "devices", "ejected",    "key_prompt",         "caption",     "blind_fire",
             "aim",
         }) |name| @field(state, name) = @field(fresh, name);
-        state.missiles.empty_warned_until = game_ticks;
-        state.missiles.name_kept = false;
+        state.missile_empty_warned_until = game_ticks;
+        state.missile_name_kept = false;
         state.events.missions.happen();
     }
 
@@ -3965,7 +3965,7 @@ pub const State = struct {
         const ahead = instrumented(world.player.viewing.last);
         state.messages.expire(world.clock.frame_start);
         state.followTarget(all, false);
-        if (world.sounds) |asked| state.lock.sound(asked, world.view());
+        if (world.sounds) |asked| state.lock_tone.sound(all.player_states[all.player].weapons.lock.locked(), asked, world.view());
         if (ahead) {
             if (ready) |set| state.readyPrompt(set);
             state.leadTarget(all);
@@ -4180,15 +4180,15 @@ test "State.reset" {
     var state: State = .{ .smart_targeting = true, .blind_fire = false, .ejected = true, .radar_range = 0 };
     state.devices.getPtr(.cloak).* = .{ .setting = .on, .ticks = @divExact(Charge.full(.cloak).ticks, 2) };
     state.devices.getPtr(.spectral_shields).setting = .absent;
-    state.missiles.empty_warned_until = 900;
-    state.missiles.name_kept = true;
+    state.missile_empty_warned_until = 900;
+    state.missile_name_kept = true;
     state.reset(500);
     // The next one, a restart too, starts with each device off and fully charged.
     for (std.enums.values(Device)) |kind| try std.testing.expectEqual(Charge.full(kind), state.devices.get(kind));
     try std.testing.expect(!state.ejected and state.blind_fire);
     try std.testing.expectEqual(Radar.first_range, state.radar_range);
-    try std.testing.expectEqual(500, state.missiles.empty_warned_until);
-    try std.testing.expect(!state.missiles.name_kept);
+    try std.testing.expectEqual(500, state.missile_empty_warned_until);
+    try std.testing.expect(!state.missile_name_kept);
     // The player's own settings stay.
     try std.testing.expect(state.smart_targeting);
 }
@@ -4817,11 +4817,12 @@ pub fn targetKeys(state: *State, keys: Keys) void {
     for (ring_keys) |key| {
         if (!devices.active(key.action, true)) continue;
         if (state.windows.open(.missiles, keys.multiplayer)) missiles.held = true;
-        const turned = state.missiles.turn(key.turn);
+        const ring = &all.player_states[all.player].weapons.ring;
+        const turned = ring.turn(key.turn);
         const world = keys.world orelse continue;
         if (turned) sound3d.playIn(world, null, null, all.player, .missileselect, 1, .not_reserved);
         beep(keys.world, if (turned) .done else .refused);
-        if (world.sounds) |asked| state.missiles.sayName(asked);
+        if (world.sounds) |asked| ring.sayName(&state.missile_name_kept, asked);
     }
 }
 
@@ -6231,7 +6232,7 @@ pub fn drawTarget(drawing: *Drawing, state: *const State, pen: Pen, fonts: *Targ
     const low, const high = screenBox(sight, node, box, pen.scale);
 
     // The brackets dim as a missile's lock builds, and go at a tenth.
-    const brightness = @min(@as(f32, @floatFromInt(state.lock.count)) * lock_dimming, 1);
+    const brightness = @min(@as(f32, @floatFromInt(all.player_states[all.player].weapons.lock.count)) * lock_dimming, 1);
     if (brightness > least_bright) try drawCorners(pen.dimmed(brightness), brackets_shape.of(hostile), .{ low, high });
     // The range goes by the box's far corner, which a box reaching behind the camera throws
     // beyond the screen's reach, and the range with it.
@@ -6246,7 +6247,7 @@ pub fn drawTarget(drawing: *Drawing, state: *const State, pen: Pen, fonts: *Targ
     const cursor: Cursor = if (pixelOf(aim)) |at| .{ .at = at } else .beyond;
     if (cursor == .at) try pen.shape(lead_shape, cursor.at);
     const toward: Point = sight.projection.project(sight.view(struck.drawn.position));
-    if (leadLine(aim, toward, state.lock.count, pen.scale)) |line| {
+    if (leadLine(aim, toward, all.player_states[all.player].weapons.lock.count, pen.scale)) |line| {
         pen.line(whole(line[0]), whole(line[1]), pen.art.paletteColour(line_colour.hostile));
     }
     return cursor;

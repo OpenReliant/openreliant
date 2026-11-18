@@ -299,6 +299,11 @@ fn charged(ship: *const create.Slot) guns.GunType {
 /// Not ported: the message a multiplayer game sends about it (`0x004BB9C0`), and the release it
 /// runs for another player's ship ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn release(world: gameobj.World, index: u16) void {
+    releaseWithFeedback(world, index, true);
+}
+
+/// The firing player's controller receives the trigger feedback. Impacts still use the world.
+pub fn releaseWithFeedback(world: gameobj.World, index: u16, feedback: bool) void {
     const now = world.clock.frame_start;
     const all = world.objects;
     const slot = all.bullets.beams.free() orelse return;
@@ -307,7 +312,7 @@ pub fn release(world: gameobj.World, index: u16) void {
     ship.object.nova_charge = 0;
     if (fired < least_charge) return;
     if (world.sounds) |asked| asked.add(.{ .buffered = .{ .index = blast_sound, .at = ship.drawn.position, .volume = ship.object.radius * blast_loudness } });
-    if (world.forces) |forces| forces.start(.nc, now);
+    if (feedback) if (world.forces) |forces| forces.start(.nc, now);
     strike(world, index, fired, charged(ship));
     const looks = all.bullets.looks orelse return;
     slot.* = .init(&looks.nova, .of(world.objects, index), now + beam_ticks, fired);

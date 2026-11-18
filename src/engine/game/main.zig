@@ -795,7 +795,7 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     if (orders.world.explosions) |explosions| explosions.frame(orders.world);
     if (orders.world.countermeasures) |dropped| dropped.frame(orders.world);
     if (orders.world.shockwaves) |waves| waves.frame(orders.world);
-    if (orders.world.display) |display| runLock(orders.world, display);
+    runLock(orders.world);
     camera.gameFrame(orders.world);
     player.viewing.last = player.viewing.view;
     if (orders.world.display) |display| display.gameFrame(orders.world, if (loaded) |playing| &playing.script.variables.ready else null);
@@ -857,9 +857,24 @@ pub fn gameFrames(clock: *Clock, devices: *input.Devices, reading: ?*input.Readi
 /// `mission_frame`'s missile lock (`hud_missile_lock`, `0x00491520`), which runs while the last
 /// frame's view shows it (`0x004933D7`), whatever the camera has switched to since, but not while
 /// the player's ship rides the worm between gates (`wgate.ridingWorm`).
-fn runLock(world: gameobj.World, display: *hud.State) void {
-    if (wgate.ridingWorm(world.gates)) return;
-    if (world.player.viewing.last.showsLock()) display.lock.frame(world, &display.missiles);
+fn runLock(world: gameobj.World) void {
+    const all = world.objects;
+    for (0..@min(all.players, all.slots.len)) |at| {
+        const index: u16 = @intCast(at);
+        const object = &all.slots[index].object;
+        if (all.commandedWeapons(index)) |weapons| {
+            if (object.flags.stand_in or object.flags.disabled or object.flags.outOfFrame() or object.flags.jumping) {
+                weapons.lock.reset();
+                continue;
+            }
+            weapons.lock.advance(world, index, &weapons.ring);
+        } else if (index == all.player and world.display != null and
+            !wgate.ridingWorm(world.gates) and world.player.viewing.last.showsLock())
+        {
+            const weapons = &all.player_states[index].weapons;
+            weapons.lock.advance(world, index, &weapons.ring);
+        }
+    }
 }
 
 /// OpenReliant's: runs the game frames (`gameFrames`) on a thread of their own, and waits for them,
@@ -2520,8 +2535,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     const ship = cockpitShip(all, player_type);
     try start.cockpit.load(start.types.resources, start.types.textures, ship, start.types.models);
     fitDevices(start.display, ship, if (player.type) |loaded_type| loaded_type.model.header.flags.cloak else false);
-    start.display.missiles.build(&player.object);
-    start.display.lock.reset();
+    all.fitPlayerWeapons(all.player);
     if (player.firstOrder(.launch) == null) sound3d.hearEngine(world);
     if (start.profile) |profile| profile.saveWith(start.call_sign);
     if (all.scripts) |scripts| scripts.started(mission);
@@ -3023,19 +3037,21 @@ test runLock {
     try stage.init(20000);
     defer stage.deinit();
     var display: hud.State = .{};
-    display.missiles = stage.ring;
     var world = stage.armed.mission.world();
+    world.display = &display;
+    const weapons = &world.objects.player_states[world.objects.player].weapons;
+    weapons.ring = stage.ring;
     // Switched from the cockpit to a view without it this frame, the lock still starts.
     world.player.viewing.view = .target;
     world.player.viewing.last = .cockpit;
-    runLock(world, &display);
-    try std.testing.expectEqual(lock.Phase.closing, display.lock.phase);
+    runLock(world);
+    try std.testing.expectEqual(lock.Phase.closing, weapons.lock.phase);
     // Switched the other way, it doesn't run yet.
-    display.lock = .{};
+    weapons.lock = .{};
     world.player.viewing.view = .cockpit;
     world.player.viewing.last = .target;
-    runLock(world, &display);
-    try std.testing.expectEqual(lock.Phase.idle, display.lock.phase);
+    runLock(world);
+    try std.testing.expectEqual(lock.Phase.idle, weapons.lock.phase);
 }
 
 test "the simulation steps on every fourth tick" {
@@ -3371,4 +3387,55 @@ test "target upkeep searches from each participant's ship" {
     try std.testing.expectEqual(null, ai.controlEntry(all, remote).?.target.slotIn(all));
     try std.testing.expect(!all.playerState(remote).?.controls.matching_speed);
     try std.testing.expect(all.playerState(local).?.controls.matching_speed);
+}
+
+test "a headless host builds a lock for the requesting pilot and launches only with a current lock" {
+    var stage: lock.testing.Stage = undefined;
+    try stage.init(20000);
+    defer stage.deinit();
+    const world = stage.armed.mission.world();
+    const all = world.objects;
+    // Keep slot zero as the displayed player, with no command. The shooter in slot one controls
+    // its own lock and racks, with no local HUD and a camera view that normally suspends locks.
+    const shooter = stage.enemy;
+    const other = try stage.armed.add(.hostile, .{ 0, 0, 25000 });
+    const target = try stage.armed.add(.hostile, .{ 0, 0, 40000 });
+    const ctx = stage.armed.mission.orders();
+    _ = try aigeneric.push(ctx, shooter, .multiplayer_control, .at(target, null));
+    all.players = 2;
+    world.player.viewing.last = .target;
+    const state = all.playerState(shooter).?;
+    const launch_missile: @import("players.zig").WeaponCommand = .{ .launch_missile = true };
+
+    try std.testing.expect(state.submit(.{ .weapons = launch_missile }));
+    input.multiplayerControlOrder(ctx, shooter);
+    try std.testing.expectEqual(0, stage.armed.live());
+    for (0..21) |_| runLock(world);
+    try std.testing.expect(state.weapons.lock.locked());
+    try std.testing.expectEqual(lock.Phase.idle, all.playerState(stage.player).?.weapons.lock.phase);
+
+    // Changing targets and launching in one command cannot spend the old lock on the new target.
+    try std.testing.expect(state.submit(.{ .weapons = launch_missile, .target = .{ .aim = .at(all, other, null) } }));
+    input.multiplayerControlOrder(ctx, shooter);
+    try std.testing.expectEqual(0, stage.armed.live());
+    try std.testing.expectEqual(1, state.weapons.ring.armedEntry().count);
+
+    for (0..40) |_| runLock(world);
+    try std.testing.expect(state.weapons.lock.locked());
+    try std.testing.expect(state.submit(.{ .weapons = launch_missile }));
+    input.multiplayerControlOrder(ctx, shooter);
+    try std.testing.expectEqual(1, stage.armed.live());
+    const missile = stage.armed.missile(0);
+    try std.testing.expectEqual(shooter, missile.launcherIn(all));
+    try std.testing.expectEqual(other, missile.target.slotIn(all));
+    try std.testing.expectEqual(0, state.weapons.ring.armedEntry().count);
+    try std.testing.expect(!state.command.?.weapons.launch_missile);
+    try std.testing.expectEqual(1, all.slots[stage.player].object.fittedRacks()[1].count);
+
+    // Rotation is a single press, and a changed selection cannot use the previous type's lock.
+    try std.testing.expect(state.submit(.{ .weapons = .{ .rotate_missiles = .anticlockwise, .launch_missile = true } }));
+    input.multiplayerControlOrder(ctx, shooter);
+    try std.testing.expectEqual(missiles.Type.of(.raptor), state.weapons.ring.armedEntry().type);
+    try std.testing.expectEqual(1, stage.armed.live());
+    try std.testing.expectEqual(null, state.command.?.weapons.rotate_missiles);
 }

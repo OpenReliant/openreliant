@@ -1513,7 +1513,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .shockwaves = drawn_world.shockwaves,
                 .trails = &trails,
                 .countermeasures = drawn_world.countermeasures,
-                .lock = &drawn.display.lock,
+                .lock = &drawn.objects.player_states[drawn.objects.player].weapons.lock,
                 .lock_rings = lock_rings,
                 .chase = chase_objects,
                 .display = &display.drawing,

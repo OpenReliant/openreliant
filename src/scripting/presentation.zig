@@ -716,9 +716,9 @@ test "a display stands in for the game's instruments and reads what they show" {
     var state: hud.State = .{};
     var hud_drawing: hud.Drawing = .{};
     state.radar_range = 1;
-    state.missiles.entries[0] = .{ .count = 2, .type = .of(.screamer) };
-    state.missiles.entries[1] = .{ .count = 4, .type = .of(.raptor) };
-    state.missiles.armed = 1;
+    fixture.mission.objects.player_states[0].weapons.ring.entries[0] = .{ .count = 2, .type = .of(.screamer) };
+    fixture.mission.objects.player_states[0].weapons.ring.entries[1] = .{ .count = 4, .type = .of(.raptor) };
+    fixture.mission.objects.player_states[0].weapons.ring.armed = 1;
     state.windows.status.getPtr(.gunnery).phase = .open;
     state.target = .{ .target = .at(0, 3), .slot = 0, .reference = .of(fixture.mission.objects, 0) };
     hud_drawing.bounds.set(.radar, .{ .left = 1, .top = 2, .right = 30, .bottom = 40 });
@@ -1123,9 +1123,9 @@ test "a display reads what flashes, the charges, and how far the windows and the
     // The radar's rings two steps out from the closest range's.
     state.radar_rings = hud.Radar.range_rings[0] + 2;
     // A Screamer one place round from the armed Raptor.
-    state.missiles.entries[0] = .{ .count = 2, .place = 1, .type = .of(.screamer) };
-    state.missiles.entries[1] = .{ .count = 4, .place = 0, .type = .of(.raptor) };
-    state.missiles.armed = 1;
+    fixture.mission.objects.player_states[0].weapons.ring.entries[0] = .{ .count = 2, .place = 1, .type = .of(.screamer) };
+    fixture.mission.objects.player_states[0].weapons.ring.entries[1] = .{ .count = 4, .place = 0, .type = .of(.raptor) };
+    fixture.mission.objects.player_states[0].weapons.ring.armed = 1;
     // The gunnery window half open, and the comms' second window open.
     state.windows.status.set(.gunnery, .{ .phase = .opening, .progress = @divExact(hud.windows.opening_ticks, 2) });
     state.windows.status.set(.other_comms, .{ .phase = .open, .progress = hud.windows.opening_ticks });

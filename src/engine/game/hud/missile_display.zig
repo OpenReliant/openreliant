@@ -61,14 +61,6 @@ pub const Ring = struct {
     armed: u16 = 0,
     /// `player_missiles_left` (`0x0052A400`): the entries' counts together, which nothing reads.
     left: i32 = 0,
-    /// `0x00569978`: until when Betty says no more that the armed missile has run out, as a launch
-    /// is refused for want of a lock.
-    empty_warned_until: u32 = 0,
-    /// Whether the voice Betty last said a missile's name on is kept (`missile_name_voice`,
-    /// `0x00566660`, `hog_snd.commands.Kept.missile_name`). `0x0057BF3C` counts 150 ticks from
-    /// then, and nothing reads it.
-    name_kept: bool = false,
-
     /// `hud_missile_ring_build`: an entry for each missile type the ship's racks hold, but the fuel
     /// pod, in the order its racks first come, with the missiles of all its racks; the middle entry
     /// armed, those before it round the ring from it one way and those after it the other.
@@ -104,6 +96,19 @@ pub const Ring = struct {
         for (ring.entries) |entry| ring.left += entry.left() orelse continue;
     }
 
+    /// Follow the host's racks without changing the selected type or ring order.
+    pub fn refreshCounts(ring: *Ring, object: *const gameobj.GameObject) void {
+        ring.left = 0;
+        for (&ring.entries) |*entry| {
+            if (entry.left() == null) continue;
+            entry.count = 0;
+            for (object.fittedRacks()) |rack| {
+                if (rack.type == entry.type) entry.count +|= std.math.lossyCast(i16, @max(rack.count, 0));
+            }
+            ring.left += entry.count;
+        }
+    }
+
     pub fn armedEntry(ring: *Ring) *Entry {
         return &ring.entries[ring.armed];
     }
@@ -133,13 +138,13 @@ pub const Ring = struct {
 
     /// After a turn, asks for Betty to say the armed missile's name, where it is live, ending what
     /// she said last (`missile_name_voice`, `0x00566660`).
-    pub fn sayName(ring: *Ring, asked: *hog_snd.commands.Commands) void {
-        const armed = ring.armedEntry();
+    pub fn sayName(ring: *const Ring, name_kept: *bool, asked: *hog_snd.commands.Commands) void {
+        const armed = ring.entries[ring.armed];
         if (armed.left() == null) return;
         const name = bettyName(armed.type) orelse return;
-        if (ring.name_kept) asked.add(.{ .ended = .missile_name });
+        if (name_kept.*) asked.add(.{ .ended = .missile_name });
         asked.add(.{ .sample = .{ .bank = .betty, .index = @backingInt(name), .kept = .missile_name } });
-        ring.name_kept = true;
+        name_kept.* = true;
     }
 };
 

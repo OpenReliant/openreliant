@@ -66,10 +66,6 @@ pub const Lock = struct {
     type: missiles.Type = .none,
     /// Where the rings close in on (`0x0057DFC8`): the target's node, while the lock holds.
     point: Vector = @splat(0),
-    /// Whether the locked tone's voice is kept (`missile_lock_tone`, `0x00566644`,
-    /// `hog_snd.commands.Kept.lock_tone`).
-    tone_kept: bool = false,
-
     /// `lock_rings_init` (`0x004911D0`), as a mission runs: no lock.
     pub fn reset(lock: *Lock) void {
         lock.phase = .idle;
@@ -95,23 +91,28 @@ pub const Lock = struct {
     ///
     /// Not ported: in a multiplayer game, the power-up a lock needs
     /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
-    pub fn frame(lock: *Lock, world: gameobj.World, ring: *missile_display.Ring) void {
-        const entry = ai.playerControlEntry(world.objects) orelse return;
+    pub fn frame(lock: *Lock, world: gameobj.World, ring: *const missile_display.Ring) void {
+        lock.advance(world, world.objects.player, ring);
+    }
+
+    /// Advances the lock for one ship at the game frame's usual lock update.
+    pub fn advance(lock: *Lock, world: gameobj.World, index: u16, ring: *const missile_display.Ring) void {
+        const entry = ai.controlEntry(world.objects, index) orelse return;
         const elapsed = world.clock.frame_duration;
         // The target the lock holds on, which `same` keeps the one it began on.
         const aimed: ai.ValidTarget = switch (lock.phase) {
             .idle => held: {
                 lock.count = idle_count;
-                const valid = possible(world, ring, entry.target.resolve(world.objects)) orelse return;
+                const valid = possibleFor(world, index, ring, entry.target.resolve(world.objects)) orelse return;
                 lock.phase = .closing;
                 lock.target = entry.target;
                 lock.turn = 0;
-                lock.type = ring.armedEntry().type;
+                lock.type = ring.entries[ring.armed].type;
                 lock.ticks = -world.objects.missile_stats.of(lock.type).?.lock_time;
                 break :held valid;
             },
             .closing => held: {
-                const valid = lock.holds(world, ring, entry.target) orelse return lock.lose();
+                const valid = lock.holds(world, index, ring, entry.target) orelse return lock.lose();
                 lock.count -= elapsed;
                 lock.ticks += elapsed;
                 if (lock.count <= 0) {
@@ -121,13 +122,13 @@ pub const Lock = struct {
                 break :held valid;
             },
             .waiting => held: {
-                const valid = lock.holds(world, ring, entry.target) orelse return lock.lose();
+                const valid = lock.holds(world, index, ring, entry.target) orelse return lock.lose();
                 lock.ticks += elapsed;
                 if (lock.ticks >= 0) lock.phase = .locked;
                 break :held valid;
             },
             .locked => held: {
-                const valid = lock.holds(world, ring, entry.target) orelse return lock.lose();
+                const valid = lock.holds(world, index, ring, entry.target) orelse return lock.lose();
                 lock.ticks += elapsed;
                 break :held valid;
             },
@@ -143,17 +144,17 @@ pub const Lock = struct {
     }
 
     /// The target, checked, where the lock may go on: still `possible`, and `same`.
-    fn holds(lock: *const Lock, world: gameobj.World, ring: *missile_display.Ring, target: aigeneric.Aim) ?ai.ValidTarget {
-        const valid = possible(world, ring, target.resolve(world.objects)) orelse return null;
+    pub fn holds(lock: *const Lock, world: gameobj.World, index: u16, ring: *const missile_display.Ring, target: aigeneric.Aim) ?ai.ValidTarget {
+        const valid = possibleFor(world, index, ring, target.resolve(world.objects)) orelse return null;
         return if (lock.same(world.objects, ring, target)) valid else null;
     }
 
     /// `missile_lock_same` (`0x004914D0`): whether the player's target, its component and the armed
     /// type are still those the lock began on. Turning the ring loses the lock.
-    fn same(lock: *const Lock, all: *const create.Objects, ring: *missile_display.Ring, target: aigeneric.Aim) bool {
+    fn same(lock: *const Lock, all: *const create.Objects, ring: *const missile_display.Ring, target: aigeneric.Aim) bool {
         const current = target.resolve(all);
         const held = lock.target.resolve(all);
-        return current.index == held.index and current.component == held.component and ring.armedEntry().type == lock.type;
+        return current.index == held.index and current.component == held.component and ring.entries[ring.armed].type == lock.type;
     }
 
     fn lose(lock: *Lock) void {
@@ -163,28 +164,33 @@ pub const Lock = struct {
         }
         lock.phase = .lost;
     }
+};
+
+/// The HUD owns the voice. The lock can advance without a display or sound.
+pub const Tone = struct {
+    kept: bool = false,
 
     /// `hud_draw`'s tone (`0x004844E6`): once locked, in the view ahead from the cockpit, the
     /// locked tone plays twice over (`stdsmp` 0x15), its voice held; out of that view, or once the
     /// lock is lost, its voice is ended, whatever plays on it by then. The game asks for it again
     /// each frame until it gets a voice; OpenReliant's game frames ask once, and the tone waits
     /// for a voice (`hog_snd.commands.Sample.waits`).
-    pub fn sound(lock: *Lock, asked: *hog_snd.commands.Commands, view: camera.View) void {
+    pub fn sound(tone: *Tone, locked: bool, asked: *hog_snd.commands.Commands, view: camera.View) void {
         const ahead = view == .cockpit;
-        if (lock.locked()) {
-            if (lock.tone_kept) {
-                if (!ahead) lock.endTone(asked);
+        if (locked) {
+            if (tone.kept) {
+                if (!ahead) tone.endTone(asked);
                 return;
             }
             if (!ahead) return;
             asked.add(.{ .sample = .{ .bank = .stdsmp, .index = tone_sample, .loops = tone_plays, .kept = .lock_tone, .held = true, .waits = true } });
-            lock.tone_kept = true;
-        } else if (lock.tone_kept) lock.endTone(asked);
+            tone.kept = true;
+        } else if (tone.kept) tone.endTone(asked);
     }
 
-    fn endTone(lock: *Lock, asked: *hog_snd.commands.Commands) void {
+    fn endTone(tone: *Tone, asked: *hog_snd.commands.Commands) void {
         asked.add(.{ .ended = .lock_tone });
-        lock.tone_kept = false;
+        tone.kept = false;
     }
 };
 
@@ -200,12 +206,17 @@ const tone_plays = 2;
 /// Screamer; and the target's node lies within the type's lock range of where the ship goes next,
 /// within 0.7 of its nose.
 pub fn possible(world: gameobj.World, ring: *missile_display.Ring, target: aigeneric.Target) ?ai.ValidTarget {
+    return possibleFor(world, world.objects.player, ring, target);
+}
+
+fn possibleFor(world: gameobj.World, index: u16, ring: *const missile_display.Ring, target: aigeneric.Target) ?ai.ValidTarget {
     const all = world.objects;
-    const armed = ring.armedEntry();
-    if (armed.count < 1 and !guiding(all)) return null;
+    const armed = ring.entries[ring.armed];
+    if (armed.count < 1 and !guidingFor(all, index)) return null;
     if (armed.type.base() == .solomon) return null;
     const aimed = ai.ValidTarget.of(all, target, .{}) orelse return null;
-    const ship = &all.slots[all.player].object;
+    if (aimed.slot == index and index != all.player) return null;
+    const ship = &all.slots[index].object;
     if (ship.flags.missiles_disabled) return null;
     if (all.slots[aimed.slot].object.side != .hostile) return null;
     if (armed.type.base() == .screamer) return null;
@@ -216,10 +227,14 @@ pub fn possible(world: gameobj.World, ring: *missile_display.Ring, target: aigen
 /// `player_missile_guiding` (`0x004AF190`): whether a missile the player launched still flies at
 /// a target.
 pub fn guiding(all: *create.Objects) bool {
+    return guidingFor(all, all.player);
+}
+
+fn guidingFor(all: *create.Objects, owner: u16) bool {
     var walk = all.missiles.walk();
     while (walk.next()) |index| {
         const missile = all.missiles.get(index) orelse continue;
-        if (missile.launcher.resolve(all) == all.player and missile.target.resolve(all).slot() != null) return true;
+        if (missile.launcher.resolve(all) == owner and missile.target.resolve(all).slot() != null) return true;
     }
     return false;
 }
@@ -443,35 +458,36 @@ test "Lock.sound" {
     const asked = &speaker.asked;
     var lock: Lock = .{};
     const kept = &asked.kept;
+    var tone: Tone = .{};
 
     // No tone before the lock, nor once locked in any view but the one ahead.
-    lock.sound(asked, .cockpit);
+    tone.sound(lock.locked(), asked, .cockpit);
     speaker.heard();
-    try std.testing.expect(!lock.tone_kept);
+    try std.testing.expect(!tone.kept);
     lock.phase = .locked;
-    lock.sound(asked, .cockpit_left);
+    tone.sound(lock.locked(), asked, .cockpit_left);
     speaker.heard();
-    try std.testing.expect(!lock.tone_kept);
+    try std.testing.expect(!tone.kept);
     // Locked, from the view ahead, it plays on a voice held for it, and only once.
-    lock.sound(asked, .cockpit);
+    tone.sound(lock.locked(), asked, .cockpit);
     speaker.heard();
     const voice = kept.get(.lock_tone).voice.?;
     try std.testing.expectEqual(1, player.voices[voice].held);
-    lock.sound(asked, .cockpit);
+    tone.sound(lock.locked(), asked, .cockpit);
     try std.testing.expectEqual(0, asked.list.items.len);
     // Out of that view, its voice is let go.
-    lock.sound(asked, .chase);
+    tone.sound(lock.locked(), asked, .chase);
     speaker.heard();
-    try std.testing.expect(!lock.tone_kept);
+    try std.testing.expect(!tone.kept);
     try std.testing.expectEqual(0, player.voices[voice].held);
     // And likewise once the lock is lost.
-    lock.sound(asked, .cockpit);
+    tone.sound(lock.locked(), asked, .cockpit);
     speaker.heard();
     try std.testing.expect(kept.get(.lock_tone).voice != null);
     lock.phase = .lost;
-    lock.sound(asked, .cockpit);
+    tone.sound(lock.locked(), asked, .cockpit);
     speaker.heard();
-    try std.testing.expect(!lock.tone_kept);
+    try std.testing.expect(!tone.kept);
     try std.testing.expectEqual(null, kept.get(.lock_tone).voice);
 }
 
