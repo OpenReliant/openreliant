@@ -455,8 +455,7 @@ pub const MissionRecord = struct {
     /// flown, nor for the campaign's last mission, which leads to the story's end first
     /// (`0x00475B43`).
     rating: ?vm.Variables.Outcome = null,
-    /// The pilot's kills in it, one a ship (`mission_kills`, `0x00562E64`;
-    /// `input.Player.Kills.mission`).
+    /// Ships the pilot destroyed during this mission (`mission_kills`, 0x00562E64).
     kills: u16 = 0,
     /// The campaign's pickups so far, where a nanny ship picked the ejected pilot up in it
     /// (`mission_pickups`, `0x00562E9C`): 1 or 2, and 0 where none did.
@@ -505,7 +504,7 @@ pub fn endMission(player: *input.Player, variables: *vm.Variables, mission: u16,
     variables.last_success = rating;
     if (campaign) |going| if (campaignField(mission, .chapter)) |ribbon| going.ribbons.set(ribbon - 1);
     const promoted = promote(player);
-    player.kills.kept = player.kills.count;
+    player.kept_kills = player.kills.count;
     const record = if (campaign) |going| going.record(mission) else null;
     if (record) |kept| {
         if (promoted) |rank| kept.promotion = rank;
@@ -728,7 +727,7 @@ pub const CampaignMission = struct {
         ripper_from_below: bool = false,
         /// The advanced warp gates' tunnels are as wide as the prototype's (`wgate`).
         wide_advanced_gate: bool = false,
-        /// The player's kills count toward the mission's tally (`deathmatch.addKills`).
+        /// Whether a credited destruction adds one to the pilot's mission tally.
         counts_kills: bool = false,
         /// Where the Yamato is lost (`yamato_alive` clear), no landing plays after the mission, and
         /// a total failure ends the pilot's career in the shuttle at Fort Bear
@@ -1195,7 +1194,7 @@ pub fn promote(player: *input.Player) ?Rank {
 
 test endMission {
     var wingmen: pilots.Wingmen = .{};
-    var player: input.Player = .{ .kills = .{ .count = 40, .kept = 2, .mission = 7 } };
+    var player: input.Player = .{ .kills = .{ .count = 40, .mission = 7 }, .kept_kills = 2 };
     var variables: vm.Variables = .{ .mission_success = .success };
     var campaign: Campaign = .begin();
     campaign.mission = 5;
@@ -1203,10 +1202,10 @@ test endMission {
     // promoted, and the campaign stays where it is.
     player.ending = .destroyed;
     try std.testing.expectEqual(null, endMission(&player, &variables, 5, 0, &campaign, &wingmen));
-    try std.testing.expectEqual(2, player.kills.kept);
+    try std.testing.expectEqual(2, player.kept_kills);
     player.ending = .captured;
     try std.testing.expectEqual(null, endMission(&player, &variables, 5, 0, &campaign, &wingmen));
-    try std.testing.expectEqual(2, player.kills.kept);
+    try std.testing.expectEqual(2, player.kept_kills);
     try std.testing.expectEqual(0, player.rank);
     try std.testing.expectEqual(MissionRecord{}, campaign.kept(5));
     try std.testing.expectEqual(5, campaign.mission);
@@ -1214,7 +1213,7 @@ test endMission {
     player.ending = .rescued;
     variables.mission_success = .total_failure;
     try std.testing.expectEqual(null, endMission(&player, &variables, 5, 0, &campaign, &wingmen));
-    try std.testing.expectEqual(2, player.kills.kept);
+    try std.testing.expectEqual(2, player.kept_kills);
     try std.testing.expectEqual(.total_failure, player.ending);
     // Picked up, they are kept, 40 kills make the pilot's rank 1, and the campaign goes on; the
     // record keeps the rating, the mission's kills and the promotion.
@@ -1223,7 +1222,7 @@ test endMission {
     try std.testing.expectEqual(Record{ .next = 6, .tier = 0 }, endMission(&player, &variables, 5, 0, &campaign, &wingmen).?);
     // Mission 6's stretch brings Diceman in as Alpha 5.
     try std.testing.expectEqual(0x78, wingmen.alpha[4]);
-    try std.testing.expectEqual(40, player.kills.kept);
+    try std.testing.expectEqual(40, player.kept_kills);
     try std.testing.expectEqual(1, player.rank);
     try std.testing.expectEqual(.failure, variables.last_success);
     try std.testing.expectEqual(MissionRecord{ .rating = .failure, .kills = 7, .promotion = 1 }, campaign.kept(5));

@@ -25,7 +25,7 @@ Host-managed participants use the lifecycle below.
 | Shield recharge | `object_recharge_shields` (`0x00476FC0`) runs for all objects, but applies the reserve globals only to the local ship | Each player's recharge uses their own reserves; ordinary ships recharge without reserves |
 | Flight controls | `player_controls` (`0x00413410`) reads local devices and control globals | Local input produces flight commands; each participant has separate control state |
 | Remote control order | `order_multiplayer_control` (`0x00414F70`) sets `disabled` when `sent_off` is set | Keeps that check, then applies the participant's commands without reading local devices |
-| Kills and deaths | `kills_add` (`0x004B14F0`) and `deaths_add` (`0x004B1580`) update local globals and per-slot counters at `0x005DB684` and `0x005DB688`, with a `0x3C` stride | Participant mission state and lifecycle follow in [#1367](https://github.com/OpenReliant/openreliant/issues/1367) |
+| Kills and deaths | `kills_add` (`0x004B14F0`) and `deaths_add` (`0x004B1580`) update local globals and per-slot counters at `0x005DB684` and `0x005DB688`, with a `0x3C` stride | The host keeps individual kills for each admission. Arena eligibility, deaths and team scores follow in [#1398](https://github.com/OpenReliant/openreliant/issues/1398) |
 
 `simulation_step` (`0x004774D0`) reads devices every fourth tick and updates every object's nodes,
 shields and guns. It runs an extra Player Control update for the local ship before movement.
@@ -138,12 +138,31 @@ pilot's binding. The host keeps each warning's state and runs the `radio_say` ho
 radio applies the checks and deadlines for each type of line. See [Radio remarks](radio.md#remarks)
 and [Friendly fire](orders.md#friendly-fire).
 
+## Kill credit
+
+`explode_kill_credit` (0x00408500) calls `kills_add` (0x004B14F0) before the radio remark.
+The original adds the award to the pilot's row. It also increments the local mission tally
+once per destruction in campaign missions 0 to 27. OpenReliant reads this rule from the
+installed mission record (`counts_kills`).
+
+**Improvement:** the host credits the admission and ship that owned the last damage source.
+Co-op pilots get credit even when their channels are closed or the host has no radio.
+The cockpit skull and the existing `hud.kills` script field show the displayed pilot's total.
+A replacement ship keeps both counts. A new mission clears the mission count, and a new
+admission starts both counts at zero. Co-op saves and profile loading are tracked in
+[#475](https://github.com/OpenReliant/openreliant/issues/475) and [#804](https://github.com/OpenReliant/openreliant/issues/804).
+
+In team arenas the original compares the pilots' teams at 0x0040858E before awarding a kill.
+It keeps separate kill and death totals for four teams and reports the local pilot's totals
+in message 0x3B (0x004B9F20). Host-owned arena scoring is tracked in
+[#1398](https://github.com/OpenReliant/openreliant/issues/1398).
+
 ## Remaining work
 
 The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/955).
 
 - [#1367](https://github.com/OpenReliant/openreliant/issues/1367): scanner, mission ending,
-  participant tallies and game mode rules for ship disposition and respawn.
+  participant outcomes and game mode rules for ship disposition and respawn.
 - [#1368](https://github.com/OpenReliant/openreliant/issues/1368): wingman loss, target feedback,
   device notifications and the remaining local combat rules.
 - [#1395](https://github.com/OpenReliant/openreliant/issues/1395): co-op friendly-fire recall and

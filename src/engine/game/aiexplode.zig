@@ -359,13 +359,14 @@ fn shipInit(ctx: Context, index: u16) void {
 /// channel setting to the kill remark.
 pub fn killCredit(world: gameobj.World, index: u16) void {
     const channels_open = world.player.remarks.kill_credit;
-    if (!channels_open and world.damage_rules != .cooperative) return;
+    if (!channels_open and world.damage_rules == .campaign) return;
     const all = world.objects;
     const slot = &all.slots[index];
     const object = &slot.object;
     const flags = object.flags;
     object.flags.exploding = false;
     defer object.flags = flags;
+    // Arena player targets and same-team kills follow in #1398.
     if (object.side == .hostile and credited(slot)) deathmatch.creditDestruction(world, index, .open_only);
     if (channels_open and object.wing == .player) radio.shipLost(world, index);
 }

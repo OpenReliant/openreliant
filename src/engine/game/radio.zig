@@ -2255,17 +2255,21 @@ test "hosted kill remarks keep the shooter, idle check and line deadlines" {
 
     const Notice = collision.HitFeedback.Addressed;
     const Recorded = struct {
+        all: *const create.Objects,
+        kills_at_notice: [2]i32 = undefined,
         lines: [2]Notice = undefined,
         count: usize = 0,
 
         fn enqueue(context: *anyopaque, notice: Notice) void {
             if (notice.effect != .kill_remarks) return;
             const recorded: *@This() = @ptrCast(@alignCast(context));
+            const state = &recorded.all.player_states[notice.recipient.participant.slot];
+            recorded.kills_at_notice[recorded.count] = state.membership.joined.kills.count;
             recorded.lines[recorded.count] = notice;
             recorded.count += 1;
         }
     };
-    var recorded: Recorded = .{};
+    var recorded: Recorded = .{ .all = all };
     host.hit_feedback = .{ .context = &recorded, .enqueue = Recorded.enqueue };
     host.player.remarks.kill_credit = false;
     const other = try mission.add(.of(.sabre), .{ 0, 0, 3000 });
@@ -2282,6 +2286,7 @@ test "hosted kill remarks keep the shooter, idle check and line deadlines" {
     aiexplode.killCredit(host, other);
     aiexplode.killCredit(host, other);
     try std.testing.expectEqual(2, recorded.count);
+    try std.testing.expectEqual([2]i32{ 1, 1 }, recorded.kills_at_notice);
     try std.testing.expectEqual(second_binding, recorded.lines[0].recipient);
     try std.testing.expectEqual(first_binding, recorded.lines[1].recipient);
     try std.testing.expectEqual(50 + kill_wait, all.playerState(first).?.kill_remark_next);
@@ -2320,6 +2325,7 @@ test "hosted kill remarks keep the shooter, idle check and line deadlines" {
     aiexplode.killCredit(host, other);
     try std.testing.expectEqual(2, recorded.count);
     try std.testing.expectEqual(0, all.playerState(second).?.kill_remark_next);
+    try std.testing.expectEqual(0, all.playerState(second).?.membership.joined.kills.count);
 }
 
 test "hosted combat taunts follow each pilot's cooldown and radio" {

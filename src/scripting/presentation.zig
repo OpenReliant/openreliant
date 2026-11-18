@@ -716,6 +716,8 @@ test "a display stands in for the game's instruments and reads what they show" {
     var state: hud.State = .{};
     var hud_drawing: hud.Drawing = .{};
     state.radar_range = 1;
+    _ = fixture.mission.objects.joinParticipant(0).?;
+    fixture.mission.objects.player_states[0].membership.joined.kills.count = 7;
     fixture.mission.objects.player_states[0].weapons.ring.entries[0] = .{ .count = 2, .type = .of(.screamer) };
     fixture.mission.objects.player_states[0].weapons.ring.entries[1] = .{ .count = 4, .type = .of(.raptor) };
     fixture.mission.objects.player_states[0].weapons.ring.armed = 1;
@@ -724,7 +726,7 @@ test "a display stands in for the game's instruments and reads what they show" {
     hud_drawing.bounds.set(.radar, .{ .left = 1, .top = 2, .right = 30, .bottom = 40 });
     hud_drawing.part_bounds.set(.radio_speaker, .{ .left = 5, .top = 6, .right = 50, .bottom = 16 });
     var player: input.Player = .{};
-    player.kills.count = 7;
+    player.kills.count = 12;
     var view: engine.game.camera.Camera = .{};
     var viewing: engine.game.camera.Viewing = .{};
     var strings_table: [2][]const u8 = .{ "", "Moose" };

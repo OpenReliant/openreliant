@@ -535,12 +535,12 @@ test afterMission {
 /// record keeps them, `kept`. In the game, the restart point it saves before each attempt and
 /// loads for a replay holds them (`skull_count`, `mission_kills`; `restart_save`, `0x004AA3FC`).
 pub fn startMission(player: *input.Player, kept: u16) void {
-    player.kills.count = player.kills.kept;
+    player.kills.count = player.kept_kills;
     player.kills.mission = kept;
 }
 
 test startMission {
-    var player: input.Player = .{ .kills = .{ .count = 9, .kept = 4, .mission = 5 } };
+    var player: input.Player = .{ .kills = .{ .count = 9, .mission = 5 }, .kept_kills = 4 };
     startMission(&player, 0);
     try std.testing.expectEqual(4, player.kills.count);
     try std.testing.expectEqual(0, player.kills.mission);
