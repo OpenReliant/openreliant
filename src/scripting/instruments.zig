@@ -527,8 +527,9 @@ pub const countermeasures = api.Field(?i32, "The countermeasures the coil readou
 
 /// The number `which` shows; null outside a mission.
 fn readout(call: Call, which: hud.Readout) ?i32 {
-    const flight, const slot = flightOf(call) orelse return null;
-    return which.value(slot, flight.player);
+    const flight, _ = flightOf(call) orelse return null;
+    const all = call.runtime().objects orelse return null;
+    return which.value(all, flight.player);
 }
 
 pub const gauges = api.Field(?Gauges, "The targeting cluster about the middle of the screen, as it shows the player's speed, throttle and guns; nil outside a mission.", struct {

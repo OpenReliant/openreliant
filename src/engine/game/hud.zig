@@ -2958,8 +2958,7 @@ pub const Readout = enum {
     /// The seconds of afterburner fuel left, `afterburner_fuel` being in ticks, under a ship with
     /// its engines burning.
     fuel,
-    /// The pilot's kills over the campaign, `skull_count` (`0x00562DF4`, `input.Player.Kills`),
-    /// under a skull and crossbones.
+    /// The displayed pilot's kills (`skull_count`, 0x00562DF4), under a skull and crossbones.
     skull,
     /// The countermeasures left, the object's `countermeasures`, under a coil. `ShowHudIcon` can
     /// flash it (`Drawing.shows`).
@@ -3006,11 +3005,16 @@ pub const Readout = enum {
         };
     }
 
-    /// The number the readout shows for the player's ship of `slot`, flown by `player`.
-    pub fn value(readout: Readout, slot: *const create.Slot, player: *const input.Player) i32 {
+    /// The number shown in the displayed pilot's cockpit.
+    pub fn value(readout: Readout, all: *const create.Objects, player: *const input.Player) i32 {
+        const slot = &all.slots[all.player];
         return switch (readout) {
             .fuel => @divTrunc(slot.object.afterburner_fuel, main.ticks_per_second),
-            .skull => player.kills.count,
+            .skull => switch (all.player_states[all.player].membership) {
+                .local_rules => player.kills.count,
+                .joined => |joined| joined.kills.count,
+                .vacant => 0,
+            },
             .coil => slot.object.countermeasures,
         };
     }
@@ -4075,7 +4079,7 @@ pub const State = struct {
             const shown = drawing.shows(state, readout, frame_duration);
             if (readout == .coil) drawing.flashes.countermeasures = shown;
             if (!shown) continue;
-            try readout.draw(placing.pen(pen, readout.instrument()), readout.value(slot, frame.player));
+            try readout.draw(placing.pen(pen, readout.instrument()), readout.value(frame.all, frame.player));
         }
         const hits: NewHits = .{ .counts = &state.events.ship_hits, .seen = &drawing.ship_hits };
         const status = ShipStatus.ofPlayer(slot, frame.all.rules().kamov_wing, hits, frame.all.localPlayerState().shield_reserves);
@@ -5585,8 +5589,8 @@ test "what the instruments show, worked out without drawing" {
     slot.object.afterburner_fuel = 3 * main.ticks_per_second + 1;
     var player: input.Player = .{};
     player.kills.count = 4;
-    try std.testing.expectEqual(3, Readout.fuel.value(slot, &player));
-    try std.testing.expectEqual(4, Readout.skull.value(slot, &player));
+    try std.testing.expectEqual(3, Readout.fuel.value(mission.objects, &player));
+    try std.testing.expectEqual(4, Readout.skull.value(mission.objects, &player));
     // The view's name in a view the display names, and none in the view ahead.
     try std.testing.expectEqual(null, viewName(.cockpit));
     try std.testing.expectEqual(camera.View.chase.name(), viewName(.chase));

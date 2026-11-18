@@ -519,6 +519,7 @@ pub const Game = struct {
         game.player.rank = 0;
         game.tier.* = 0;
         game.player.kills = .{};
+        game.player.kept_kills = 0;
         game.saved.* = .{};
     }
 
@@ -585,7 +586,7 @@ pub const Game = struct {
         game.player.rank = miss.pilotRank();
         game.tier.* = miss.campaignTier();
         game.player.kills.count = miss.kills;
-        game.player.kills.kept = miss.kills;
+        game.player.kept_kills = miss.kills;
         campaign.mp_deaths = miss.mp_deaths;
         campaign.medals = .empty;
         for (miss.medals, 1..) |flag, medal| if (flag != 0) campaign.medals.insert(@fromBackingInt(@intCast(medal)));
@@ -902,7 +903,8 @@ test Game {
     campaign.variables.slot(33).* = 9;
     campaign.variables.slot(2).* = 4;
     state.player.rank = 1;
-    state.player.kills = .{ .count = 40, .kept = 40 };
+    state.player.kills = .{ .count = 40 };
+    state.player.kept_kills = 40;
     state.tier = 1;
     state.pilot.call_sign.set("Ace");
     state.pilot.female = true;
@@ -949,7 +951,8 @@ test Game {
     try std.testing.expect(other.pilot.female);
     try std.testing.expectEqual(.hard, other.pilot.difficulty);
     try std.testing.expectEqual(1, other.player.rank);
-    try std.testing.expectEqual(input.Player.Kills{ .count = 40, .kept = 40 }, other.player.kills);
+    try std.testing.expectEqual(40, other.player.kills.count);
+    try std.testing.expectEqual(40, other.player.kept_kills);
     try std.testing.expectEqual(1, other.tier);
     try std.testing.expect(!other.campaign.medals.contains(.silver) and other.campaign.medals.contains(.black_eagle));
     try std.testing.expectEqualDeep(campaign.records, other.campaign.records);
@@ -971,6 +974,7 @@ test Game {
     cleared.game().clearPilot();
     try std.testing.expectEqual(0, cleared.player.rank);
     try std.testing.expectEqual(0, cleared.player.kills.count);
+    try std.testing.expectEqual(0, cleared.player.kept_kills);
     try std.testing.expectEqual(0, cleared.tier);
     try std.testing.expectEqual(null, cleared.saved.racks[2]);
 
@@ -1004,7 +1008,8 @@ test autosave {
 test restartLoad {
     var state: TestGame = .{};
     state.campaign.mission = 5;
-    state.player.kills = .{ .count = 12, .kept = 12 };
+    state.player.kills = .{ .count = 12 };
+    state.player.kept_kills = 12;
     const point = state.game().capture(restart_name);
     // The attempt changes the game and the loadout's choice; the restart point puts back the game
     // but keeps the choice.

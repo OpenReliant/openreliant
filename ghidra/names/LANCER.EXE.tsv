@@ -3084,3 +3084,10 @@ address	kind	name	type	comment
 0052a1e4	data	vm_clock_timer	void *	The timer vm_clock_start starts for vm_clock_tick, which timer_callback passes over while the editor holds the script
 005db684	data	mp_first_player_kills	int	The first player slot's kill count, updated by kills_add; the next player's counter is 0x3C bytes later
 005db688	data	mp_first_player_deaths	int	The first player slot's death count, updated by deaths_add; the next player's counter is 0x3C bytes later
+0050c2f8	data	mp_team_game	bool	Enables arena team rules, including the same-team kill check and team scoring
+005dae30	data	mp_player_teams	int[8]	The team assigned to each of the eight player slots, or -1 for an empty slot
+005d76fc	data	mp_team_kills	int[4]	The four arena teams' kill counts, updated by kills_add
+005d76dc	data	mp_team_deaths	int[4]	The four arena teams' death counts, updated by deaths_add
+004b15e0	function	mp_reset_team_tallies	void __fastcall (int team)	Clears the kill and death counts for one arena team
+004b1600	function	mp_player_is_opponent	int __fastcall (int slot)	Returns 1 in a free-for-all or when the slot belongs to a different team from the local pilot
+004b9f20	function	mp_report_local_tallies	void __cdecl (void)	Writes the local pilot's kill and death counts as two 32-bit values in multiplayer message 0x3B

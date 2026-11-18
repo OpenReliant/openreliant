@@ -1532,7 +1532,10 @@ pub const Player = struct {
     /// The mission's odds of how the pilot fares after ejecting.
     rescue_odds: @import("game/aieject.zig").RescueOdds = .{},
     /// The pilot's kills over the whole campaign.
-    kills: Kills = .{},
+    kills: players.Kills = .{},
+    /// `skull_count_kept` (0x00562D24) holds the total from the last completed mission.
+    /// Starting a mission restores it, discarding kills from a failed attempt.
+    kept_kills: i32 = 0,
     /// `pilot_rank` (`0x00562DEC`): the pilot's rank, from 0, which the end of a mission the pilot
     /// comes through raises by the kills (`gameflow.promote`), and which with the campaign's tier
     /// sets how many ships the loadout offers. A new pilot starts at 0 (`campaign_new`,
@@ -1542,21 +1545,6 @@ pub const Player = struct {
     pub fn carrierIn(player: *const Player, all: *const create.Objects) ?u16 {
         return (player.carrier orelse return null).resolve(all);
     }
-
-    /// The pilot's kills over the whole campaign. Only a new pilot starts them again from 0.
-    pub const Kills = struct {
-        /// `skull_count` (`0x00562DF4`), which `deathmatch.addKills` counts and the display's
-        /// skull readout shows.
-        count: i32 = 0,
-        /// `skull_count_kept` (`0x00562D24`): the count as the last mission the pilot came through
-        /// left it (`gameflow.endMission`), which the start of the next puts back
-        /// (`winmain.startMission`), undoing the kills of an attempt that failed.
-        kept: i32 = 0,
-        /// The kills of the mission flown, one a ship, as `kills_add` counts them for a mission of
-        /// the campaign (`mission_kills`, `0x00562E64`), which its record keeps
-        /// (`gameflow.MissionRecord.kills`).
-        mission: u16 = 0,
-    };
 };
 
 /// The factor from joystick axis units to steering input (`0x004DC418`): -1000 to 1000 becomes -1

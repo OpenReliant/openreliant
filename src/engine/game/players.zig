@@ -33,7 +33,21 @@ pub const Membership = union(enum) {
     pub const Joined = struct {
         generation: u64,
         ship: ?gameobj.ObjectRef = null,
+        kills: Kills = .{},
     };
+};
+
+/// The pilot's skull count and their kills in the current mission.
+pub const Kills = struct {
+    count: i32 = 0,
+    mission: u16 = 0,
+
+    /// `kills_add` (0x004B14F0) adds the award to the total. A mission that counts
+    /// kills records one destruction regardless of the size of the award.
+    pub fn add(kills: *Kills, count: i32, counts_mission: bool) void {
+        kills.count += count;
+        if (counts_mission) kills.mission +|= 1;
+    }
 };
 
 /// A participant's simulation state, kept by `create.Objects` beside the simulated ships.
@@ -82,7 +96,10 @@ pub const State = struct {
     }
 
     pub fn resetMission(state: *State) void {
-        if (state.membership == .joined) return state.unbindShip();
+        if (state.membership == .joined) {
+            state.membership.joined.kills.mission = 0;
+            return state.unbindShip();
+        }
         state.shield_reserves = .{};
         state.command = null;
         state.weapons.lock.reset();
@@ -126,6 +143,13 @@ pub const Weapons = struct {
     ring: missile_display.Ring = .{},
     lock: lock.Lock = .{},
 };
+
+test "a kill award counts one destruction in a mission that records kills" {
+    var kills: Kills = .{};
+    kills.add(2, true);
+    kills.add(3, false);
+    try std.testing.expectEqual(Kills{ .count = 5, .mission = 1 }, kills);
+}
 
 test {
     std.testing.refAllDecls(@This());
