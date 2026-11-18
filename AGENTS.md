@@ -9,6 +9,10 @@ add how the maintainer works with an agent.
   away: `make play`, or `zig build --release=safe` and then
   `zig-out/bin/openreliant <game directory>`. Once they are happy with it, run the checks and
   commit.
+- **Game tests.** Run automated game tests muted (`--no-sound`) and in the background, without
+  activating or raising their windows. Set `SDL_WINDOW_ACTIVATE_WHEN_SHOWN=0` and
+  `SDL_WINDOW_ACTIVATE_WHEN_RAISED=0`; on macOS also set `SDL_MAC_BACKGROUND_APP=1`. Audio tests
+  use silent outputs (`SDL_AUDIO_DRIVER=dummy` and `ALSOFT_DRIVERS=null`).
 - **Pull requests.** Push the feature branch and open the pull request when the change is ready.
   The maintainer merges it. See one pull request merged before starting the next feature.
 - **Attribution.** Commits and pull requests carry the maintainer's git identity alone. End commit

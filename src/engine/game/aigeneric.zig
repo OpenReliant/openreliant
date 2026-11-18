@@ -1122,6 +1122,7 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .immediately_set_ship_to_zero_velocity_and_rotation => aifuncs.zeroVelocity(ctx, index),
         .fly_ship_backwards => aifuncs.flyBackwards(ctx, index),
         .player_control => input.playerControlOrder(ctx, index),
+        .multiplayer_control => input.multiplayerControlOrder(ctx, index),
         .explode => aiexplode.update(ctx, index),
         .huuuuuuuge_explosion => aiexplode.huge(ctx, index),
         .eject_player => aieject.player(ctx, index),
@@ -1158,7 +1159,7 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .warp_in => wgate.warp_orders.inUpdate(ctx, index),
         .warp_out => wgate.warp_orders.outUpdate(ctx, index),
         // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
-        .multiplayer_control, .deathmatch_respawn_effect => {},
+        .deathmatch_respawn_effect => {},
         .turns_object_lights_on => aifuncs.lightsOn(ctx, index),
         .turns_object_lights_off => aifuncs.lightsOff(ctx, index),
         .dark_reign_shoot => aifuncs.darkReignShoot(ctx, index),

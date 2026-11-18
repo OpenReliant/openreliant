@@ -126,10 +126,21 @@ pub fn targetPart(all: *const create.Objects, aimed: ValidTarget) ?*const object
     return model.rootChild(child);
 }
 
-/// `player_control_entry` (`0x00402860`): the entry of the player's orders that is Player Control,
-/// which holds the player's target, or null for none.
+/// `player_control_entry` (`0x00402860`): the local player's control order, which holds the
+/// selected target, or null for none. OpenReliant also accepts Multiplayer Control (`controlEntry`).
 pub fn playerControlEntry(all: *create.Objects) ?*aigeneric.OrderState {
-    return all.slots[all.player].firstOrder(.player_control);
+    return controlEntry(all, all.player);
+}
+
+/// OpenReliant's: the participant's control order, which owns its selected target. Keeping the
+/// target in this order avoids a second copy in the participant record.
+pub fn controlEntry(all: *create.Objects, index: u16) ?*aigeneric.OrderState {
+    if (index >= all.slots.len) return null;
+    for (all.slots[index].stack()) |*entry| switch (entry.order) {
+        .player_control, .multiplayer_control => return entry,
+        else => {},
+    };
+    return null;
 }
 
 /// How much further a Turret Flak's shot is led for, over its lifetime (`0x004DC3D8`), and the

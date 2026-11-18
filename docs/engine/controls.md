@@ -8,6 +8,10 @@ qualified-name bindings in `OpenReliantActionKeys`, `OpenReliantActionJoystick` 
 
 How the payload reads the player's keyboard, joystick and mouse, and turns them into the inputs of the [flight model](objects.md#motion). The names below are those `make ghidra-annotate` gives the Ghidra project; [`src/engine/input.zig`](../../src/engine/input.zig) defines the structures.
 
+**Improvement:** local flight input produces device-independent commands. The simulation applies
+the same steering and throttle rules to each [participant's flight state and targets](players.md#flight-commands-and-targets).
+Bindings, inversion and mouse accumulation stay on the input side.
+
 ## Devices
 
 `input_init` (`0x004BCD90`) creates DirectInput 7 and three devices:

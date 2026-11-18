@@ -2825,7 +2825,7 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
         }
         try drawing.drawEjectMarker(state, placing.pen(pen, .eject_marker), frame_duration);
         try drawing.drawScanner(frame.player.scanner.object != null, frame.clock.game_ticks, placing.pen(pen, .scanner));
-        const lit = drawing.lit(state, live, frame.player.matching_speed, frame.multiplayer, frame_duration);
+        const lit = drawing.lit(state, live, frame.all.localPlayerState().controls.matching_speed, frame.multiplayer, frame_duration);
         try drawing.drawLights(state, placing.pen(pen, .lights), lit, frame_duration);
         lock_lit = lit.enemy_lock;
     }
@@ -4777,7 +4777,7 @@ pub fn targetKeys(state: *State, keys: Keys) void {
     }
     for (step_keys) |key| {
         if (!devices.active(key.action, true) or !controlled) continue;
-        if (key.stops_matching) keys.player.matching_speed = false;
+        if (key.stops_matching) all.player_states[all.player].controls.matching_speed = false;
         const found = switch (key.steps) {
             .target => |among| pickTarget(state, all, key.step, among, key.holds, keys.multiplayer),
             .subtarget => subtarget: {
@@ -5130,10 +5130,10 @@ test targetKeys {
 
     // With the display up, the next enemy target steps on, past the friend, the Kamov and the
     // Sabre out of reach, and round; and stops MATCH SPEED.
-    t.mission.player.matching_speed = true;
+    t.mission.objects.player_states[t.mission.objects.player].controls.matching_speed = true;
     t.tap(.next_enemy_target, null);
     try std.testing.expectEqual(@as(i32, ahead), current.resolve(all).index);
-    try std.testing.expect(!t.mission.player.matching_speed);
+    try std.testing.expect(!t.mission.objects.player_states[t.mission.objects.player].controls.matching_speed);
     t.tap(.next_enemy_target, null);
     try std.testing.expectEqual(@as(i32, bomber), current.resolve(all).index);
     t.tap(.previous_enemy_target, null);
