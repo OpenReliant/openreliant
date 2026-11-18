@@ -1615,8 +1615,10 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
     const slot = &all.slots[index];
     const combat = slot.combat orelse return;
     // A queued participant command takes precedence even for slot zero on a headless host.
-    if (all.playerState(index)) |state| if (state.command) |*command| {
-        defer command.consumePresses();
+    if (all.playerCommand(index)) |pending| {
+        const command = pending.*;
+        pending.consumePresses();
+        const state = &all.player_states[index];
         switch (command.target) {
             .keep => {},
             .clear => {
@@ -1630,10 +1632,9 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
         matchSpeedFor(world, index, command.match_speed, if (index == all.player) world.view() else .cockpit);
         applyWeaponCommand(world, index, command.weapons);
         return;
-    };
-    // Remote participants never read this machine's devices. Non-player Player Control orders
-    // keep the original local-input behaviour used by existing missions and mods.
-    if (index < all.players and index != all.player) return;
+    }
+    // Non-player Player Control orders retain their local-input behaviour in single player.
+    if (!all.readsLocalPlayerInput() or (index < all.players and index != all.player)) return;
     const devices = ctx.devices orelse return;
     const state = &all.player_states[all.player];
     playerControls(world.player, &state.controls, &state.shield_reserves, devices, &slot.object, combat, slot.orders[0].data.words[0..2], world.view(), world.clock.frame_duration);
@@ -1649,8 +1650,7 @@ pub fn multiplayerControlOrder(ctx: aigeneric.Context, index: u16) void {
         slot.object.flags.disabled = true;
         return;
     }
-    const state = ctx.world.objects.playerState(index) orelse return;
-    if (state.command != null) playerControlOrder(ctx, index);
+    if (ctx.world.objects.playerCommand(index) != null) playerControlOrder(ctx, index);
 }
 
 /// What `player_controls` (`playerControlOrder`) does with the ship's steering inputs, its
@@ -3472,6 +3472,8 @@ test "participant commands steer either slot without reading local devices" {
         const remote = 1 - local;
         try std.testing.expect(try aigeneric.push(mission.orders(), local, .player_control, .none));
         try std.testing.expect(try aigeneric.push(mission.orders(), remote, .multiplayer_control, .none));
+        const participant = all.joinParticipant(remote).?;
+        const source = all.bindParticipant(participant, .of(all, remote)).?;
         const state = all.playerState(remote).?;
         state.controls.throttle = 0.25;
         all.playerState(local).?.controls.matching_speed = true;
@@ -3483,7 +3485,7 @@ test "participant commands steer either slot without reading local devices" {
         var world = mission.world();
         world.display = &display;
         const ctx: aigeneric.Context = .{ .world = world, .devices = &devices };
-        try std.testing.expect(state.submit(.{
+        try std.testing.expect(all.submitPlayerCommand(source, .{
             .flight = .{ .steering = .{ .keys = .{ .yaw = .positive } }, .throttle = .{ .keys = .{ .accelerate = true } }, .toggle_afterburner = true },
             .target = .{ .aim = .at(all, target, null) },
         }));
@@ -3530,13 +3532,14 @@ test "queued targets reject a reused slot and invalid commands leave input intac
     create.resetSlot(mission.orders(), target);
     _ = try create.createObject(all, &mission.tables, create.testing.no_models, target, .of(.sabre), 0, .{ 0, 0, 5000 }, &mission.random);
     all.slots[target].object.flags.targetable = true;
-    const state = all.playerState(second).?;
-    try std.testing.expect(state.submit(.{ .target = .{ .aim = selected }, .flight = .{ .throttle = .{ .axis = 0.5 } } }));
-    try std.testing.expect(!state.submit(.{ .flight = .{ .throttle = .{ .axis = std.math.nan(f32) } } }));
+    const participant = all.joinParticipant(second).?;
+    const source = all.bindParticipant(participant, .of(all, second)).?;
+    try std.testing.expect(all.submitPlayerCommand(source, .{ .target = .{ .aim = selected }, .flight = .{ .throttle = .{ .axis = 0.5 } } }));
+    try std.testing.expect(!all.submitPlayerCommand(source, .{ .flight = .{ .throttle = .{ .axis = std.math.nan(f32) } } }));
     multiplayerControlOrder(mission.orders(), second);
     try std.testing.expectEqual(first, ai.controlEntry(all, second).?.target.slotIn(all));
     try std.testing.expectEqual(0.5, all.slots[second].object.throttle);
-    try std.testing.expect(state.submit(.{ .target = .clear }));
+    try std.testing.expect(all.submitPlayerCommand(source, .{ .target = .clear }));
     multiplayerControlOrder(mission.orders(), second);
     try std.testing.expectEqual(null, ai.controlEntry(all, second).?.target.slotIn(all));
 }

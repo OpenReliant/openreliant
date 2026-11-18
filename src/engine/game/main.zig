@@ -599,7 +599,7 @@ fn controlsFrame(orders: aigeneric.Context) void {
     const world = orders.world;
     const display = world.display orelse return;
     const all = world.objects;
-    all.slots[all.player].object.blind_fire_aim = @intFromBool(display.aim.blind_fire);
+    if (all.readsLocalPlayerInput()) all.slots[all.player].object.blind_fire_aim = @intFromBool(display.aim.blind_fire);
     const viewing = &world.player.viewing;
     // What the target and external views go round: the display's target, or the player's ship.
     const orbited: ?f32 = switch (viewing.view) {
@@ -608,6 +608,7 @@ fn controlsFrame(orders: aigeneric.Context) void {
         else => null,
     };
     if (viewing.frameControls(devices, world.clock.frameTicks(), orbited)) |chosen| _ = camera.switchView(world, chosen, all.player, false, false);
+    if (!all.readsLocalPlayerInput()) return;
     hud.targetKeys(display, .{
         .devices = devices,
         .player = world.player,
@@ -868,7 +869,7 @@ fn runLock(world: gameobj.World) void {
                 continue;
             }
             weapons.lock.advance(world, index, &weapons.ring);
-        } else if (index == all.player and world.display != null and
+        } else if (index == all.player and all.readsLocalPlayerInput() and world.display != null and
             !wgate.ridingWorm(world.gates) and world.player.viewing.last.showsLock())
         {
             const weapons = &all.player_states[index].weapons;
@@ -3404,10 +3405,12 @@ test "a headless host builds a lock for the requesting pilot and launches only w
     _ = try aigeneric.push(ctx, shooter, .multiplayer_control, .at(target, null));
     all.players = 2;
     world.player.viewing.last = .target;
+    const participant = all.joinParticipant(shooter).?;
+    const source = all.bindParticipant(participant, .of(all, shooter)).?;
     const state = all.playerState(shooter).?;
     const launch_missile: @import("players.zig").WeaponCommand = .{ .launch_missile = true };
 
-    try std.testing.expect(state.submit(.{ .weapons = launch_missile }));
+    try std.testing.expect(all.submitPlayerCommand(source, .{ .weapons = launch_missile }));
     input.multiplayerControlOrder(ctx, shooter);
     try std.testing.expectEqual(0, stage.armed.live());
     for (0..21) |_| runLock(world);
@@ -3415,14 +3418,14 @@ test "a headless host builds a lock for the requesting pilot and launches only w
     try std.testing.expectEqual(lock.Phase.idle, all.playerState(stage.player).?.weapons.lock.phase);
 
     // Changing targets and launching in one command cannot spend the old lock on the new target.
-    try std.testing.expect(state.submit(.{ .weapons = launch_missile, .target = .{ .aim = .at(all, other, null) } }));
+    try std.testing.expect(all.submitPlayerCommand(source, .{ .weapons = launch_missile, .target = .{ .aim = .at(all, other, null) } }));
     input.multiplayerControlOrder(ctx, shooter);
     try std.testing.expectEqual(0, stage.armed.live());
     try std.testing.expectEqual(1, state.weapons.ring.armedEntry().count);
 
     for (0..40) |_| runLock(world);
     try std.testing.expect(state.weapons.lock.locked());
-    try std.testing.expect(state.submit(.{ .weapons = launch_missile }));
+    try std.testing.expect(all.submitPlayerCommand(source, .{ .weapons = launch_missile }));
     input.multiplayerControlOrder(ctx, shooter);
     try std.testing.expectEqual(1, stage.armed.live());
     const missile = stage.armed.missile(0);
@@ -3433,7 +3436,7 @@ test "a headless host builds a lock for the requesting pilot and launches only w
     try std.testing.expectEqual(1, all.slots[stage.player].object.fittedRacks()[1].count);
 
     // Rotation is a single press, and a changed selection cannot use the previous type's lock.
-    try std.testing.expect(state.submit(.{ .weapons = .{ .rotate_missiles = .anticlockwise, .launch_missile = true } }));
+    try std.testing.expect(all.submitPlayerCommand(source, .{ .weapons = .{ .rotate_missiles = .anticlockwise, .launch_missile = true } }));
     input.multiplayerControlOrder(ctx, shooter);
     try std.testing.expectEqual(missiles.Type.of(.raptor), state.weapons.ring.armedEntry().type);
     try std.testing.expectEqual(1, stage.armed.live());

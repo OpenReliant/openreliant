@@ -17,6 +17,7 @@ const Allocator = std.mem.Allocator;
 
 const engine = @import("../../engine.zig");
 const hooks = @import("../hooks.zig");
+const input = @import("../input.zig");
 const shp = @import("../../formats/shp.zig");
 const stats = @import("../../formats/stats.zig");
 const math = @import("../surrender/math.zig");
@@ -740,6 +741,8 @@ pub const Objects = struct {
     /// OpenReliant's: each participant's simulation state. Only the first `players` entries
     /// belong to participants, independently of which player this machine displays (`player`).
     player_states: [gameobj.max_objects]players.State = @splat(.{}),
+    /// Advances on each admission and survives mission resets within the same session.
+    participant_generation: u64 = 0,
     /// `camera_marker` (`0x00588390`): the slot of the camera's marker, which the mission's start
     /// makes in the slot after the mission's ships, and which the Yamato's launch moves beside the
     /// player's bay; null until a mission's start makes it.
@@ -889,21 +892,103 @@ pub const Objects = struct {
         return &all.player_states[index];
     }
 
+    /// Admits a participant to a reserved slot. An occupied slot must be vacated first.
+    pub fn joinParticipant(all: *Objects, index: u16) ?players.ParticipantRef {
+        const state = all.playerState(index) orelse return null;
+        if (state.membership == .joined) return null;
+        const generation = std.math.add(u64, all.participant_generation, 1) catch return null;
+        all.participant_generation = generation;
+        state.* = .{ .membership = .{ .joined = .{ .generation = generation } } };
+        return .{ .slot = index, .generation = generation };
+    }
+
+    fn joinedParticipant(all: *Objects, ref: players.ParticipantRef) ?*players.State {
+        const state = all.playerState(ref.slot) orelse return null;
+        if (state.membership != .joined or state.membership.joined.generation != ref.generation) return null;
+        return state;
+    }
+
+    /// Binds the participant to a live ship in their reserved slot. Repeating the same binding
+    /// leaves its input intact. The mission or game mode installs the ship's orders.
+    pub fn bindParticipant(all: *Objects, ref: players.ParticipantRef, ship: gameobj.ObjectRef) ?players.ControlRef {
+        const state = all.joinedParticipant(ref) orelse return null;
+        if (!all.canBindShip(ref.slot, ship)) return null;
+        if (!std.meta.eql(state.membership.joined.ship, @as(?gameobj.ObjectRef, ship))) {
+            state.unbindShip();
+            state.membership.joined.ship = ship;
+            all.fitPlayerWeapons(ref.slot);
+        }
+        return .{ .participant = ref, .ship = ship };
+    }
+
+    /// Revokes the participant's control and clears held input. The game mode decides what
+    /// happens to the ship after that.
+    pub fn leaveParticipant(all: *Objects, ref: players.ParticipantRef) bool {
+        const state = all.joinedParticipant(ref) orelse return false;
+        if (state.membership.joined.ship) |ship| if (ship.resolve(all)) |index| {
+            const slot = &all.slots[index];
+            slot.object.letGo();
+            slot.object.lateral_input = 0;
+            slot.object.afterburner = false;
+            slot.object.reverse_thrust = false;
+            slot.object.nova_charge = 0;
+            slot.object.blind_fire_aim = 0;
+            for (slot.guns) |*gun| gun.firing_until = std.math.minInt(i32);
+            if (ai.controlEntry(all, index)) |entry| entry.target = .none;
+        };
+        state.* = .{ .membership = .vacant };
+        return true;
+    }
+
+    /// The host supplies the authenticated participant and the ship named in the input.
+    /// Both must still match before input can replace the latest accepted command.
+    pub fn submitPlayerCommand(all: *Objects, source: players.ControlRef, command: players.Command) bool {
+        const state = all.joinedParticipant(source.participant) orelse return false;
+        const index = source.participant.slot;
+        const ship = state.membership.joined.ship orelse return false;
+        if (!std.meta.eql(ship, source.ship) or !all.canBindShip(index, ship)) return false;
+        if (!command.flight.valid()) return false;
+        state.command = command;
+        return true;
+    }
+
+    /// Reads accepted commands only while the same binding is live.
+    pub fn playerCommand(all: *Objects, index: u16) ?*players.Command {
+        const state = all.playerState(index) orelse return null;
+        if (state.membership != .joined) return null;
+        const ship = state.membership.joined.ship orelse return null;
+        if (!all.canBindShip(index, ship)) return null;
+        return if (state.command) |*command| command else null;
+    }
+
+    fn canBindShip(all: *const Objects, index: u16, ship: gameobj.ObjectRef) bool {
+        if (ship.resolve(all) != index) return false;
+        const object = &all.slots[index].object;
+        const flags = object.flags;
+        return object.created and !flags.stand_in and !flags.disabled and
+            !flags.sent_off and !flags.exploding and !flags.ejected;
+    }
+
+    /// Local single-player input is available until the host manages the displayed slot.
+    pub fn readsLocalPlayerInput(all: *const Objects) bool {
+        return all.player_states[all.player].membership == .local_rules;
+    }
+
+    fn replaceSlotIdentity(all: *Objects, index: u16) void {
+        all.reuses[index] +%= 1;
+        if (all.playerState(index)) |state| state.unbindShip();
+    }
+
     /// Rebuilds the participant's missile selection after their ship is fitted or replenished.
     pub fn fitPlayerWeapons(all: *Objects, index: u16) void {
         const state = all.playerState(index) orelse return;
-        const ship: gameobj.ObjectRef = .of(all, index);
-        if (state.command != null and !std.meta.eql(state.weapons.ship, @as(?gameobj.ObjectRef, ship))) state.weapons.lock = .{};
-        state.weapons.ship = ship;
         state.weapons.ring.build(&all.slots[index].object);
     }
 
     /// A submitted command always uses the current ship's loadout. Replacement ends the old lock.
     pub fn commandedWeapons(all: *Objects, index: u16) ?*players.Weapons {
-        const state = all.playerState(index) orelse return null;
-        if (state.command == null) return null;
-        const ship = if (state.weapons.ship) |ref| ref.resolve(all) else null;
-        if (ship != index) all.fitPlayerWeapons(index);
+        _ = all.playerCommand(index) orelse return null;
+        const state = &all.player_states[index];
         state.weapons.ring.refreshCounts(&all.slots[index].object);
         return &state.weapons;
     }
@@ -1405,7 +1490,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     const object = &slot.object;
     if (object.created) return error.CreatedTwice;
     if (wanted == null) all.count += 1;
-    all.reuses[index] +%= 1;
+    all.replaceSlotIdentity(index);
 
     object.type = ship_type;
     object.index = index;
@@ -2062,7 +2147,7 @@ pub fn resetSlot(ctx: aigeneric.Context, index: u16) void {
     var object = gameobj.objectAlloc(.of(.stand_in), ctx.world.random);
     object.flags = .standing_in;
     slot.* = .{ .object = object };
-    all.reuses[index] +%= 1;
+    all.replaceSlotIdentity(index);
 }
 
 /// `object_retire` (`0x004688E0`): what the Explode order leaves of an object once it has blown
@@ -2079,7 +2164,7 @@ pub fn retire(ctx: aigeneric.Context, index: u16) void {
     object.flags.exploding = true;
     object.flags.targetable = false;
     aigeneric.popAll(ctx, index);
-    all.reuses[index] +%= 1;
+    all.replaceSlotIdentity(index);
 }
 
 test "Slot.stack" {
@@ -2940,7 +3025,6 @@ test "player state follows participants across ship replacement and is copied fo
     all.playerState(second).?.shield_reserves.aft = 30;
     all.playerState(second).?.controls.throttle = 0.7;
     all.playerState(second).?.controls.afterburner_toggled = true;
-    try std.testing.expect(all.playerState(second).?.submit(.{ .match_speed = true }));
     try std.testing.expectEqual(null, all.playerState(all.players));
     try std.testing.expectEqual(null, all.playerState(gameobj.max_objects));
     try std.testing.expectEqual(30, all.localPlayerState().shield_reserves.aft);
@@ -2956,4 +3040,83 @@ test "player state follows participants across ship replacement and is copied fo
     all.reset(&mission.random);
     try std.testing.expectEqual(players.State{}, all.playerState(first).?.*);
     try std.testing.expectEqual(players.State{ .controls = .{ .throttle = 0.7, .afterburner_toggled = true } }, all.playerState(second).?.*);
+}
+
+test "leaving revokes commands even when the next participant binds the same ship" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const index = try mission.add(.of(.predator), @splat(0));
+    try std.testing.expect(try aigeneric.push(mission.orders(), index, .player_control, .none));
+    const ship: gameobj.ObjectRef = .of(all, index);
+    try std.testing.expectEqual(null, all.joinParticipant(all.players));
+    const first = all.joinParticipant(index).?;
+    try std.testing.expectEqual(null, all.joinParticipant(index));
+    try std.testing.expect(!all.submitPlayerCommand(.{ .participant = first, .ship = ship }, .{}));
+    const old = all.bindParticipant(first, ship).?;
+    try std.testing.expect(all.submitPlayerCommand(old, .{ .flight = .{ .throttle = .{ .axis = 1 } } }));
+    try std.testing.expectEqual(old, all.bindParticipant(first, ship).?);
+    input.playerControlOrder(mission.orders(), index);
+    try std.testing.expectEqual(1, all.slots[index].object.throttle);
+
+    try std.testing.expect(all.leaveParticipant(first));
+    try std.testing.expectEqual(null, all.playerCommand(index));
+    var devices: input.Devices = .{ .settings = .{ .control_mode = .keyboard } };
+    devices.keyboard.down[input.controls.binding(.full_throttle).key] = true;
+    input.playerControlOrder(.{ .world = mission.world(), .devices = &devices }, index);
+    try std.testing.expectEqual(0, all.slots[index].object.throttle);
+
+    const second = all.joinParticipant(index).?;
+    const current = all.bindParticipant(second, ship).?;
+    try std.testing.expectEqual(null, all.bindParticipant(first, ship));
+    try std.testing.expect(!all.leaveParticipant(first));
+    try std.testing.expect(!all.submitPlayerCommand(old, .{ .flight = .{ .throttle = .{ .axis = 1 } } }));
+    try std.testing.expectEqual(null, all.playerCommand(index));
+    try std.testing.expect(all.submitPlayerCommand(current, .{ .flight = .{ .throttle = .{ .axis = 0.5 } } }));
+    input.playerControlOrder(mission.orders(), index);
+    try std.testing.expectEqual(0.5, all.slots[index].object.throttle);
+}
+
+test "respawn and mission reset keep the participant and invalidate the ship binding" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const index = try mission.add(.of(.predator), @splat(0));
+    const participant = all.joinParticipant(index).?;
+    const old = all.bindParticipant(participant, .of(all, index)).?;
+    try std.testing.expect(all.submitPlayerCommand(old, .{ .weapons = .{ .fire_guns = true, .launch_missile = true } }));
+    const state = all.playerState(index).?;
+    state.weapons.lock.phase = .locked;
+    state.shield_reserves.fore = 30;
+    state.controls.afterburner_toggled = true;
+
+    resetSlot(mission.orders(), index);
+    try std.testing.expectEqual(null, all.playerCommand(index));
+    try std.testing.expectEqual(null, all.bindParticipant(participant, .of(all, index)));
+    try std.testing.expect(!all.submitPlayerCommand(old, .{}));
+
+    _ = try createObject(all, &mission.tables, testing.no_models, index, .of(.predator), 0, @splat(0), &mission.random);
+    const replacement = all.bindParticipant(participant, .of(all, index)).?;
+    try std.testing.expectEqual(participant, replacement.participant);
+    try std.testing.expectEqual(null, all.playerCommand(index));
+    try std.testing.expect(!state.weapons.lock.locked());
+    try std.testing.expectEqual(0, state.shield_reserves.fore);
+    try std.testing.expect(!state.controls.afterburner_toggled);
+    try std.testing.expect(!all.submitPlayerCommand(old, .{}));
+    try std.testing.expect(all.submitPlayerCommand(replacement, .{}));
+
+    all.reset(&mission.random);
+    try std.testing.expect(!all.submitPlayerCommand(replacement, .{}));
+    const restarted = try mission.add(.of(.predator), @splat(0));
+    try std.testing.expectEqual(index, restarted);
+    const fresh = all.bindParticipant(participant, .of(all, restarted)).?;
+    try std.testing.expectEqual(null, all.playerCommand(index));
+    try std.testing.expect(!all.submitPlayerCommand(replacement, .{}));
+    try std.testing.expect(all.submitPlayerCommand(fresh, .{}));
+
+    retire(mission.orders(), index);
+    try std.testing.expectEqual(null, all.playerCommand(index));
+    try std.testing.expect(!all.submitPlayerCommand(fresh, .{}));
 }

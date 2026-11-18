@@ -10,11 +10,10 @@ Balancing still moves the same amount in the same order. The drawing snapshot in
 records, so the HUD and the scripts' ship status read the displayed player's reserves from the
 same snapshot as the shields. The public script API is unchanged.
 
-A player's state belongs to the participant slot, not to the physical ship's `ObjectRef`.
-Replacing that ship leaves its reserves and control state intact. Starting a mission clears
-reserves and pending commands, but preserves throttle, matching state and the afterburner toggle,
-as the original leaves those local globals. Only the first `Objects.players` entries are active;
-unused entries do not grant reserves to ordinary objects.
+Only the first `Objects.players` slots can hold participants. Local single-player control state
+and reserves survive ship replacement. Starting a mission clears local reserves and preserves
+throttle, speed matching and the afterburner toggle, following the original's local globals.
+Host-managed participants use the lifecycle below.
 
 ## Comparison with the original
 
@@ -49,11 +48,11 @@ button latches, the held local power window and the local shield-balancing key s
 `input.Player`. They affect which command the input side produces, not how a remote command runs.
 The HUD and script instruments read matching state from the displayed participant's drawing copy.
 
-A host input source can submit a `players.Command` at the simulation boundary. Invalid axes are
-rejected without replacing the previous input. The record retains held flight inputs while
+A host input source submits a `players.Command` through the current participant and ship binding.
+The host rejects invalid axes without replacing the previous input. The record retains held flight inputs while
 consuming throttle presets, afterburner toggles, speed-match toggles and target requests once.
-It takes precedence over local devices, including for slot zero on a headless host. Remote
-participants without commands never read this machine's devices. Existing non-player Player
+The host applies that input even for slot zero on a headless host. A host-managed slot reads
+commands exclusively, including while the slot is vacant or the participant has no ship. Existing non-player Player
 Control orders retain their local input behaviour.
 
 This is an internal simulation input record. Packet ordering, buffering and timeouts belong to
@@ -71,6 +70,24 @@ speed matching.
 Target search, subtarget cycling, range checks and speed matching use the participant's ship.
 The display follows target changes only for the displayed participant. Automatic target upkeep
 runs for every participant, without adding a second selected-target field to `players.State`.
+
+## Participant and ship lifecycle
+
+**Improvement:** `joinParticipant` issues a fresh `ParticipantRef` for a reserved player slot.
+`bindParticipant` pairs it with the current ship's `ObjectRef`. The host passes that pair to
+`submitPlayerCommand`, using the participant identity from the session. A command can replace
+the previous input only while both parts of the pair still match. The host reads held input only
+while the same ship remains bound.
+
+Removal, replacement and mission reset end the ship binding and clear held commands, controls,
+shield reserves, missile selection and lock state. The participant keeps their admission and can
+bind the replacement when the game mode creates it. Repeating the same live binding preserves
+input already received for that ship.
+
+Leaving ends the admission, clears held controls and leaves ship disposition to the game mode.
+A later occupant gets a different participant identity even if the game mode assigns the same
+ship. Session authentication, ordering and disconnect detection belong to
+[#954](https://github.com/OpenReliant/openreliant/issues/954).
 
 ## Weapon commands
 
@@ -94,8 +111,8 @@ The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/95
 
 - [#1372](https://github.com/OpenReliant/openreliant/issues/1372): per-player device charge and
   activation, including explicit cloak activation. Weapon commands still respect the ship's cloak.
-- [#1367](https://github.com/OpenReliant/openreliant/issues/1367): scanner, mission ending and
-  participant lifecycle, including joining and leaving.
+- [#1367](https://github.com/OpenReliant/openreliant/issues/1367): scanner, mission ending,
+  participant tallies and game mode rules for ship disposition and respawn.
 - [#1368](https://github.com/OpenReliant/openreliant/issues/1368): effects addressed to the player
   they concern, local-player damage scaling, and local-only damage paths such as shockwaves.
   Shockwaves still strike only the displayed player, using that player's reserves with the
