@@ -1001,6 +1001,7 @@ pub const Objects = struct {
         if (!command.flight.valid()) return false;
         var accepted = command;
         if (command.target == .aim and command.target.aim.resolve(all) == null) accepted.target = .keep;
+        if (accepted.smart_targeting) |enabled| state.membership.joined.smart_targeting = enabled;
         state.command = accepted;
         return true;
     }

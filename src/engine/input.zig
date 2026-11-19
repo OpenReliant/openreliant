@@ -1846,9 +1846,15 @@ pub fn setCloak(world: gameobj.World, on: bool) void {
 /// makes that the player's target, and has the display follow it (`hud.State.targetChanged`).
 /// Not yet ported: what it tells a multiplayer game (`0x004BB980`).
 pub fn setPlayerTarget(display: *hud.State, all: *create.Objects, index: i16, component: i16, multiplayer: bool) void {
-    const entry = ai.playerControlEntry(all) orelse return;
+    _ = setPilotTarget(display, all, all.player, index, component, multiplayer);
+}
+
+/// Selects the target on the pilot's control order. Only the pilot shown in the cockpit updates its display.
+pub fn setPilotTarget(display: ?*hud.State, all: *create.Objects, pilot: u16, index: i16, component: i16, multiplayer: bool) bool {
+    const entry = ai.controlEntry(all, pilot) orelse return false;
     entry.target = entry.target.retarget(all, index, component);
-    display.targetChanged(all, multiplayer);
+    if (pilot == all.player) if (display) |cockpit| cockpit.targetChanged(all, multiplayer);
+    return true;
 }
 
 /// What `cmd_SetPlayerTarget` (`0x00458C80`) does once it knows its target: if the player can aim
@@ -1864,9 +1870,7 @@ fn aimPlayerFor(world: gameobj.World, player: u16, target: aigeneric.Target) boo
     const all = world.objects;
     const state = all.playerState(player) orelse return false;
     if (!ai.targetValid(all, target, .{})) return false;
-    const entry = ai.controlEntry(all, player) orelse return false;
-    entry.target = entry.target.retarget(all, target.index, target.component);
-    if (player == all.player) if (world.display) |display| display.targetChanged(all, false);
+    if (!setPilotTarget(world.display, all, player, target.index, target.component, false)) return false;
     state.controls.matching_speed = false;
     return true;
 }

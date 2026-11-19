@@ -574,7 +574,7 @@ pub const lights = api.Field(Lights, "The status lights that show, steady or fla
         const flight, const slot = flightOf(call) orelse return .{};
         const all = call.runtime().objects orelse return .{};
         const participant = &all.player_states[all.player];
-        return lightsOf(flight.hud.lightsShown(&slot.object, &participant.charges, participant.controls.matching_speed, flight.multiplayer));
+        return lightsOf(flight.hud.lightsShown(&slot.object, participant, flight.multiplayer));
     }
 });
 

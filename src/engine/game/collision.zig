@@ -402,7 +402,9 @@ pub fn damageFrom(world: gameobj.World, index: u16, struck: Quadrant, value: f32
     if (held.* >= 0 and object.invulnerable != ._unknown_4) held.* -= scaled;
     if (held.* < 0) armorDamageFrom(world, index, struck, through * factor, attacker, kind);
     all.slots[index].setAttacker(attacker);
-    if (smartTargeting(world, attacker, kind)) |display| input.setPlayerTarget(display, all, @intCast(index), aigeneric.Target.whole, false);
+    if (smartPilot(world, attacker, kind)) |pilot| {
+        _ = input.setPilotTarget(world.display, all, pilot, @intCast(index), aigeneric.Target.whole, false);
+    }
     shotAt(world, index, attacker);
 }
 
@@ -441,17 +443,24 @@ fn scaledBlow(world: gameobj.World, index: u16, struck: Quadrant, value: f32, at
     return .{ .value = scaled, .audience = audience };
 }
 
-/// The display, while smart targeting is on and the blow is the player's ship's but for a
-/// collision; null otherwise.
-fn smartTargeting(world: gameobj.World, attacker: gameobj.DamageSource, kind: Kind) ?*hud.State {
-    const display = world.display orelse return null;
-    if (!display.smart_targeting or kind == .collision) return null;
+/// **Improvement:** smart targeting follows the pilot who fired, even on a headless host.
+fn smartPilot(world: gameobj.World, attacker: gameobj.DamageSource, kind: Kind) ?u16 {
+    if (kind == .collision) return null;
     const all = world.objects;
-    const pilot = if (world.damage_rules == .campaign and all.readsLocalPlayerInput())
-        attacker.resolve(all)
-    else
-        (all.playerBindingFor(attacker.object, attacker.participant_generation) orelse return null).participant.slot;
-    return if (pilot == all.player) display else null;
+    if (attacker.participant_generation != null) {
+        const binding = all.playerBindingFor(attacker.object, attacker.participant_generation) orelse return null;
+        const slot = binding.participant.slot;
+        return if (all.player_states[slot].membership.joined.smart_targeting) slot else null;
+    }
+    if (world.damage_rules != .campaign or !all.readsLocalPlayerInput() or attacker.resolve(all) != all.player) return null;
+    const display = world.display orelse return null;
+    return if (display.smart_targeting) all.player else null;
+}
+
+/// The original reads the first order for armour and unlisted component hits.
+/// On a hosted ship the control order owns the target, even underneath another order.
+fn hitTargetOrder(all: *create.Objects, pilot: u16, attacker: gameobj.DamageSource) ?*aigeneric.OrderState {
+    return if (attacker.participant_generation == null) &all.slots[pilot].orders[0] else ai.controlEntry(all, pilot);
 }
 
 /// `object_armor_damage` (`0x004641F0`): applies damage to an object's armour after its shields
@@ -500,9 +509,12 @@ pub fn armorDamageFrom(world: gameobj.World, index: u16, struck: Quadrant, value
         ai.objectDestroyed(.of(world), index, true, taken > heavy_blow);
         friendly_fire.destroyed(world, index, attacker, kind, true);
     }
-    const current = &all.slots[all.player].orders[0].target;
-    if (smartTargeting(world, attacker, kind) != null) current.* = current.retarget(all, @intCast(index), current.resolve(all).component);
+    if (smartPilot(world, attacker, kind)) |pilot| {
+        // An armour hit changes only the selected ship (0x004644D7).
+        if (hitTargetOrder(all, pilot, attacker)) |entry| entry.target = entry.target.retarget(all, @intCast(index), entry.target.resolve(all).component);
+    }
     if (world.display) |display| {
+        const current = &all.slots[all.player].orders[0].target;
         if (current.slotIn(all) == index) {
             _ = display.bringUp(hud.targetWindow(slot), false);
             display.events.target_hits.getPtr(struck).happen();
@@ -759,7 +771,7 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
     var protected = object.invulnerable.protects(player_hit);
     // The game reads the invulnerability of the part that takes the hit, the assembly's first with
     // armour, rather than the part struck (`0x00464800`).
-    if (std.mem.findScalar(?*objects.Model.Part, slot.listed(), struck)) |n| {
+    if (slot.componentIndex(struck)) |n| {
         protected = protected or slot.object.components[n].protects(player_hit);
     }
 
@@ -770,13 +782,14 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
         model.destroyed = true;
         friendly_fire.destroyed(world, index, attacker, kind, struck.class == .hull);
     }
-    const display = smartTargeting(world, attacker, kind) orelse return;
     if (object.side != .hostile) return;
-    if (std.mem.findScalar(?*objects.Model.Part, slot.listed(), struck)) |n| {
-        input.setPlayerTarget(display, all, @intCast(index), @intCast(n), false);
-    } else if (all.slots[all.player].orders[0].target.slotIn(all) != index) {
-        input.setPlayerTarget(display, all, @intCast(index), aigeneric.Target.whole, false);
-    }
+    const pilot = smartPilot(world, attacker, kind) orelse return;
+    const component_index: i16 = if (slot.componentIndex(struck)) |n| @intCast(n) else whole: {
+        const entry = hitTargetOrder(all, pilot, attacker) orelse return;
+        if (entry.target.slotIn(all) == index) return;
+        break :whole aigeneric.Target.whole;
+    };
+    _ = input.setPilotTarget(world.display, all, pilot, @intCast(index), component_index, false);
 }
 
 /// Whether the damage counts toward what an object has taken lately, which `order_retaliate` reads,
@@ -1319,11 +1332,73 @@ test "smart targeting takes what the player's ship hits" {
     const shot: gameobj.DamageSource = .of(all, player);
     try std.testing.expect(create.Objects.leaveParticipant(world, first));
     const replacement = all.joinParticipant(player).?;
-    _ = all.bindParticipant(replacement, binding.ship).?;
+    const next = all.bindParticipant(replacement, binding.ship).?;
+    try std.testing.expect(all.submitPlayerCommand(next, .{ .smart_targeting = true }));
+    try std.testing.expect(!all.submitPlayerCommand(binding, .{ .smart_targeting = false }));
     damageFrom(world, index, .fore, 1, 1, shot, .bullet);
     try std.testing.expectEqual(null, target.slotIn(all));
     damage(world, index, .fore, 1, 1, player, .bullet);
     try std.testing.expectEqual(index, target.slotIn(all));
+}
+
+test "smart hits update only the firing pilot's ship and component selection on the host" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var model: create.testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    model.data[0].part.flags.component = true;
+    model.data[0].part.component_armor = 100;
+    var world = mission.world();
+    world.damage_rules = .{ .arena = null };
+    const all = world.objects;
+    var pilots: [2]players.ControlRef = undefined;
+    all.players = pilots.len;
+    for (&pilots) |*pilot| {
+        const index = try mission.add(.of(.kamov), @splat(0));
+        pilot.* = all.bindParticipant(all.joinParticipant(index).?, .of(all, index)).?;
+        try std.testing.expect(try aigeneric.push(.of(world), index, .multiplayer_control, .none));
+    }
+    const ship = try mission.addWith(model.types(), .of(.predator), @splat(0));
+    const slot = mission.slot(ship);
+    slot.object.side = .hostile;
+    slot.object.shields = .all(100);
+    slot.object.armor = .all(100);
+    slot.object.component_count = 1;
+    slot.components[0] = &slot.model.?.parts[0];
+    const part: objects.PartRef = .{ .model = &slot.model.?, .index = 0 };
+
+    const first = &ai.controlEntry(all, 0).?.target;
+    const second = &ai.controlEntry(all, 1).?.target;
+    try std.testing.expect(all.submitPlayerCommand(pilots[1], .{ .smart_targeting = true }));
+    try std.testing.expect(all.submitPlayerCommand(pilots[1], .{}));
+    damage(world, ship, .fore, 1, 1, 0, .bullet);
+    damage(world, ship, .fore, 1, 1, 1, .collision);
+    try std.testing.expectEqual(null, first.slotIn(all));
+    try std.testing.expectEqual(null, second.slotIn(all));
+
+    damage(world, ship, .fore, 1, 1, 1, .bullet);
+    try std.testing.expectEqual(ship, second.slotIn(all));
+    try std.testing.expectEqual(aigeneric.Target.whole, second.resolve(all).component);
+    componentDamage(world, ship, part, 1, 1, .bullet);
+    try std.testing.expectEqual(0, second.resolve(all).component);
+    try std.testing.expectEqual(null, first.slotIn(all));
+    const other = try testing.ship(&mission, .{ 0, 0, 1000 }, 100);
+    mission.slot(other).object.armor = .all(100);
+    armorDamage(world, other, .fore, 1, 1, .missile);
+    try std.testing.expectEqual(other, second.slotIn(all));
+    try std.testing.expectEqual(0, second.resolve(all).component);
+
+    try std.testing.expect(all.submitPlayerCommand(pilots[0], .{ .smart_targeting = true }));
+    try std.testing.expect(all.submitPlayerCommand(pilots[1], .{ .smart_targeting = false }));
+    armorDamage(world, ship, .fore, 1, 0, .missile);
+    try std.testing.expectEqual(ship, first.slotIn(all));
+    try std.testing.expectEqual(aigeneric.Target.whole, first.resolve(all).component);
+    damage(world, ship, .fore, 1, 1, 1, .bullet);
+    try std.testing.expectEqual(other, second.slotIn(all));
+    try std.testing.expectEqual(0, second.resolve(all).component);
 }
 
 test knockDamage {

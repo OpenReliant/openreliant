@@ -59,9 +59,12 @@ The host rejects invalid axes without replacing the previous input. The record r
 consuming throttle presets, afterburner toggles, speed-match toggles and target requests once.
 A target request names one object and an optional component. The host checks the object's
 identity on receipt and again when applying the command, then checks whether it can be targeted.
-Smart targeting in a hosted cockpit checks which pilot fired the shot. A new pilot taking
-over the same ship keeps their own target when an earlier pilot's shot lands. Per-pilot smart
-targeting on a headless host is tracked in [#1434](https://github.com/OpenReliant/openreliant/issues/1434).
+Smart targeting starts off for each new pilot. A host command can turn it on or off. The
+setting belongs to the admission and survives a ship change. When a shot lands, the host
+checks that its firing ship still belongs to the same pilot. A shield hit selects the whole
+ship, an armour hit changes the ship but keeps the component index, and a hit on a listed
+hostile component selects that component. Collisions leave the selection alone. These rules
+also run on a headless host. A cockpit shows its own pilot's selection and smart targeting light.
 The host applies that input even for slot zero on a headless host. A host-managed slot reads
 commands exclusively, including while the slot is vacant or the participant has no ship. Existing non-player Player
 Control orders retain their local input behaviour.
