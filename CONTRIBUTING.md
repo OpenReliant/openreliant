@@ -90,7 +90,9 @@ more context in scripts, use `pub const script_name`, as `gameobj.Type` does.
 
 OpenReliant is faithful by default, and every difference is marked where it is made.
 Use the original look and feel as the reference. Small rendering improvements are welcome
-when they preserve that feel and fit the existing rendering code. Revisit limits added for
+when they preserve that feel and fit the existing rendering code. For multiplayer, check what
+pilots see when someone joins or leaves, including what happens to their ship, score and cargo.
+The host applies the game mode's rules. Revisit limits added for
 the hardware of the time. For visible changes, include before-and-after screenshots of the
 same scene.
 
