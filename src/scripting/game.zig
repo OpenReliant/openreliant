@@ -945,6 +945,76 @@ test "handlers run newest mod first, in the order each mod added them" {
     try std.testing.expectEqual(100, shields.get(.fore));
 }
 
+test "scripts identify each participant across damage, ship replacement and readmission" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local world = require("openreliant.world")
+                \\require("openreliant.hooks").add("damage_by_difficulty", function(e)
+                \\    local ship = e.object
+                \\    assert(world.participant_ship(ship.participant_id) == ship)
+                \\    e.value = 10 + ship.slot
+                \\end)
+            },
+        },
+    }});
+    defer fixture.deinit();
+    fixture.begin();
+    const run = @import("bind.zig").testing.runSource;
+    const context = fixture.game.global().items[0].context;
+    const thread = context.thread.newSandboxedThread();
+    defer context.thread.pop(1);
+    thread.setThreadData(context);
+    try run(thread,
+        \\world = require("openreliant.world")
+        \\assert(world.player.is_player and world.player.participant_id == nil)
+        \\assert(world.participant_ship("unknown") == nil)
+    );
+
+    const all = fixture.mission.objects;
+    const other = try fixture.mission.add(.of(.sabre), @splat(0));
+    all.players = other + 1;
+    all.participant_generation = 1 << 54;
+    const first = all.joinParticipant(fixture.sabre).?;
+    const second = all.joinParticipant(other).?;
+    _ = all.bindParticipant(first, .of(all, first.slot)).?;
+    _ = all.bindParticipant(second, .of(all, second.slot)).?;
+    try std.testing.expectEqual(@as(f32, @floatFromInt(10 + first.slot)), fixture.scaled(first.slot, 0));
+    try std.testing.expectEqual(@as(f32, @floatFromInt(10 + second.slot)), fixture.scaled(second.slot, 0));
+    try run(thread,
+        \\local ships = world.objects()
+        \\old_ship = ships[2]
+        \\first_id, second_id = old_ship.participant_id, ships[3].participant_id
+        \\assert(type(first_id) == "string" and first_id ~= second_id)
+        \\assert(not old_ship.is_player and world.player.participant_id == nil)
+    );
+
+    create.resetSlot(fixture.mission.orders(), first.slot);
+    _ = try create.createObject(all, &fixture.mission.tables, create.testing.no_models, first.slot, .of(.predator), 0, @splat(0), &fixture.mission.random);
+    try run(thread,
+        \\assert(not old_ship:is_valid() and not pcall(function() return old_ship.participant_id end))
+        \\assert(world.participant_ship(first_id) == nil and world.objects()[2].participant_id == nil)
+    );
+    _ = all.bindParticipant(first, .of(all, first.slot)).?;
+    try run(thread, "assert(world.participant_ship(first_id) == world.objects()[2] and world.objects()[2].participant_id == first_id)");
+
+    try std.testing.expect(create.Objects.leaveParticipant(fixture.mission.world(), first));
+    const next = all.joinParticipant(first.slot).?;
+    _ = all.bindParticipant(next, .of(all, next.slot)).?;
+    try run(thread,
+        \\local replacement = world.objects()[2]
+        \\assert(world.participant_ship(first_id) == nil and replacement.participant_id ~= first_id)
+        \\assert(world.participant_ship(replacement.participant_id) == replacement)
+        \\assert(world.participant_ship(second_id) == world.objects()[3])
+    );
+    fixture.game.scripts.ended(.{ .ending = .playing, .rating = .success });
+    try run(thread, "assert(world.participant_ship(second_id) == nil)");
+}
+
 test "damage hooks can wrap damage from an expired attacker" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{.{

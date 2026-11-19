@@ -31,6 +31,7 @@ const Call = api.Call;
 const data = @import("data.zig");
 const game = @import("game.zig");
 const world = @import("world.zig");
+const participants = @import("participants.zig");
 const hooks = @import("hooks.zig");
 const util = @import("util.zig");
 const math = engine.surrender.math;
@@ -138,6 +139,10 @@ pub const fields = struct {
         pub fn get(all: *const create.Objects, index: u16) bool {
             return index == all.player;
         }
+    });
+
+    pub const participant_id = api.Field(?participants.Id, "The session ID of the participant bound to this ship. It is nil in standalone play and for unbound ships. This read-only string stays the same when the participant changes ships. On a dedicated host it identifies remote pilots. Presentation scripts see the bindings available on their client.", struct {
+        pub const get = participants.idForShip;
     });
 
     pub const order = api.Field(?@import("orders.zig").Identifier, "The order it's following: one of the game's (`Order`), or a mod's by its qualified name; nil for none.", struct {
