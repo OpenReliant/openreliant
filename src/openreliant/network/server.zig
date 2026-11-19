@@ -1,6 +1,7 @@
 //! A direct-IP host. Only the game thread admits pilots and applies their commands.
 const std = @import("std");
 const Io = std.Io;
+const Ip6Address = Io.net.Ip6Address;
 const wire = @import("wire.zig");
 const flight = @import("openreliant").engine.input.flight;
 const flight_input = @import("flight_input.zig");
@@ -31,10 +32,17 @@ io: Io,
 arena: Arena,
 signer: ?*const identity.Server = null,
 player_limit: u8 = wire.slots,
+lan_only: bool = false,
+listener: u32 = 0,
 peers: [wire.slots]?Peer = @splat(null),
 budget: HandshakeBudget = .{},
+tick: u32 = 0,
+last_tick: u32 = std.math.maxInt(u32),
+next_step: i64 = 0,
+renew_at: i64 = 0,
 final_tick: ?u32 = null,
 final_receipts: usize = 0,
+drain_until: i64 = 0,
 
 fn now(host: *const Host) i64 {
     return Io.Clock.awake.now(host.io).toMicroseconds();
@@ -57,12 +65,33 @@ fn slotFor(host: *const Host, conn: net.Connection) ?u8 {
     return null;
 }
 
+fn isLan(address: [16]u8) bool {
+    const ipv6: Ip6Address = .{ .bytes = address, .port = 0 };
+    if (Io.net.Ip4Address.fromIp6(ipv6)) |ipv4| {
+        const first, const second, _, _ = ipv4.bytes;
+        return first == 127 or first == 10 or (first == 172 and second >= 16 and second <= 31) or
+            (first == 192 and second == 168) or (first == 169 and second == 254);
+    }
+    return ipv6.isLoopBack() or ipv6.isLinkLocal() or address[0] & 0xfe == 0xfc;
+}
+
+fn acceptsRemote(host: *const Host, conn: net.Connection) bool {
+    if (!host.lan_only) return true;
+    var address: [16]u8 = undefined;
+    return net.session_peer_ip(conn, &address) and isLan(address);
+}
+
+pub fn takeLocalPilot(host: *Host, server_end: net.Connection) void {
+    std.debug.assert(host.peers[0] == null);
+    host.peers[0] = .{ .conn = server_end, .state = .joining, .expires = host.now() + timeout };
+}
+
 pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]const u8) void {
     const slot = host.slotFor(conn);
     switch (event) {
         .incoming => {
             if (slot != null) return;
-            if (host.final_tick == null) {
+            if (host.final_tick == null and host.acceptsRemote(conn)) {
                 for (host.peers[0..host.player_limit]) |*entry| {
                     if (entry.* != null) continue;
                     const time = host.now();
@@ -93,7 +122,7 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
             peer.state = .joining;
             return;
         },
-        .closed => {},
+        .closed, .lost => {},
     }
     if (slot) |index| host.release(index) else net.session_close(conn);
 }
@@ -212,11 +241,59 @@ fn broadcast(host: *Host, view: wire.Snapshot, final: bool) !void {
     }
 }
 
-pub fn run(host: *Host, address: [:0]const u8, ticks: ?u32, invite: ?identity.Invite) !void {
+pub fn open(host: *Host, address: [:0]const u8, ticks: ?u32) !void {
     const listener = net.session_open(address, true);
     if (listener == 0) return error.ListenFailed;
-    defer net.session_listen_close(listener);
-    defer for (0..host.peers.len) |slot| host.release(@intCast(slot));
+    host.listener = listener;
+    host.last_tick = ticks orelse std.math.maxInt(u32);
+    host.next_step = host.now();
+    host.renew_at = host.next_step + identity.renew_after_us;
+}
+
+pub fn close(host: *Host) void {
+    for (0..host.peers.len) |slot| host.release(@intCast(slot));
+    if (host.listener != 0) {
+        net.session_listen_close(host.listener);
+        host.listener = 0;
+    }
+}
+
+/// Services a host without waiting for the next tick. The caller polls transport callbacks.
+pub fn pump(host: *Host) !enum { running, finished } {
+    const time = host.now();
+    if (host.final_tick != null) {
+        if (time >= host.drain_until or host.playingCount() == 0) return .finished;
+        try host.servicePeers(time);
+        return .running;
+    }
+    if (time < host.next_step) return .running;
+    host.next_step = @max(host.next_step + wire.step_us, time);
+    if (host.signer) |signer| {
+        if (time >= host.renew_at) {
+            var certificate = try signer.hostCertificate(host.io);
+            defer certificate.wipe();
+            if (!net.session_set_certificate(certificate.bytes[0..].ptr, @intCast(certificate.len)))
+                return error.IdentityRenewalFailed;
+            host.renew_at = time + identity.renew_after_us;
+        }
+    }
+    try host.servicePeers(time);
+    if (host.tick == 0 and host.playingCount() < pilots_to_start) return .running;
+    host.applyControls(time);
+    host.tick += 1;
+    const view = try host.arena.step(host.tick);
+    const final = host.tick == host.last_tick;
+    if (final) {
+        host.final_tick = host.tick;
+        host.drain_until = time + timeout;
+    }
+    try host.broadcast(view, final);
+    return .running;
+}
+
+pub fn run(host: *Host, address: [:0]const u8, ticks: ?u32, invite: ?identity.Invite) !void {
+    try host.open(address, ticks);
+    defer host.close();
     std.debug.print("listening {s}\n", .{address});
     if (invite) |value| {
         std.debug.print("invite {f}\n", .{value});
@@ -224,41 +301,21 @@ pub fn run(host: *Host, address: [:0]const u8, ticks: ?u32, invite: ?identity.In
         std.debug.print("Set InviteAddress in server.ini to print an invite for this listener.\n", .{});
     }
 
-    var tick: u32 = 0;
-    const last_tick = ticks orelse std.math.maxInt(u32);
-    var next_step = host.now();
-    var renew_at = next_step + identity.renew_after_us;
-    while (tick < last_tick) {
+    while (true) {
         net.session_poll();
-        const time = host.now();
-        if (time < next_step) {
-            try host.io.sleep(.fromMicroseconds(@min(wire.step_us, next_step - time)), .awake);
-            continue;
-        }
-        next_step = @max(next_step + wire.step_us, time);
-        if (host.signer) |signer| {
-            if (time >= renew_at) {
-                var certificate = try signer.hostCertificate(host.io);
-                defer certificate.wipe();
-                if (!net.session_set_certificate(certificate.bytes[0..].ptr, @intCast(certificate.len)))
-                    return error.IdentityRenewalFailed;
-                renew_at = time + identity.renew_after_us;
-            }
-        }
-        try host.servicePeers(time);
-        if (tick == 0 and host.playingCount() < pilots_to_start) continue;
-        host.applyControls(time);
-        tick += 1;
-        const view = try host.arena.step(tick);
-        if (tick == last_tick) host.final_tick = tick;
-        try host.broadcast(view, tick == last_tick);
+        if (try host.pump() == .finished) break;
+        const wait = if (host.final_tick != null)
+            std.time.us_per_ms
+        else
+            @min(wire.step_us, host.next_step - host.now());
+        if (wait > 0) try host.io.sleep(.fromMicroseconds(wait), .awake);
     }
+    std.debug.print("finished {d} {d}\n", .{ host.tick, host.final_receipts });
+}
 
-    const expires = host.now() + timeout;
-    while (host.playingCount() != 0 and host.now() < expires) {
-        net.session_poll();
-        try host.servicePeers(host.now());
-        if (host.playingCount() != 0) try host.io.sleep(.fromMilliseconds(1), .awake);
-    }
-    std.debug.print("finished {d} {d}\n", .{ tick, host.final_receipts });
+test "a LAN listener accepts private, link-local and loopback peers" {
+    const allowed = [_][]const u8{ "127.0.0.1", "::1", "10.0.1.7", "172.31.0.2", "192.168.1.9", "169.254.1.2", "fe80::1", "fd12::8" };
+    for (allowed) |ip| try std.testing.expect(isLan(Ip6Address.fromAny(try Io.net.IpAddress.parse(ip, 0)).bytes));
+    const denied = [_][]const u8{ "192.0.2.1", "172.32.1.1", "2001:db8::1", "::", "0.0.0.0" };
+    for (denied) |ip| try std.testing.expect(!isLan(Ip6Address.fromAny(try Io.net.IpAddress.parse(ip, 0)).bytes));
 }

@@ -3107,7 +3107,7 @@ address	kind	name	type	comment
 004bccd0	function	mp_team_for_player_id	int __fastcall (int player_id)	Finds a network player ID in the lobby roster and returns its team, or zero if absent
 00524d5c	data	mp_team_game_option	int	The lobby option copied to mp_team_game at arena initialisation
 005db650	data	mp_first_player_id	int	Network player ID in the first in-game player row, or zero for an empty slot, with a 0x3C stride
-004b6a80	function	net_handle_system_message	void (void)	Dispatches DirectPlay system messages from net_read_buffer, including session loss, host migration, chat and player name changes
+004b6a80	function	net_handle_system_message	void (void)	Dispatches DirectPlay system messages from net_read_buffer. On session loss in flight it posts language string 0x3B7 through hud_message_add. It also handles host migration, chat and player name changes
 005db654	data	mp_first_player_name	char	Session name in the first 0x3C-byte player row. The rename handler copies up to 32 bytes. The HUD reads it for the target brackets, small target window and arena messages
 005db83c	data	mp_lobby_player_count	int	Number of players in the lobby roster searched by mp_team_for_player_id
 005db8f0	data	mp_first_lobby_player_id	int	Network player ID in the first lobby row, with a 0xFC stride

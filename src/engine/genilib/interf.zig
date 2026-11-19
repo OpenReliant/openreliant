@@ -82,6 +82,8 @@ pub const Screen = enum(u8) {
 /// What the front end ends in, which `interface_run` returns to WinMain.
 pub const Outcome = union(enum) {
     join_server: []const u8,
+    host_lan,
+    stop_hosting,
     /// QUIT, answered YES: 3.
     quit,
     /// START GAME: 1, a single-player campaign, which `WinMain` takes into the Reliant's rooms
@@ -428,6 +430,8 @@ pub const Interface = struct {
                 const action = front.connection.frame(pointer, &context.devices.keyboard, context.typed, context.window) orelse return null;
                 switch (action) {
                     .join => |target| return .{ .join_server = target },
+                    .host_lan => return .host_lan,
+                    .stop_hosting => return .stop_hosting,
                     .back => {
                         front.screen = .main_menu;
                         return null;
@@ -670,7 +674,7 @@ pub const Interface = struct {
             },
             .connection => {
                 context.typed.clear();
-                front.connection.message = "";
+                front.connection.message = .{};
                 front.connection.editing = true;
             },
             .game_options => front.game_options = .{},

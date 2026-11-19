@@ -39,9 +39,20 @@ and runs the installed mods' player scripts through the same display layer as a 
 mission. Keyboard, mouse and controller input use the usual flight bindings. The host
 applies those commands and sends back speed, throttle, fuel and objective counts for the
 HUD. Escape leaves the server.
-Public discovery, LAN discovery and player hosting still need their runtime providers.
-See [public discovery](https://github.com/OpenReliant/openreliant/issues/957) and
-[player hosting](https://github.com/OpenReliant/openreliant/issues/363).
+
+**Host** opens the Six Beacons test arena on UDP port 27020 and reserves a place for the local pilot.
+Friends use Direct Connect with the host's private LAN address. The match starts when a second
+pilot joins. **Stop Hosting** cancels it from the browser. Escape in flight also ends the host's
+game. The host uses the same simulation and admission checks as a dedicated server.
+
+The browser reads matching labels from the installed language table, with English fallbacks.
+A pilot returns to the browser with the host-departure message (string `0x3B7` from the
+session loss path at `0x004B6C11`) if the host closes the session. A connection lost to a
+transport failure uses the separate connection warning (string `0x5F1`).
+
+Automatic discovery and internet joining for player hosts are tracked in
+[#957](https://github.com/OpenReliant/openreliant/issues/957) and
+[#363](https://github.com/OpenReliant/openreliant/issues/363).
 
 ## The screens
 

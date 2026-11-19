@@ -829,7 +829,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // the game starts (`campaign_new`).
     var network_pilot: NetworkPilot = .{};
     defer if (network_enabled) network_pilot.stop(presentation);
-    var front: engine.genilib.interf.Interface = .{ .pilot = .{ .difficulty = options.difficulty orelse .easy } };
+    var front: engine.genilib.interf.Interface = .{
+        .pilot = .{ .difficulty = options.difficulty orelse .easy },
+        .connection = .{ .host_available = network_enabled },
+    };
     defer front.deinit();
     var pilot_profile: game.gameflow.ProfileFile = .{
         .io = io,
@@ -1144,10 +1147,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             if (network_enabled) network_pilot.update(io, &front, &devices, presentation, app.active and !console_up);
             const in_arena = network_enabled and network_pilot.flying();
             if (!console_up and in_arena and devices.keyboard.pressed(engine.input.scan.escape, .none, true)) {
+                const hosted = network_pilot.hosted != null;
                 network_pilot.stop(presentation);
                 front.connection.busy = false;
-                front.connection.message = "Left the server";
+                front.connection.message = .{ .english = if (hosted) "LAN game stopped" else "Left the server" };
             }
+            front.connection.hosting = network_enabled and network_pilot.hosted != null;
             const front_outcome = if (console_up or in_arena) null else front.frame(front_context);
             // The movie a menu script asked for (`ui.play_movie`).
             if (presentation) |shown| if (shown.takeMovie()) |name| {
@@ -1169,11 +1174,22 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         through.mode_saved = .unchosen;
                         try game_scripts.start();
                     },
-                    .quit, .briefing, .mode_mission, .mode_left, .join_server => {},
+                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .stop_hosting => {},
                 }
                 flow.next = switch (outcome) {
+                    .host_lan => {
+                        if (network_enabled) network_pilot.hostLan(io, gpa, directory, &front.connection);
+                        continue;
+                    },
+                    .stop_hosting => {
+                        if (network_enabled) network_pilot.stop(presentation);
+                        front.connection.busy = false;
+                        front.connection.hosting = false;
+                        front.connection.message = .{ .english = "LAN game stopped" };
+                        continue;
+                    },
                     .join_server => |target| {
-                        if (network_enabled) network_pilot.start(io, target, &front.connection) else front.connection.message = "Multiplayer is unavailable in this build";
+                        if (network_enabled) network_pilot.start(io, target, &front.connection) else front.connection.message = .{ .english = "Multiplayer is unavailable in this build" };
                         continue;
                     },
                     .quit => return,

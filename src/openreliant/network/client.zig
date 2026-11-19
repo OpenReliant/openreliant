@@ -26,7 +26,7 @@ const poll_ms = 4;
 
 expected_host: ?[]const u8,
 conn: net.Connection = 0,
-state: enum { connecting, connected, unverified, closed } = .connecting,
+state: enum { connecting, connected, unverified, closed, lost } = .connecting,
 
 deadline: i64 = 0,
 sent_join: bool = false,
@@ -49,13 +49,17 @@ pub fn status(client: *Client, conn: net.Connection, event: net.Status, name: ?[
         else
             true,
         .unverified => client.expected_host == null,
-        .incoming, .closed => false,
+        .incoming, .closed, .lost => false,
     };
     if (accepted) {
         client.state = .connected;
     } else {
         net.session_close(conn);
-        client.state = if (event == .closed) .closed else .unverified;
+        client.state = switch (event) {
+            .closed => .closed,
+            .lost => .lost,
+            else => .unverified,
+        };
     }
 }
 
@@ -63,6 +67,15 @@ pub fn open(client: *Client, io: Io, address: [:0]const u8) !void {
     client.conn = net.session_open(address, false);
     if (client.conn == 0) return error.ConnectFailed;
     client.deadline = Io.Clock.awake.now(io).toMicroseconds() + timeout;
+}
+
+pub fn local(client: *Client, io: Io, client_end: net.Connection) void {
+    client.* = .{
+        .expected_host = null,
+        .conn = client_end,
+        .state = .connected,
+        .deadline = Io.Clock.awake.now(io).toMicroseconds() + timeout,
+    };
 }
 
 pub fn close(client: *Client) void {
@@ -89,6 +102,7 @@ pub fn poll(client: *Client, io: Io) !Event {
     net.session_poll();
     if (client.state == .unverified) return error.UnverifiedServer;
     if (client.state == .closed) return if (client.leaving) .closed else error.Disconnected;
+    if (client.state == .lost) return if (client.leaving) .closed else error.TransportLost;
     const now = Io.Clock.awake.now(io).toMicroseconds();
     // The first pilot may wait as long as needed for a second to join.
     if ((client.joined == null or client.latest != null or client.leaving) and now >= client.deadline) return error.SessionTimedOut;

@@ -7,7 +7,7 @@
 #include <unistd.h>
 #endif
 
-enum class Status : int { incoming, authenticated, closed, unverified };
+enum class Status : int { incoming, authenticated, closed, unverified, lost };
 extern "C" void session_status(uint32_t conn, Status status, const char *identity);
 extern "C" bool OpenReliant_SetTransportRoot(const char *key, size_t size);
 extern "C" bool OpenReliant_SetTransportCertificate(const void *certificate, int size);
@@ -34,8 +34,10 @@ static void changed(SteamNetConnectionStatusChangedCallback_t *event) {
             break;
         }
         case k_ESteamNetworkingConnectionState_ClosedByPeer:
-        case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
             session_status(conn, Status::closed, nullptr);
+            break;
+        case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+            session_status(conn, Status::lost, nullptr);
             break;
         default:
             break;
@@ -70,6 +72,17 @@ extern "C" uint32_t session_open(const char *address, bool host) {
     auto *net = SteamNetworkingSockets();
     if (host) return net->CreateListenSocketIP(endpoint, 0, nullptr);
     return net->ConnectByIPAddress(endpoint, 0, nullptr);
+}
+
+extern "C" bool session_local_pair(uint32_t *server, uint32_t *client) {
+    return SteamNetworkingSockets()->CreateSocketPair(server, client, false, nullptr, nullptr);
+}
+
+extern "C" bool session_peer_ip(uint32_t conn, uint8_t *address) {
+    SteamNetConnectionInfo_t info{};
+    if (!SteamNetworkingSockets()->GetConnectionInfo(conn, &info)) return false;
+    std::memcpy(address, info.m_addrRemote.m_ipv6, sizeof(info.m_addrRemote.m_ipv6));
+    return true;
 }
 
 extern "C" void session_listen_close(uint32_t listener) {

@@ -1,4 +1,4 @@
-//! Run a direct-IP host or terminal client before the game starts the display.
+//! Own the transport and route its callbacks to the current host and pilot.
 const std = @import("std");
 const net = @import("transport.zig");
 const wire = @import("wire.zig");
@@ -12,7 +12,7 @@ const default_round_ticks = 250;
 const max_certificate = 4096;
 const max_root_key = 512;
 const Role = enum { host, join };
-var current: ?union(enum) { host: *Host, client: *Client } = null;
+var current: struct { host: ?*Host = null, client: ?*Client = null } = .{};
 
 comptime {
     if (@import("network_options").enabled) @export(&status, .{ .name = "session_status" });
@@ -20,10 +20,11 @@ comptime {
 
 fn status(conn: net.Connection, event: net.Status, identity: ?[*:0]const u8) callconv(.c) void {
     const name = if (identity) |value| std.mem.span(value) else null;
-    switch (current orelse return) {
-        .host => |host| host.status(conn, event, name),
-        .client => |client| client.status(conn, event, name),
+    if (current.client) |client| {
+        if (client.conn == conn) return client.status(conn, event, name);
     }
+    if (current.host) |host| return host.status(conn, event, name);
+    if (current.client != null) net.session_close(conn);
 }
 
 fn number(value: []const u8) !u32 {
@@ -61,6 +62,55 @@ fn initTransport(root: ?[]const u8, certificate: ?[]const u8) !void {
         return error.InvalidTransportIdentity;
 }
 
+fn initAutomatic(server: *const credential.Server, io: std.Io) !void {
+    var certificate = try server.hostCertificate(io);
+    defer certificate.wipe();
+    try initTransport(&credential.openSshKey(server.issuer.public_key), certificate.slice());
+}
+
+/// A listener and a local pilot sharing one transport instance. The local pair is created
+/// inside the process, so remote admission can never take the host pilot's reservation.
+pub const LocalGame = struct {
+    gpa: std.mem.Allocator,
+    server: credential.Server,
+    host: Host,
+
+    pub fn start(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, client: *Client, port: u16) !*LocalGame {
+        const game = try gpa.create(LocalGame);
+        errdefer gpa.destroy(game);
+        game.gpa = gpa;
+        game.server = try .load(io, directory);
+        errdefer game.server.wipe();
+        try initAutomatic(&game.server, io);
+        errdefer net.session_deinit();
+        game.host = .{ .io = io, .arena = undefined, .signer = &game.server, .lan_only = true };
+        try game.host.arena.init(gpa, .@"six-beacons");
+        errdefer game.host.arena.deinit();
+
+        var address_buffer: [credential.Invite.max_address]u8 = undefined;
+        const address = try std.fmt.bufPrintSentinel(&address_buffer, "[::]:{d}", .{port}, 0);
+        try game.host.open(address, null);
+        errdefer game.host.close();
+        var server_end: net.Connection = 0;
+        var client_end: net.Connection = 0;
+        if (!net.session_local_pair(&server_end, &client_end)) return error.ConnectFailed;
+        game.host.takeLocalPilot(server_end);
+        client.local(io, client_end);
+        current = .{ .host = &game.host, .client = client };
+        return game;
+    }
+
+    pub fn stop(game: *LocalGame, client: *Client) void {
+        current = .{};
+        client.close();
+        game.host.close();
+        net.session_deinit();
+        game.host.arena.deinit();
+        game.server.wipe();
+        game.gpa.destroy(game);
+    }
+};
+
 pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity: ?Identity, options: HostOptions) !void {
     var server: ?credential.Server = null;
     defer if (server) |*automatic| automatic.wipe();
@@ -68,10 +118,7 @@ pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity
         try managed.load(io, gpa, directory);
     } else {
         server = try .load(io, directory);
-        const automatic = &server.?;
-        var certificate = try automatic.hostCertificate(io);
-        defer certificate.wipe();
-        try initTransport(&credential.openSshKey(automatic.issuer.public_key), certificate.slice());
+        try initAutomatic(&server.?, io);
     }
     defer net.session_deinit();
     const host = try gpa.create(Host);
@@ -84,8 +131,8 @@ pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity
     };
     try host.arena.init(gpa, options.mode);
     defer host.arena.deinit();
-    current = .{ .host = host };
-    defer current = null;
+    current.host = host;
+    defer current.host = null;
     const invite: ?credential.Invite = if (server) |*automatic|
         if (options.invite_address) |address| .{ .address = address, .key = automatic.issuer.public_key } else null
     else
@@ -131,19 +178,19 @@ pub fn connect(client: *Client, io: std.Io, target: []const u8) !void {
     errdefer net.session_deinit();
     client.* = .{ .expected_host = if (invite != null) credential.host_name else null };
     try client.open(io, address);
-    current = .{ .client = client };
+    current.client = client;
 }
 
 pub fn disconnect(client: *Client) void {
     client.close();
-    current = null;
+    current.client = null;
     net.session_deinit();
 }
 
 fn play(io: std.Io, address: [:0]const u8, expected_host: ?[]const u8, steering: Client.Controls, limit: ?u32) !void {
     var client: Client = .{ .expected_host = expected_host };
-    current = .{ .client = &client };
-    defer current = null;
+    current.client = &client;
+    defer current.client = null;
     try client.run(io, address, steering, limit);
 }
 
