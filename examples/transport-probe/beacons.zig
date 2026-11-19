@@ -5,12 +5,13 @@ const game = engine.game;
 const simulation = @import("arena_simulation.zig");
 const socket = @import("socket.zig");
 const wire = @import("beacon_snapshot.zig");
+const admission = @import("beacon_admission.zig");
 const version = @import("version").string;
 
-const Role = enum { host, pilot1, pilot2, pilot3, cancel_join, wrong_protocol };
+const Role = enum { host, pilot1, pilot2, pilot3, cancel_join, silent_join, wrong_protocol };
 const pilot_count = 3;
 const starting_pilots = 2;
-const join_timeout = 3 * std.time.us_per_s;
+const step_us = game.gameobj.ticks_per_step * std.time.us_per_s / game.main.ticks_per_second;
 const first_marker = 5000;
 
 extern "c" fn puts(text: [*:0]const u8) c_int;
@@ -66,6 +67,7 @@ const Arena = struct {
 const Peer = struct {
     conn: ?socket.Connection = null,
     admitted: bool = false,
+    connected_at: i64 = 0,
 };
 var peers: [pilot_count]Peer = @splat(.{});
 var role: Role = undefined;
@@ -79,10 +81,10 @@ export fn probe_connected(conn: socket.Connection, identity: [*:0]const u8, inco
         .pilot1 => 0,
         .pilot2 => 1,
         .pilot3 => 2,
-        .host, .cancel_join, .wrong_protocol => return false,
+        .host, .cancel_join, .silent_join, .wrong_protocol => return false,
     } else if (other == .host) 0 else return false;
     if (peers[index].conn != null) return false;
-    peers[index] = .{ .conn = conn };
+    peers[index] = .{ .conn = conn, .connected_at = socket.probe_now() };
     return true;
 }
 
@@ -119,64 +121,103 @@ fn expect(conn: socket.Connection, message: wire.Message) !void {
     if (!std.mem.eql(u8, try receive(conn, &buffer), &.{@backingInt(message)})) return error.UnexpectedMessage;
 }
 
-// This revision belongs to the probe protocol. App releases can share a revision.
-const protocol_revision: u16 = 1;
-
-fn sendVersion(conn: socket.Connection, message: wire.Message, revision: u16, release: []const u8) !void {
-    var buffer: [wire.capacity]u8 = undefined;
-    var out = std.Io.Writer.fixed(&buffer);
-    try out.writeByte(@backingInt(message));
-    try out.writeInt(u16, revision, .little);
-    try out.writeAll(release);
-    try socket.send(conn, wire.lane, out.buffered());
-}
-
-const Version = struct {
-    revision: u16,
-    release: []const u8,
-
-    fn read(bytes: []const u8, message: wire.Message) !Version {
-        var in = std.Io.Reader.fixed(bytes);
-        if (try in.takeEnum(wire.Message, .little) != message) return error.UnexpectedMessage;
-        const revision = try in.takeInt(u16, .little);
-        const release = in.buffered();
-        if (release.len == 0) return error.MissingVersion;
-        return .{ .revision = revision, .release = release };
-    }
-};
-
 fn signalReady(message: [*:0]const u8) !void {
     if (puts(message) < 0 or fflush(null) != 0) return error.ReadySignalFailed;
 }
 
-fn compatiblePeer(slot: usize) !socket.Connection {
-    const peer = &peers[slot];
-    var buffer: [wire.capacity]u8 = undefined;
-    while (true) {
-        const conn = try waitForPeer(slot);
-        if (slot == starting_pilots) try signalReady("checking late join");
-        const hello_deadline = socket.probe_now() + join_timeout;
-        while (socket.probe_now() < hello_deadline) {
-            try poll();
-            if (peer.conn != conn) break;
-            const packet = socket.receive(conn, &buffer) catch break orelse continue;
-            if (packet.lane != wire.lane) break;
-            const request = Version.read(packet.bytes, .join) catch break;
-            if (request.revision != protocol_revision) {
-                sendVersion(conn, .wrong_protocol, protocol_revision, version) catch break;
-                // Allow time to read the rejection even if the transport already acknowledged it.
-                while (peer.conn == conn and socket.probe_now() < hello_deadline) try poll();
-                break;
-            }
-            peer.admitted = true;
-            return conn;
-        }
-        if (peer.conn == conn) {
-            peer.* = .{};
-            if (!socket.probe_close(conn)) return error.CloseFailed;
-        }
-        try signalReady("join slot free");
+/// Keep one outstanding snapshot per pilot. A slow reader can miss intermediate views.
+const Pilot = struct {
+    conn: socket.Connection,
+    sent: i32,
+    applied: i32,
+    previous: i32,
+
+    fn receiveAck(pilot: *Pilot) !void {
+        if (pilot.applied == pilot.sent) return;
+        var buffer: [wire.capacity]u8 = undefined;
+        const packet = try socket.receive(pilot.conn, &buffer) orelse return;
+        if (packet.lane != wire.lane or try wire.appliedTick(packet.bytes) != pilot.sent) return error.WrongAcknowledgement;
+        pilot.previous = pilot.applied;
+        pilot.applied = pilot.sent;
     }
+};
+
+const Playing = struct {
+    arena: *Arena,
+    pilots: [starting_pilots]Pilot,
+    next_step: i64,
+
+    fn advance(round: *Playing, now: i64) !void {
+        for (&round.pilots) |*pilot| try pilot.receiveAck();
+        if (now < round.next_step) return;
+        round.next_step += step_us;
+        const view = try round.arena.frame();
+        for (&round.pilots) |*pilot| {
+            if (pilot.applied != pilot.sent) continue;
+            try sendView(pilot.conn, view);
+            pilot.sent = view.tick;
+        }
+    }
+
+    fn confirmProgress(round: *const Playing, start_tick: i32) !void {
+        // Both clients must apply multiple views, including one from the second half of the wait.
+        const half_window_ticks = admission.timeout * game.main.ticks_per_second / (2 * std.time.us_per_s);
+        for (round.pilots) |pilot| {
+            if (pilot.previous <= start_tick or pilot.applied - start_tick < half_window_ticks)
+                return error.MissingLiveSnapshots;
+        }
+        std.debug.print("silent join: host ticks {d} to {d}, pilots applied {d} and {d}\n", .{
+            start_tick, round.arena.mission.clock.frame_start, round.pilots[0].applied, round.pilots[1].applied,
+        });
+    }
+};
+
+fn compatiblePeer(slot: usize, playing: ?*Playing) !socket.Connection {
+    const peer = &peers[slot];
+    var pending: ?admission.Attempt = null;
+    while (true) {
+        try poll();
+        const now = socket.probe_now();
+        if (pending == null) {
+            if (peer.conn) |conn| {
+                pending = .{
+                    .conn = conn,
+                    .expires = peer.connected_at + admission.timeout,
+                    .start_tick = if (playing) |round| round.arena.mission.clock.frame_start else 0,
+                };
+                if (playing != null) try signalReady("checking late join");
+            }
+        }
+        if (pending) |*attempt| switch (attempt.advance(peer.conn, now)) {
+            .pending => {},
+            .compatible => {
+                peer.admitted = true;
+                return attempt.conn;
+            },
+            .release, .silent_timeout => |result| {
+                if (peer.conn == attempt.conn) {
+                    peer.* = .{};
+                    if (!socket.probe_close(attempt.conn)) return error.CloseFailed;
+                }
+                if (playing) |round| {
+                    if (result == .silent_timeout) try round.confirmProgress(attempt.start_tick);
+                    try signalReady(if (result == .silent_timeout) "silent join expired" else "join slot free");
+                }
+                pending = null;
+            },
+        };
+        if (playing) |round| try round.advance(now);
+    }
+}
+
+fn acknowledge(conn: socket.Connection, tick: i32) !void {
+    const bytes = wire.applied(tick);
+    try socket.send(conn, wire.lane, &bytes);
+}
+
+fn expectApplied(conn: socket.Connection, tick: i32) !void {
+    var buffer: [wire.capacity]u8 = undefined;
+    if (try wire.appliedTick(try receive(conn, &buffer)) != tick) return error.WrongAcknowledgement;
 }
 
 fn sendView(conn: socket.Connection, view: wire.View) !void {
@@ -209,23 +250,31 @@ fn host() !void {
     defer arena.deinit();
     var clients: [pilot_count]socket.Connection = undefined;
     for (0..starting_pilots) |i| {
-        clients[i] = try compatiblePeer(i);
+        clients[i] = try compatiblePeer(i, null);
         _ = try simulation.admit(arena.world(), @intCast(i));
     }
     const pickup = try arena.frame();
     const carrier = try checkPickup(pickup);
     for (clients[0..starting_pilots]) |conn| try sendView(conn, pickup);
-    for (clients[0..starting_pilots]) |conn| try expect(conn, .applied);
+    var playing: Playing = .{ .arena = &arena, .pilots = undefined, .next_step = undefined };
+    for (clients[0..starting_pilots], &playing.pilots) |conn, *pilot| {
+        try expectApplied(conn, pickup.tick);
+        pilot.* = .{ .conn = conn, .sent = pickup.tick, .applied = pickup.tick, .previous = pickup.tick };
+    }
+    playing.next_step = socket.probe_now() + step_us;
 
     // The runner only starts the third process after the first two pilots confirm the pickup.
     try signalReady("beacon carried");
-    clients[starting_pilots] = try compatiblePeer(starting_pilots);
+    clients[starting_pilots] = try compatiblePeer(starting_pilots, &playing);
+    for (playing.pilots) |pilot| {
+        if (pilot.applied != pilot.sent) try expectApplied(pilot.conn, pilot.sent);
+    }
     const late = try simulation.admit(arena.world(), starting_pilots);
     const joined = try arena.frame();
     if (!std.meta.eql(carrier, try checkPickup(joined)) or joined.state.countFor(late) != 0)
         return error.WrongJoinState;
     try sendView(clients[starting_pilots], joined);
-    try expect(clients[starting_pilots], .applied);
+    try expectApplied(clients[starting_pilots], joined.tick);
 
     // This is the normal destruction order. Its init releases the ship's cargo.
     const orders: game.aigeneric.Context = .of(arena.world());
@@ -233,7 +282,7 @@ fn host() !void {
     const dropped = try arena.frame();
     try checkDrop(joined, dropped, carrier);
     for (clients) |conn| try sendView(conn, dropped);
-    for (clients) |conn| try expect(conn, .applied);
+    for (clients) |conn| try expectApplied(conn, dropped.tick);
 
     for (clients) |conn| try socket.send(conn, wire.lane, &.{@backingInt(wire.Message.complete)});
     // A client may close after receiving the final message. Drain anything still queued.
@@ -249,16 +298,16 @@ fn host() !void {
 fn client() !void {
     const conn = try waitForPeer(0);
     var buffer: [wire.capacity]u8 = undefined;
-    if (role == .cancel_join) {
-        // The runner cancels after the host starts waiting for this pilot's join message.
-        if (getchar() != '\n') return error.MissingCancellation;
-        if (!socket.probe_close(conn)) return error.CloseFailed;
+    if (role == .silent_join or role == .cancel_join) {
+        // The runner releases the silent client only after the host expires its connection.
+        if (getchar() != '\n') return error.MissingRelease;
+        if (role == .cancel_join and !socket.probe_close(conn)) return error.CloseFailed;
         return;
     }
     if (role == .wrong_protocol) {
-        try sendVersion(conn, .join, protocol_revision + 1, version);
-        const required = try Version.read(try receive(conn, &buffer), .wrong_protocol);
-        if (required.revision != protocol_revision or !std.mem.eql(u8, required.release, version))
+        try admission.sendVersion(conn, .join, admission.protocol_revision + 1, version);
+        const required = try admission.Version.read(try receive(conn, &buffer), .wrong_protocol);
+        if (required.revision != admission.protocol_revision or !std.mem.eql(u8, required.release, version))
             return error.WrongProtocolRejection;
         // Stay connected until the runner observes the host releasing the slot.
         if (getchar() != '\n') return error.MissingRelease;
@@ -268,15 +317,25 @@ fn client() !void {
 
     // The late pilot reports a different app release to exercise compatible joins.
     const release = if (role == .pilot3) "1.0.0" else version;
-    try sendVersion(conn, .join, protocol_revision, release);
+    try admission.sendVersion(conn, .join, admission.protocol_revision, release);
     const pickup = try wire.View.decode(try receive(conn, &buffer));
     const carrier = try checkPickup(pickup);
     if (role == .pilot3) std.debug.print("pilot3: first snapshot shows pilot1 carrying one beacon\n", .{});
-    try socket.send(conn, wire.lane, &.{@backingInt(wire.Message.applied)});
+    try acknowledge(conn, pickup.tick);
 
-    const drop = try wire.View.decode(try receive(conn, &buffer));
-    try checkDrop(pickup, drop, carrier);
-    try socket.send(conn, wire.lane, &.{@backingInt(wire.Message.applied)});
+    var previous = pickup;
+    while (true) {
+        const view = try wire.View.decode(try receive(conn, &buffer));
+        if (view.tick <= previous.tick) return error.StaleSnapshot;
+        if (view.state.beacons[0].carrier == null) {
+            try checkDrop(previous, view, carrier);
+            try acknowledge(conn, view.tick);
+            break;
+        }
+        if (!std.meta.eql(view.state, pickup.state)) return error.WrongJoinState;
+        try acknowledge(conn, view.tick);
+        previous = view;
+    }
     try expect(conn, .complete);
     std.debug.print("{s}: the same beacon is loose again\n", .{@tagName(role)});
 }

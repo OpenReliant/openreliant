@@ -9,6 +9,30 @@ pub const capacity = 256;
 pub const Message = enum(u8) { join, wrong_protocol, snapshot, applied, complete };
 const Ownership = enum(u8) { loose, carried };
 
+const ack_size = 1 + @sizeOf(i32);
+
+pub fn applied(tick: i32) [ack_size]u8 {
+    var bytes: [ack_size]u8 = undefined;
+    bytes[0] = @backingInt(Message.applied);
+    std.mem.writeInt(i32, bytes[1..], tick, .little);
+    return bytes;
+}
+
+pub fn appliedTick(bytes: []const u8) !i32 {
+    if (bytes.len != ack_size or bytes[0] != @backingInt(Message.applied)) return error.UnexpectedMessage;
+    return std.mem.readInt(i32, bytes[1..ack_size], .little);
+}
+
+test "an acknowledgement names the exact snapshot tick" {
+    const tick: i32 = 0x01020304;
+    const bytes = applied(tick);
+    try std.testing.expectEqualSlices(u8, &.{ @backingInt(Message.applied), 4, 3, 2, 1 }, &bytes);
+    try std.testing.expectEqual(tick, try appliedTick(&bytes));
+    try std.testing.expectError(error.UnexpectedMessage, appliedTick(bytes[0 .. bytes.len - 1]));
+    try std.testing.expectError(error.UnexpectedMessage, appliedTick(&(bytes ++ .{0})));
+    try std.testing.expectError(error.UnexpectedMessage, appliedTick(&.{ @backingInt(Message.join), 4, 3, 2, 1 }));
+}
+
 pub const View = struct {
     tick: i32,
     state: objectives.Snapshot,

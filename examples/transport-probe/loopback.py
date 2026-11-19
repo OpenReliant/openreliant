@@ -9,12 +9,16 @@ import socket
 async def run(binary, credentials, late_pilot):
     children = []
 
+    join_attempts = ("cancel_join", "wrong_protocol", "silent_join")
+
     async def start(role, address):
-        identity = {"reject": "pilot1", "wrong_protocol": "pilot3", "cancel_join": "pilot3"}.get(role, role)
+        identity = "pilot1" if role == "reject" else role
+        if role in join_attempts:
+            identity = "pilot3"
         child = await asyncio.create_subprocess_exec(
             str(binary), role, address, str(credentials / (identity + ".cert")), "--shared-clock",
             stdout=asyncio.subprocess.PIPE if role == "host" else None,
-            stdin=asyncio.subprocess.PIPE if role in ("cancel_join", "wrong_protocol") else None,
+            stdin=asyncio.subprocess.PIPE if role in join_attempts else None,
         )
         children.append(child)
         return child
@@ -24,7 +28,12 @@ async def run(binary, credentials, late_pilot):
             raise RuntimeError("transport probe failed")
 
     async def slot_free(host, role):
-        if await host.stdout.readline() != b"join slot free\n":
+        result = await host.stdout.readline()
+        # With packet loss, the host can expire a cancelled connection before its close arrives.
+        if role == "cancel_join" and result == b"silent join expired\n":
+            return
+        expected = b"silent join expired\n" if role == "silent_join" else b"join slot free\n"
+        if result != expected:
             raise RuntimeError(f"host did not release the pilot slot after {role}")
 
     async def listen():
@@ -51,11 +60,11 @@ async def run(binary, credentials, late_pilot):
         if late_pilot:
             if await host.stdout.readline() != b"beacon carried\n":
                 raise RuntimeError("host did not confirm the first pickup")
-            for role in ("cancel_join", "wrong_protocol"):
+            for role in join_attempts:
                 attempt = await start(role, address)
                 if await host.stdout.readline() != b"checking late join\n":
                     raise RuntimeError(f"host did not receive {role}")
-                if role == "wrong_protocol":
+                if role != "cancel_join":
                     await slot_free(host, role)
                 attempt.stdin.write(b"\n")
                 await attempt.stdin.drain()

@@ -96,24 +96,28 @@ python3 "$probe/loopback.py" "$work/$target/six-beacons-probe/transport-probe" \
     "$work/six-beacons-identities" --six-beacons
 ```
 
-Two pilots enter a small test arena. Once the host simulation awards the first beacon, the
-runner connects a third pilot who leaves before sending a join request. It then tries the same
-identity with an incompatible protocol revision. The host replies with the required revision
-and closes the connection. Both attempts leave the pilot slot free. The runner then starts a client that reports
-a different OpenReliant release but uses the same protocol. Its first snapshot contains all six
-beacons, their positions and the carrier's participant and ship identities. The host then runs
-the carrier's destruction order. All three clients must confirm that the
-same beacon is loose at its drop position. The test pauses between simulation frames to make
-the join repeatable. A public server must keep ticking while a pilot negotiates admission
-([#1432](https://github.com/OpenReliant/openreliant/issues/1432)).
+Two pilots start on the real host simulation. After the first beacon pickup, the runner uses
+the third pilot's identity for three attempts. One client cancels, one reports an incompatible
+protocol revision, and one stays connected without sending a join message. The host releases
+each connection. A silent client must time out before the runner starts its replacement.
 
-The protocol revision is separate from the OpenReliant version. Bump it when a change
-makes the wire format or the meaning of its messages incompatible. Matching the revision
-is one admission check. Game content compatibility has its own checks under
-[#956](https://github.com/OpenReliant/openreliant/issues/956).
-This workload uses its own short-lived test identities. It sends complete objective snapshots
-on the reliable lane at the pickup and drop. Live session delivery and client notices are
-tracked in [#954](https://github.com/OpenReliant/openreliant/issues/954) and
+During late admission, the host advances the arena at its normal simulation step and sends both
+playing pilots full objective snapshots. Each pilot acknowledges the tick it applied. The host
+keeps at most one snapshot per pilot awaiting acknowledgement and skips intermediate views for a
+slow reader. At expiry it checks that both pilots acknowledged multiple
+fresh views, including a tick from the second half of the wait.
+
+The replacement reports a different OpenReliant release with the same protocol revision. Its
+first snapshot includes all six beacons, their positions and the carrier's participant and ship
+identities. The host runs the carrier's destruction order, and all three pilots confirm that the
+same beacon is loose at its drop position.
+
+The protocol revision is separate from the OpenReliant version. Bump it when the wire format
+or message semantics become incompatible. The workload uses short-lived test identities.
+Public server admission and traffic limits are tracked in
+[#1432](https://github.com/OpenReliant/openreliant/issues/1432), content compatibility in
+[#956](https://github.com/OpenReliant/openreliant/issues/956), and playable client delivery in
+[#954](https://github.com/OpenReliant/openreliant/issues/954) and
 [#1416](https://github.com/OpenReliant/openreliant/issues/1416).
 
 ## Try a routed connection
