@@ -240,13 +240,12 @@ On first start, the host creates `server.key` beside the INI. It reuses that key
 and renews its transport certificate automatically while running. Store the INI in a private
 folder and keep a private backup of `server.key`. If you replace the key, share a new invite.
 
-Pilots can join by IP, for example `openreliant session join 192.0.2.10` or
-`openreliant session join 192.0.2.10:27200`. The default port is 27020. For IPv6 with a port,
-use brackets, for example `openreliant session join '[2001:db8::1]:27200'`. The client opens
+Open **Multi Player** from the main menu. Under **Direct Connect**, type the server address, such as `192.0.2.10` or
+`192.0.2.10:27200`, then choose **Connect** or press Enter. The default port is 27020.
+For IPv6 with a port, use brackets, for example `[2001:db8::1]:27200`. The client opens
 one encrypted connection to the address. Pilots need no credential files.
 
-To share an invite that also verifies the server's identity, copy the value after `invite` in the host's output and share it with your pilots. They can join
-from a terminal by running `openreliant session join '<invite>'`. The invite contains the IP
+To share an invite that also verifies the server's identity, copy the value after `invite` in the host's output and share it with your pilots. They can paste it in the same address field. The invite contains the IP
 address, port and public server key. Pilots should get the invite from the host operator so they
 can verify the right server. Anyone with the invite can try to join.
 

@@ -32,6 +32,8 @@ const srd3d = engine.surrender.srd3d;
 const game = engine.game;
 const save = game.gameflow.save;
 const camera = game.camera;
+const network_enabled = @import("network_options").enabled;
+const NetworkPilot = @import("network/graphical.zig");
 // The program's own files are `pub`, so that the test block at the end runs their tests.
 pub const debug_command = @import("debug.zig");
 pub const help = @import("help.zig");
@@ -825,6 +827,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The front end, where the game opens unless `--mission` names a mission, with the pilot it
     // sets, who flies every mission; and the pilot's profile, whose call sign the pilot takes as
     // the game starts (`campaign_new`).
+    var network_pilot: NetworkPilot = .{};
+    defer if (network_enabled) network_pilot.stop(gpa);
     var front: engine.genilib.interf.Interface = .{ .pilot = .{ .difficulty = options.difficulty orelse .easy } };
     defer front.deinit();
     var pilot_profile: game.gameflow.ProfileFile = .{
@@ -1009,6 +1013,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         while (window.poll()) |event| switch (event) {
             .quit => return,
             .key => |key| if (options.screenshot == null) {
+                if (key.paste and flow.in_front_end and front.screen == .connection and !front.connection.busy and !(if (console) |*shown| shown.isUp() else false)) {
+                    var buffer: [128]u8 = undefined;
+                    if (platform.window.clipboard(&buffer)) |text| {
+                        front.connection.address.set(text);
+                        front.connection.editing = true;
+                    }
+                }
                 devices.keyboard.down[@backingInt(key.scan)] = key.down;
                 if (script_frames) |*frames| frames.key(key.scan, key.down);
             },
@@ -1130,7 +1141,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             front_context.window = size;
             front_context.elapsed = elapsed;
             // While the console is up, it takes the pass.
-            const front_outcome = if (console_up) null else front.frame(front_context);
+            if (network_enabled) network_pilot.update(gpa, io, &front, &devices);
+            const in_arena = network_enabled and network_pilot.flying();
+            if (!console_up and in_arena and devices.keyboard.pressed(engine.input.scan.escape, .none, true)) {
+                network_pilot.stop(gpa);
+                front.connection.busy = false;
+                front.connection.message = "Left the server";
+            }
+            const front_outcome = if (console_up or in_arena) null else front.frame(front_context);
             // The movie a menu script asked for (`ui.play_movie`).
             if (presentation) |shown| if (shown.takeMovie()) |name| {
                 _ = try movies.play(name, .cleared) orelse return;
@@ -1151,9 +1169,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         through.mode_saved = .unchosen;
                         try game_scripts.start();
                     },
-                    .quit, .briefing, .mode_mission, .mode_left => {},
+                    .quit, .briefing, .mode_mission, .mode_left, .join_server => {},
                 }
                 flow.next = switch (outcome) {
+                    .join_server => |target| {
+                        if (network_enabled) network_pilot.start(io, target, &front.connection) else front.connection.message = "Multiplayer is unavailable in this build";
+                        continue;
+                    },
                     .quit => return,
                     .fly => |flight| fly: {
                         flow.campaign = null;
@@ -1500,7 +1522,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             front.enterShown(front_context);
             var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = gpu.interface(), .window = size, .strings = &strings, .settings = .{ .devices = &devices, .sound = sound, .video = video_settings }, .presentation = presentation, .console = if (console) |*up| up else null };
             scene.clear();
-            try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), shown.overlay());
+            if (network_enabled and network_pilot.flying()) {
+                try network_pilot.draw(gpa, arena, types.types(), &scene, &context, size, field_of_view);
+                try space.frame(arena, &scene, &context, .chase, .chase);
+                try sky.frame(arena, &scene, &context);
+                try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), null);
+            } else try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), shown.overlay());
         } else {
             const copy = drawn_objects.?;
             // The game takes where this frame is drawn from as input, for the effects that depend
@@ -1608,7 +1635,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         }
         // The menus draw their own pointer over the window, in place of the system's, which also
         // hides in full screen and once it rests over the window.
-        const menu_pointer = flow.in_front_end or pause_menu.isOpen();
+        const menu_pointer = (flow.in_front_end and !network_pilot.flying()) or pause_menu.isOpen();
         window.showPointer(menu_pointer);
         // Steering by the mouse, the window holds it in flight, as the game holds DirectInput's
         // mouse while it is in the foreground.

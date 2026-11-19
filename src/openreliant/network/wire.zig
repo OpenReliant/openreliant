@@ -2,11 +2,13 @@
 const std = @import("std");
 const version = @import("version");
 
-pub const revision: u16 = 2;
+const engine = @import("openreliant").engine;
+pub const arena_ship: engine.game.gameobj.Type = .of(.predator);
+pub const revision: u16 = 3;
 pub const slots = 3;
 pub const beacon_count = @import("openreliant").engine.game.deathmatch.six_beacons.required;
 // A tag and tick, three full ship records, and six loose beacons.
-pub const capacity = 1 + @sizeOf(u32) + slots * (@sizeOf(u64) + 3 * @sizeOf(f32)) + 1 + beacon_count * (1 + 3 * @sizeOf(f32));
+pub const capacity = 1 + @sizeOf(u32) + slots * (@sizeOf(u64) + 3 * (@sizeOf(f32) + @sizeOf(i16))) + 1 + beacon_count * (1 + 3 * @sizeOf(f32));
 const max_release = 96;
 
 pub const Steering = enum(i8) { left = -1, straight = 0, right = 1 };
@@ -31,7 +33,23 @@ pub const Version = struct {
         return peer.protocol == revision;
     }
 };
-pub const Ship = struct { generation: u64, position: [3]f32 };
+pub const Ship = struct {
+    generation: u64,
+    position: [3]f32,
+    // Signed half-turns keep the three angles to six bytes per ship.
+    angles: [3]i16 = @splat(0),
+
+    pub fn face(ship: *Ship, orientation: engine.surrender.math.Matrix) void {
+        const radians = engine.surrender.math.angles(orientation);
+        inline for (&ship.angles, 0..) |*angle, i| angle.* = @intFromFloat(@round(radians[i] * (32767.0 / std.math.pi)));
+    }
+
+    pub fn orientationMatrix(ship: Ship) engine.surrender.math.Matrix {
+        var angles: engine.surrender.math.Vector = undefined;
+        inline for (ship.angles, 0..) |angle, i| angles[i] = @as(f32, @floatFromInt(angle)) * (std.math.pi / 32767.0);
+        return engine.surrender.math.fromAngleVector(angles);
+    }
+};
 pub const Beacon = union(enum(u8)) { loose: [3]f32, carried: u8 };
 pub const Objectives = union(enum(u8)) { none, six_beacons: [beacon_count]Beacon };
 pub const Snapshot = struct { tick: u32, ships: [slots]?Ship, objectives: Objectives = .none };
@@ -86,6 +104,7 @@ pub const Message = union(enum(u8)) {
                     };
                     try w.writeInt(u64, ship.generation, .little);
                     try writePosition(&w, ship.position);
+                    for (ship.angles) |angle| try w.writeInt(i16, angle, .little);
                 }
                 try w.writeByte(@backingInt(std.meta.activeTag(view.objectives)));
                 switch (view.objectives) {
@@ -134,7 +153,9 @@ pub const Message = union(enum(u8)) {
                 for (&view.ships) |*entry| {
                     const generation = try r.takeInt(u64, .little);
                     if (generation == 0) continue;
-                    entry.* = .{ .generation = generation, .position = try readPosition(&r) };
+                    var ship: Ship = .{ .generation = generation, .position = try readPosition(&r) };
+                    for (&ship.angles) |*angle| angle.* = try r.takeInt(i16, .little);
+                    entry.* = ship;
                 }
                 view.objectives = switch (try r.takeEnum(std.meta.Tag(Objectives), .little)) {
                     .none => .none,
@@ -169,7 +190,7 @@ test "versions compare by protocol and snapshots retain slot identities" {
     try std.testing.expect((try Message.decode(try local.encode(&buffer))).join.compatible());
     const old: Message = .{ .join = .{ .protocol = revision - 1, .release = "next" } };
     try std.testing.expect(!(try Message.decode(try old.encode(&buffer))).join.compatible());
-    const view: Message = .{ .view = .{ .tick = 12, .ships = .{ .{ .generation = 4, .position = .{ 1, 2, 3 } }, null, null } } };
+    const view: Message = .{ .view = .{ .tick = 12, .ships = .{ .{ .generation = 4, .position = .{ 1, 2, 3 }, .angles = .{ -1234, 5, 678 } }, null, null } } };
     const bytes = try view.encode(&buffer);
     try std.testing.expectEqualDeep(view, try Message.decode(bytes));
     try std.testing.expectError(error.EndOfStream, Message.decode(bytes[0 .. bytes.len - 1]));
@@ -191,7 +212,7 @@ test "a final receipt names the applied tick" {
 
 test "flight updates fit the direct-IP payload budget" {
     const input_bytes = 6;
-    const full_snapshot_bytes = 66;
+    const full_snapshot_bytes = 84;
     var buffer: [capacity]u8 = undefined;
     const input: Message = .{ .input = .{ .sequence = 1, .steering = .straight } };
     const view: Message = .{ .view = .{
@@ -215,4 +236,14 @@ test "the objective view fits one packet and a carrier needs a current ship" {
     try std.testing.expectEqualDeep(view, try Message.decode(try view.encode(&buffer)));
     view.view.ships[1] = null;
     try std.testing.expectError(error.InvalidBeaconCarrier, Message.decode(try view.encode(&buffer)));
+}
+
+test "ship angles round-trip the host orientation" {
+    const math = engine.surrender.math;
+    const facing = math.fromAngles(0.42, -0.91, 2.1);
+    var ship: Ship = .{ .generation = 1, .position = @splat(0) };
+    ship.face(facing);
+    for (facing, ship.orientationMatrix()) |expected, actual| {
+        try std.testing.expectApproxEqAbs(expected, actual, 0.0002);
+    }
 }

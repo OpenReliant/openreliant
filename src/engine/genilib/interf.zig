@@ -81,6 +81,7 @@ pub const Screen = enum(u8) {
 
 /// What the front end ends in, which `interface_run` returns to WinMain.
 pub const Outcome = union(enum) {
+    join_server: []const u8,
     /// QUIT, answered YES: 3.
     quit,
     /// START GAME: 1, a single-player campaign, which `WinMain` takes into the Reliant's rooms
@@ -261,6 +262,7 @@ pub const Resources = struct {
 /// The shapes and the background of each screen ported.
 fn screenFiles(screen: Screen) ?struct { shapes: []const u8, background: []const u8 } {
     return switch (screen) {
+        .connection => .{ .shapes = interface.Connection.shapes, .background = interface.Connection.background },
         .main_menu => .{ .shapes = main_menu.shapes_name, .background = main_menu.background_name },
         .game_options => .{ .shapes = game_options.shapes_name, .background = game_options.background_name },
         .audio => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .audio).?.background },
@@ -328,6 +330,7 @@ pub const Interface = struct {
     /// Whether the GET MODS screen installed a mod. The mods screen then rereads the `mods` folder
     /// when it is entered.
     mods_installed: bool = false,
+    connection: interface.Connection = .{},
     game_modes: game_modes.GameModes = .{},
     /// The screen a mod's screen stands in for, while it is shown (`Scripted`).
     scripted_shown: ?Screen = null,
@@ -359,9 +362,6 @@ pub const Interface = struct {
     /// A frame of `interface_run`: the shown screen entered where it has just been chosen, the
     /// pointer brought up to date (`interface_pointer_update`), then the screen's frame. Returns
     /// what the front end ends in, once it does.
-    ///
-    /// Not ported: MULTI PLAYER's screens (#43 lists them). Until they are, MULTI PLAYER stays on
-    /// the main menu, without its movie.
     ///
     /// **Fix:** a screen takes no press until the button held as it was entered comes up. The
     /// movie between two screens gives the press that chose the second time to end; where the
@@ -419,10 +419,20 @@ pub const Interface = struct {
                         return null;
                     },
                     .connection => {
-                        log.info("MULTI PLAYER is not ported yet", .{});
+                        front.screen = .connection;
                         return null;
                     },
                 };
+            },
+            .connection => {
+                const action = front.connection.frame(pointer, &context.devices.keyboard, context.typed, context.window) orelse return null;
+                switch (action) {
+                    .join => |target| return .{ .join_server = target },
+                    .back => {
+                        front.screen = .main_menu;
+                        return null;
+                    },
+                }
             },
             .game_options => {
                 const choice = front.game_options.frame(pointer, &context.devices.keyboard) orelse return null;
@@ -623,13 +633,13 @@ pub const Interface = struct {
     fn shows(front: *const Interface, screen: Screen, context: Context) bool {
         _ = front;
         return switch (screen) {
-            .main_menu, .game_options, .pilot_roster => true,
+            .main_menu, .game_options, .connection, .pilot_roster => true,
             .audio, .controls, .video => context.settings != null,
             .mods, .mod_options => context.settings != null and context.mods != null,
             .mod_catalog => context.settings != null and context.mods != null and game.bigfile.catalogue.Repositories.of(context.settings.?.profile).any(),
             .saved_games => context.saves != null,
             .game_modes => context.modes.len > 0,
-            .briefing, .landing_movie, .connection, .mode_briefing, .mode_ending, _ => false,
+            .briefing, .landing_movie, .mode_briefing, .mode_ending, _ => false,
         };
     }
 
@@ -657,6 +667,11 @@ pub const Interface = struct {
             .main_menu => {
                 front.main_menu.enter(&front.pointer, context.sound);
                 if (context.pilot_profile) |pilot_profile| pilot_profile.open(&front.pilot.call_sign);
+            },
+            .connection => {
+                context.typed.clear();
+                front.connection.message = "";
+                front.connection.editing = true;
             },
             .game_options => front.game_options = .{},
             .audio => if (context.settings) |settings_file| front.settings.enter(.game_options, .audio, settingsContext(front, context, settings_file, front.pointer)),
@@ -721,6 +736,7 @@ pub const Interface = struct {
     pub fn takesText(front: *const Interface) bool {
         return switch (front.screen) {
             .pilot_roster => front.pilot_roster.typing,
+            .connection => front.connection.editing and !front.connection.busy,
             .saved_games => front.saved_games.takesText(),
             .mod_options => front.mod_options.takesText(),
             else => false,
@@ -764,6 +780,7 @@ pub const Interface = struct {
         if (front.scripted_shown != null) return;
         switch (front.screen) {
             .main_menu => try front.main_menu.draw(drawn, art, &resources.dialog, &resources.developer.font),
+            .connection => try front.connection.draw(drawn, art, front.ticks),
             .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about),
             .audio, .controls, .video => try front.settings.draw(drawn, art, &resources.dialog, shown),
             .mods => try front.mod_manager.draw(drawn, art),
@@ -780,7 +797,7 @@ pub const Interface = struct {
     fn showsScreen(front: Interface) bool {
         if (front.scripted_shown != null) return true;
         return switch (front.screen) {
-            .main_menu, .game_options, .audio, .controls, .video, .mods, .mod_options, .mod_catalog, .game_modes, .pilot_roster, .saved_games => true,
+            .main_menu, .connection, .game_options, .audio, .controls, .video, .mods, .mod_options, .mod_catalog, .game_modes, .pilot_roster, .saved_games => true,
             else => false,
         };
     }
@@ -992,7 +1009,7 @@ test "a mod's screen stands in for the front end's own, and goes where it asks" 
     try std.testing.expectEqual(Screen.main_menu, front.screen);
     try std.testing.expectEqual(Screen.main_menu, stand.shown.?);
     // It goes to a screen that can be shown, and not one that can't.
-    stand.asked = .{ .go = .connection };
+    stand.asked = .{ .go = .landing_movie };
     _ = front.frame(context);
     try std.testing.expectEqual(Screen.main_menu, front.screen);
     stand.asked = .{ .go = .game_options };

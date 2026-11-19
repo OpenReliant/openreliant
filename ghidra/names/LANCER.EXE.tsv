@@ -2361,6 +2361,7 @@ address	kind	name	type	comment
 005d6c48	data	credits_shapes	void *	credits.spr as credits_play loads it
 0043ca30	function	landing_movie_screen	int (void)	Screen 8 of interface_run: after a second's wait, play_landing_movie; returns 3. No code found selects it
 00432fc0	function	multiplayer_connection_screen	int (void)	Screen 14 of interface_run, the multiplayer connection: interface\main2mul.tga behind it, interface\frntend3.spr, and tooltips of the game's strings (tooltips_init with 1)
+004345b0	function	multiplayer_connection_draw	void (void)	Render hook installed by multiplayer_connection_screen for screen 14
 0043ca50	function	multiplayer_sessions_screen	int (void)	Screens 10 and 11 of interface_run, the multiplayer sessions, by 0x0051D54C: interface\mulfade.tga behind them, interface\frntend3.spr, and tooltips of the game's strings (tooltips_init with 1)
 0044b950	function	session_loadout_screen	int (void)	Screens 17 and 18 of interface_run, a multiplayer session's loadout, by 0x0051D54C, with the multiplayer scenarios (dm_scenarios) and tooltips of the game's strings (tooltips_init with 1)
 00475a60	function	pickup_count	int (void)	Counts a pickup of the ejected pilot by a nanny ship (0x00562ED4): 1 once there have been more than two, which WinMain follows with a transfer's movie; else 0, the count kept for the mission (0x00562E9A)
@@ -3168,3 +3169,6 @@ address	kind	name	type	comment
 005db594	data	six_beacons_join_counts	int[8]	Beacon counts restored to the other player slots on a joining client
 005db5b4	data	six_beacons_join_positions	Vec3[6]	World positions restored to the six beacon objects on a joining client
 004b2ef0	function	dm_scenario_for_mission	int __fastcall (int mission)	Finds the arena scenario by its mission number or returns minus one
+004ae2d0	function	multiplayer_chat_panel		Draws chat history and edits the outgoing line in the multiplayer front end, including the session and loadout screens; Enter sends the text with the pilot call sign
+004ae270	function	multiplayer_chat_append		Scrolls the multiplayer front end chat history and appends a line
+004b9f60	function	net_send_chat		Sends a DirectPlay chat message to all players or to one selected pilot

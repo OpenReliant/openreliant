@@ -5,7 +5,7 @@ const wire = @import("wire.zig");
 const Arena = @import("arena.zig");
 const credential = @import("identity.zig");
 const Host = @import("server.zig");
-const Client = @import("client.zig");
+pub const Client = @import("client.zig");
 
 pub const default_port = 27020;
 const default_round_ticks = 250;
@@ -111,18 +111,33 @@ fn directAddress(text: []const u8) !std.Io.net.IpAddress {
 }
 
 fn join(io: std.Io, args: []const [:0]const u8) !void {
-    const invite = if (std.mem.startsWith(u8, args[0], credential.Invite.prefix))
-        try credential.Invite.parse(args[0])
-    else
-        null;
-    const endpoint = if (invite) |value| value.address else try directAddress(args[0]);
-    var buffer: [credential.Invite.max_address]u8 = undefined;
-    const address = try std.fmt.bufPrintSentinel(&buffer, "{f}", .{endpoint}, 0);
     const steering = if (args.len > 1) try controls(args[1]) else .keyboard;
     const limit = if (args.len > 2) try number(args[2]) else null;
+    var client: Client = undefined;
+    try connect(&client, io, args[0]);
+    defer disconnect(&client);
+    try client.drive(io, steering, limit);
+}
+
+pub fn connect(client: *Client, io: std.Io, target: []const u8) !void {
+    const invite = if (std.mem.startsWith(u8, target, credential.Invite.prefix))
+        try credential.Invite.parse(target)
+    else
+        null;
+    const endpoint = if (invite) |value| value.address else try directAddress(target);
+    var buffer: [credential.Invite.max_address]u8 = undefined;
+    const address = try std.fmt.bufPrintSentinel(&buffer, "{f}", .{endpoint}, 0);
     try initTransport(if (invite) |value| &credential.openSshKey(value.key) else null, null);
-    defer net.session_deinit();
-    try play(io, address, if (invite != null) credential.host_name else null, steering, limit);
+    errdefer net.session_deinit();
+    client.* = .{ .expected_host = if (invite != null) credential.host_name else null };
+    try client.open(io, address);
+    current = .{ .client = client };
+}
+
+pub fn disconnect(client: *Client) void {
+    client.close();
+    current = null;
+    net.session_deinit();
 }
 
 fn play(io: std.Io, address: [:0]const u8, expected_host: ?[]const u8, steering: Client.Controls, limit: ?u32) !void {
