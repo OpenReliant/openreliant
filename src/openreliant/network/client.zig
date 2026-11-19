@@ -40,6 +40,9 @@ next_input: i64 = 0,
 leaving: bool = false,
 flight_command: flight.Command = .{},
 fire_primary: bool = false,
+weapons: ?wire.ordnance.Order = null,
+sent_aim: ?wire.ordnance.Aim = null,
+projectiles: [wire.ordnance.Page.pages]?wire.ordnance.Page = @splat(null),
 presses: Presses = .{},
 
 pub fn status(client: *Client, conn: net.Connection, event: net.Status, name: ?[]const u8) void {
@@ -100,6 +103,7 @@ pub const Event = union(enum) {
     lobby: wire.Scenario,
     beacon_notice: wire.BeaconNotice,
     combat: wire.Combat,
+    projectiles,
     snapshot,
     finished,
     closed,
@@ -108,6 +112,10 @@ pub const Event = union(enum) {
 pub fn setFlight(client: *Client, command: flight.Command) void {
     client.flight_command = command;
     client.presses.take(&client.flight_command);
+}
+
+pub fn setWeapons(client: *Client, order: wire.ordnance.Order) void {
+    if (client.weapons) |*pending| pending.merge(order) else client.weapons = order;
 }
 
 pub fn selectShip(client: *Client, ship: wire.Fighter) !void {
@@ -140,6 +148,13 @@ pub fn poll(client: *Client, io: Io) !Event {
             try net.send(client.conn, .{ .flight_press = client.presses });
             client.presses = .{};
         }
+        if (client.weapons) |*pending| {
+            if (pending.presses.any() or !std.meta.eql(client.sent_aim, @as(?wire.ordnance.Aim, pending.aim))) {
+                try net.send(client.conn, .{ .weapon_order = pending.* });
+                client.sent_aim = pending.aim;
+                pending.presses = .{};
+            }
+        }
         client.sequence +%= 1;
         client.next_input = now + wire.step_us;
     }
@@ -168,6 +183,13 @@ pub fn poll(client: *Client, io: Io) !Event {
         },
         .beacon_notice => |notice| return if (client.joined != null and !client.leaving) .{ .beacon_notice = notice } else error.UnexpectedMessage,
         .combat => |effects| return if (client.latest != null and !client.leaving) .{ .combat = effects } else .idle,
+        .projectiles => |page| {
+            const view = client.latest orelse return .idle;
+            if (client.leaving or view.scenario == null or page.tick > view.tick +| wire.ordnance.Page.max_age) return .idle;
+            const entry = &client.projectiles[page.index()];
+            if (entry.* == null or page.tick > entry.*.?.tick) entry.* = page;
+            return .projectiles;
+        },
         .view, .finished => |view| {
             const admission = client.joined orelse {
                 // Unreliable flight updates can arrive before the reliable admission.
@@ -215,7 +237,7 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
         client.setFlight(steering.command());
         const event = try client.poll(io);
         switch (event) {
-            .idle, .lobby, .combat => {},
+            .idle, .lobby, .combat, .projectiles => {},
             .beacon_notice => |notice| std.debug.print("notice {s} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot }),
             .closed => return,
             .admitted => {

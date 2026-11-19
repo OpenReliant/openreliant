@@ -2013,14 +2013,7 @@ pub fn playerWeapons(world: gameobj.World, devices: *Devices, index: u16) void {
     const mouse = if (devices.controlMode() == .mouse) devices.mouse.state.buttons else Mouse.Buttons{};
     fireGuns(world, index, primaryHeld(devices), .local_devices);
     if (devices.active(.launch_missile, true)) launchMissile(world, index);
-    if (mouse.right) {
-        if (!world.player.mouse_launched) {
-            world.player.mouse_launched = true;
-            launchMissile(world, index);
-        }
-    } else {
-        world.player.mouse_launched = false;
-    }
+    if (mouseMissilePressed(world.player, mouse.right)) launchMissile(world, index);
     if (devices.active(.cloak_ship, true) and world.view() != .director) {
         toggleLocalCloak(world, index);
     }
@@ -2035,6 +2028,23 @@ pub fn playerWeapons(world: gameobj.World, devices: *Devices, index: u16) void {
 pub fn primaryHeld(devices: *Devices) bool {
     return devices.active(.fire_lasers, false) or
         (devices.controlMode() == .mouse and devices.mouse.state.buttons.left);
+}
+
+fn mouseMissilePressed(player: *Player, right: bool) bool {
+    const pressed = right and !player.mouse_launched;
+    player.mouse_launched = right;
+    return pressed;
+}
+
+/// Sample one-time weapon inputs for a pilot whose ship is run by a host.
+pub fn sampleOrdnance(player: *Player, devices: *Devices) players.WeaponCommand {
+    const bound = devices.active(.launch_missile, true);
+    const mouse = mouseMissilePressed(player, devices.controlMode() == .mouse and devices.mouse.state.buttons.right);
+    return .{
+        .launch_missile = bound or mouse,
+        .rotate_missiles = hud.sampleMissileTurn(devices),
+        .countermeasures = devices.active(.countermeasures, true),
+    };
 }
 
 const WeaponSource = enum {

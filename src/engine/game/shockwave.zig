@@ -138,7 +138,7 @@ pub const Shockwave = struct {
             const slot = &all.slots[index];
             const object = &slot.object;
             if (!harms(object, now) or object.type.base() == .torpedo or object.type.base() == .ripper) continue;
-            if (wave.side) |own| if (object.side == own) continue;
+            if (wave.spares(world, index)) continue;
             if (!wave.passes(slot.drawn.position, reach)) continue;
             object.shockwave_until = now + harm_pause;
             shake(world, index, done);
@@ -155,6 +155,15 @@ pub const Shockwave = struct {
                 },
             }
         }
+    }
+
+    fn spares(wave: *const Shockwave, world: gameobj.World, index: u16) bool {
+        const side = wave.side orelse return false;
+        const all = world.objects;
+        if (world.damage_rules == .arena and wave.owner.player) {
+            if (all.playerBinding(index)) |pilot| return @import("deathmatch.zig").missileAlly(all, wave.owner, pilot);
+        }
+        return all.slots[index].object.side == side;
     }
 
     /// What a missile's shockwave does to a ship it passes.

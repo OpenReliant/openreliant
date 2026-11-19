@@ -11,7 +11,8 @@ const stock = @import("stock_arena.zig");
 const FlightFrame = @import("flight_frame.zig");
 const Graphical = @This();
 const Connection = game.interface.Connection;
-const messages_per_frame = 8;
+const combat_messages_per_frame = 8;
+const messages_per_frame = combat_messages_per_frame + wire.ordnance.Page.pages;
 
 // net_handle_system_message (0x004B6A80) posts 0x3B7 on session loss in flight.
 const host_left: Connection.Label = .{ .english = "The host has left the game", .installed = 0x3B7 };
@@ -26,7 +27,7 @@ roster: [wire.slots]?wire.CallSign = @splat(null),
 flight: ?*FlightFrame = null,
 notices: [game.hud.Messages.capacity]wire.BeaconNotice = undefined,
 notice_count: usize = 0,
-combat: [messages_per_frame * wire.Combat.max]game.guns.FlightEffect = undefined,
+combat: [combat_messages_per_frame * wire.Combat.max]game.guns.FlightEffect = undefined,
 combat_count: usize = 0,
 stick: [2]i16 = @splat(0),
 show_standings: bool = false,
@@ -161,9 +162,12 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             player.power_held = devices.active(.powerball_window, false);
             client.setFlight(engine.input.sampleFlight(player, devices, &pilot.stick, player.viewing.view));
             client.fire_primary = engine.input.primaryHeld(devices);
+            if (client.latest.?.scenario != null)
+                client.setWeapons(.{ .aim = flight.weaponAim(), .presses = .from(engine.input.sampleOrdnance(player, devices)) });
         } else {
             client.setFlight(flight_input.release(client.flight_command));
             client.fire_primary = false;
+            if (client.weapons) |*pending| pending.presses = .{};
         }
     }
     // Catch up after a slow render without letting a busy connection hold the frame.
@@ -181,6 +185,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
         };
         switch (event) {
             .idle => return,
+            .projectiles => {},
             .snapshot => {
                 front.connection.lobby = null;
                 front.connection.ship_picker = null;
@@ -228,6 +233,7 @@ pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Obje
     const client = &pilot.client.?;
     if (pilot.flight) |flight| {
         try flight.apply(&client.latest.?, client.joined.?, local, types);
+        try flight.presentProjectiles(&client.projectiles);
         flight.applyRoster(client.roster);
         pilot.presentCombat(flight);
         pilot.presentNotices(flight, strings, client.joined.?);
@@ -240,6 +246,7 @@ pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Obje
         try flight.enableCombat(combat_assets);
     }
     try flight.apply(&client.latest.?, client.joined.?, local, types);
+    try flight.presentProjectiles(&client.projectiles);
     flight.applyRoster(client.roster);
     if (presentation) |shown| {
         errdefer shown.endGame();

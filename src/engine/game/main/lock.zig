@@ -215,11 +215,12 @@ fn possibleFor(world: gameobj.World, index: u16, ring: *const missile_display.Ri
     if (armed.count < 1 and !guidingFor(all, index)) return null;
     if (armed.type.base() == .solomon) return null;
     const aimed = ai.ValidTarget.of(all, target, .{}) orelse return null;
-    if (aimed.slot == index and index != all.player) return null;
+    if (aimed.slot == index and (world.damage_rules == .arena or index != all.player)) return null;
     const ship = &all.slots[index].object;
     if (ship.flags.missiles_disabled) return null;
-    if (all.slots[aimed.slot].object.side != .hostile) return null;
-    if (armed.type.base() == .screamer) return null;
+    if (world.damage_rules != .arena) {
+        if (all.slots[aimed.slot].object.side != .hostile or armed.type.base() == .screamer) return null;
+    }
     const stats = all.missile_stats.of(armed.type) orelse return null;
     return if (missiles.inLockReach(stats, ai.aimedAt(all, aimed).position - ship.nextPosition(), ship.nextHeading())) aimed else null;
 }
@@ -408,6 +409,19 @@ test possible {
     // Nor with a Screamer or a Solomon armed.
     stage.ring.armedEntry().type = .of(.solomon);
     try std.testing.expectEqual(null, possible(world, &stage.ring, stage.target()));
+}
+
+test "an arena pilot can lock a Screamer onto a ship of the same side" {
+    var stage: testing.Stage = undefined;
+    try stage.init(20000);
+    defer stage.deinit();
+    var world = stage.armed.mission.world();
+    stage.armed.mission.slot(stage.enemy).object.side = .friendly;
+    stage.ring.armedEntry().type = .of(.screamer);
+    try std.testing.expectEqual(null, possible(world, &stage.ring, stage.target()));
+    world.damage_rules = .{ .arena = null };
+    try std.testing.expect(possible(world, &stage.ring, stage.target()) != null);
+    try std.testing.expectEqual(null, possible(world, &stage.ring, .at(stage.player, null)));
 }
 
 test "Lock.frame" {

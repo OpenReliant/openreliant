@@ -458,9 +458,7 @@ pub fn launch(world: gameobj.World, launcher: u16, rack: usize, target: aigeneri
     const at = spawn(world, launcher, racked.type, built, places) orelse return;
     if (launcher == all.player) if (world.forces) |forces| forces.start(.missile, world.clock.frame_start);
 
-    const class: sound3d.Class = if (launcher == all.player) .guaranteed else .not_reserved;
-    const which: sound3d.sounds.Sound = @fromBackingInt(@intCast(missiles.records[at].?.stats(&all.missile_stats).launch_sound));
-    sound3d.playIn(world, null, null, at, which, 1, class);
+    playLaunchSound(world, at, launcher == all.player);
     racked.count -= 1;
     const order: Order = if (pod and racked.count < 0) .jettison else if (pod) .pod_launch else if (racked.type.base() == .fuel_pod) .jettison else .rail_launch;
     // The game lays a rail's trail after the launch's first run, and a pod's before it.
@@ -470,6 +468,15 @@ pub fn launch(world: gameobj.World, launcher: u16, rack: usize, target: aigeneri
     if (missiles.get(at)) |live| live.target = .of(world.objects, target);
     launched(world, at);
     if (pod and racked.count == 0) launch(world, launcher, rack, .none);
+}
+
+/// The native launch sound, also played from a hosted missile's drawing record.
+pub fn playLaunchSound(world: gameobj.World, index: u8, player: bool) void {
+    const all = world.objects;
+    const record = all.missiles.get(index) orelse return;
+    const class: sound3d.Class = if (player) .guaranteed else .not_reserved;
+    const which: sound3d.sounds.Sound = @fromBackingInt(@intCast(record.stats(&all.missile_stats).launch_sound));
+    sound3d.playIn(world, null, null, index, which, 1, class);
 }
 
 /// `missile_launch_turret` (`0x004967F0`): a Screamer from part `launcher` of `model`, a missile
@@ -532,7 +539,7 @@ fn spawn(world: gameobj.World, launcher: u16, kind: Type, built: objects.Model, 
     object.root.next_orientation = places.next.orientation;
     object.root.markMoved();
     slot.drawn = places.drawn;
-    return all.missiles.add(.{ .slot = slot, .launcher = .of(all, launcher), .type = kind, .homes = homesAtLaunch(all, kind, launcher) }) orelse {
+    return all.missiles.add(.{ .slot = slot, .launcher = .of(all, launcher), .type = kind, .homes = homesAtLaunch(world, kind, launcher) }) orelse {
         slot.release(all.gpa, null);
         return null;
     };
@@ -541,8 +548,8 @@ fn spawn(world: gameobj.World, launcher: u16, kind: Type, built: objects.Model, 
 /// Whether the game homes a missile of type `kind` from the object in slot `launcher`: every one
 /// but a player's Screamer, which flies straight outside a multiplayer game (`0x00497F10`) and
 /// lights no missile warning (`0x004960F0`).
-fn homesAtLaunch(all: *const create.Objects, kind: Type, launcher: u16) bool {
-    return kind.base() != .screamer or launcher >= all.players;
+fn homesAtLaunch(world: gameobj.World, kind: Type, launcher: u16) bool {
+    return kind.base() != .screamer or launcher >= world.objects.players or world.damage_rules == .arena;
 }
 
 /// `missile_trail_create` for the missile at `at`, where it is still flying, its type has a
@@ -570,11 +577,37 @@ fn hungPlaces(carrier: *const create.Slot, model: *const objects.Model, hung: *c
 /// game lacks it.
 fn buildModel(gpa: Allocator, carrier: *const create.Slot, file: []const u8) Allocator.Error!?objects.Model {
     const effects = if (carrier.type) |loaded| loaded.effects else return null;
+    return buildMounted(gpa, effects, file);
+}
+
+fn buildMounted(gpa: Allocator, effects: objects.Effects, file: []const u8) Allocator.Error!?objects.Model {
     const mounts = effects.mounts orelse return null;
     const mounted = mounts.load(mounts.context, file) orelse return null;
     var built: objects.Model = try .create(gpa, mounted.model, mounted.loaded, effects);
     gameobj.linkParts(&built, mounted.model);
     return built;
+}
+
+/// Construct the native drawing record for a missile already flying on the host.
+pub fn replica(world: gameobj.World, kind: Type, effects: objects.Effects, jettisoned: bool) !?u8 {
+    const all = world.objects;
+    if (all.missiles.full()) return null;
+    const mounted = kind.mounted() orelse return null;
+    const file = (if (jettisoned) mounted.model else mounted.second_model orelse mounted.model) orelse return null;
+    const model = (try buildMounted(all.gpa, effects, file)) orelse return null;
+    var slot: create.Slot = .{
+        .object = gameobj.objectAlloc(@fromBackingInt(@intCast(kind.baseIndex().?)), world.random),
+        .model = model,
+    };
+    slot.object.radius = model.radius;
+    slot.object.bounds_min = .of(model.bounds[0]);
+    slot.object.bounds_max = .of(model.bounds[1]);
+    return all.missiles.add(.{
+        .slot = slot,
+        .launcher = .fromReference(all, .{ .slot = std.math.maxInt(u16), .reuse = 0 }),
+        .type = kind,
+        .shown = true,
+    });
 }
 
 /// `missile_order_set` (`0x00496AA0`): the missile's new order, begun and then run once. A launch
@@ -776,7 +809,7 @@ fn solomon(world: gameobj.World, at: u8) void {
     const all = world.objects;
     const missile = all.missiles.get(at) orelse return;
     if (!ai.targetValid(all, missile.target.resolve(all), .{})) {
-        missile.target = .of(all, choose(all, missile) orelse return steady(missile.object(), 1));
+        missile.target = .of(all, choose(world, missile) orelse return steady(missile.object(), 1));
     }
     home(world, at);
 }
@@ -785,13 +818,17 @@ fn solomon(world: gameobj.World, at: u8) void {
 /// components, the nearest ahead, else the nearest at all; with none, likewise among the
 /// components of those that list them, or the object itself where none of its components is one to
 /// aim at.
-fn choose(all: *const create.Objects, missile: *const Missile) ?aigeneric.Target {
+fn choose(world: gameobj.World, missile: *const Missile) ?aigeneric.Target {
+    const all = world.objects;
     var choice: Choice = .{ .from = missile.slot.drawn.position, .nose = math.forward(missile.slot.drawn.orientation) };
     for ([_]bool{ false, true }) |components| {
         var walk = all.walk();
         while (walk.next()) |index| {
             const slot = &all.slots[index];
-            if (slot.object.side == missile.slot.object.side or slot.object.flags.components != components) continue;
+            if (slot.object.flags.components != components) continue;
+            const peer = if (world.damage_rules == .arena and missile.launcher.player) all.playerBinding(index) else null;
+            const allied = if (peer) |pilot| @import("deathmatch.zig").missileAlly(all, missile.launcher, pilot) else slot.object.side == missile.slot.object.side;
+            if (allied) continue;
             const whole: aigeneric.Target = .at(index, null);
             if (!ai.targetValid(all, whole, .{})) continue;
             var any = false;
@@ -962,8 +999,7 @@ const end_wave_life = 500;
 /// hit on the player's shields, a shot's, a knock's and a shockwave's, draws the reserve of the
 /// side struck and then reaches the shield, so OpenReliant takes a missile's the same way.
 ///
-/// Not ported: in a multiplayer mission, the shield damage five times over
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In an arena the shield hit is five times as strong (0x00495FBE).
 fn collide(world: gameobj.World, at: u8) bool {
     const all = world.objects;
     const missile = all.missiles.get(at) orelse return false;
@@ -988,15 +1024,18 @@ fn collide(world: gameobj.World, at: u8) bool {
         const struck = collision.quadrant(object, slot.drawn.inverse(point));
         if (object.shields.get(struck) < 0 or object.invulnerable == ._unknown_4) return hitHull(world, at, index, struck);
         const stats = missile.stats(&all.missile_stats);
-        if (stats.damage.shield > 0) {
-            const reaches = if (all.playerState(index)) |state| !state.shield_reserves.spare(struck, stats.damage.shield) else true;
-            if (reaches) collision.damageFrom(world, index, struck, stats.damage.shield, stats.damage.hullShare(), missile.launcher, damageKind(missile.type));
+        const shield_damage = stats.damage.shield * if (world.damage_rules == .arena) arena_shield_damage else 1;
+        if (shield_damage > 0) {
+            const reaches = if (all.playerState(index)) |state| !state.shield_reserves.spare(struck, shield_damage) else true;
+            if (reaches) collision.damageFrom(world, index, struck, shield_damage, stats.damage.hullShare(), missile.launcher, damageKind(missile.type));
         }
         if (!object.flags.cloaked) shield.flare(world, index, point);
         return stop(world, at);
     }
     return false;
 }
+
+const arena_shield_damage: f32 = 5;
 
 /// What a missile's hit counts as: a Screamer's apart from the rest.
 fn damageKind(missile: Type) collision.Kind {
@@ -1390,12 +1429,12 @@ test choose {
     launch(world, player, 0, .none);
     // The nearest ahead, though another is nearer behind.
     const all = armed.mission.objects;
-    try std.testing.expectEqual(@as(i16, @intCast(ahead)), choose(all, armed.missile(0)).?.index);
+    try std.testing.expectEqual(@as(i16, @intCast(ahead)), choose(world, armed.missile(0)).?.index);
     // With none ahead, the nearest at all.
     all.slots[ahead].object.flags.targetable = false;
-    try std.testing.expectEqual(@as(i16, @intCast(behind)), choose(all, armed.missile(0)).?.index);
+    try std.testing.expectEqual(@as(i16, @intCast(behind)), choose(world, armed.missile(0)).?.index);
     all.slots[behind].object.flags.targetable = false;
-    try std.testing.expectEqual(null, choose(all, armed.missile(0)));
+    try std.testing.expectEqual(null, choose(world, armed.missile(0)));
 }
 
 test "a missile keeps dealing damage after its launcher is replaced" {

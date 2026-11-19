@@ -871,6 +871,29 @@ pub const Countermeasures = struct {
         return if (countermeasures.records[index]) |*countermeasure| countermeasure else null;
     }
 
+    fn build(countermeasures: *const Countermeasures) Allocator.Error!?objects.Model {
+        const mounted = countermeasures.model orelse return null;
+        var model: objects.Model = try .create(countermeasures.gpa, mounted.model, mounted.loaded, .{});
+        gameobj.linkParts(&model, mounted.model);
+        return model;
+    }
+
+    /// Place the decoy the host is already simulating.
+    pub fn showReplica(countermeasures: *Countermeasures, index: u8, place: math.Place) !void {
+        const entry = &countermeasures.records[index];
+        if (entry.* == null) {
+            const model = (try countermeasures.build()) orelse return;
+            entry.* = .{ .owner = 0, .until = 0, .velocity = @splat(0), .model = model, .streams = undefined };
+        }
+        entry.*.?.model.place(place.position, place.orientation);
+    }
+
+    pub fn hideReplica(countermeasures: *Countermeasures, index: u8) void {
+        const entry = &countermeasures.records[index];
+        if (entry.*) |*decoy| decoy.model.deinit(countermeasures.gpa);
+        entry.* = null;
+    }
+
     /// `object_spend_countermeasure` (`0x00462550`): the ship at `slot` drops a countermeasure,
     /// where it has one left, the player's with the display's beep; with none, the player's
     /// display refuses. It stands at the ship's tail where the step is taking it, turned as it
@@ -893,10 +916,7 @@ pub const Countermeasures = struct {
         object.countermeasures -= 1;
         if (player) hud.beep(world, .done);
         const at: u8 = @intCast(table.firstFreeIndex(Countermeasure, &countermeasures.records) orelse return);
-        const mounted = countermeasures.model orelse return;
-
-        var model: objects.Model = objects.Model.create(countermeasures.gpa, mounted.model, mounted.loaded, .{}) catch return;
-        gameobj.linkParts(&model, mounted.model);
+        var model = (countermeasures.build() catch return) orelse return;
         const tail = object.placeAt(.next);
         const orientation = tail.orientation;
         model.place(tail.point(.{ 0, 0, object.bounds_min.z }), orientation);
