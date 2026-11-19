@@ -915,6 +915,20 @@ pub const Objects = struct {
         return state;
     }
 
+    /// **Improvement:** the host assigns or clears an arena team for this admission,
+    /// even while the pilot is waiting for a ship.
+    pub fn setParticipantTeam(all: *Objects, ref: players.ParticipantRef, team: ?players.ArenaTeam) bool {
+        const state = all.joinedParticipant(ref) orelse return false;
+        state.membership.joined.team = team;
+        return true;
+    }
+
+    /// Returns the current pilot's team, or null if the admission ended or has no team.
+    pub fn participantTeam(all: *Objects, ref: players.ParticipantRef) ?players.ArenaTeam {
+        const state = all.joinedParticipant(ref) orelse return null;
+        return state.membership.joined.team;
+    }
+
     /// Binds the participant to a live ship in their reserved slot. Repeating the same binding
     /// leaves its input intact. The mission or game mode installs the ship's orders.
     pub fn bindParticipant(all: *Objects, ref: players.ParticipantRef, ship: gameobj.ObjectRef) ?players.ControlRef {
@@ -3118,6 +3132,34 @@ test "leaving revokes commands even when the next participant binds the same shi
     try std.testing.expectEqual(0.5, all.slots[index].object.throttle);
 }
 
+test "the host assigns arena teams to admissions, including pilots without ships" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    all.players = 2;
+    const first = all.joinParticipant(0).?;
+    const other = all.joinParticipant(1).?;
+    try std.testing.expectEqual(null, all.participantTeam(first));
+    try std.testing.expect(all.setParticipantTeam(first, .first));
+    try std.testing.expect(all.setParticipantTeam(other, .fourth));
+    try std.testing.expectEqual(.first, all.participantTeam(first).?);
+    try std.testing.expect(all.setParticipantTeam(first, .third));
+    try std.testing.expectEqual(.third, all.participantTeam(first).?);
+    try std.testing.expect(all.setParticipantTeam(first, null));
+    try std.testing.expectEqual(null, all.participantTeam(first));
+    try std.testing.expectEqual(.fourth, all.participantTeam(other).?);
+
+    try std.testing.expect(Objects.leaveParticipant(mission.world(), other));
+    try std.testing.expect(!all.setParticipantTeam(other, .second));
+    const newcomer = all.joinParticipant(other.slot).?;
+    try std.testing.expectEqual(null, all.participantTeam(newcomer));
+    try std.testing.expect(all.setParticipantTeam(newcomer, .second));
+    try std.testing.expect(!all.setParticipantTeam(other, null));
+    try std.testing.expectEqual(null, all.participantTeam(other));
+    try std.testing.expectEqual(.second, all.participantTeam(newcomer).?);
+}
+
 test "respawn and mission reset keep the participant and invalidate the ship binding" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
@@ -3125,6 +3167,7 @@ test "respawn and mission reset keep the participant and invalidate the ship bin
     const all = mission.objects;
     const index = try mission.add(.of(.predator), @splat(0));
     const participant = all.joinParticipant(index).?;
+    try std.testing.expect(all.setParticipantTeam(participant, .third));
     const old = all.bindParticipant(participant, .of(all, index)).?;
     try std.testing.expect(all.submitPlayerCommand(old, .{ .weapons = .{ .fire_guns = true, .launch_missile = true } }));
     const state = all.playerState(index).?;
@@ -3140,6 +3183,7 @@ test "respawn and mission reset keep the participant and invalidate the ship bin
     _ = try createObject(all, &mission.tables, testing.no_models, index, .of(.predator), 0, @splat(0), &mission.random);
     const replacement = all.bindParticipant(participant, .of(all, index)).?;
     try std.testing.expectEqual(participant, replacement.participant);
+    try std.testing.expectEqual(.third, all.participantTeam(participant).?);
     try std.testing.expectEqual(null, all.playerCommand(index));
     try std.testing.expect(!state.weapons.lock.locked());
     try std.testing.expectEqual(0, state.shield_reserves.fore);
@@ -3152,6 +3196,7 @@ test "respawn and mission reset keep the participant and invalidate the ship bin
     const restarted = try mission.add(.of(.predator), @splat(0));
     try std.testing.expectEqual(index, restarted);
     const fresh = all.bindParticipant(participant, .of(all, restarted)).?;
+    try std.testing.expectEqual(.third, all.participantTeam(participant).?);
     try std.testing.expectEqual(null, all.playerCommand(index));
     try std.testing.expect(!all.submitPlayerCommand(replacement, .{}));
     try std.testing.expect(all.submitPlayerCommand(fresh, .{}));

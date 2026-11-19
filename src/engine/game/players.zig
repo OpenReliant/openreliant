@@ -25,6 +25,9 @@ pub const ControlRef = struct {
     ship: gameobj.ObjectRef,
 };
 
+/// Indices into the original arena's four team scores (`mp_team_kills`, 0x005D76FC).
+pub const ArenaTeam = enum(u2) { first, second, third, fourth };
+
 pub const Membership = union(enum) {
     local_rules,
     vacant,
@@ -33,6 +36,7 @@ pub const Membership = union(enum) {
     pub const Joined = struct {
         generation: u64,
         ship: ?gameobj.ObjectRef = null,
+        team: ?ArenaTeam = null,
         kills: Kills = .{},
         ending: @import("main.zig").Ending = .playing,
     };

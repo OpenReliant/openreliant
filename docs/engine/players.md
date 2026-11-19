@@ -84,6 +84,12 @@ shield reserves, missile selection and lock state. The participant keeps their a
 bind the replacement when the game mode creates it. Repeating the same live binding preserves
 input already received for that ship.
 
+**Improvement:** the host can assign, change or clear an arena team with `setParticipantTeam`.
+A pilot starts without a team. Their team belongs to their admission, so it survives a ship
+replacement or mission reset. Leaving clears it. The host can read or change the assignment
+while the pilot has no ship. Both operations check the admission, so a reference to a pilot
+who left cannot read or change a new occupant's team.
+
 Leaving ends the admission, clears held controls and leaves ship disposition to the game mode.
 A later occupant gets a different participant identity even if the game mode assigns the same
 ship. Session authentication, ordering and disconnect detection belong to
@@ -157,7 +163,8 @@ A replacement ship keeps both counts. A new mission clears the mission count, an
 admission starts both counts at zero. Co-op saves and profile loading are tracked in
 [#475](https://github.com/OpenReliant/openreliant/issues/475) and [#804](https://github.com/OpenReliant/openreliant/issues/804).
 
-In team arenas the original compares the pilots' teams at 0x0040858E before awarding a kill.
+The original stores each player slot's team at 0x005DAE30. In team arenas it compares the
+pilots' entries at 0x0040858E before awarding a kill.
 It keeps separate kill and death totals for four teams and reports the local pilot's totals
 in message 0x3B (0x004B9F20). Host-owned arena scoring is tracked in
 [#1398](https://github.com/OpenReliant/openreliant/issues/1398).
