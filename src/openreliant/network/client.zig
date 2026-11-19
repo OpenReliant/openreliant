@@ -32,7 +32,7 @@ deadline: i64 = 0,
 sent_join: bool = false,
 joined: ?wire.Admission = null,
 call_sign: ?wire.CallSign = null,
-sent_call_sign: bool = false,
+fighter: wire.Fighter = .predator,
 latest: ?wire.Snapshot = null,
 sequence: u32 = 0,
 next_input: i64 = 0,
@@ -92,11 +92,17 @@ pub fn leave(client: *Client, io: Io) !void {
     client.leaving = true;
 }
 
-pub const Event = union(enum) { idle, admitted, lobby: wire.Lobby, snapshot, finished, closed };
+pub const Event = union(enum) { idle, admitted, lobby: wire.Lobby, beacon_notice: wire.BeaconNotice, snapshot, finished, closed };
 
 pub fn setFlight(client: *Client, command: flight.Command) void {
     client.flight_command = command;
     client.presses.take(&client.flight_command);
+}
+
+pub fn selectShip(client: *Client, ship: wire.Fighter) !void {
+    if (client.latest != null or client.fighter == ship) return;
+    if (client.sent_join) try net.send(client.conn, .{ .pick_ship = ship });
+    client.fighter = ship;
 }
 
 /// Advance the connection without waiting for a packet or a simulation tick.
@@ -110,6 +116,7 @@ pub fn poll(client: *Client, io: Io) !Event {
     if ((client.joined == null or client.latest != null or client.leaving) and now >= client.deadline) return error.SessionTimedOut;
     if (client.state == .connected and !client.sent_join) {
         try net.send(client.conn, .{ .join = .local });
+        try net.send(client.conn, .{ .pick_ship = client.fighter });
         client.sent_join = true;
     }
     if (client.joined != null and !client.leaving and now >= client.next_input) {
@@ -127,6 +134,7 @@ pub fn poll(client: *Client, io: Io) !Event {
         .joined => |admission| {
             if (!client.sent_join or client.joined != null) return error.UnexpectedAdmission;
             client.joined = admission;
+            if (client.call_sign) |name| try net.send(client.conn, .{ .call_sign = name });
             client.deadline = now + timeout;
             return .admitted;
         },
@@ -138,14 +146,9 @@ pub fn poll(client: *Client, io: Io) !Event {
             const admission = client.joined orelse return error.UnexpectedMessage;
             if (client.latest != null or client.leaving) return .idle;
             if (roster[admission.slot] == null) return error.UnexpectedMessage;
-            if (client.call_sign) |name| {
-                if (!client.sent_call_sign) {
-                    try net.send(client.conn, .{ .call_sign = name });
-                    client.sent_call_sign = true;
-                }
-            }
             return .{ .lobby = roster };
         },
+        .beacon_notice => |notice| return if (client.joined != null and !client.leaving) .{ .beacon_notice = notice } else error.UnexpectedMessage,
         .view, .finished => |view| {
             const admission = client.joined orelse {
                 // Unreliable flight updates can arrive before the reliable admission.
@@ -193,6 +196,7 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
         const event = try client.poll(io);
         switch (event) {
             .idle, .lobby => {},
+            .beacon_notice => |notice| std.debug.print("notice {s} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot }),
             .closed => return,
             .admitted => {
                 const admission = client.joined.?;

@@ -85,6 +85,7 @@ pub const Outcome = union(enum) {
     host_lan,
     leave_session,
     launch_session,
+    choose_ship: game.dmscenarios.Fighter,
     /// QUIT, answered YES: 3.
     quit,
     /// START GAME: 1, a single-player campaign, which `WinMain` takes into the Reliant's rooms
@@ -184,6 +185,9 @@ pub const Resources = struct {
     shapes: ?hud.Art = null,
     shapes_file: []u8 = &.{},
     background: matmanager.Background = .{},
+    fighter_pictures: ?canvas.Shapes = null,
+    tried_fighter_pictures: bool = false,
+    itac_strings: language.Language = .{ .strings = &.{} },
 
     /// The files it reads, which the dialogs' shapes are made of.
     pub const File = enum { dialog, about };
@@ -241,6 +245,10 @@ pub const Resources = struct {
         resources.shapes = art;
         resources.shapes_file = file;
         resources.screen = screen;
+        if (screen == .connection and !resources.tried_fighter_pictures) {
+            resources.tried_fighter_pictures = true;
+            resources.fighter_pictures = canvas.Shapes.read(gpa, &resources.archive, game.itac.fighters.pictures_name);
+        }
     }
 
     fn dropShapes(resources: *Resources) void {
@@ -257,6 +265,7 @@ pub const Resources = struct {
         resources.dropShapes();
         resources.dialog.deinit(gpa);
         resources.about.deinit(gpa);
+        if (resources.fighter_pictures) |*pictures| pictures.deinit(gpa);
         inline for (.{ &resources.large, &resources.small, &resources.developer }) |font| font.deinit(gpa);
         for (resources.files.values) |file| gpa.free(file);
     }
@@ -434,6 +443,7 @@ pub const Interface = struct {
                     .host_lan => return .host_lan,
                     .leave_session => return .leave_session,
                     .launch_session => return .launch_session,
+                    .choose_ship => |ship| return .{ .choose_ship = ship },
                     .back => {
                         front.screen = .main_menu;
                         return null;
@@ -679,6 +689,7 @@ pub const Interface = struct {
                 front.connection.message = .{};
                 front.connection.editing = true;
                 front.connection.host_choice = null;
+                front.connection.ship_picker = null;
             },
             .game_options => front.game_options = .{},
             .audio => if (context.settings) |settings_file| front.settings.enter(.game_options, .audio, settingsContext(front, context, settings_file, front.pointer)),
@@ -787,7 +798,10 @@ pub const Interface = struct {
         if (front.scripted_shown != null) return;
         switch (front.screen) {
             .main_menu => try front.main_menu.draw(drawn, art, &resources.dialog, &resources.developer.font),
-            .connection => try front.connection.draw(drawn, art, &resources.dialog, front.ticks),
+            .connection => try front.connection.draw(drawn, art, &resources.dialog, .{
+                .pictures = if (resources.fighter_pictures) |*pictures| pictures else null,
+                .strings = resources.itac_strings,
+            }, front.ticks),
             .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about),
             .audio, .controls, .video => try front.settings.draw(drawn, art, &resources.dialog, shown),
             .mods => try front.mod_manager.draw(drawn, art),

@@ -8,8 +8,28 @@ const Objects = @import("create.zig").Objects;
 const players = @import("players.zig");
 
 pub const pickup_rings = @import("deathmatch/pickup_rings.zig");
+pub const spawn = @import("deathmatch/spawn.zig");
 pub const six_beacons = @import("dmscenarios/six_beacons.zig");
 const math = @import("../surrender/math.zig");
+
+/// `cmd_ResetToSpawnPositions` (`0x004591B0`) selects the rules for this map once and
+/// rebuilds the admitted pilots' ships. An empty lobby leaves the spawn markers ready for joins.
+pub fn resetToSpawnPositions(world: gameobj.World) !void {
+    if (world.damage_rules != .arena) return;
+    const all = world.objects;
+    const scenarios = @import("dmscenarios.zig");
+    if (!scenarios.isScenario(all.mission_number)) return;
+    if (all.mission_number == scenarios.Scenario.nuclear_threat.mission() and all.arena_scenario != .six_beacons) {
+        // The original leaves scenery guns off unless the host enables AI turrets.
+        for (all.slots[@min(all.players, all.count)..all.count]) |*slot| slot.object.flags.guns_disabled = true;
+        try six_beacons.Round.start(world, .free_for_all);
+    }
+    for (0..all.players) |at| {
+        const index: u16 = @intCast(at);
+        const pilot = all.playerBinding(index) orelse continue;
+        try spawn.reset(world, pilot.participant, all.slots[index].object.type, null);
+    }
+}
 
 /// The first arena_frame (0x004AEB50) fits a sphere around the arena scenery and spawn markers.
 pub const Bounds = struct {

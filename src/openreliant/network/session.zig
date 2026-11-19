@@ -51,6 +51,7 @@ pub const Identity = struct {
 
 pub const HostOptions = struct {
     address: [:0]const u8,
+    game_directory: ?std.Io.Dir = null,
     mode: Arena.Mode = .training,
     players: u8 = wire.slots,
     ticks: ?u32,
@@ -84,7 +85,7 @@ pub const LocalGame = struct {
         try initAutomatic(&game.server, io);
         errdefer net.session_deinit();
         game.host = .{ .io = io, .arena = undefined, .signer = &game.server, .lan_only = true, .start = .{ .lobby = .{} } };
-        try game.host.arena.init(gpa, .@"six-beacons");
+        try game.host.arena.init(gpa, .@"nuclear-threat", io, directory);
         errdefer game.host.arena.deinit();
 
         var address_buffer: [credential.Invite.max_address]u8 = undefined;
@@ -129,7 +130,7 @@ pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity
         .player_limit = options.players,
         .signer = if (server) |*automatic| automatic else null,
     };
-    try host.arena.init(gpa, options.mode);
+    try host.arena.init(gpa, options.mode, io, options.game_directory orelse directory);
     defer host.arena.deinit();
     current.host = host;
     defer current.host = null;

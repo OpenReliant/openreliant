@@ -172,6 +172,7 @@ pub const headless_help =
     \\
     \\Start the headless arena host. The INI file defaults to server.ini in the current folder.
     \\Set the address, port, and round options under [Server]. The host manages its identity by default.
+    \\Set GameDirectory under [Server] to the installed game folder for Nuclear Threat.
     \\Set RootPublicKey and Certificate under [Identity] to use managed credentials.
     \\
 ;

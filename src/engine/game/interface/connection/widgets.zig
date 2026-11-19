@@ -22,6 +22,11 @@ pub fn panel(canvas: ui.Canvas, rect: ui.Rect) void {
     canvas.box(.{ rect.x, rect.y }, .{ rect.width, rect.height });
 }
 
+pub fn modal(canvas: ui.Canvas, rect: ui.Rect) void {
+    canvas.wipe(.{ rect.x, rect.y }, .{ rect.x + rect.width, rect.y + rect.height }, hud.rgb(0x09171D));
+    canvas.box(.{ rect.x, rect.y }, .{ rect.width, rect.height });
+}
+
 pub fn fittedLabel(canvas: ui.Canvas, at: [2]i32, width: i16, words: []const u8, colour: [3]f32, alignment: hud.Align) !void {
     const font = canvas.fonts.small;
     const measured: f32 = @floatFromInt(@max(1, font.textWidth(words)));

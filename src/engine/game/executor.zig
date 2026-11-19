@@ -153,9 +153,7 @@ pub const max_arguments = most: {
 /// A command's arguments, the first first. Those past the ones it takes are 0.
 pub const Arguments = [max_arguments]u32;
 
-/// The implementation of command `number`, or null for the one not ported yet:
-/// `ResetToSpawnPositions`, which only the multiplayer arenas' missions use
-/// ([#554](https://github.com/OpenReliant/openreliant/issues/554)).
+/// The implementation of command `number`, or null for an unknown command.
 pub fn implementation(number: u8) ?vm.Implementation {
     return if (number < implementations.len) implementations[number] else null;
 }
@@ -206,6 +204,7 @@ const implementations = table: {
         .{ "WaitForJumpOrLaunch", .{ .command = waitForJumpOrLaunch } },
         .{ "SetEnvironmentFXNebula", .{ .in_game = setEnvironmentFXNebula } },
         .{ "SetEnvironmentFX", .{ .in_game = setEnvironmentFX } },
+        .{ "ResetToSpawnPositions", .{ .in_game = resetToSpawnPositions } },
         .{ "OpenInstrument", .{ .in_game = vm.Machine.openInstrument } },
         .{ "CloseInstrument", .{ .in_game = vm.Machine.closeInstrument } },
         .{ "SetObjective", .{ .in_game = setObjective } },
@@ -1578,10 +1577,9 @@ test MissionCommand {
 }
 
 test implementation {
-    // Every command runs but the deathmatch's.
-    for (commands.table, 0..) |entry, number| {
+    for (0..commands.table.len) |number| {
         const ported = implementation(@intCast(number)) != null;
-        try std.testing.expectEqual(!std.mem.eql(u8, entry.name, "ResetToSpawnPositions"), ported);
+        try std.testing.expect(ported);
     }
     try std.testing.expectEqual(null, implementation(0xFF));
 }
@@ -3087,6 +3085,12 @@ test "PlayCommsMovie and CommsFromPilot say their lines on the radio" {
     try std.testing.expectEqual(hudmovie.Flags.looping, radio.movie.flags);
     try std.testing.expect(game.fixture.machine.finished);
     try std.testing.expect(game.fixture.machine.warned.contains(.long_name));
+}
+
+fn resetToSpawnPositions(_: Call, game: aigeneric.Context) void {
+    @import("deathmatch.zig").resetToSpawnPositions(game.world) catch |err| {
+        log.warn("could not reset the arena spawn positions: {s}", .{@errorName(err)});
+    };
 }
 
 test {

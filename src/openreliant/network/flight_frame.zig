@@ -3,12 +3,17 @@ const std = @import("std");
 const engine = @import("openreliant").engine;
 const game = engine.game;
 const wire = @import("wire.zig");
+const stock = @import("stock_arena.zig");
 const FlightFrame = @This();
 
 drawn: game.main.Drawn,
 tables: game.create.Stats,
 random: engine.random.Random = .{},
 tick: ?u32 = null,
+host_ship_reuse: [wire.slots]u32 = @splat(0),
+loaded: ?*game.mission.Loaded = null,
+environment: game.environfx.Environment = .{},
+beacon_slots: [wire.beacon_count]?u16 = @splat(null),
 
 pub fn create(gpa: std.mem.Allocator, local: *const game.create.Objects, tables: *const game.create.Stats) !*FlightFrame {
     const frame = try gpa.create(FlightFrame);
@@ -33,9 +38,32 @@ pub fn create(gpa: std.mem.Allocator, local: *const game.create.Objects, tables:
 
 pub fn destroy(frame: *FlightFrame) void {
     const gpa = frame.drawn.gpa;
+    if (frame.loaded) |loaded| loaded.destroy();
     frame.drawn.objects.destroy();
     frame.drawn.arena.deinit();
     gpa.destroy(frame);
+}
+
+pub fn loadArena(frame: *FlightFrame, files: stock.Files, scenario: wire.Scenario, types: game.create.Types) !void {
+    if (!scenario.available()) return error.UnsupportedArena;
+    const drawn = &frame.drawn;
+    frame.loaded = try files.load(drawn.gpa, scenario, .{
+        .objects = drawn.objects,
+        .player = &drawn.player,
+        .clock = &drawn.clock,
+        .shake = &drawn.shake,
+        .random = &frame.random,
+        .spawn = .{ .tables = &frame.tables, .types = types },
+        .environment = &frame.environment,
+    });
+    var count: usize = 0;
+    for (drawn.objects.slots[0..drawn.objects.count], 0..) |*slot, index| {
+        if (!slot.object.created or slot.object.type.base() != .dm_beacon) continue;
+        if (count == frame.beacon_slots.len) return error.InvalidArenaBeacons;
+        frame.beacon_slots[count] = @intCast(index);
+        count += 1;
+    }
+    if (count != frame.beacon_slots.len) return error.InvalidArenaBeacons;
 }
 
 pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wire.Admission, local: *game.create.Objects, types: game.create.Types) !void {
@@ -46,17 +74,25 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     for (snapshot.ships, 0..) |entry, offset| {
         const index: u16 = @intCast(offset);
         const prior = all.playerBinding(index);
-        if (prior != null and (entry == null or prior.?.participant.generation != entry.?.generation)) {
+        if (prior != null and (entry == null or prior.?.participant.generation != entry.?.generation or frame.host_ship_reuse[index] != entry.?.reuse or all.slots[index].object.type != entry.?.fighter.kind())) {
             game.create.resetSlot(.of(world), index);
             all.player_states[index] = .{ .membership = .vacant };
         }
         const ship = entry orelse continue;
         if (!all.slots[index].object.created) {
-            _ = try game.create.createObject(all, &frame.tables, types, index, wire.arena_ship, 0, ship.position, &frame.random);
+            all.loadout_racks[index] = @splat(.of(.none));
+            _ = try game.create.createObject(all, &frame.tables, types, index, ship.fighter.kind(), 0, ship.position, &frame.random);
             all.player_states[index] = .{ .membership = .{ .joined = .{
                 .generation = ship.generation,
                 .ship = .of(all, index),
             } } };
+            frame.host_ship_reuse[index] = ship.reuse;
+            if (index == admission.slot) {
+                _ = try game.aigeneric.push(.of(world), index, .player_control, .none);
+                game.main.fitDevices(&all.player_states[index].charges, &frame.drawn.display, game.main.playerShip(ship.fighter.kind()), false);
+            } else {
+                all.slots[index].object.side = .hostile;
+            }
         }
         const slot = &all.slots[index];
         game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = ship.position, .orientation = ship.orientationMatrix() });
@@ -74,8 +110,17 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         .none => null,
         .six_beacons => |beacons| view: {
             var captured: game.deathmatch.six_beacons.HudSnapshot = .{};
-            for (&captured.carriers, beacons) |*carrier, value| {
+            for (&captured.carriers, beacons, frame.beacon_slots) |*carrier, value, marker| {
                 if (value == .carried) carrier.* = all.playerBinding(value.carried);
+                if (marker) |index| {
+                    const slot = &all.slots[index];
+                    slot.object.flags.disabled = value != .loose;
+                    if (value == .loose) {
+                        const orientation = slot.object.root.orientation;
+                        game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = value.loose, .orientation = orientation });
+                        if (slot.model) |*model| model.place(slot.drawn.position, orientation);
+                    }
+                }
             }
             break :view captured;
         },
@@ -83,6 +128,8 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     const ticks = snapshot.tick *| game.gameobj.ticks_per_step;
     frame.drawn.clock.game_ticks = ticks;
     frame.drawn.clock.mission_ticks = @intCast(@min(ticks, std.math.maxInt(i32)));
+    frame.drawn.clock.frame_start = frame.drawn.clock.mission_ticks;
+    frame.drawn.display.messages.expire(frame.drawn.clock.frame_start);
     const seconds = ticks / game.main.ticks_per_second;
     frame.drawn.clock.play = .{
         .ticks = @intCast(ticks % game.main.ticks_per_second),

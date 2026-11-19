@@ -25,7 +25,7 @@ pub const pictures_name = "inter\\itac\\fighters.spr";
 /// Where the chosen fighter's picture stands (`0x00425B08`), and the blocks of `fighters.spr`'s
 /// palettes, the last of which before its shape it is drawn with (`0x00425A99`).
 const picture_at: [2]i32 = .{ 91, 65 };
-const palette_blocks = [_]usize{ 0, 5, 10, 15, 17, 22, 27 };
+pub const palette_blocks = [_]usize{ 0, 5, 10, 15, 17, 22, 27 };
 
 /// The buttons that choose the side, the Alliance's and the Coalition's (`0x004E5460`).
 const side_buttons = [2]Rect{ .{ .x = 551, .y = 59, .width = 64, .height = 41 }, .{ .x = 478, .y = 59, .width = 64, .height = 61 } };
