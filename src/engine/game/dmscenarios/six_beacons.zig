@@ -20,9 +20,6 @@ const gate_distance: f32 = 2500;
 /// six_beacons_trigger_nuke (0x004B3180, 0x004DCA64).
 const blast_radius_share: f32 = 0.22;
 pub const blast_ticks = 1000;
-/// pickup_drop (0x004B26B0) cycles through these world axes at 0x0050C4AC.
-const drop_directions = [required]math.Vector{ .{ 1, 0, 0 }, .{ -1, 0, 0 }, .{ 0, 1, 0 }, .{ 0, -1, 0 }, .{ 0, 0, 1 }, .{ 0, 0, -1 } };
-const drop_radius_share: f32 = 0.8; // 0x004DC410
 const repair_interval = 25; // six_beacons_frame, 0x004B339B
 const wait_notice_gap = 30; // pickup_frame, 0x004B24A0
 const boundary_interval = 50; // six_beacons_frame, 0x004B3316
@@ -152,7 +149,7 @@ test "the target window uses the installed singular and plural beacon names" {
 pub const Round = struct {
     beacons: [required]Beacon,
     bounds: deathmatch.Bounds,
-    drop_direction: usize = 0,
+    drops: deathmatch.PickupDrop = .{},
     last_wait: i32 = 0,
 
     /// six_beacons_init (0x004B2F10). The host selects the mode after the map has loaded.
@@ -225,11 +222,7 @@ pub const Round = struct {
             if (!std.meta.eql(beacon.carrier orelse continue, binding)) continue;
             beacon.carrier = null;
             const item = &all.slots[beacon.object.resolve(all) orelse continue];
-            const offset = drop_directions[round.drop_direction] * @as(math.Vector, @splat(drop_radius_share * ship.radius));
-            round.drop_direction = (round.drop_direction + 1) % required;
-            objects.setPosition(&item.object, &item.drawn, ship.position() + offset);
-            item.object.flags.disabled = false;
-            item.object.flags.targetable = true;
+            round.drops.beside(item, ship);
         }
     }
 
@@ -279,21 +272,16 @@ pub const Round = struct {
         const all = world.objects;
         if (!round.ready(all)) return;
         const states = all.player_states[0..all.playerSlotCount()];
-        var joined: usize = 0;
-        for (states) |*state| {
-            if (state.membership == .joined) joined += 1;
-        }
-        for (states, 0..) |*state, i| {
+        const waiting = deathmatch.onlyOnePilot(all);
+        for (0..states.len) |i| {
             const index: u16 = @intCast(i);
-            const binding = all.playerBinding(index) orelse continue;
+            const binding = deathmatch.pickupPilot(world, index) orelse continue;
             const ship = &all.slots[index];
-            if (!all.hasBoundPlayerShip(index) or ship.running(.explode) != null or ship.running(.deathmatch_respawn_effect) != null) continue;
-            if (world.clock.frame_start < state.membership.joined.pickups_after) continue;
             for (&round.beacons) |*beacon| {
                 if (beacon.carrier != null) continue;
                 const item = &all.slots[beacon.object.slot];
                 if (math.distance(ship.drawn.position, item.drawn.position) >= ship.object.radius + item.object.radius) continue;
-                if (joined < 2) {
+                if (waiting) {
                     if (world.clock.frame_start -| round.last_wait > wait_notice_gap) Notice.post(world, binding.participant, .waiting_for_players);
                     round.last_wait = world.clock.frame_start;
                     break;

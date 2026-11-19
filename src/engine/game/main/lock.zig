@@ -101,7 +101,7 @@ pub const Lock = struct {
         const aimed: ai.ValidTarget = switch (lock.phase) {
             .idle => held: {
                 lock.count = idle_count;
-                if (world.damage_rules == .arena and world.objects.arena_scenario == .asteroid_field and
+                if (world.damage_rules == .arena and world.objects.arena_scenario.powerUps() != null and
                     world.objects.slots[index].object.power_up != .missile) return;
                 const valid = possibleFor(world, index, ring, entry.target.resolve(world.objects)) orelse return;
                 lock.phase = .closing;

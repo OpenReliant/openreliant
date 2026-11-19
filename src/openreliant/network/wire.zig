@@ -7,7 +7,7 @@ pub const ordnance = @import("ordnance.zig");
 const flight = engine.input.flight;
 pub const Fighter = engine.game.dmscenarios.Fighter;
 pub const Scenario = engine.game.dmscenarios.Scenario;
-pub const revision: u16 = 14;
+pub const revision: u16 = 15;
 pub const slots = 3;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
@@ -27,9 +27,10 @@ pub const Combat = struct {
 // A tag, scenario, tick, three ships, and the largest scenario payload.
 const snapshot_header = 2 + @sizeOf(u32) + slots * Ship.encoded_size + 1 + 1;
 const beacon_snapshot_capacity = snapshot_header + beacon_count * (1 + 3 * @sizeOf(f32)) + Blast.encoded_size;
-const asteroid_capacity = snapshot_header + slots + 1 + Rocks.max * (1 + @sizeOf(Facing)) +
-    @sizeOf(powerups.Pickups.Mask) + @sizeOf(u32) + powerups.mine_count * Mine.encoded_size + 1 + @sizeOf(i32);
-const snapshot_capacity = @max(beacon_snapshot_capacity, asteroid_capacity);
+const power_capacity = @sizeOf(powerups.Pickups.Mask) + @sizeOf(u32) + powerups.mine_count * Mine.encoded_size + 1 + @sizeOf(i32);
+const asteroid_capacity = snapshot_header + slots + 1 + Rocks.asteroid_max * (1 + @sizeOf(Facing)) + power_capacity;
+const dark_reign_capacity = snapshot_header + slots + DarkReign.encoded_size + 1 + Rocks.max * @sizeOf(u32) + power_capacity;
+const snapshot_capacity = @max(beacon_snapshot_capacity, asteroid_capacity, dark_reign_capacity);
 pub const capacity = @max(snapshot_capacity + ordnance.Status.capacity, Combat.capacity, ordnance.Page.capacity);
 const max_release = 96;
 
@@ -171,28 +172,92 @@ pub const Ship = struct {
     }
 };
 pub const Beacon = union(enum(u8)) { loose: [3]f32, carried: u8 };
-pub const Objectives = union(enum(u8)) { none, six_beacons: [beacon_count]Beacon };
+pub const Objectives = union(enum(u8)) { none, six_beacons: [beacon_count]Beacon, dark_reign: DarkReign };
+
+pub const DarkReign = struct {
+    relay: Beacon,
+    yaw: i16,
+    shot: ?engine.game.aiioncan.Shot = null,
+
+    const encoded_size = 1 + 3 * @sizeOf(f32) + @sizeOf(i16) + 1 + 1 + @sizeOf(u16);
+};
 pub const Facing = [3]i16;
 const math = engine.surrender.math;
 
 pub fn packFacing(orientation: math.Matrix) Facing {
     const radians = math.angles(orientation);
     var packed_angles: Facing = undefined;
-    inline for (&packed_angles, 0..) |*angle, i| angle.* = @intFromFloat(@round(radians[i] * (32767.0 / std.math.pi)));
+    inline for (&packed_angles, 0..) |*angle, i| angle.* = packAngle(radians[i]);
     return packed_angles;
 }
 
 pub fn unpackFacing(packed_angles: Facing) math.Matrix {
     var angles: math.Vector = undefined;
-    inline for (packed_angles, 0..) |angle, i| angles[i] = @as(f32, @floatFromInt(angle)) * (std.math.pi / 32767.0);
+    inline for (packed_angles, 0..) |angle, i| angles[i] = unpackAngle(angle);
     return math.fromAngleVector(angles);
 }
 
+pub fn packAngle(radians: f32) i16 {
+    return @intFromFloat(@round(radians * (32767.0 / std.math.pi)));
+}
+
+pub fn unpackAngle(angle: i16) f32 {
+    return @as(f32, @floatFromInt(angle)) * (std.math.pi / 32767.0);
+}
+
 pub const Rocks = struct {
-    /// Mission 85 has thirty rocks. The room for extra entries keeps the packet bounded.
-    pub const max = 32;
+    pub const asteroid_max: usize = 32;
+    pub const max: usize = 112;
     count: u8 = 0,
     angles: [max]?Facing = @splat(null),
+
+    fn write(rocks: *const Rocks, w: *std.Io.Writer, compact: bool) !void {
+        if (rocks.count > (if (compact) max else asteroid_max)) return error.InvalidSnapshot;
+        try w.writeByte(rocks.count);
+        for (rocks.angles[0..rocks.count]) |entry| {
+            if (compact) {
+                // Dark Reign has over a hundred rocks. Ten bits per visual axis
+                // leave the whole arena view small enough for a single packet.
+                var bits: u32 = 0;
+                if (entry) |facing| {
+                    bits = 1 << 30;
+                    inline for (facing, 0..) |axis, i| {
+                        const quantized: i10 = @intCast(@divTrunc(@as(i32, axis), 64));
+                        bits |= @as(u32, @as(u10, @bitCast(quantized))) << (10 * i);
+                    }
+                }
+                try w.writeInt(u32, bits, .little);
+            } else {
+                try w.writeByte(@intFromBool(entry != null));
+                if (entry) |facing| for (facing) |axis| try w.writeInt(i16, axis, .little);
+            }
+        }
+    }
+
+    fn read(r: *std.Io.Reader, compact: bool) !Rocks {
+        var rocks: Rocks = .{ .count = try r.takeByte() };
+        if (rocks.count > (if (compact) max else asteroid_max)) return error.InvalidSnapshot;
+        for (rocks.angles[0..rocks.count]) |*entry| {
+            if (compact) {
+                const bits = try r.takeInt(u32, .little);
+                if (bits == 0) continue;
+                if (bits >> 30 != 1) return error.InvalidSnapshot;
+                var facing: Facing = undefined;
+                inline for (&facing, 0..) |*axis, i| {
+                    const quantized: i10 = @bitCast(@as(u10, @truncate(bits >> (10 * i))));
+                    axis.* = @as(i16, quantized) * 64;
+                }
+                entry.* = facing;
+            } else {
+                entry.* = switch (try r.takeByte()) {
+                    0 => null,
+                    1 => .{ try r.takeInt(i16, .little), try r.takeInt(i16, .little), try r.takeInt(i16, .little) },
+                    else => return error.InvalidSnapshot,
+                };
+            }
+        }
+        return rocks;
+    }
 };
 
 pub const Snapshot = struct {
@@ -207,6 +272,25 @@ pub const Snapshot = struct {
     power: ?Power = null,
     blast: ?Blast = null,
 };
+
+fn writeBeacon(w: *std.Io.Writer, beacon: Beacon) !void {
+    try w.writeByte(@backingInt(std.meta.activeTag(beacon)));
+    switch (beacon) {
+        .loose => |position| try writePosition(w, position),
+        .carried => |slot| try w.writeByte(slot),
+    }
+}
+
+fn readBeacon(r: *std.Io.Reader, ships: *const [slots]?Ship) !Beacon {
+    return switch (try r.takeEnum(std.meta.Tag(Beacon), .little)) {
+        .loose => .{ .loose = try readPosition(r) },
+        .carried => carried: {
+            const slot = try r.takeByte();
+            if (slot >= slots or ships[slot] == null) return error.InvalidBeaconCarrier;
+            break :carried .{ .carried = slot };
+        },
+    };
+}
 
 pub const Blast = struct {
     owner: u8,
@@ -524,26 +608,25 @@ pub const Message = union(enum(u8)) {
                         try w.writeByte(wall | (dying << 1));
                         try w.writeInt(u16, ship.ping_ms orelse Ship.unknown_ping, .little);
                     }
-                    if (view.scenario == .asteroid_field) try w.writeByte(@intFromBool(ship.cloaked));
+                    if (view.scenario != null and view.scenario.?.hasPowerUps()) try w.writeByte(@intFromBool(ship.cloaked));
                 }
                 try w.writeByte(@backingInt(std.meta.activeTag(view.objectives)));
                 switch (view.objectives) {
                     .none => {},
-                    .six_beacons => |beacons| for (beacons) |beacon| {
-                        try w.writeByte(@backingInt(std.meta.activeTag(beacon)));
-                        switch (beacon) {
-                            .loose => |position| try writePosition(&w, position),
-                            .carried => |slot| try w.writeByte(slot),
+                    .six_beacons => |beacons| for (beacons) |beacon| try writeBeacon(&w, beacon),
+                    .dark_reign => |mode| {
+                        if (view.scenario != .dark_reign) return error.InvalidSnapshot;
+                        try writeBeacon(&w, mode.relay);
+                        try w.writeInt(i16, mode.yaw, .little);
+                        try w.writeByte(if (mode.shot) |shot| @intCast(shot.target) else slots);
+                        if (mode.shot) |shot| {
+                            try w.writeByte(@intCast(@backingInt(shot.step)));
+                            try w.writeInt(u16, shot.elapsed, .little);
                         }
                     },
                 }
-                if (view.scenario == .asteroid_field) {
-                    if (view.rocks.count > Rocks.max) return error.InvalidSnapshot;
-                    try w.writeByte(view.rocks.count);
-                    for (view.rocks.angles[0..view.rocks.count]) |entry| {
-                        try w.writeByte(@intFromBool(entry != null));
-                        if (entry) |facing| for (facing) |axis| try w.writeInt(i16, axis, .little);
-                    }
+                if (view.scenario != null and view.scenario.?.hasPowerUps()) {
+                    try view.rocks.write(&w, view.scenario == .dark_reign);
                     try writeArena(&w, &view);
                 }
                 if (view.scenario == .nuclear_threat) try Blast.write(view.blast, &w);
@@ -657,7 +740,7 @@ pub const Message = union(enum(u8)) {
                         const ping = try r.takeInt(u16, .little);
                         ship.ping_ms = if (ping == Ship.unknown_ping) null else ping;
                     }
-                    if (view.scenario == .asteroid_field) ship.cloaked = switch (try r.takeByte()) {
+                    if (view.scenario != null and view.scenario.?.hasPowerUps()) ship.cloaked = switch (try r.takeByte()) {
                         0 => false,
                         1 => true,
                         else => return error.InvalidSnapshot,
@@ -671,29 +754,26 @@ pub const Message = union(enum(u8)) {
                     .none => .none,
                     .six_beacons => objectives: {
                         var beacons: [beacon_count]Beacon = undefined;
-                        for (&beacons) |*beacon| {
-                            beacon.* = switch (try r.takeEnum(std.meta.Tag(Beacon), .little)) {
-                                .loose => .{ .loose = try readPosition(&r) },
-                                .carried => carrier: {
-                                    const slot = try r.takeByte();
-                                    if (slot >= slots or view.ships[slot] == null) return error.InvalidBeaconCarrier;
-                                    break :carrier .{ .carried = slot };
-                                },
-                            };
-                        }
+                        for (&beacons) |*beacon| beacon.* = try readBeacon(&r, &view.ships);
                         break :objectives .{ .six_beacons = beacons };
                     },
+                    .dark_reign => objectives: {
+                        if (view.scenario != .dark_reign) return error.InvalidSnapshot;
+                        var mode: DarkReign = .{ .relay = try readBeacon(&r, &view.ships), .yaw = try r.takeInt(i16, .little) };
+                        const target = try r.takeByte();
+                        if (target != slots) {
+                            if (target >= slots or view.ships[target] == null) return error.InvalidSnapshot;
+                            if (mode.relay == .carried and mode.relay.carried == target) return error.InvalidSnapshot;
+                            const step = try r.takeByte();
+                            if (step > @backingInt(engine.game.aiioncan.Step.destroy)) return error.InvalidSnapshot;
+                            mode.shot = .{ .target = target, .step = @fromBackingInt(@intCast(step)), .elapsed = try r.takeInt(u16, .little) };
+                        }
+                        break :objectives .{ .dark_reign = mode };
+                    },
                 };
-                if (view.scenario == .asteroid_field) {
-                    view.rocks.count = try r.takeByte();
-                    if (view.rocks.count > Rocks.max) return error.InvalidSnapshot;
-                    for (view.rocks.angles[0..view.rocks.count]) |*entry| {
-                        entry.* = switch (try r.takeByte()) {
-                            0 => null,
-                            1 => .{ try r.takeInt(i16, .little), try r.takeInt(i16, .little), try r.takeInt(i16, .little) },
-                            else => return error.InvalidSnapshot,
-                        };
-                    }
+                if (view.scenario == .dark_reign and view.objectives != .dark_reign) return error.InvalidSnapshot;
+                if (view.scenario != null and view.scenario.?.hasPowerUps()) {
+                    view.rocks = try .read(&r, view.scenario == .dark_reign);
                     try readArena(&r, &view);
                 }
                 if (view.scenario == .nuclear_threat) view.blast = try Blast.read(&r, view.tick);
@@ -975,8 +1055,8 @@ test "ship angles round-trip the host orientation" {
 test "asteroid views include the stock mode and keep absent rock slots" {
     var buffer: [capacity]u8 = undefined;
     var view: Snapshot = .{ .tick = 7, .scenario = .asteroid_field, .ships = @splat(null) };
-    view.rocks.count = Rocks.max;
-    view.rocks.angles = @splat(.{ 123, 456, -789 });
+    view.rocks.count = Rocks.asteroid_max;
+    @memset(view.rocks.angles[0..Rocks.asteroid_max], .{ 123, 456, -789 });
     view.rocks.angles[1] = null;
     view.pickups = 0b1011;
     view.mines[powerups.mine_count - 1] = .{ .position = .{ 100, 200, -300 }, .angles = .{ 10, -15, 20 }, .reuse = 19 };
@@ -1067,4 +1147,22 @@ test "a paused roster names the host and cannot describe a waiting lobby" {
     roster.roster.lobby = null;
     roster.roster.pilots[0] = null;
     try std.testing.expectError(error.InvalidRoster, Message.decode(try roster.encode(&buffer)));
+}
+
+test "Dark Reign views carry the live relay and cannon phase with bounded scenery" {
+    var buffer: [capacity]u8 = undefined;
+    var view: Snapshot = .{
+        .tick = 400,
+        .scenario = .dark_reign,
+        .ships = @splat(.{ .generation = 1, .position = @splat(1) }),
+        .objectives = .{ .dark_reign = .{ .relay = .{ .carried = 0 }, .yaw = -2500, .shot = .{ .target = 2, .step = .fire, .elapsed = 50 } } },
+    };
+    view.rocks = .{ .count = Rocks.max, .angles = @splat(.{ 256, -1024, 2048 }) };
+    view.rocks.angles[5] = null;
+    view.mines = @splat(.{ .position = @splat(1), .angles = @splat(0), .reuse = 19 });
+    const bytes = try (Message{ .view = view }).encode(&buffer);
+    try std.testing.expect(bytes.len < 1200);
+    try std.testing.expectEqualDeep(view, (try Message.decode(bytes)).view);
+    view.objectives.dark_reign.shot.?.target = 0;
+    try std.testing.expectError(error.InvalidSnapshot, Message.decode(try (Message{ .view = view }).encode(&buffer)));
 }

@@ -3238,3 +3238,20 @@ address	kind	name	type	comment
 005d7670	data	lobby_chat_caret	int	The chat panel toggles this every 25 ticks to blink the entry caret
 005dc0d4	data	received_chat_line		The formatted callsign and message passed to the flight HUD by net_handle_system_message
 004bb950	function	net_send_drop_player	void __fastcall (int slot)	Queues packet 0x4C with the slot of the pilot selected for removal in the pause menu
+004b2420	function	dark_reign_collect	void __fastcall (int pilot, int pickup)	Hides the relay, gives it to the pilot, updates their target if it was the relay and plays the pickup sound
+004b3ae0	function	dark_reign_init	void (void)	Finds the relay and restores its carrier when joining a round already in progress
+004b3ba0	function	dark_reign_write_join_state	void (void)	Writes the relay carrier's pilot slot or eight for a loose relay
+004b3bd0	function	dark_reign_read_join_state	void (void)	Reads the relay carrier's pilot slot and marks the state ready for the arena
+004b3c10	function	dark_reign_pilot_destroyed	void __fastcall (int pilot)	Drops the destroyed pilot's relay when run by the host
+004b3c40	function	dark_reign_pilot_left	void __fastcall (int pilot)	Clears the relay carrier and re-enables the relay if the pilot had it
+004b3cb0	function	dark_reign_drop	void __fastcall (int pilot, bool report)	Clears the carrier and drops the relay beside the pilot's ship
+004b3cf0	function	dark_reign_frame	void (void)	Returns a loose relay from the boundary and queues an idle tower against a random joined pilot who does not carry it
+004b3f70	function	dark_reign_set_carrier	void __fastcall (int pilot)	Records the carrier and cancels the tower's current ion order if aimed at that pilot
+004b3fb0	function	dark_reign_cancel_shot	void (void)	Pops the tower's active orders back to the underlying idle order
+004b3ff0	function	dark_reign_draw_hud	void (void)	Draws shape 0x0C at the local objective anchor when the pilot carries the relay
+004b42b0	function	dark_reign_target_text	bool __fastcall (GameObject *target, char *text)	Writes language string 0x2D8 if the targeted pilot carries the relay
+004b4300	function	dark_reign_draw_target_badge	void __fastcall (int pilot, int x, int y)	Draws shape 0x11 at x minus 33 and y plus 2 beside the targeted carrier's brackets
+005db500	data	dark_reign_tower_slot	int	The object slot of the Dark Reign tower
+005db508	data	dark_reign_relay_carrier	int	The pilot carrying the relay or minus one when it is loose
+005db518	data	dark_reign_join_carrier	int	The pilot carrying the relay as read from a join packet
+005db51c	data	dark_reign_join_state_ready	bool	The join packet has supplied the relay carrier

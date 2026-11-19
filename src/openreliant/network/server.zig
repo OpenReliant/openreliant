@@ -457,7 +457,7 @@ fn broadcast(host: *Host, view: wire.Snapshot, final: bool) !void {
             wire.ordnance.Status.capture(host.arena.mission.objects, @intCast(slot))
         else
             null;
-        outgoing.power = if (view.scenario == .asteroid_field and view.ships[slot] != null)
+        outgoing.power = if (view.scenario != null and view.scenario.?.hasPowerUps() and view.ships[slot] != null)
             wire.Power.capture(&host.arena.mission.objects.slots[slot].object)
         else
             null;

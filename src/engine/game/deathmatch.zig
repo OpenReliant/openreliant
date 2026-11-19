@@ -12,6 +12,7 @@ pub const powerups = @import("deathmatch/powerups.zig");
 pub const respawn = @import("deathmatch/respawn.zig");
 pub const Wreck = @import("deathmatch/wreck.zig");
 pub const spawn = @import("deathmatch/spawn.zig");
+pub const dark_reign = @import("dmscenarios/dark_reign.zig");
 pub const six_beacons = @import("dmscenarios/six_beacons.zig");
 const math = @import("../surrender/math.zig");
 
@@ -29,6 +30,10 @@ pub fn resetToSpawnPositions(world: gameobj.World) !void {
             try six_beacons.Round.start(world, .free_for_all);
         if (all.mission_number == scenarios.Scenario.asteroid_field.mission())
             all.arena_scenario = .{ .asteroid_field = try powerups.Round.start(all) };
+        if (all.mission_number == scenarios.Scenario.dark_reign.mission()) {
+            const round = try dark_reign.Round.start(all);
+            all.arena_scenario = .{ .dark_reign = .{ .relay = round, .powerups = try powerups.Round.start(all) } };
+        }
         all.arena_boundary = .{ .bounds = switch (all.arena_scenario) {
             .six_beacons => |*round| round.bounds,
             else => .of(all),
@@ -87,23 +92,77 @@ pub const Scenario = union(enum) {
     deathmatch,
     asteroid_field: powerups.Round,
     six_beacons: six_beacons.Round,
+    dark_reign: struct { relay: dark_reign.Round, powerups: powerups.Round },
+
+    pub fn powerUps(scenario: *Scenario) ?*powerups.Round {
+        return switch (scenario.*) {
+            .asteroid_field => |*round| round,
+            .dark_reign => |*round| &round.powerups,
+            else => null,
+        };
+    }
 
     pub fn frame(scenario: *Scenario, world: gameobj.World) void {
+        if (scenario.powerUps()) |round| round.frame(world);
         switch (scenario.*) {
-            .deathmatch => {},
-            .asteroid_field => |*round| round.frame(world),
+            .deathmatch, .asteroid_field => {},
+            .dark_reign => |*round| round.relay.frame(world),
             .six_beacons => |*round| round.frame(world),
         }
     }
 
     pub fn releaseShip(scenario: *Scenario, all: *Objects, index: u16) void {
+        if (scenario.powerUps()) |round| round.release(all, index);
         switch (scenario.*) {
-            .deathmatch => {},
-            .asteroid_field => |*round| round.release(all, index),
+            .deathmatch, .asteroid_field => {},
+            .dark_reign => |*round| round.relay.drop(all, index),
             .six_beacons => |*round| round.drop(all, index),
         }
     }
+
+    pub fn departShip(scenario: *Scenario, all: *Objects, index: u16) void {
+        if (scenario.* == .dark_reign) {
+            scenario.dark_reign.relay.leave(all, index);
+            scenario.dark_reign.powerups.release(all, index);
+        } else {
+            scenario.releaseShip(all, index);
+        }
+    }
 };
+
+/// pickup_drop (0x004B26B0) cycles through the six world axes (0x0050C4AC).
+pub const PickupDrop = struct {
+    next: usize = 0,
+
+    const directions = [_]math.Vector{ .{ 1, 0, 0 }, .{ -1, 0, 0 }, .{ 0, 1, 0 }, .{ 0, -1, 0 }, .{ 0, 0, 1 }, .{ 0, 0, -1 } };
+
+    pub fn beside(drop: *PickupDrop, item: *@import("create.zig").Slot, ship: *const gameobj.GameObject) void {
+        const offset = directions[drop.next] * @as(math.Vector, @splat(0.8 * ship.radius));
+        drop.next = (drop.next + 1) % directions.len;
+        @import("objects.zig").setPosition(&item.object, &item.drawn, ship.position() + offset);
+        item.object.flags.disabled = false;
+        item.object.flags.targetable = true;
+    }
+};
+
+/// pickup_frame (0x004B24A0) skips pilots who are dying, spawning or waiting to collect again.
+pub fn pickupPilot(world: gameobj.World, index: u16) ?players.ControlRef {
+    const all = world.objects;
+    const binding = all.playerBinding(index) orelse return null;
+    const ship = &all.slots[index];
+    if (!all.hasBoundPlayerShip(index) or ship.running(.explode) != null or ship.running(.deathmatch_respawn_effect) != null) return null;
+    if (world.clock.frame_start < all.player_states[index].membership.joined.pickups_after) return null;
+    return binding;
+}
+
+pub fn onlyOnePilot(all: *const Objects) bool {
+    var joined: usize = 0;
+    for (all.player_states[0..all.playerSlotCount()]) |*state| {
+        if (state.membership == .joined) joined += 1;
+        if (joined >= 2) return false;
+    }
+    return true;
+}
 
 pub const TeamScore = struct {
     kills: i32 = 0,

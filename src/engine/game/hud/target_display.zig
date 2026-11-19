@@ -55,6 +55,7 @@ pub const Scene = struct {
     drawing: *hud.Drawing,
     all: *const create.Objects,
     beacons: ?*const six_beacons.HudSnapshot = null,
+    relay: ?players.ControlRef = null,
     multiplayer: bool = false,
 
     /// Draws `form`: what it shows now, and what it last showed as it shrinks away closing
@@ -83,6 +84,7 @@ pub const Scene = struct {
             .facts = .of(scene.all, index),
             .pilot = PilotName.of(scene.all, index, scene.multiplayer),
             .beacons = if (scene.beacons) |snapshot| snapshot.countAt(scene.all, index) else null,
+            .relay = if (scene.relay) |carrier| std.meta.eql(scene.all.playerBinding(index), @as(?players.ControlRef, carrier)) else false,
         };
     }
 
@@ -149,6 +151,7 @@ pub const Small = struct {
     /// Keep the displayed name while this window closes, even if the pilot leaves.
     pilot: ?PilotName = null,
     beacons: ?u8 = null,
+    relay: bool = false,
 
     /// Where the ship status stands from the window's place.
     pub const status_at: [2]i32 = .{ -4, -0x2C };
@@ -168,6 +171,9 @@ pub const Small = struct {
                 try canvas.text(.target_display_pilot, name, pilot_at, lines.alignment);
         }
         try context.figures(small.facts, lines);
+        if (small.relay) {
+            try canvas.text(.target_display_relay, canvas.pen.strings.string(0x2D8) orelse "Has Comms Relay", beacons_at, lines.alignment);
+        }
         if (small.beacons) |total| {
             var buffer: six_beacons.LabelBuffer = undefined;
             if (six_beacons.targetText(&buffer, canvas.pen.strings.*, total)) |text|

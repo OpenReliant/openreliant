@@ -86,11 +86,13 @@ pub const Part = enum {
     /// The text and caret of the editable flight chat line.
     chat_input_text,
     chat_input_caret,
+    target_markers_relay,
+    target_display_relay,
 
     /// Whether it's a picture rather than text, which takes no alignment or words.
     pub fn picture(part: Part) bool {
         return switch (part) {
-            .radio_face, .power_ball => true,
+            .radio_face, .power_ball, .target_markers_relay => true,
             else => false,
         };
     }
