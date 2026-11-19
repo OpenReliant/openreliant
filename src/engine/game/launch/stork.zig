@@ -102,7 +102,7 @@ test run {
     const state = &slot.state.launch;
     try std.testing.expectEqual(launch.Style.stork, state.style);
     try std.testing.expect(state.attached);
-    try std.testing.expectEqual(stork, slot.riding.?.object);
+    try std.testing.expectEqual(stork, slot.riding.?.object.resolve(mission.objects).?);
     try std.testing.expectApproxEqAbs(100, slot.drawn.position[0], 1e-3);
 
     // Started, past its delay, it lets go and flies out.

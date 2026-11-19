@@ -1810,7 +1810,7 @@ test "a launching ship keeps with the node it rides, though that is framed after
     const carrier = try mission.add(.of(.reliant), @splat(0));
     _ = try aigeneric.pushShip(mission.orders(), ship, .launch, carrier, 0);
     const slot = mission.slot(ship);
-    slot.riding = .{ .object = carrier };
+    slot.riding = .{ .object = .of(mission.objects, carrier) };
     slot.state.launch.attached = true;
     slot.state.launch.orientation = math.identity;
     // The carrier moves on through the step, from where the last frame drew it.

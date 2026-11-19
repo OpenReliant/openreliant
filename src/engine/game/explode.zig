@@ -304,10 +304,10 @@ pub const Explosions = struct {
     /// Lets go of the stream of `template` that hangs from the object in slot `index`, where there
     /// is one (`particle_emitter_free` on the extra's emitter, which the game finds among
     /// `burn_streams`). The particles it sent live on.
-    pub fn dropStream(explosions: *Explosions, index: u16, template: *const particles.Template) void {
+    pub fn dropStream(explosions: *Explosions, owner: gameobj.ObjectRef, template: *const particles.Template) void {
         for (&explosions.streams) |*slot| {
             const stream = &(slot.* orelse continue);
-            if (stream.on.object() == index and stream.emitter.template == template) slot.* = null;
+            if (std.meta.eql(stream.on.object(), owner) and stream.emitter.template == template) slot.* = null;
         }
     }
 
@@ -1345,7 +1345,7 @@ pub const breakaway_core_sparks: particles.Template = .{
 pub fn partStreams(world: gameobj.World, index: u16, ref: objects.PartRef, forever: bool, template: *const particles.Template) void {
     const explosions = drawnIn(world) orelse return;
     const data = ref.data() orelse return;
-    explosions.smoke(world, .{ .object = index, .part = ref }, data, forever, template);
+    explosions.smoke(world, .{ .object = .of(world.objects, index), .part = ref }, data, forever, template);
 }
 
 /// How a part burns (`explode_part_burn`'s last three arguments).
@@ -1397,13 +1397,13 @@ pub const Stream = struct {
     emitter: particles.Emitter,
 
     /// What a stream hangs from: a part of an object, or nothing, so that it stands in the world
-    /// where the object in slot `world` set it streaming.
+    /// where the object that set it streaming left it.
     pub const On = union(enum) {
         part: objects.PartOf,
-        world: u16,
+        world: gameobj.ObjectRef,
 
         /// The object that set it streaming.
-        pub fn object(on: On) u16 {
+        fn object(on: On) gameobj.ObjectRef {
             return switch (on) {
                 .part => |part| part.object,
                 .world => |index| index,
@@ -1427,7 +1427,7 @@ pub fn burnPart(world: gameobj.World, index: u16, name: []const u8, how: Burn) v
     const ref = model.partNamed(name) orelse return;
     const data = ref.data() orelse return;
     const pairs = data.pointList(.rays) orelse return;
-    const on: objects.PartOf = .{ .object = index, .part = ref };
+    const on: objects.PartOf = .{ .object = .of(world.objects, index), .part = ref };
     if (world.rays) |rays| {
         var spec = burn_ray;
         spec.flags.flickers = how.flickers;
@@ -1440,7 +1440,7 @@ pub fn burnPart(world: gameobj.World, index: u16, name: []const u8, how: Burn) v
             ray.from = pair[0].position.vector();
             ray.to = pair[1].position.vector();
             ray.hang(.{ .part = on });
-            ray.owner = index;
+            ray.owner = .of(world.objects, index);
         }
     }
     if (!how.lights) return;
@@ -1645,7 +1645,7 @@ test burnPart {
     for (rays.rays.slots[0..2]) |made| {
         const ray = made.?;
         try std.testing.expect(ray.flags.flickers and ray.flags.fades and !ray.flags.timed);
-        try std.testing.expectEqual(index, ray.owner);
+        try std.testing.expectEqual(index, ray.owner.?.resolve(world.objects).?);
         try std.testing.expectEqual(100, ray.to[2]);
     }
     try std.testing.expectEqual(10, rays.rays.slots[1].?.from[0]);

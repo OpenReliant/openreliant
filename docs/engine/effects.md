@@ -550,7 +550,7 @@ There is room for 100 rays (`0x005531B0`). `eray_add` (`0x0046AC50`) takes the f
 - One or more strands of 16 segments (`eray_segment_mesh`, `0x0046A850`). A segment is a square across its start, over highlight texture 0, and two quads crossed along it, over `laser2`. All are lit and added to what is behind them by their alpha, which starts at 0.5.
 - A point light, `Eray Light`, reaching 10000, in the first strand's colour (`eray_colour`, `0x0046AEA0`), at the middle of that strand.
 - Flags: 1 flickers, 2 fades, 4 lasts only its life.
-- What it hangs from, whose frame its ends are in (`eray_hang`, `0x0046AE60`), and the object it plays over: it goes once that object's slot stands in.
+- What it hangs from, whose frame its ends are in (`eray_hang`, `0x0046AE60`), and the object it plays over. **Fix:** OpenReliant ends the ray when the owner leaves, including when its slot is filled again before the next update.
 
 Once a frame, `erays_update` (`0x0046AC30`) runs `eray_update` (`0x0046AF40`) for each ray:
 

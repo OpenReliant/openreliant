@@ -80,13 +80,13 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
     const holder = &all.slots[carrier];
-    slot.riding = .{ .object = carrier };
+    slot.riding = .{ .object = .of(all, carrier) };
     if (holder.model == null) return;
     const place = gatePlace(holder, slot.orders[0].target.resolve(all).component) orelse {
         log.warn("the carrier in slot {d} has no bay to launch from", .{carrier});
         return;
     };
-    slot.riding = .{ .object = carrier, .part = bay_part };
+    slot.riding = .{ .object = .of(all, carrier), .part = bay_part };
     objects.setPlace(&slot.object, &slot.drawn, place);
 }
 
@@ -222,7 +222,7 @@ test "a ship launches from the Badanov's bay" {
 
     // Gate 1 is 100 across, 40 up and 120 behind the bay's midpoint.
     try std.testing.expect(state.attached);
-    try std.testing.expectEqual(badanov, slot.riding.?.object);
+    try std.testing.expectEqual(badanov, slot.riding.?.object.resolve(mission.objects).?);
     try std.testing.expectEqual(bay_part, slot.riding.?.part.?);
     try std.testing.expectApproxEqAbs(100, slot.drawn.position[0], 1e-3);
     try std.testing.expectApproxEqAbs(40, slot.drawn.position[1], 1e-3);

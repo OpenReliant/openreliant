@@ -274,7 +274,7 @@ pub fn hatMade(world: gameobj.World, index: u16) void {
     if (model.partNamed(dark_hat) == null) return;
     const part = coil.part();
     const middle: Vector = if (part.object.levels.len > 0) part.object.shown().middle() else @splat(0);
-    const extra = makeHat(all.gpa, images, .{ .object = index, .part = coil }, middle) catch |err| {
+    const extra = makeHat(all.gpa, images, .{ .object = .of(all, index), .part = coil }, middle) catch |err| {
         log.warn("the Dark Reign in slot {d} has no hat: {s}", .{ index, @errorName(err) });
         return;
     };
@@ -319,8 +319,8 @@ fn hangRays(world: gameobj.World, index: u16, hat: *Hat) void {
         made.colour(0, ray_colour);
         made.from = to_frame.inverse(from_frame.point(start.position.vector()));
         made.to = end.position.vector();
-        made.hang(.{ .part = .{ .object = index, .part = .{ .model = model, .index = 1 } } });
-        made.owner = index;
+        made.hang(.{ .part = .{ .object = .of(world.objects, index), .part = .{ .model = model, .index = 1 } } });
+        made.owner = .of(world.objects, index);
         kept.* = rays.keep(made);
     }
 }
@@ -418,7 +418,7 @@ test hatMade {
         try std.testing.expectEqual(from - testing.DarkReign.hat_height, made.from);
         try std.testing.expectEqual(to, made.to);
         try std.testing.expectEqual(1, made.parent.part.part.index);
-        try std.testing.expectEqual(ship.index, made.owner.?);
+        try std.testing.expectEqual(ship.index, made.owner.?.resolve(world.objects).?);
     }
 
     // The sparks stream for good from the coil's frame, 1150 below the star.

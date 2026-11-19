@@ -156,7 +156,7 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     const all = world.objects;
     const slot = &all.slots[index];
     const holder = &all.slots[carrier];
-    slot.riding = .{ .object = carrier };
+    slot.riding = .{ .object = .of(all, carrier) };
     slot.object.letGo();
     const gate = std.math.cast(usize, slot.orders[0].target.resolve(world.objects).component) orelse return;
     const model = if (holder.model) |*held| held else return;
@@ -353,7 +353,7 @@ test "the Yamato's bays place fighters on both sides and release them on schedul
         aigeneric.objectOrders(ctx, ship);
         try std.testing.expectEqual(math.Vector{ if (gate == 0) 900 else 1400, 200, 10200 }, slot.drawn.position);
         try std.testing.expectApproxEqAbs(@as(f32, if (gate == 0) 1 else -1), math.forward(slot.drawn.orientation)[0], 1e-6);
-        try std.testing.expectEqual(objects.NodeOf{ .object = carrier }, slot.riding.?);
+        try std.testing.expectEqual(objects.NodeOf{ .object = .of(mission.objects, carrier) }, slot.riding.?);
         try std.testing.expectEqual(0, slot.object.throttle);
         try std.testing.expectEqual(0, slot.object.pitch_input);
         try std.testing.expect(!model.parts[gate + first_bay].hidden);

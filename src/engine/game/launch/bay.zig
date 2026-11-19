@@ -321,7 +321,7 @@ test "a ship launches out of a bay, its doors opening and closing behind it" {
     try std.testing.expectEqual(launch.Style.bay, state.style);
     // It waits at gate 0, the point 100 along the launch points' part, riding it.
     try std.testing.expect(state.attached);
-    try std.testing.expectEqual(bay.bremen, slot.riding.?.object);
+    try std.testing.expectEqual(bay.bremen, slot.riding.?.object.resolve(bay.mission.objects).?);
 
     // Started, past its delay, the gate's doors open.
     launch.start(bay.mission.objects, bay.first);

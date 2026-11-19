@@ -554,7 +554,7 @@ test makeHangar {
 pub fn attach(all: *create.Objects, index: u16, on: u16, gate: i16) void {
     const slot = &all.slots[index];
     const found = gateOf(all, on, gate) orelse return;
-    slot.riding = .{ .object = on, .part = found.part };
+    slot.riding = .{ .object = .of(all, on), .part = found.part };
     const at = found.place;
     objects.setPlace(&slot.object, &slot.drawn, .{ .position = at.point(slot.object.centre.vector()), .orientation = at.orientation });
 }
@@ -750,7 +750,7 @@ test "a launch stands its ship at its gate's point, riding it, until it starts" 
     const slot = mission.slot(torpedo_slot);
     const state = &slot.state.launch;
     try std.testing.expectEqual(Style.torpedo, state.style);
-    try std.testing.expectEqual(objects.NodeOf{ .object = carrier, .part = 1 }, slot.riding.?);
+    try std.testing.expectEqual(objects.NodeOf{ .object = .of(mission.objects, carrier), .part = 1 }, slot.riding.?);
     try std.testing.expectEqual(math.Vector{ 1100, 0, 20 }, slot.drawn.position);
     try std.testing.expectApproxEqAbs(-1, math.forward(slot.drawn.orientation)[2], 1e-6);
     try std.testing.expect(state.attached and slot.object.flags.no_collisions);
@@ -838,7 +838,7 @@ test "a launch ends with its carrier, and an unknown style lets the ship go" {
     }
     // A missing bay leaves the ship riding the root. An unknown style still lets it go.
     try std.testing.expectEqual(Style.yamato, mission.slot(ship).state.launch.style);
-    try std.testing.expectEqual(objects.NodeOf{ .object = carrier }, mission.slot(ship).riding.?);
+    try std.testing.expectEqual(objects.NodeOf{ .object = .of(mission.objects, carrier) }, mission.slot(ship).riding.?);
     mission.slot(ship).state.launch.style = @fromBackingInt(12);
     start(mission.objects, ship);
     aigeneric.objectOrders(ctx, ship);

@@ -81,7 +81,7 @@ test "a ship backs out of the rogue base" {
     // It waits at the first launch point, 10 along the second part and turned half a turn, then set
     // back 500 along its nose: 500 further along the part's Z.
     try std.testing.expect(state.attached);
-    try std.testing.expectEqual(base, slot.riding.?.object);
+    try std.testing.expectEqual(base, slot.riding.?.object.resolve(mission.objects).?);
     try std.testing.expectApproxEqAbs(1100, slot.drawn.position[0], 1e-3);
     try std.testing.expectApproxEqAbs(510, slot.drawn.position[2], 1e-3);
 

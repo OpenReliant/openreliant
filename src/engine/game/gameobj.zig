@@ -88,8 +88,6 @@ pub const max_objects = 400;
 
 /// OpenReliant's reference to one object, including the reuse count of its slot. Unlike a slot
 /// number, it cannot resolve to the next object created there. `null` represents no reference.
-/// The remaining engine references move to this type under
-/// [#946](https://github.com/OpenReliant/openreliant/issues/946).
 pub const ObjectRef = struct {
     slot: u16,
     reuse: u32,

@@ -498,8 +498,8 @@ pub const Record = struct {
             ray.colour(0, power_ray_colour);
             ray.from = ends[0];
             ray.to = ends[1];
-            ray.hang(.{ .part = .{ .object = index, .part = cannon } });
-            ray.owner = index;
+            ray.hang(.{ .part = .{ .object = .of(world.objects, index), .part = cannon } });
+            ray.owner = .of(world.objects, index);
             held.* = rays.keep(ray);
         }
     }
@@ -537,10 +537,10 @@ pub const Record = struct {
             ray.light.kind.point.range = beam_light_range;
             for (kind.beam, 0..) |rgb, strand| ray.colour(strand, rgb);
             ray.quadsOver(0, cannons.beam);
-            ray.hang(.{ .part = .{ .object = index, .part = focus } });
+            ray.hang(.{ .part = .{ .object = .of(world.objects, index), .part = focus } });
             ray.from = record.beam_from;
             ray.to = focus_at.inverse(target.drawn.position);
-            ray.owner = index;
+            ray.owner = .of(world.objects, index);
             record.beam = rays.keep(ray);
         }
         const spread = target.object.radius * fireball_spread;
@@ -704,7 +704,7 @@ pub fn init(ctx: Context, index: u16) void {
         .updated = world.clock.frame_start,
         ._unknown_14 = @splat(0),
     };
-    cannons.make(index, kind, .{ .object = index, .part = cannon }, .{ .object = index, .part = focus }) catch |err| {
+    cannons.make(index, kind, .{ .object = .of(world.objects, index), .part = cannon }, .{ .object = .of(world.objects, index), .part = focus }) catch |err| {
         log.warn("the ion cannon of object {d} has no record: {s}", .{ index, @errorName(err) });
     };
 }

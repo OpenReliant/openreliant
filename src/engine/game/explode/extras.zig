@@ -74,7 +74,7 @@ pub fn putOut(world: gameobj.World, index: u16) void {
         },
         .glow => {},
     }
-    if (world.explosions) |explosions| explosions.dropStream(index, extra.sparks());
+    if (world.explosions) |explosions| explosions.dropStream(.of(world.objects, index), extra.sparks());
     extra.destroy(world.objects.gpa);
     slot.extra = null;
 }
@@ -97,13 +97,13 @@ fn lightGateCore(world: gameobj.World, index: u16) void {
     const inner = model.partNamed(inner_core) orelse return;
     const core = model.partNamed(power_core) orelse return;
     if (inner.model != model) return;
-    const parent: objects.NodeOf = .{ .object = index, .part = inner.part().parent };
+    const parent: objects.NodeOf = .{ .object = .of(world.objects, index), .part = inner.part().parent };
     const at = inner.part().origin;
     const glow_place = (parent.place(world.objects) orelse return).point(at);
     const core_place = slot.partPlace(core.part()) orelse return;
     if (!hangGlow(world, index, parent, at, &explode.gate_core_sparks)) return;
     explode.sound(world, core_place.position, .explosions);
-    streamSparks(world, .{ .world = index }, glow_place, gate_sparks_spread, &explode.gate_core_sparks);
+    streamSparks(world, .{ .world = .of(world.objects, index) }, glow_place, gate_sparks_spread, &explode.gate_core_sparks);
 }
 
 /// How the gate's core's sparks stray as they leave (`0x0046DF6F`).
@@ -128,7 +128,7 @@ fn lightBreakawayCore(world: gameobj.World, index: u16, model: *objects.Model) v
     const core = model.partNamed(breakaway_core) orelse return;
     const stands = slot.partPlace(core.part()) orelse return;
     if (!hangGlow(world, index, null, stands.position, &explode.breakaway_core_sparks)) return;
-    streamSparks(world, .{ .part = .{ .object = index, .part = core } }, @splat(0), @splat(std.math.tau), &explode.breakaway_core_sparks);
+    streamSparks(world, .{ .part = .{ .object = .of(world.objects, index), .part = core } }, @splat(0), @splat(std.math.tau), &explode.breakaway_core_sparks);
 }
 
 /// Hangs a core's glow on the object in slot `index` (`create.extra.makeGlow`), in place of any
@@ -592,7 +592,7 @@ test "the prototype gate's power core lights as it loses its inner core" {
     // Its sparks stand in the world where the glow stands.
     const stream = stage.explosions.streams[0].?;
     try std.testing.expectEqual(&explode.gate_core_sparks, stream.emitter.template);
-    try std.testing.expectEqual(gate, stream.on.world);
+    try std.testing.expectEqual(gate, stream.on.world.resolve(world.objects).?);
     try std.testing.expectEqual(Vector{ 0, 300, 5000 }, stream.emitter.place.position);
 }
 

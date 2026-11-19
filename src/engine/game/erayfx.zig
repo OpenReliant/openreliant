@@ -78,13 +78,14 @@ pub const Flags = packed struct(u32) {
 /// object; or a part of one (`0x0046AE60`).
 pub const Parent = union(enum) {
     world,
-    object: u16,
+    object: gameobj.ObjectRef,
     part: objects.PartOf,
 
-    /// Whether it has gone: a part that no longer belongs to its object.
+    /// Whether the parent object or its part has gone.
     fn gone(parent: Parent, all: *const Objects) bool {
         return switch (parent) {
-            .world, .object => false,
+            .world => false,
+            .object => |on| !on.valid(all),
             .part => |on| on.live(all) == null,
         };
     }
@@ -93,7 +94,7 @@ pub const Parent = union(enum) {
     fn standing(parent: Parent, all: *const Objects) ?Standing {
         return switch (parent) {
             .world => .{ .place = .{} },
-            .object => |index| .{ .place = all.slots[index].drawn },
+            .object => |on| .{ .place = all.slots[on.resolve(all) orelse return null].drawn },
             .part => |on| part: {
                 const part = on.live(all) orelse break :part null;
                 const object = &part.object;
@@ -142,8 +143,8 @@ pub const Ray = struct {
     dark_for: i32,
     /// How many ticks it has left, where it is timed (`+0x34`).
     life: i32,
-    /// The object it plays over (`+0x38`): it goes once the object's slot stands in.
-    owner: ?u16 = null,
+    /// The object it plays over (`+0x38`). **Fix:** retire the ray when that object leaves.
+    owner: ?gameobj.ObjectRef = null,
     /// Whether it is lit (`+0x3C`).
     lit: bool = true,
     parent: Parent = .world,
@@ -218,7 +219,10 @@ pub const Ray = struct {
             ray.life += moved -% now;
             if (ray.life < 1) return false;
         }
-        if (ray.owner) |owner| if (all.slots[owner].object.type.base() == .stand_in) return false;
+        if (ray.owner) |owner| {
+            const index = owner.resolve(all) orelse return false;
+            if (all.slots[index].object.type.base() == .stand_in) return false;
+        }
         ray.moved = now;
         if (!ray.flags.flickers) return true;
         if (ray.lit) {
@@ -612,9 +616,11 @@ test "a ray flickers, fades and runs out" {
     try std.testing.expect(other.update(all, 1, &random));
     try std.testing.expectEqual(0, other.brightness);
     const owner = try mission.add(.of(.predator), @splat(0));
-    other.owner = owner;
+    other.owner = .of(all, owner);
     try std.testing.expect(other.update(all, 2, &random));
-    @import("create.zig").resetSlot(mission.orders(), owner);
+    const create = @import("create.zig");
+    create.resetSlot(mission.orders(), owner);
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, owner, .of(.predator), 0, @splat(0), &mission.random);
     try std.testing.expect(!other.update(all, 3, &random));
 }
 
@@ -652,7 +658,7 @@ test Drawing {
     const ray = try rays.add(.{ .strands = 2, .life = 0, .jitter = 0, .width = 10, .flags = .{} }, &random);
     ray.to = .{ 0, 0, 1600 };
     ray.colour(0, .{ 0.6, 1, 1 });
-    ray.hang(.{ .object = ship });
+    ray.hang(.{ .object = .of(mission.objects, ship) });
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
     try drawing.draw(rays, gpa, &scene, mission.objects, 0, &random);
@@ -712,7 +718,7 @@ test "Rays.frame" {
     const ship = try mission.add(.of(.predator), @splat(0));
     var model: objects.Model = undefined;
     const hung = try rays.add(.{ .life = 0, .jitter = 0.2, .width = 10, .flags = .{} }, &random);
-    hung.hang(.{ .part = .{ .object = ship, .part = .{ .model = &model, .index = 0 } } });
+    hung.hang(.{ .part = .{ .object = .of(mission.objects, ship), .part = .{ .model = &model, .index = 0 } } });
     const lights = scene.lights.items.len;
     try drawing.draw(rays, gpa, &scene, mission.objects, 21, &random);
     try std.testing.expectEqual(lights, scene.lights.items.len);

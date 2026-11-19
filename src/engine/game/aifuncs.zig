@@ -969,13 +969,14 @@ pub fn disruptedInit(ctx: Context, index: u16) void {
     object.rotation = math.fromAngles(object.pitch_rate, object.yaw_rate, object.roll_rate);
     const rays = ctx.world.rays orelse return;
     const spec = disruptedRay(data.ticks);
+    const owner: gameobj.ObjectRef = .of(ctx.world.objects, index);
     for (0..disrupted_rays) |n| {
         const ray = rays.add(spec, random) catch return;
         ray.colour(0, disrupted_colours[n % 2]);
         const turn = math.fromAngleVector(random.fractionVector(@splat(std.math.tau)));
         ray.to = math.transform(turn, .{ 0, 0, object.radius });
-        ray.hang(.{ .object = index });
-        ray.owner = index;
+        ray.hang(.{ .object = owner });
+        ray.owner = owner;
     }
 }
 
@@ -1274,7 +1275,7 @@ test disruptedInit {
     try std.testing.expect(slot.object.flags.unpowered);
     for (rays.rays.slots[0..disrupted_rays], 0..) |made, n| {
         const ray = made.?;
-        try std.testing.expectEqual(index, ray.owner);
+        try std.testing.expectEqual(index, ray.owner.?.resolve(mission.objects).?);
         try std.testing.expectEqual(300, ray.life);
         try std.testing.expect(ray.flags.flickers and ray.flags.fades and ray.flags.timed);
         try std.testing.expectApproxEqAbs(50, math.length(ray.to), 1e-3);
