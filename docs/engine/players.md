@@ -245,6 +245,16 @@ mesh cutting and debris effects, which can continue playing after the new ship a
 The original debris uses a scene mesh and its own flight record (`debris_add`, 0x00472700).
 The fragments are visual and have no collision or damage rules.
 
+### Stock arena rules
+
+The six stock arena records pair each mission in `dm_scenarios` (0x0050C790) with its rules
+and English lobby text. The lobby prefers the installed language strings. The records also
+hold the Dark Reign targeting delay, the Tag Bomb fuse and the three role bonuses. Both host
+paths use these defaults. The original lobby reads the name, description and team help IDs at
+offsets 0, 2 and 4 of each record. It clears the team option when byte 0x0C is zero
+(0x0044CB30), as it is for Nuclear Threat and Vampires. The host keeps the live state of the match,
+including who carries the bomb.
+
 ### Asteroid Field
 
 Asteroid Field is the first entry in `dm_scenarios` (0x0050C790). Mission 85 creates thirty
@@ -308,9 +318,14 @@ starts at the first marker. Later spawns use the original collision margin of 1.
 sum of the radii. The ship starts with half its afterburner fuel and empty missile racks.
 
 The client loads the arena scenery and reads beacon positions and carriers from the host.
-It uses the shared HUD for counts and reads the installed strings for the collection and
-launch notices. A late join receives the current beacon state in its first snapshot. Ongoing
-scenery and combat effects are tracked in [#954](https://github.com/OpenReliant/openreliant/issues/954).
+The shared HUD uses installed strings for collections, launches and blast kills, with English
+fallbacks. Only the scorer sees the bonus on the kill line. A pilot joining during a pause
+gets the frozen objective state, cockpit readings and last sampled pings. The cockpit clock
+uses the same 101 ticks per displayed second as the host (`tick_timer`, 0x004827C0).
+
+**Improvement:** a returning pilot uses a free marker if another ship occupies the preferred
+one. When every marker is occupied, a destroyed pilot waits for space while the other pilots
+continue flying. An unsuccessful new admission leaves the round's roles alone.
 
 ### Random arena power-ups
 

@@ -372,7 +372,6 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         frame.drawn.shake = 1;
     };
     if (scene.flash) |flash| flash.countDown(scene.clock.frame_duration);
-    frame.drawn.display.messages.expire(scene.clock.frame_start);
     if (scene.sparks) |sparks| sparks.frame(scene.clock);
     try frame.rocks.apply(all, &snapshot.rocks);
     if (snapshot.scenario != null and snapshot.scenario.?.hasPowerUps()) {
@@ -501,13 +500,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     frame.drawn.display.zoomRadar(scene);
     frame.drawn.display.finishGameFrame(scene);
     frame.drawn.display.messages.expire(frame.drawn.clock.frame_start);
-    const seconds = ticks / game.main.ticks_per_second;
-    frame.drawn.clock.play = .{
-        .ticks = @intCast(ticks % game.main.ticks_per_second),
-        .seconds = @intCast(seconds % std.time.s_per_min),
-        .minutes = @intCast(seconds % std.time.s_per_hour / std.time.s_per_min),
-        .hours = @intCast(seconds / std.time.s_per_hour),
-    };
+    frame.drawn.clock.play = .fromTicks(ticks);
     frame.tick = snapshot.tick;
 }
 

@@ -63,7 +63,7 @@ const change_mode: Label = .{ .english = "CHANGE GAME MODE" };
 const select_mode: Label = .{ .english = "SELECT MODE" };
 const cancel: Label = .{ .english = "CANCEL" };
 const team_play: Label = .{ .english = "TEAM PLAY", .installed = 0x2C6 };
-const modal_rows: ui.Rect = .{ .x = 72, .y = 168, .width = 168, .height = choices.height * scenario_labels.len };
+const modal_rows: ui.Rect = .{ .x = 72, .y = 168, .width = 168, .height = choices.height * scenario_options.len };
 const details_y = 194;
 const details_lines: ui.Canvas.Lines = .{ .width = 302, .height = 15, .most = 8 };
 const team_heading_y = details_y + details_lines.height * details_lines.most + 4;
@@ -71,8 +71,13 @@ const modal_actions_y = team_heading_y + 53;
 const modal_select: ui.Rect = .{ .x = 261, .y = modal_actions_y, .width = 160, .height = control_height };
 const modal_cancel: ui.Rect = .{ .x = 72, .y = modal_actions_y, .width = 160, .height = control_height };
 
-const scenario_labels = [_][]const u8{ "Asteroid Field", "Nuclear Threat", "Dark Reign", "Tag Bomb", "Hunt the Shadow", "Vampires" };
-const scenario_options = choices.options(scenarios.Scenario, &scenario_labels);
+const scenario_options = options: {
+    var options: [std.enums.values(scenarios.Scenario).len]Label = undefined;
+    for (std.enums.values(scenarios.Scenario), &options) |scenario, *option| {
+        option.* = .{ .english = scenario.record().name, .installed = scenario.nameString() };
+    }
+    break :options options;
+};
 
 fn box(layout: Layout, x: i16, right: i16) ui.Rect {
     const left, const top = layout.point(.{ x, panel_top });
@@ -172,14 +177,7 @@ fn modeButton(layout: Layout) ui.Rect {
 }
 
 fn description(mode: scenarios.Scenario) Label {
-    return .{ .english = switch (mode) {
-        .asteroid_field => "Fight for the most kills in an asteroid field.",
-        .nuclear_threat => "Collect six beacons and take them to the gate. Losing your ship drops the beacons you carry.",
-        .dark_reign => "Recover the comms relay to keep the Dark Reign from targeting you and earn credit for its kills.",
-        .tag_bomb => "The first pilot destroyed respawns with an active bomb. Hit another pilot with your guns to pass it before your timer expires.",
-        .hunt_the_shadow => "The first pilot to score a kill becomes the Shadow. The Shadow is cloaked and has no shields. Kill the Shadow to take over.",
-        .vampires => "The first pilot to die becomes a vampire. Vampires infect human pilots by killing them. The last human earns five frags and the roles reset.",
-    }, .installed = mode.descriptionString() };
+    return .{ .english = mode.record().description, .installed = mode.descriptionString() };
 }
 
 fn drawModes(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
@@ -193,7 +191,12 @@ fn drawModes(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
     try canvas.text(canvas.fonts.small, .{ 261, modal_rows.y + 3 }, heading.text(strings), ui.white, .left);
     try canvas.wrapped(canvas.fonts.small, .{ 261, details_y }, description(lobby.preview).text(strings), ui.blue, .left, details_lines);
     try canvas.text(canvas.fonts.small, .{ 261, team_heading_y }, team_play.text(strings), ui.white, .left);
-    try canvas.wrapped(canvas.fonts.small, .{ 261, team_heading_y + 15 }, strings.string(lobby.preview.teamPlayString()) orelse "", ui.blue, .left, .{ .width = 302, .height = 14, .most = 2 });
+    const teams: Label = .{ .installed = lobby.preview.teamPlayString(), .english = switch (lobby.preview.record().teams) {
+        .most_frags => "The team with the most frags wins.",
+        .controls_tower => "The tower cannot target the team carrying the relay.",
+        .none => "No.",
+    } };
+    try canvas.wrapped(canvas.fonts.small, .{ 261, team_heading_y + 15 }, teams.text(strings), ui.blue, .left, .{ .width = 302, .height = 14, .most = 2 });
     try widgets.button(canvas, art, modal_cancel, cancel, true, false);
     try widgets.button(canvas, art, modal_select, select_mode, true, false);
 }

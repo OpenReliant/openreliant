@@ -1481,7 +1481,7 @@ pub fn tickTimer(clock: *Clock) void {
     if (clock.paused) return;
     clock.game_ticks +%= 1;
     clock.play.ticks += 1;
-    if (clock.play.ticks > main.ticks_per_second) {
+    if (clock.play.ticks >= main.PlayTime.ticks_per_display_second) {
         clock.play.ticks = 0;
         // Each unit rolls when it stood past `rollover_after` before this one.
         const second_over = clock.play.seconds > rollover_after;

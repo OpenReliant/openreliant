@@ -5543,7 +5543,17 @@ pub const ShipStatus = struct {
 
     /// One arc of a ring: where it hangs from the point, and the shape a level of 0 would be, each
     /// level above it drawing the shape one before, `arc_levels` shapes an arc.
-    pub const Arc = struct { offset: [2]i32, base: u16 };
+    pub const Arc = struct {
+        offset: [2]i32,
+        base: u16,
+
+        /// **Fix:** armour or shields above the stock maximum fill the arc. Each arc has
+        /// five sprites (hud_ship_status, 0x00489350). Further indices select unrelated art.
+        fn shape(arc: Arc, drawn: i32) ?u16 {
+            if (drawn <= 0) return null;
+            return arc.base - @as(u16, @intCast(@min(drawn, arc_levels)));
+        }
+    };
 
     /// Where a mode draws each part from the indicator's point: the schematic, the hits on it, and
     /// the shields' and the armour's arcs, each in the order of the quadrants
@@ -5717,10 +5727,8 @@ pub const ShipStatus = struct {
 
     /// An arc drawn `drawn` shapes from its base, if any of it is.
     fn drawArc(pen: Pen, arc: Arc, drawn: i32, point: [2]i32, how: Draw) Error!void {
-        if (drawn <= 0) return;
-        const shape = @as(i32, arc.base) - drawn;
-        if (shape < 0) return;
-        try pen.shapeWith(@intCast(shape), pen.moved(point, arc.offset), how);
+        const shape = arc.shape(drawn) orelse return;
+        try pen.shapeWith(shape, pen.moved(point, arc.offset), how);
     }
 };
 
@@ -5743,8 +5751,10 @@ test ShipStatus {
         var shapes: [8 * 5]u16 = undefined;
         var at: usize = 0;
         for (layout.armor ++ layout.shields) |arc| {
+            try std.testing.expectEqual(null, arc.shape(0));
+            try std.testing.expectEqual(arc.shape(ShipStatus.arc_levels), arc.shape(std.math.maxInt(i32)));
             for (1..6) |l| {
-                shapes[at] = arc.base - @as(u16, @intCast(l));
+                shapes[at] = arc.shape(@intCast(l)).?;
                 at += 1;
             }
         }

@@ -30,7 +30,6 @@ const Peer = struct {
     identity_len: u8 = 0,
     call_sign: ?wire.CallSign = null,
     announce_join: bool = false,
-    fighter: wire.Fighter = .predator,
     expires: i64,
     sequence: ?u32 = null,
     flight_command: flight.Command = .{},
@@ -121,14 +120,15 @@ fn relayChat(host: *Host, slot: u8, peer: *Peer, request: wire.ChatRequest, time
     const scope = std.meta.activeTag(request.to);
     const in_lobby = host.start == .lobby;
     if ((scope == .lobby) != in_lobby or (!in_lobby and host.tick == 0)) return;
-    if (!peer.chat_budget.take(time, ChatBudget.pilot) or !host.chat_budget.take(time, ChatBudget.session)) return;
+    if (!peer.chat_budget.take(time, ChatBudget.pilot)) return;
     const message: wire.Message = .{ .chat_line = .{ .scope = scope, .sender = slot, .name = name, .text = request.text } };
     switch (request.to) {
-        .lobby, .flight => host.sendPlaying(message, null),
+        .lobby, .flight => if (host.chat_budget.take(time, ChatBudget.session)) host.sendPlaying(message, null),
         .private => |to| {
             const recipient = host.peers[to.slot] orelse return;
             const pilot = host.arena.pilots[to.slot] orelse return;
             if (to.slot == slot or recipient.state != .playing or pilot.participant.generation != to.generation) return;
+            if (!host.chat_budget.take(time, ChatBudget.session)) return;
             net.send(recipient.conn, message) catch return;
             net.send(peer.conn, message) catch return;
         },
@@ -299,8 +299,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
         },
         .choosing => {
             if (host.final_tick != null or message != .pick_ship) return false;
-            peer.fighter = message.pick_ship;
-            const admitted = host.arena.join(slot, peer.fighter) catch |err| switch (err) {
+            const admitted = host.arena.join(slot, message.pick_ship) catch |err| switch (err) {
                 error.NoFreeSpawn, error.JoinFailed, error.BindFailed => return false,
                 else => return err,
             };
@@ -309,9 +308,10 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
             peer.expires = time + timeout;
             try net.send(peer.conn, .{ .joined = admitted });
             if (host.paused) {
-                const view = try host.arena.snapshot(host.tick);
+                var view = try host.arena.snapshot(host.tick);
+                host.fillPings(&view, false);
                 var buffer: [wire.capacity]u8 = undefined;
-                try net.sendBytes(peer.conn, try (wire.Message{ .view = view }).encode(&buffer), true);
+                try host.sendView(&view, slot, .paused_join, &buffer);
             }
             host.roster_dirty = true;
             std.debug.print("joined {d} {d}\n", .{ slot, admitted.generation });
@@ -351,8 +351,8 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                         }
                     }
                 },
-                .pick_ship => |fighter| if (host.tick == 0 and host.start != .automatic) {
-                    peer.fighter = fighter;
+                .pick_ship => |fighter| if (host.start == .lobby) {
+                    host.arena.pilots[slot].?.fighter = fighter;
                 },
                 else => return false,
             }
@@ -443,38 +443,44 @@ fn applyControls(host: *Host, time: i64) void {
 fn broadcast(host: *Host, view: wire.Snapshot, final: bool) !void {
     var buffer: [wire.capacity]u8 = undefined;
     var outgoing = view;
-    if (view.scenario != null) {
-        const ticks_per_second = game.main.ticks_per_second / game.gameobj.ticks_per_step;
-        const sample_ping = host.tick == 1 or host.tick % ticks_per_second == 0;
-        for (&host.peers, &outgoing.ships) |*entry, *ship| {
-            const peer = if (entry.*) |*peer| peer else continue;
-            if (peer.state != .playing or ship.* == null) continue;
-            if (sample_ping) {
-                const ping = net.session_ping_ms(peer.conn);
-                peer.ping_ms = if (ping < 0) null else @intCast(@min(ping, wire.Ship.unknown_ping - 1));
-            }
-            ship.*.?.ping_ms = peer.ping_ms;
-        }
-    }
+    host.fillPings(&outgoing, host.tick == 1 or host.tick % (game.main.ticks_per_second / game.gameobj.ticks_per_step) == 0);
     for (&host.peers, 0..) |*entry, slot| {
         const peer = if (entry.*) |*peer| peer else continue;
         if (peer.state != .playing) continue;
-        outgoing.weapons = if (view.scenario != null and view.ships[slot] != null)
-            wire.ordnance.Status.capture(host.arena.mission.objects, @intCast(slot))
-        else
-            null;
-        outgoing.power = if (view.scenario != null and view.scenario.?.hasPowerUps() and view.ships[slot] != null)
-            wire.Power.capture(&host.arena.mission.objects.slots[slot].object)
-        else
-            null;
-        const message: wire.Message = if (final) .{ .finished = outgoing } else .{ .view = outgoing };
-        const bytes = try message.encode(&buffer);
-        net.sendBytes(peer.conn, bytes, final) catch {
-            if (final) host.release(@intCast(slot));
-            continue;
+        host.sendView(&outgoing, @intCast(slot), if (final) .final else .flight, &buffer) catch |err| switch (err) {
+            error.SendFailed => {
+                if (final) host.release(@intCast(slot));
+                continue;
+            },
+            else => return err,
         };
         if (final) peer.expires = host.now() + timeout;
     }
+}
+
+fn fillPings(host: *Host, view: *wire.Snapshot, refresh: bool) void {
+    if (view.scenario == null) return;
+    for (&host.peers, &view.ships) |*entry, *ship| {
+        const peer = if (entry.*) |*peer| peer else continue;
+        if (peer.state != .playing or ship.* == null) continue;
+        if (refresh) {
+            const ping = net.session_ping_ms(peer.conn);
+            peer.ping_ms = if (ping < 0) null else @intCast(@min(ping, wire.Ship.unknown_ping - 1));
+        }
+        ship.*.?.ping_ms = peer.ping_ms;
+    }
+}
+
+const Delivery = enum { flight, paused_join, final };
+
+/// A pilot gets the same private cockpit readings on admission during a pause as in flight.
+fn sendView(host: *const Host, view: *wire.Snapshot, slot: u8, delivery: Delivery, buffer: []u8) !void {
+    const all = host.arena.mission.objects;
+    const ship = view.scenario != null and all.playerBinding(slot) != null;
+    view.weapons = if (ship) wire.ordnance.Status.capture(all, slot) else null;
+    view.power = if (ship and view.scenario.?.hasPowerUps()) wire.Power.capture(&all.slots[slot].object) else null;
+    const message: wire.Message = if (delivery == .final) .{ .finished = view.* } else .{ .view = view.* };
+    try net.sendBytes(host.peers[slot].?.conn, try message.encode(buffer), delivery != .flight);
 }
 
 fn noticeName(host: *const Host, pilot: game.players.ParticipantRef) wire.CallSign {
@@ -498,6 +504,11 @@ fn broadcastNotices(host: *Host) void {
                 net.send(peer.conn, message) catch host.release(@intCast(slot));
             }
         },
+        .uber_kill => |notice| host.sendPlaying(.{ .uber_kill = .{
+            .event = notice,
+            .owner_name = host.noticeName(notice.owner),
+            .victim_name = host.noticeName(notice.victim),
+        } }, null),
         .tag_bomb => |notice| host.sendPlaying(.{ .tag_bomb_notice = .{
             .event = notice,
             .name = host.noticeName(notice.pilot),
@@ -618,12 +629,6 @@ pub fn pump(host: *Host) !enum { running, finished } {
         .automatic => if (host.tick == 0 and host.playingCount() < pilots_to_start) return .running,
         .launched => {},
     }
-    if (host.tick == 0 and host.start == .launched) {
-        for (host.peers, 0..) |entry, slot| {
-            const peer = entry orelse continue;
-            if (peer.state == .playing) try host.arena.selectShip(@intCast(slot), peer.fighter);
-        }
-    }
     host.applyControls(time);
     host.tick += 1;
     const view = try host.arena.step(host.tick);
@@ -716,4 +721,14 @@ test "only a launched local LAN host pauses and drops stale flight commands" {
     host.setPaused(false);
     try std.testing.expect(host.acceptsFlight());
     try std.testing.expectEqual(8, host.tick);
+}
+
+test "an undeliverable private message spends only the sender's allowance" {
+    var host: Host = .{ .io = std.testing.io, .arena = undefined, .tick = 1 };
+    host.peers[0] = .{ .conn = 1, .expires = timeout, .state = .playing, .call_sign = wire.lobbyName("Rook") };
+    var request: wire.ChatRequest = .{ .to = .{ .private = .{ .slot = 1, .generation = 2 } }, .text = .{} };
+    request.text.set("Hello");
+    host.relayChat(0, &host.peers[0].?, request, 0);
+    try std.testing.expect(host.peers[0].?.chat_budget.ready_at != null);
+    try std.testing.expectEqual(null, host.chat_budget.ready_at);
 }

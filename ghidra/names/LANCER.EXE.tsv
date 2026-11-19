@@ -1494,7 +1494,7 @@ address	kind	name	type	comment
 00529fb4	data	comms_menu_title	char *	The title each page of the radio's menu names, which nothing draws
 00529cb0	data	backup_called	int	Set as REQUEST BACKUP brings the mission's backup, so that only the first request does; radio_reset clears it
 004b2d30	function	dm_scenario_mission	bool (void)	Whether mission_number is the mission of one of dm_scenarios, which mission_start keeps as multiplayer_mission
-0050c790	data	dm_scenarios	byte[384]	The multiplayer game's six scenarios, 0x40 bytes each: three ids, then at offset 8 the mission each is played in (85, 82, 81, 83, 84 and 87). The code reads the mission field, at 0x0050C798 in the first
+0050c790	data	dm_scenarios	byte[384]	Six arena records of 0x40 bytes. Offsets 0, 2 and 4 hold the name, description and team help string IDs. Offset 8 holds the mission number and byte 0x0C enables the team option in the lobby.
 00474e00	function	player_friend_destroyed	void __fastcall (int told)	Sets +0x678 of the player's ship to 1, or to 2 and sends it in a multiplayer game when told is 1: object_armor_damage and component_damage call it as the player's shot destroys a friend or a friend's component
 00474c80	function	friendly_fire_warning	void __stdcall (float damage)	Adds the local pilot's damage to a friend except in arena missions. Once damage exceeds 800 and the cooldown has passed, Moose queues one of ff_001 to ff_004 and resets the damage. The cooldown is 3000 game ticks. The count stays at 1, so the later sets of lines never play
 00491350	function	missile_lock_possible	bool (void)	Whether the armed missile of the ring can lock on the target: one is armed, not of type 6, the target can be aimed at, the player's missiles are not disabled, outside a multiplayer game the target is hostile and the type not 0, and the target's node is within the type's range (+0x1C of its stats) and ahead of the ship
@@ -3299,3 +3299,6 @@ address	kind	name	type	comment
 004baff0	function	net_send_vampire_role	void __fastcall (int pilot, bool infected)	Tells session peers that a pilot's vampire role changed
 005db4f8	data	vampires_join_roles	byte[8]	The eight roles read from the join packet
 005db600	data	vampires_roles	byte[8]	Whether each pilot is infected
+0044cb30	function	mp_update_team_option	void (void)	Reads the selected scenario at 0x00524978, copies its team flag to 0x00524A64 and clears mp_team_game_option when teams are unavailable
+00524978	data	mp_lobby_scenario	int	The zero-based scenario selected for the deathmatch lobby
+00524a64	data	mp_lobby_allows_teams	byte	The selected scenario supports teams. The lobby tests this before changing mp_team_game_option

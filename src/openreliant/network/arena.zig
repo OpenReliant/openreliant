@@ -31,24 +31,27 @@ pub const Mode = enum {
     }
 
     pub fn stockMode(chosen: wire.Scenario) Mode {
-        return switch (chosen) {
-            .nuclear_threat => .@"nuclear-threat",
-            .asteroid_field => .@"asteroid-field",
-            .dark_reign => .@"dark-reign",
-            .tag_bomb => .@"tag-bomb",
-            .hunt_the_shadow => .@"hunt-the-shadow",
-            .vampires => .vampires,
-        };
+        for (std.enums.values(Mode)) |mode| {
+            if (mode.scenario() == chosen) return mode;
+        }
+        unreachable;
     }
 };
-const Pilot = struct { participant: game.players.ParticipantRef, fighter: wire.Fighter };
+const Pilot = struct {
+    participant: game.players.ParticipantRef,
+    fighter: wire.Fighter,
+    // Keep the last pose while an admitted pilot waits for a free spawn marker.
+    last_ship: ?wire.Ship = null,
+};
 const Notice = union(enum) {
     beacon: game.deathmatch.six_beacons.Notice,
+    uber_kill: game.deathmatch.UberKill,
     tag_bomb: game.deathmatch.tag_bomb.Notice,
     shadow: game.deathmatch.hunt_the_shadow.Notice,
     vampires: game.deathmatch.vampires.Notice,
 };
-const notice_capacity = wire.slots + 2;
+// A gate delivery can announce the strike and a kill for each other pilot in the same step.
+const notice_capacity = 2 * wire.slots + 2;
 
 comptime {
     std.debug.assert(wire.slots == simulation.beacon_spawn_x.len);
@@ -117,15 +120,7 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
             const scenario = mode.scenario().?;
             if (scenario == .dark_reign) arena.cannons = try .init(gpa, &assets.images);
             arena.loaded = try assets.files.load(gpa, scenario, arena.world());
-            const started = switch (scenario) {
-                .nuclear_threat => arena.mission.objects.arena_scenario == .six_beacons,
-                .asteroid_field => arena.mission.objects.arena_scenario == .asteroid_field,
-                .dark_reign => arena.mission.objects.arena_scenario == .dark_reign,
-                .tag_bomb => arena.mission.objects.arena_scenario == .tag_bomb,
-                .hunt_the_shadow => arena.mission.objects.arena_scenario == .hunt_the_shadow,
-                .vampires => arena.mission.objects.arena_scenario == .vampires,
-            };
-            if (!started) return error.ArenaScriptDidNotStart;
+            if (std.meta.activeTag(arena.mission.objects.arena_scenario) != std.meta.activeTag(scenario.record().rules)) return error.ArenaScriptDidNotStart;
             if (scenario.hasPowerUps()) arena.rocks = try .collect(arena.mission.objects);
         },
     }
@@ -173,6 +168,7 @@ fn world(arena: *Arena) game.gameobj.World {
     var scene = simulation.world(&arena.mission, arena.effects());
     if (arena.assets) |assets| scene.spawn = .{ .tables = &arena.mission.tables, .types = assets.library.types() };
     if (arena.loaded) |loaded| scene = stock.withMission(scene, loaded);
+    scene.uber_kills = .{ .context = arena, .send = noteUberKill };
     scene.beacon_notices = .{ .context = arena, .send = noteBeacon };
     scene.tag_bomb_notices = .{ .context = arena, .send = noteBomb };
     scene.shadow_notices = .{ .context = arena, .send = noteShadow };
@@ -209,6 +205,11 @@ fn noteBeacon(context: *anyopaque, notice: game.deathmatch.six_beacons.Notice) v
     arena.note(.{ .beacon = notice });
 }
 
+fn noteUberKill(context: *anyopaque, notice: game.deathmatch.UberKill) void {
+    const arena: *Arena = @ptrCast(@alignCast(context));
+    arena.note(.{ .uber_kill = notice });
+}
+
 fn noteBomb(context: *anyopaque, notice: game.deathmatch.tag_bomb.Notice) void {
     const arena: *Arena = @ptrCast(@alignCast(context));
     arena.note(.{ .tag_bomb = notice });
@@ -243,7 +244,8 @@ fn createShip(arena: *Arena, slot: u8, fighter: wire.Fighter) !void {
 pub fn join(arena: *Arena, slot: u8, fighter: wire.Fighter) !wire.Admission {
     const scene = arena.world();
     const participant = scene.objects.joinParticipant(slot) orelse return error.JoinFailed;
-    errdefer _ = game.create.Objects.leaveParticipant(scene, participant);
+    // A failed spawn never entered the match. Running departure rules here could reset Vampires.
+    errdefer scene.objects.player_states[slot] = .{ .membership = .vacant };
     const pilot: Pilot = .{ .participant = participant, .fighter = fighter };
     try arena.spawnPilot(pilot, true);
     arena.pilots[slot] = pilot;
@@ -258,13 +260,6 @@ fn spawnPilot(arena: *Arena, pilot: Pilot, first: bool) !void {
     try arena.createShip(@intCast(slot), pilot.fighter);
     errdefer game.create.resetSlot(.of(scene), slot);
     _ = scene.objects.bindParticipant(pilot.participant, .of(scene.objects, slot)) orelse return error.BindFailed;
-}
-
-pub fn selectShip(arena: *Arena, slot: u8, fighter: wire.Fighter) !void {
-    const pilot = if (arena.pilots[slot]) |*joined| joined else return;
-    if (pilot.fighter == fighter) return;
-    try arena.spawnPilot(.{ .participant = pilot.participant, .fighter = fighter }, true);
-    pilot.fighter = fighter;
 }
 
 pub fn leave(arena: *Arena, slot: u8) void {
@@ -313,7 +308,21 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
     arena.combat_count = 0;
     arena.mission.clock.advanceTimer(game.gameobj.ticks_per_step);
     if (game.main.gameFrames(&arena.mission.clock, &arena.devices, null, arena.world(), .in_turn, arena.loaded) != .played) return error.ArenaEnded;
-    return arena.snapshot(tick);
+    if (arena.assets != null) {
+        for (&arena.pilots) |*entry| {
+            const pilot = entry.* orelse continue;
+            if (arena.mission.objects.playerBinding(pilot.participant.slot) != null) continue;
+            arena.spawnPilot(pilot, false) catch |err| switch (err) {
+                error.NoFreeSpawn => continue,
+                else => return err,
+            };
+        }
+    }
+    const view = try arena.snapshot(tick);
+    for (&arena.pilots, view.ships) |*entry, ship| {
+        if (entry.*) |*pilot| pilot.last_ship = ship;
+    }
+    return view;
 }
 
 /// Capture an arena view at the current tick. A pilot joining during a pause still needs one.
@@ -334,8 +343,14 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
         const pilot = entry orelse continue;
         const index: u16 = @intCast(at);
         if (all.playerBinding(index) == null) {
-            if (arena.assets == null) continue;
-            try arena.spawnPilot(pilot, false);
+            if (arena.assets != null) if (pilot.last_ship) |last| {
+                const score = all.player_states[index].membership.joined;
+                ship.* = last;
+                ship.*.?.dying = true;
+                ship.*.?.kills = score.kills.count;
+                ship.*.?.deaths = score.deaths;
+            };
+            continue;
         }
         const object = &all.slots[index].object;
         const score = all.player_states[index].membership.joined;
@@ -417,7 +432,7 @@ test "the pilot stays admitted through destruction and old trigger input expires
     all.slots[0].object.flags.exploding = true;
     try std.testing.expect(arena.input(0, .{}, first, null));
     try std.testing.expectEqual(null, all.playerCommand(0));
-    try arena.selectShip(0, .shroud);
+    try arena.spawnPilot(arena.pilots[0].?, false);
     try std.testing.expect(arena.input(0, .{}, first, .{ .aim = .{ .reuse = first }, .presses = .{ .launch = true, .countermeasures = true } }));
     try std.testing.expect(!all.playerCommand(0).?.weapons.fire_guns);
     try std.testing.expect(!all.playerCommand(0).?.weapons.launch_missile);
@@ -426,4 +441,53 @@ test "the pilot stays admitted through destruction and old trigger input expires
     try std.testing.expect(all.playerCommand(0).?.weapons.fire_guns);
     try std.testing.expect(arena.input(0, .{}, null, null));
     try std.testing.expect(!all.playerCommand(0).?.weapons.fire_guns);
+}
+
+test "a failed admission and an occupied respawn leave the rest of the round running" {
+    var arena: Arena = undefined;
+    try arena.init(std.testing.allocator, .training, std.testing.io, .cwd());
+    defer arena.deinit();
+    const all = arena.mission.objects;
+    _ = try arena.join(0, .predator);
+    const first = try arena.step(1);
+    const reuse = first.ships[0].?.reuse;
+    game.create.resetSlot(.of(arena.world()), 0);
+
+    // No marker means reset returns before the ship loader needs any models.
+    var assets: stock.Assets = undefined;
+    arena.assets = &assets;
+    defer arena.assets = null;
+    try std.testing.expectError(error.NoFreeSpawn, arena.join(1, .shroud));
+    try std.testing.expectEqual(null, arena.pilots[1]);
+    try std.testing.expect(all.player_states[1].membership == .vacant);
+    const next = try arena.step(2);
+    try std.testing.expectEqual(reuse, next.ships[0].?.reuse);
+    try std.testing.expect(next.ships[0].?.dying);
+    try std.testing.expectEqual(null, all.playerBinding(0));
+    try std.testing.expectEqualDeep(next, try arena.snapshot(2));
+}
+
+test "a Six Beacons blast queues the original kill line for network delivery" {
+    var arena: Arena = undefined;
+    try arena.init(std.testing.allocator, .@"six-beacons", std.testing.io, .cwd());
+    defer arena.deinit();
+    _ = try arena.join(0, .predator);
+    _ = try arena.join(1, .shroud);
+    const scene = arena.world();
+    const owner = scene.objects.playerBinding(0).?;
+    const victim = scene.objects.playerBinding(1).?;
+    const blast = scene.explosions.?.uber;
+    const duration = game.deathmatch.six_beacons.blast_ticks;
+    blast.start(scene, 0, .{ .position = scene.objects.slots[1].drawn.position }, 1000, duration, .original);
+    arena.mission.clock.frame_start = duration - 1;
+    blast.frame(scene);
+    arena.mission.clock.frame_start = duration + 1;
+    blast.frame(scene);
+    try std.testing.expectEqual(1, arena.notice_count);
+    try std.testing.expectEqual(game.deathmatch.UberKill{
+        .owner = owner.participant,
+        .victim = victim.participant,
+        .awarded = true,
+        .tick = duration + 1,
+    }, arena.notices[0].uber_kill);
 }

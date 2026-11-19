@@ -11,7 +11,7 @@ const players = @import("../players.zig");
 const sound3d = @import("../sound3d.zig");
 const math = @import("../../surrender/math.zig");
 
-const target_delay = 1000; // dark_reign_frame, 0x004B3F57
+const target_delay = @import("../dmscenarios.zig").Scenario.dark_reign.record().rules.dark_reign.target_delay; // dark_reign_frame, 0x004B3F57
 const return_interval = 50;
 const return_margin: f32 = 500;
 
@@ -90,8 +90,7 @@ pub const Round = struct {
             if (math.distance(ship.drawn.position, relay.drawn.position) >= ship.object.radius + relay.object.radius) continue;
             // The original waits for a second admission before allowing the pickup.
             if (deathmatch.onlyOnePilot(all)) {
-                if (now -| round.last_wait > 30) deathmatch.six_beacons.Notice.post(world, binding.participant, .waiting_for_players);
-                round.last_wait = now;
+                deathmatch.six_beacons.Notice.waiting(world, binding.participant, &round.last_wait);
                 return;
             }
             round.carrier = binding;

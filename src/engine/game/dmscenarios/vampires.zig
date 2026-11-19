@@ -8,7 +8,7 @@ const language = @import("../language.zig");
 const players = @import("../players.zig");
 
 /// The last human to die earns five frags (0x004B5173).
-const last_human_bonus = 5;
+const last_human_bonus = @import("../dmscenarios.zig").Scenario.vampires.record().rules.vampires.last_human_bonus;
 
 /// A snapshot's current vampire slots (vampires_write_state, 0x004B4D40).
 pub const Roles = std.StaticBitSet(deathmatch.spawn.positions);
@@ -121,16 +121,16 @@ pub const Notice = struct {
     pub fn present(notice: Notice, messages: *hud.Messages, strings: language.Language, viewer: players.ParticipantRef, name: []const u8) void {
         const tick = notice.tick;
         if (notice.change.pilot() != null)
-            deathmatch.addMessage(messages, tick, strings.string(0x2EA) orelse "%s becomes a vampire!", &.{name});
+            deathmatch.addMessage(messages, tick, strings.stringOr(0x2EA, "%s becomes a vampire!"), &.{name});
         switch (notice.change) {
             .infected => {},
             .last_human => |who| {
-                const suffix = if (std.meta.eql(viewer, who)) strings.string(0x2F3) orelse "(+5)" else "";
-                deathmatch.addMessage(messages, tick, strings.string(0x2EC) orelse "%s was the last human left %s", &.{ name, suffix });
+                const suffix = if (std.meta.eql(viewer, who)) strings.stringOr(0x2F3, "(+5)") else "";
+                deathmatch.addMessage(messages, tick, strings.stringOr(0x2EC, "%s was the last human left %s"), &.{ name, suffix });
                 announceEmpty(messages, strings, tick);
             },
             .round_left => {
-                messages.add(strings.string(0x5BA) orelse "The last Vampire has left", tick);
+                messages.add(strings.stringOr(0x5BA, "The last Vampire has left"), tick);
                 announceEmpty(messages, strings, tick);
             },
             .none_left => announceEmpty(messages, strings, tick),
@@ -140,7 +140,7 @@ pub const Notice = struct {
 
 /// vampires_init (0x004B4CF0) posts this when the starting or resynced roster is all human.
 pub fn announceEmpty(messages: *hud.Messages, strings: language.Language, tick: i32) void {
-    messages.add(strings.string(0x2E9) orelse "There are no vampires", tick);
+    messages.add(strings.stringOr(0x2E9, "There are no vampires"), tick);
 }
 
 /// vampires_draw_hud (0x004B4EC0) uses shape 0x0E at the common arena objective anchor.
