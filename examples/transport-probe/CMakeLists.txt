@@ -24,16 +24,23 @@ target_sources(GameNetworkingSockets_s PRIVATE "${trace_source}")
 set_source_files_properties("${trace_source}" TARGET_DIRECTORY GameNetworkingSockets_s
     PROPERTIES INCLUDE_DIRECTORIES "${clientlib}")
 
-find_program(ZIG zig REQUIRED)
-if(PROBE_ZIG_TARGET)
-    set(target_args -target "${PROBE_ZIG_TARGET}")
-elseif(CMAKE_CROSSCOMPILING)
-    message(FATAL_ERROR "Set PROBE_ZIG_TARGET to the C++ compiler's target")
+add_executable(transport-probe transport.cpp ice.cpp)
+if(PROBE_ARENA_LIBRARY)
+    target_link_libraries(transport-probe PRIVATE "${PROBE_ARENA_LIBRARY}")
+else()
+    find_program(ZIG zig REQUIRED)
+    if(PROBE_ZIG_TARGET)
+        set(target_args -target "${PROBE_ZIG_TARGET}")
+    elseif(CMAKE_CROSSCOMPILING)
+        message(FATAL_ERROR "Set PROBE_ZIG_TARGET to the C++ compiler's target")
+    endif()
+    set(object "${CMAKE_CURRENT_BINARY_DIR}/scenario${CMAKE_CXX_OUTPUT_EXTENSION}")
+    add_custom_command(OUTPUT "${object}"
+        COMMAND "${ZIG}" build-obj -OReleaseSafe -fPIC ${target_args} -lc
+                "-femit-bin=${object}" --dep host_simulation
+                "-Mroot=${CMAKE_CURRENT_SOURCE_DIR}/scenario.zig"
+                -OReleaseSafe ${target_args} "-Mhost_simulation=${CMAKE_CURRENT_SOURCE_DIR}/toy.zig"
+        DEPENDS scenario.zig toy.zig wire.zig VERBATIM)
+    target_sources(transport-probe PRIVATE "${object}")
 endif()
-set(object "${CMAKE_CURRENT_BINARY_DIR}/scenario${CMAKE_CXX_OUTPUT_EXTENSION}")
-add_custom_command(OUTPUT "${object}"
-    COMMAND "${ZIG}" build-obj "${CMAKE_CURRENT_SOURCE_DIR}/scenario.zig"
-            -OReleaseSafe -fPIC ${target_args} "-femit-bin=${object}" -lc
-    DEPENDS scenario.zig wire.zig VERBATIM)
-add_executable(transport-probe transport.cpp ice.cpp "${object}")
 target_link_libraries(transport-probe PRIVATE GameNetworkingSockets::static)

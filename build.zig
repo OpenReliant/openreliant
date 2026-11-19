@@ -316,6 +316,30 @@ pub fn build(b: *std.Build) void {
 
     runStep(b, "run", "Run sltool", sltool);
 
+    // The headless integration workload links into the transport probe, outside the release build.
+    const arena = b.addLibrary(.{
+        .name = "arena-loopback",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/transport-probe/scenario.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .pic = true,
+            .imports = &.{.{
+                .name = "host_simulation",
+                .module = b.createModule(.{
+                    .root_source_file = b.path("examples/transport-probe/arena.zig"),
+                    .target = target,
+                    .optimize = optimize,
+                    .imports = &.{.{ .name = "openreliant", .module = lib }},
+                }),
+            }},
+        }),
+    });
+    arena.bundle_compiler_rt = true;
+    b.step("arena-loopback", "Build the headless arena library for the transport probe")
+        .dependOn(&b.addInstallArtifact(arena, .{}).step);
+
     // Every module's tests, and `zig build check`, which compiles the programs and the tests
     // without linking them (the C libraries, translate-c and mission 0 build once first):
     // `zig build check -fincremental --watch` reports compile errors within moments of a save.

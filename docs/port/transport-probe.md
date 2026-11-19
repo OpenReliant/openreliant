@@ -2,8 +2,7 @@
 
 The [headless probe](../../examples/transport-probe) exercises the standalone
 GameNetworkingSockets library over encrypted UDP. It is a separate executable for evaluating the
-[host-owned network model](https://github.com/OpenReliant/openreliant/issues/954). The game and
-its public modding API have no dependency on it.
+[host-owned network model](https://github.com/OpenReliant/openreliant/issues/954). The release build has no dependency on it.
 
 A host and two pilots run as separate processes. The pilots send opposite controls and acknowledge
 the latest snapshot they applied. The host advances two positions at 25 ticks per second and sends
@@ -58,6 +57,30 @@ listener requires the library to allow an unauthenticated handshake. The probe a
 only after the library reports encryption and a trusted certificate and the peer presents the
 expected identity. The loopback runner checks that a pilot rejects a valid signature for a
 different host before running the workload.
+
+## Run the headless arena
+
+The same workload can drive the engine's arena simulation for
+[#954](https://github.com/OpenReliant/openreliant/issues/954). Use the same scratch directory
+and target as above.
+
+```sh
+python3 "$probe/build.py" "$work" "$target" --arena
+python3 "$probe/loopback.py" "$work/$target/arena-probe/transport-probe" "$work/identities"
+```
+
+The fixture sets up two ships with test stats and runs the mission clock and frame loop without
+opening a window or reading game files. The host binds each authenticated connection to its
+participant and ship. Only the host runs physics. Each client checks the two ships' positions in
+the host's snapshots and confirms receipt. The ships accelerate and turn in opposite directions.
+The clients also check the directed test event and background transfer under the same packet loss.
+
+The probe format carries the two positions in full each step. It is private and intended for this
+test. Arena setup from game files, new or replaced ship bindings and full session snapshots belong
+to [#954](https://github.com/OpenReliant/openreliant/issues/954). Six Beacons state and notices
+have their own check in [#1416](https://github.com/OpenReliant/openreliant/issues/1416).
+
+## Try a routed connection
 
 To try a routed connection, run the host on its machine with `transport-probe host ADDRESS:PORT host.cert`.
 Run `transport-probe pilot1 HOST:PORT pilot1.cert` and `transport-probe pilot2 HOST:PORT pilot2.cert`

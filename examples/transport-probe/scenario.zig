@@ -1,8 +1,9 @@
-//! A bounded workload for the transport experiment. It has no game dependencies.
+//! A shared transport workload, run against counters or the headless game simulation.
 const std = @import("std");
 
 const Role = enum { host, pilot1, pilot2, reject };
 const wire = @import("wire.zig");
+const Host = @import("host_simulation");
 const tick_us = 40 * std.time.us_per_ms;
 const last_tick = 100;
 const burst_tick = last_tick / 4;
@@ -28,6 +29,7 @@ const Peer = struct {
     done: bool = false,
     confirmed: bool = false,
     applied: u16 = 0,
+    input_sequence: u32 = 0,
     samples: u16 = 0,
     max_ack_us: i64 = 0,
 };
@@ -38,7 +40,7 @@ const Scenario = struct {
     applied_ages: [last_tick]i64 = undefined,
     peers: [2]Peer = .{ .{}, .{} },
     tick: u16 = 0,
-    positions: [2]i16 = .{ 0, 0 },
+    host: Host = undefined,
     sent_at: [last_tick + 1]i64 = @splat(0),
     next_tick: i64 = 0,
     recalls: u16 = 0,
@@ -52,6 +54,8 @@ const Scenario = struct {
         switch (frame) {
             .input => |input| {
                 if (input.applied > s.tick) return error.FutureAcknowledgement;
+                if (input.sequence <= peer.input_sequence) return;
+                peer.input_sequence = input.sequence;
                 peer.control = input.control;
                 if (input.applied <= peer.applied) return;
                 peer.applied = input.applied;
@@ -77,9 +81,7 @@ const Scenario = struct {
         switch (frame) {
             .snapshot => |snapshot| {
                 if (snapshot.tick == 0 or snapshot.tick > last_tick) return error.BadFrame;
-                // The two pilots hold opposite controls throughout the run.
-                const distance: i16 = @intCast(snapshot.tick);
-                if (!std.mem.eql(i16, &snapshot.positions, &.{ distance, -distance })) return error.WrongPositions;
+                try Host.check(snapshot.tick, snapshot.positions);
                 if (snapshot.tick > peer.applied) {
                     if (s.shared_clock) {
                         const applied_at = probe_now();
@@ -139,20 +141,24 @@ const Scenario = struct {
         if (now < s.next_tick) return;
         s.next_tick = now + tick_us;
         if (s.role != .host) {
-            const peer = s.peers[0];
-            if (peer.conn) |conn| try send(.{ .input = .{
-                .applied = peer.applied,
-                .control = if (s.role == .pilot1) .forward else .reverse,
-            } }, conn);
+            const peer = &s.peers[0];
+            if (peer.conn) |conn| {
+                peer.input_sequence += 1;
+                try send(.{ .input = .{
+                    .sequence = peer.input_sequence,
+                    .applied = peer.applied,
+                    .control = if (s.role == .pilot1) .positive else .negative,
+                } }, conn);
+            }
             return;
         }
         if (s.tick == last_tick or s.peers[0].control == null or s.peers[1].control == null) return;
         s.tick += 1;
         s.sent_at[s.tick] = now;
-        for (&s.positions, s.peers) |*position, peer| position.* += @backingInt(peer.control.?);
+        const positions = try s.host.step(.{ @backingInt(s.peers[0].control.?), @backingInt(s.peers[1].control.?) });
         for (&s.peers, 0..) |*peer, i| {
             const conn = peer.conn orelse return error.Disconnected;
-            try send(.{ .snapshot = .{ .tick = s.tick, .positions = s.positions, .sent_us = now } }, conn);
+            try send(.{ .snapshot = .{ .tick = s.tick, .positions = positions, .sent_us = now } }, conn);
             if (s.tick == burst_tick) {
                 for (0..bulk_count) |n| try send(.{ .bulk = @intCast(n) }, conn);
                 if (i == 0) try send(.{ .recall = s.tick }, conn);
@@ -201,6 +207,8 @@ export fn probe_closed(conn: u32) void {
 
 fn run(role: Role, address: [*:0]const u8, shared_clock: bool) !void {
     scenario = .{ .role = role, .shared_clock = shared_clock };
+    if (role == .host) try scenario.host.init();
+    defer if (role == .host) scenario.host.deinit();
     if (!probe_open(address, role == .host)) return error.OpenFailed;
     const deadline = probe_now() + deadline_us;
     while (!scenario.success) {
@@ -214,6 +222,7 @@ fn run(role: Role, address: [*:0]const u8, shared_clock: bool) !void {
         try scenario.step(now);
     }
     if (role == .host) {
+        std.debug.print("host: {d} simulation steps\n", .{scenario.tick});
         // Keep servicing the final reliable acknowledgements after both pilots finish.
         const drain_until = probe_now() + std.time.us_per_s;
         while (probe_now() < drain_until and (scenario.peers[0].conn != null or scenario.peers[1].conn != null))
