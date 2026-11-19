@@ -81,13 +81,18 @@ What scripts see is an API that mods rely on: the hooks' names, their fields, th
 values, the packages, and the fields and methods of objects and records. Declare a package's or an
 object's fields and functions once, in `src/scripting/api.zig`'s terms, and the bindings and the
 reference come from the declarations. Tests check the API against `docs/guide/openreliant.d.luau`
-and `docs/guide/reference.md`, so a change to what scripts see fails them. Change it only on
-purpose, and then run `make definitions`. An enum whose own name isn't clear on its own, such as
-`gameobj.Type`, gives scripts a better one with `pub const script_name`.
+and `docs/guide/reference.md`, so a change to what scripts see fails them. Keep the public API
+compatible with mods written for 1.0.1. Add fields, hooks or functions when they give mods a
+capability they need. Run `make definitions` when the API changes. If an enum's name needs
+more context in scripts, use `pub const script_name`, as `gameobj.Type` does.
 
 ### Improvements and fixes
 
 OpenReliant is faithful by default, and every difference is marked where it is made.
+Use the original look and feel as the reference. Small rendering improvements are welcome
+when they preserve that feel and fit the existing rendering code. Revisit limits added for
+the hardware of the time. For visible changes, include before-and-after screenshots of the
+same scene.
 
 - An **Improvement** is a deliberate change, such as widescreen, per-pixel lighting or a smoother
   effect. Where it changes what the player sees or hears, `--original` brings back the original's
