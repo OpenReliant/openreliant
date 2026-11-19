@@ -105,7 +105,7 @@ python3 "$probe/loopback.py" "$work/$target/six-beacons-probe/transport-probe" \
 ```
 
 Two pilots start on the real host simulation. After the first beacon pickup, the runner uses
-the third pilot's identity for three attempts. One client cancels, one reports an incompatible
+the third pilot's identity to check admission. One client cancels, one reports an incompatible
 protocol revision, and one stays connected without sending a join message. The host releases
 each connection. A silent client must time out before the runner starts its replacement.
 
@@ -114,6 +114,21 @@ playing pilots full objective snapshots. Each pilot acknowledges the tick it app
 keeps at most one snapshot per pilot awaiting acknowledgement and skips intermediate views for a
 slow reader. At expiry it checks that both pilots acknowledged multiple
 fresh views, including a tick from the second half of the wait.
+
+The runner then admits two pilots in turn with that same identity. One disconnects after
+reading its first snapshot. The other reads its snapshot and withholds the receipt. The host
+checks at most one receipt per pilot per poll. A bad receipt, a disconnect or a three-second
+receipt timeout releases that connection and revokes its participant. Both original pilots must
+acknowledge a snapshot from after each release. The host also checks that the departed pilot's
+control reference cannot fly the replacement's ship.
+
+The original restores beacon positions and pilot counts on a mid-round join
+(`six_beacons_init`, 0x004B2F10). On departure, `mp_player_departed` (0x004B6890) calls the
+arena mode before resetting the ship slot. In Six Beacons the host drops the departing
+pilot's cargo and sends the new counts (`six_beacons_pilot_left`, 0x004B30A0). The headless
+arena follows this order and creates a fresh ship when another pilot takes the slot. The
+playable lobby and mission notices are tracked in
+[#1442](https://github.com/OpenReliant/openreliant/issues/1442).
 
 The replacement reports a different OpenReliant release with the same protocol revision. Its
 first snapshot includes all six beacons, their positions and the carrier's participant and ship

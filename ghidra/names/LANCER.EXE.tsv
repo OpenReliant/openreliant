@@ -3160,3 +3160,11 @@ address	kind	name	type	comment
 004547a0	function	chat_line_open		Clears typed keys and starts multiplayer chat entry
 004547c0	function	chat_line_frame		Updates multiplayer chat entry during a session and sends the line on Enter
 0051cf04	data	held_stick_angle_flag	short	Selects the unused stick angle input branch, starts at zero and is only cleared
+004b1730	function	mp_arena_pilot_left	void __fastcall (int pilot)	Re-enables the pickup recorded by the departing pilot and calls the arena scenario leave handler
+004b2680	function	pickup_enable	void __fastcall (int pickup, bool report)	Clears the pickup object disabled flag and optionally reports the change
+004b2e30	function	dm_scenario_pilot_left	void __fastcall (int pilot)	Calls the active arena scenario leave handler with the departing pilot slot if the scenario has one
+0050c2e0	data	six_beacons_departed_count	int	Beacon count saved on departure and used if DirectPlay transfers the host role
+005db834	data	mp_host_player_slot	int	Player slot of the current host, updated to the local slot when DirectPlay transfers the host role
+005db594	data	six_beacons_join_counts	int[8]	Beacon counts restored to the other player slots on a joining client
+005db5b4	data	six_beacons_join_positions	Vec3[6]	World positions restored to the six beacon objects on a joining client
+004b2ef0	function	dm_scenario_for_mission	int __fastcall (int mission)	Finds the arena scenario by its mission number or returns minus one

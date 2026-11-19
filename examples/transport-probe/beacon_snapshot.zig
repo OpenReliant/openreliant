@@ -33,6 +33,36 @@ test "an acknowledgement names the exact snapshot tick" {
     try std.testing.expectError(error.UnexpectedMessage, appliedTick(&.{ @backingInt(Message.join), 4, 3, 2, 1 }));
 }
 
+/// One reliable snapshot can await a receipt on each authenticated connection.
+pub const Delivery = struct {
+    pending: ?struct { tick: i32, expires: i64 } = null,
+    applied: ?i32 = null,
+    previous: ?i32 = null,
+
+    pub fn accept(delivery: *Delivery, packet_lane: u16, bytes: []const u8) !void {
+        const pending = delivery.pending orelse return error.UnexpectedAcknowledgement;
+        if (packet_lane != lane or try appliedTick(bytes) != pending.tick) return error.WrongAcknowledgement;
+        delivery.previous = delivery.applied;
+        delivery.applied = pending.tick;
+        delivery.pending = null;
+    }
+};
+
+test "only a receipt for this pilot's outstanding snapshot advances delivery" {
+    var delivery: Delivery = .{ .applied = 40, .pending = .{ .tick = 50, .expires = 1000 } };
+    const before = delivery;
+    const stale = applied(40);
+    const current = applied(50);
+    try std.testing.expectError(error.WrongAcknowledgement, delivery.accept(lane, &stale));
+    try std.testing.expectError(error.WrongAcknowledgement, delivery.accept(0, &current));
+    try std.testing.expectError(error.UnexpectedMessage, delivery.accept(lane, &.{}));
+    try std.testing.expectEqualDeep(before, delivery);
+    try delivery.accept(lane, &current);
+    try std.testing.expectEqual(40, delivery.previous.?);
+    try std.testing.expectEqual(50, delivery.applied.?);
+    try std.testing.expectError(error.UnexpectedAcknowledgement, delivery.accept(lane, &current));
+}
+
 pub const View = struct {
     tick: i32,
     state: objectives.Snapshot,
