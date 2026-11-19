@@ -62,6 +62,11 @@ def bundle_protobuf(directory, abseil_manifest, ar):
 
 
 def cross_tools(out, target, system, arch, sdk):
+    if system == "Windows":
+        headers = out / "mingw-headers"
+        headers.mkdir(exist_ok=True)
+        # The upstream BCrypt probe uses the capitalized MSVC spelling.
+        (headers / "Windows.h").write_text("#include_next <windows.h>\n")
     tools = {}
     for name, tool in (("CC", "cc"), ("CXX", "c++"), ("AR", "ar"), ("RANLIB", "ranlib"), ("RC", "rc")):
         wrapper = out / name.lower()
@@ -69,6 +74,8 @@ def cross_tools(out, target, system, arch, sdk):
         if name in ("CC", "CXX"):
             args.extend(["-target", target, "-g0", "-Wno-date-time",
                          f"-ffile-prefix-map={out.parent}=."])
+            if system == "Windows":
+                args.extend(["-isystem", str(headers)])
             if sdk:
                 frameworks = Path(sdk) / "System" / "Library" / "Frameworks"
                 args.extend(["-isysroot", sdk, "-iframework", str(frameworks)])
