@@ -104,6 +104,7 @@ pub const Event = union(enum) {
     admitted,
     lobby: wire.Scenario,
     beacon_notice: wire.BeaconNotice,
+    tag_bomb_notice: wire.TagBombNotice,
     pilot_notice: wire.PilotNotice,
     chat_line: wire.ChatLine,
     wreck: wire.Wreck,
@@ -128,7 +129,10 @@ pub fn releaseFlight(client: *Client) void {
     client.flight_command = flight_input.release(client.flight_command);
     client.presses = .{};
     client.fire_primary = false;
-    if (client.weapons) |*pending| pending.presses = .{};
+    if (client.weapons) |*pending| {
+        pending.presses = .{};
+        pending.cockpit = .{};
+    }
 }
 
 pub fn setWeapons(client: *Client, order: wire.ordnance.Order) void {
@@ -167,10 +171,11 @@ pub fn poll(client: *Client, io: Io) !Event {
             client.presses = .{};
         }
         if (client.weapons) |*pending| {
-            if (pending.presses.any() or !std.meta.eql(client.sent_aim, @as(?wire.ordnance.Aim, pending.aim))) {
+            if (pending.presses.any() or pending.cockpit.any() or !std.meta.eql(client.sent_aim, @as(?wire.ordnance.Aim, pending.aim))) {
                 try net.send(client.conn, .{ .weapon_order = pending.* });
                 client.sent_aim = pending.aim;
                 pending.presses = .{};
+                pending.cockpit = .{};
             }
         }
         client.sequence +%= 1;
@@ -201,6 +206,7 @@ pub fn poll(client: *Client, io: Io) !Event {
             if (client.latest == null) if (roster.lobby) |scenario| return .{ .lobby = scenario };
             return .idle;
         },
+        .tag_bomb_notice => |notice| return if (client.joined != null and !client.leaving) .{ .tag_bomb_notice = notice } else error.UnexpectedMessage,
         .beacon_notice => |notice| return if (client.joined != null and !client.leaving) .{ .beacon_notice = notice } else error.UnexpectedMessage,
         .pilot_notice => |notice| {
             if (client.joined == null or client.leaving) return .idle;
@@ -267,6 +273,7 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
         const event = try client.poll(io);
         switch (event) {
             .idle, .lobby, .combat, .projectiles, .chat_line => {},
+            .tag_bomb_notice => |notice| std.debug.print("notice {s} {d} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot, notice.event.other.slot }),
             .beacon_notice => |notice| std.debug.print("notice {s} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot }),
             .pilot_notice => |notice| std.debug.print("pilot-notice {s} {d} {d}\n", .{ @tagName(notice.kind), notice.pilot.slot, notice.pilot.generation }),
             .wreck => |wreck| std.debug.print("wreck {d} {d} {d}\n", .{ wreck.pilot.participant.slot, wreck.pilot.ship.reuse, wreck.tick }),

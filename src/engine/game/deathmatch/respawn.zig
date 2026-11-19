@@ -30,8 +30,12 @@ pub fn sound(world: @import("../gameobj.zig").World, index: u16) void {
 
 /// `order_deathmatch_respawn_effect` (0x004B0ED0) returns control at the end of the effect.
 pub fn update(ctx: aigeneric.Context, index: u16) void {
-    if (remaining(&ctx.world.objects.slots[index], ctx.world.clock.frame_start) == 0)
-        aigeneric.end(ctx, index);
+    const slot = &ctx.world.objects.slots[index];
+    if (remaining(slot, ctx.world.clock.frame_start) != 0) return;
+    const ended = aigeneric.pop(ctx, index);
+    const scenario = &ctx.world.objects.arena_scenario;
+    if (ended and ctx.world.damage_rules == .arena and scenario.* == .tag_bomb)
+        scenario.tag_bomb.bomb.respawned(ctx.world, index);
 }
 
 /// `order_deathmatch_respawn_effect_exit` (0x004B0E80) restores damage and collisions.

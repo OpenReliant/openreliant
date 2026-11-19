@@ -242,7 +242,10 @@ pub fn setPaused(host: *Host, paused: bool) void {
         peer.flight_command = flight_input.release(peer.flight_command);
         peer.fire_for = null;
         peer.presses = .{};
-        if (peer.weapons) |*weapons| weapons.presses = .{};
+        if (peer.weapons) |*weapons| {
+            weapons.presses = .{};
+            weapons.cockpit = .{};
+        }
     };
 }
 
@@ -428,7 +431,10 @@ fn applyControls(host: *Host, time: i64) void {
         peer.presses.apply(&command);
         peer.presses = .{};
         const order = peer.weapons;
-        if (peer.weapons) |*pending| pending.presses = .{};
+        if (peer.weapons) |*pending| {
+            pending.presses = .{};
+            pending.cockpit = .{};
+        }
         if (!host.arena.input(@intCast(slot), command, if (expired) null else peer.fire_for, order))
             host.release(@intCast(slot));
     }
@@ -471,17 +477,31 @@ fn broadcast(host: *Host, view: wire.Snapshot, final: bool) !void {
     }
 }
 
+fn noticeName(host: *const Host, pilot: game.players.ParticipantRef) wire.CallSign {
+    if (pilot.slot >= wire.slots) return .{};
+    const joined = host.arena.pilots[pilot.slot] orelse return .{};
+    if (joined.participant.generation != pilot.generation) return .{};
+    const peer = host.peers[pilot.slot] orelse return .{};
+    return peer.call_sign orelse .{};
+}
+
 fn broadcastNotices(host: *Host) void {
-    for (host.arena.notices[0..host.arena.notice_count]) |notice| {
-        const speaker = host.peers[notice.pilot.slot] orelse continue;
-        const message: wire.Message = .{ .beacon_notice = .{ .event = notice, .name = speaker.call_sign orelse .{} } };
-        for (host.peers, 0..) |entry, slot| {
-            const peer = entry orelse continue;
-            if (peer.state != .playing) continue;
-            if (notice.kind == .waiting_for_players and slot != notice.pilot.slot) continue;
-            net.send(peer.conn, message) catch host.release(@intCast(slot));
-        }
-    }
+    for (host.arena.notices[0..host.arena.notice_count]) |entry| switch (entry) {
+        .beacon => |notice| {
+            const message: wire.Message = .{ .beacon_notice = .{ .event = notice, .name = host.noticeName(notice.pilot) } };
+            for (host.peers, 0..) |maybe, slot| {
+                const peer = maybe orelse continue;
+                if (peer.state != .playing) continue;
+                if (notice.kind == .waiting_for_players and slot != notice.pilot.slot) continue;
+                net.send(peer.conn, message) catch host.release(@intCast(slot));
+            }
+        },
+        .tag_bomb => |notice| host.sendPlaying(.{ .tag_bomb_notice = .{
+            .event = notice,
+            .name = host.noticeName(notice.pilot),
+            .other_name = host.noticeName(notice.other),
+        } }, null),
+    };
 }
 
 fn broadcastCombat(host: *Host) !void {

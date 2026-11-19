@@ -1990,6 +1990,10 @@ In multiplayer, `chat_input`, `beacon_counter`, `arena_power_up`, `dark_reign_re
 functions as other HUD instruments. The targeted carrier's icon is the `target_markers_relay`
 part of `target_markers`. Their relay label in `target_display` is `target_display_relay`.
 
+In Tag Bomb, `tag_bomb_timer` lays out the local carrier's badge and timer. Its text is
+`tag_bomb_countdown`. The targeted carrier's badge is `target_markers_bomb`, and the label
+in the target window is `target_display_bomb`.
+
 ### Screens
 
 A player or menu script can register a screen: a panel that draws with `ui` and gets the keys while

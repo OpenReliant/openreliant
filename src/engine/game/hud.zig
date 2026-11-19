@@ -43,6 +43,7 @@ const device = @import("../surrender/srd3d/device.zig");
 const srapi = @import("../surrender/surrenderlib/srapi.zig");
 const ai = @import("ai.zig");
 const six_beacons = @import("dmscenarios/six_beacons.zig");
+const tag_bomb = @import("dmscenarios/tag_bomb.zig");
 const aigeneric = @import("aigeneric.zig");
 const create = @import("create.zig");
 const xtrabits = @import("xtrabits.zig");
@@ -2608,6 +2609,7 @@ pub const Frame = struct {
     standings_first: ?usize = null,
     chat_line: ?[]const u8 = null,
     relay_carrier: ?players.ControlRef = null,
+    tag_bomb: ?tag_bomb.Hud = null,
     beacon_snapshot: ?*const six_beacons.HudSnapshot = null,
     /// The sound the enemy lock's warning plays through (`Drawing.warnOfLock`); none where nothing
     /// is heard.
@@ -2816,6 +2818,8 @@ pub const Instrument = enum {
     standings,
     /// The local comms relay badge in Dark Reign.
     dark_reign_relay,
+    /// The local pilot's active bomb and timer in Tag Bomb.
+    tag_bomb_timer,
 
     /// The instrument a window is; null for the frames alone, which show nothing.
     pub fn ofWindow(window: windows.Window) ?Instrument {
@@ -2878,18 +2882,35 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
     var placing: Placings = .init(frame, pen.scale);
     defer placing.keep(drawing);
     drawing.flashes = .{};
+    const arena_icons = if (frame.beacon_snapshot != null or frame.relay_carrier != null or frame.tag_bomb != null)
+        resources.arenaIcons(frame.gpa)
+    else
+        null;
     const beacons: ?six_beacons.Hud = if (frame.beacon_snapshot) |snapshot|
-        .{ .snapshot = snapshot, .icons = resources.arenaIcons(frame.gpa) }
+        .{ .snapshot = snapshot, .icons = arena_icons }
     else
         null;
     if (beacons) |view| try view.drawLocal(placing.pen(pen, .beacon_counter), frame.all);
     if (frame.relay_carrier) |carrier| {
         if (carrier.participant.slot == frame.all.player) {
             const relay = placing.pen(pen, .dark_reign_relay);
-            if (resources.arenaIcons(frame.gpa)) |art|
+            if (arena_icons) |art|
                 try relay.drawing(.{ .art = art, .gpa = frame.gpa }).shape(0x0C, relay.placed(.{ -25, 0 }, 0.5, 0));
         }
     }
+    const bomb_carrier = if (frame.tag_bomb) |bomb| bomb.carrier else null;
+    if (frame.tag_bomb) |bomb| {
+        if (bomb_carrier) |carrier| {
+            if (carrier.slot == frame.all.player)
+                try bomb.drawLocal(placing.pen(pen, .tag_bomb_timer), arena_icons);
+        }
+    }
+    const badge: ?TargetScene.CarrierBadge = if (frame.relay_carrier) |carrier|
+        .{ .pilot = carrier.participant, .icons = arena_icons, .shape = 0x11, .part = .target_markers_relay }
+    else if (bomb_carrier) |carrier|
+        .{ .pilot = carrier, .icons = arena_icons, .shape = 0x0F, .part = .target_markers_bomb }
+    else
+        null;
     try state.caption.draw(&drawing.caption, placing.pen(pen, .caption), frame.all.mission_number, frame.clock.game_ticks);
     try state.key_prompt.draw(placing.pen(pen, .key_prompt), frame.devices);
     // Where the lead cursor stands, which the reticle closes on, and whether the enemy lock's
@@ -2906,7 +2927,7 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
                 .mode = frame.mode,
                 .speaker = speaker,
                 .beacons = beacons,
-                .relay = if (frame.relay_carrier) |carrier| .{ .pilot = carrier, .icons = resources.arenaIcons(frame.gpa) } else null,
+                .carrier_badge = badge,
             };
             lead = try drawTarget(drawing, state, placing.pen(pen, .target_markers), &resources.target_fonts, scene, frame.edge_line);
         }
@@ -2937,7 +2958,7 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
         .damage = .{ .object = live },
         .missiles = .{ .ring = &frame.all.player_states[frame.all.player].weapons.ring },
         .power = .{ .ball = resources.ball, .object = live, .hit_shake = frame.hit_shake, .random = frame.random },
-        .target_display = .{ .state = state, .drawing = drawing, .all = frame.all, .beacons = frame.beacon_snapshot, .relay = frame.relay_carrier, .multiplayer = frame.multiplayer },
+        .target_display = .{ .state = state, .drawing = drawing, .all = frame.all, .beacons = frame.beacon_snapshot, .relay = frame.relay_carrier, .tag_bomb = frame.tag_bomb, .multiplayer = frame.multiplayer },
         .objectives = .{ .objectives = &state.objectives },
         .comms = .{ .menu = &frame.player.menu, .font = &resources.target_fonts.new },
         .wing_status = .{ .all = frame.all },
@@ -4761,6 +4782,7 @@ pub const Keys = struct {
     multiplayer: bool,
     /// The world the keys' sounds are heard in; null where nothing is heard.
     world: ?gameobj.World = null,
+    multiplayer_ordnance: bool = false,
 };
 
 /// `hud_target_keys` (`0x0048B6B0`), which `frame_controls` runs after the camera's keys. It
@@ -4802,7 +4824,7 @@ pub const Keys = struct {
 pub fn targetKeys(state: *State, keys: Keys) void {
     const all = keys.all;
     const devices = keys.devices;
-    if (state.commsOpen()) if (keys.world) |world| {
+    if (!keys.multiplayer and state.commsOpen()) if (keys.world) |world| {
         keys.player.menu.run(.{ .world = world, .devices = devices });
     };
 
@@ -4857,7 +4879,7 @@ pub fn targetKeys(state: *State, keys: Keys) void {
     if (devices.active(.missile_window, true)) {
         beep(keys.world, .done);
         switch (missiles.phase) {
-            .shut => if (state.windows.open(.missiles, keys.multiplayer)) {
+            .shut => if (state.windows.open(.missiles, keys.multiplayer and !keys.multiplayer_ordnance)) {
                 missiles.held = true;
             },
             .open => {
@@ -6126,12 +6148,19 @@ pub const TargetFonts = struct {
 pub const TargetScene = struct {
     sight: Sight,
     beacons: ?six_beacons.Hud = null,
-    relay: ?struct { pilot: players.ControlRef, icons: ?*Art } = null,
+    carrier_badge: ?CarrierBadge = null,
     all: *const create.Objects,
     mode: camera.CockpitMode,
     /// The ship whose line the radio's window names, where it shows
     /// (`radio.Radio.speakingShip`).
     speaker: ?u16 = null,
+
+    const CarrierBadge = struct {
+        pilot: players.ParticipantRef,
+        icons: ?*Art,
+        shape: u8,
+        part: parts.Part,
+    };
 };
 
 /// **Improvement:** Where the line starts that places the marker for a target out of sight on the
@@ -6313,11 +6342,10 @@ pub fn drawTarget(drawing: *Drawing, state: *const State, pen: Pen, fonts: *Targ
             const name = &all.player_states[index].membership.joined.name;
             _ = try pen.textIn(&fonts.new, pen.moved(corner, name_offset), name.slice(), .left);
             if (scene.beacons) |beacons| try beacons.drawTarget(pen, &fonts.new, pilot, corner);
-            if (scene.relay) |relay| {
-                if (std.meta.eql(relay.pilot, pilot)) {
-                    if (relay.icons) |art| {
-                        try pen.drawing(.{ .art = art, .gpa = pen.gpa }).partShape(.target_markers_relay, 0x11, pen.moved(corner, .{ -33, 2 }));
-                    }
+            if (scene.carrier_badge) |carrier| {
+                if (std.meta.eql(carrier.pilot, pilot.participant)) {
+                    if (carrier.icons) |art|
+                        try pen.drawing(.{ .art = art, .gpa = pen.gpa }).partShape(carrier.part, carrier.shape, pen.moved(corner, .{ -33, 2 }));
                 }
             }
         }

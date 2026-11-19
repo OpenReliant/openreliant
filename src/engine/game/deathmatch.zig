@@ -14,6 +14,7 @@ pub const Wreck = @import("deathmatch/wreck.zig");
 pub const spawn = @import("deathmatch/spawn.zig");
 pub const dark_reign = @import("dmscenarios/dark_reign.zig");
 pub const six_beacons = @import("dmscenarios/six_beacons.zig");
+pub const tag_bomb = @import("dmscenarios/tag_bomb.zig");
 const math = @import("../surrender/math.zig");
 
 /// `cmd_ResetToSpawnPositions` (`0x004591B0`) selects the rules for this map once and
@@ -34,6 +35,8 @@ pub fn resetToSpawnPositions(world: gameobj.World) !void {
             const round = try dark_reign.Round.start(all);
             all.arena_scenario = .{ .dark_reign = .{ .relay = round, .powerups = try powerups.Round.start(all) } };
         }
+        if (all.mission_number == scenarios.Scenario.tag_bomb.mission())
+            all.arena_scenario = .{ .tag_bomb = .{ .powerups = try powerups.Round.start(all) } };
         all.arena_boundary = .{ .bounds = switch (all.arena_scenario) {
             .six_beacons => |*round| round.bounds,
             else => .of(all),
@@ -93,11 +96,13 @@ pub const Scenario = union(enum) {
     asteroid_field: powerups.Round,
     six_beacons: six_beacons.Round,
     dark_reign: struct { relay: dark_reign.Round, powerups: powerups.Round },
+    tag_bomb: struct { bomb: tag_bomb.Round = .{}, powerups: powerups.Round },
 
     pub fn powerUps(scenario: *Scenario) ?*powerups.Round {
         return switch (scenario.*) {
             .asteroid_field => |*round| round,
             .dark_reign => |*round| &round.powerups,
+            .tag_bomb => |*round| &round.powerups,
             else => null,
         };
     }
@@ -108,25 +113,26 @@ pub const Scenario = union(enum) {
             .deathmatch, .asteroid_field => {},
             .dark_reign => |*round| round.relay.frame(world),
             .six_beacons => |*round| round.frame(world),
+            .tag_bomb => |*round| round.bomb.frame(world),
         }
     }
 
     pub fn releaseShip(scenario: *Scenario, all: *Objects, index: u16) void {
         if (scenario.powerUps()) |round| round.release(all, index);
         switch (scenario.*) {
-            .deathmatch, .asteroid_field => {},
+            .deathmatch, .asteroid_field, .tag_bomb => {},
             .dark_reign => |*round| round.relay.drop(all, index),
             .six_beacons => |*round| round.drop(all, index),
         }
     }
 
-    pub fn departShip(scenario: *Scenario, all: *Objects, index: u16) void {
-        if (scenario.* == .dark_reign) {
-            scenario.dark_reign.relay.leave(all, index);
-            scenario.dark_reign.powerups.release(all, index);
-        } else {
-            scenario.releaseShip(all, index);
+    pub fn departShip(scenario: *Scenario, all: *Objects, pilot: players.ParticipantRef) void {
+        switch (scenario.*) {
+            .dark_reign => |*round| round.relay.leave(all, pilot.slot),
+            .tag_bomb => |*round| round.bomb.leave(pilot),
+            else => return scenario.releaseShip(all, pilot.slot),
         }
+        if (scenario.powerUps()) |round| round.release(all, pilot.slot);
     }
 };
 
@@ -248,19 +254,20 @@ pub fn creditDestruction(world: gameobj.World, index: u16, channels: radio.KillC
                     if (opposing == all.participantTeam(binding.participant)) return;
                 }
             }
-            _ = awardArenaKill(all, binding);
+            _ = awardArenaKills(all, binding.participant, 1);
         },
     }
 }
 
-/// Adds one kill to the bound pilot and, in team games, to their assigned team.
-fn awardArenaKill(all: *Objects, binding: players.ControlRef) bool {
-    const pilot = &all.player_states[binding.participant.slot].membership.joined;
+/// Adds frags to the same admission even if its fighter has since respawned.
+pub fn awardArenaKills(all: *Objects, recipient: players.ParticipantRef, count: i32) bool {
+    const state = all.joinedParticipant(recipient) orelse return false;
+    const pilot = &state.membership.joined;
     if (all.arena_scores == .teams) {
         const team = pilot.team orelse return false;
-        all.arena_scores.teams.getPtr(team).kills += 1;
+        all.arena_scores.teams.getPtr(team).kills += count;
     }
-    pilot.kills.add(1, false);
+    pilot.kills.add(count, false);
     return true;
 }
 
@@ -312,7 +319,7 @@ pub fn uberKill(world: gameobj.World, source: gameobj.DamageSource, victim: play
     slot.object.last_attacker = .uber_blast;
     const generation = source.participant_generation orelse return;
     const binding = all.playerBindingFor(source.object, generation);
-    const awarded = if (binding) |owner| awardArenaKill(all, owner) else false;
+    const awarded = if (binding) |owner| awardArenaKills(all, owner.participant, 1) else false;
     if (world.uber_kills) |sink| sink.send(sink.context, .{
         .owner = .{ .slot = source.object.slot, .generation = generation },
         .victim = victim,

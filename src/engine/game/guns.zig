@@ -1902,11 +1902,13 @@ fn bulletHit(world: gameobj.World, bullet: *Bullet, shot: u8) void {
         if (!bullet.kind.base().huge() and (object.shields.get(struck) <= 0 or object.invulnerable == ._unknown_4 or object.invulnerable == ._unknown_5)) {
             if (hullHit(world, bullet, target, struck)) |at| {
                 noteImpact(world, bullet, shot, target, at, .hull);
+                tag_bomb.Round.bulletHit(world, target, bullet.owner);
             }
             return;
         }
         cloak.reveal(world, target, point);
         noteImpact(world, bullet, shot, target, point, .shield);
+        defer tag_bomb.Round.bulletHit(world, target, bullet.owner);
         defer if (!object.flags.cloaked) shield.flare(world, target, point);
         if (!object.flags.spectral_shields and record.damage.shield > 0) {
             const value = record.damage.shield;
@@ -3671,6 +3673,7 @@ const TypeSet = create.TypeSet;
 const Objects = create.Objects;
 const formats = @import("../../formats/stats.zig");
 const gameobj = @import("gameobj.zig");
+const tag_bomb = @import("dmscenarios/tag_bomb.zig");
 const additions = @import("additions.zig");
 pub const gun_stats = @import("guns/stats.zig");
 const hooks = @import("../hooks.zig");

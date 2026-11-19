@@ -1250,6 +1250,7 @@ pub const Drawn = struct {
     clock: Clock = .{},
     shake: f32 = 0,
     forces: ?input.force.Forces = null,
+    tag_bomb: ?@import("dmscenarios/tag_bomb.zig").Hud = null,
     relay_carrier: ?@import("players.zig").ControlRef = null,
     beacon_snapshot: ?@import("dmscenarios/six_beacons.zig").HudSnapshot = null,
     /// Copies of the game's effects, which drawing draws.

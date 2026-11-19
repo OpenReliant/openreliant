@@ -14,7 +14,7 @@ const Graphical = @This();
 const Connection = game.interface.Connection;
 const combat_messages_per_frame = 8;
 const messages_per_frame = combat_messages_per_frame + wire.ordnance.Page.pages;
-const FlightNotice = union(enum) { beacon: wire.BeaconNotice, pilot: wire.PilotNotice, chat: wire.ChatLine };
+const FlightNotice = union(enum) { beacon: wire.BeaconNotice, tag_bomb: wire.TagBombNotice, pilot: wire.PilotNotice, chat: wire.ChatLine };
 
 // net_handle_system_message (0x004B6A80) posts 0x3B7 on session loss in flight.
 const host_left: Connection.Label = .{ .english = "The host has left the game", .installed = 0x3B7 };
@@ -280,20 +280,41 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             pilot.standings_first = null;
         }
         if (reads_controls and !consumed) {
-            const player = &flight.drawn.player;
-            game.hud.targetKeys(&flight.drawn.display, .{
+            const scene = flight.world();
+            const all = scene.objects;
+            const display = &flight.drawn.display;
+            const multiplayer_ordnance = client.latest.?.scenario != null;
+            var cockpit: game.players.CockpitCommand = .{};
+            game.hud.targetKeys(display, .{
                 .devices = devices,
-                .player = player,
-                .all = flight.drawn.objects,
-                .last_view = player.viewing.last,
+                .player = scene.player,
+                .all = all,
+                .last_view = scene.player.viewing.last,
                 .multiplayer = true,
+                .multiplayer_ordnance = multiplayer_ordnance,
+                .world = scene,
             });
-            player.balancing_shields = devices.active(.shield_balancing, false);
-            player.power_held = devices.active(.powerball_window, false);
-            client.setFlight(engine.input.sampleFlight(player, devices, &pilot.stick, player.viewing.view));
+            engine.input.frameKeys(.{
+                .display = display,
+                .charges = &all.player_states[all.player].charges,
+                .player = scene.player,
+                .devices = devices,
+                .slot = &all.slots[all.player],
+                .view = scene.view(),
+                .game_ticks = scene.clock.game_ticks,
+                .multiplayer = true,
+                .submitted = &cockpit,
+                .world = scene,
+                .all = all,
+            });
+            client.setFlight(engine.input.sampleFlight(scene.player, devices, &pilot.stick, scene.player.viewing.view));
             client.fire_primary = engine.input.primaryHeld(devices);
-            if (client.latest.?.scenario != null)
-                client.setWeapons(.{ .aim = flight.weaponAim(), .presses = .from(engine.input.sampleOrdnance(player, devices)) });
+            if (multiplayer_ordnance) {
+                const weapons = engine.input.sampleOrdnance(scene.player, devices);
+                if (weapons.rotate_missiles != null and display.windows.open(.missiles, false))
+                    display.windows.status.getPtr(.missiles).held = true;
+                client.setWeapons(.{ .aim = flight.weaponAim(), .presses = .from(weapons), .cockpit = cockpit });
+            }
         } else {
             client.releaseFlight();
         }
@@ -333,6 +354,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 if (front.connection.lobby.?.role == .guest) front.connection.lobby.?.scenario = scenario;
             },
             .beacon_notice => |notice| pilot.queueNotice(.{ .beacon = notice }),
+            .tag_bomb_notice => |notice| pilot.queueNotice(.{ .tag_bomb = notice }),
             .pilot_notice => |notice| {
                 if (notice.kind == .left_lobby) {
                     const listed = client.roster.pilots[notice.pilot.slot];
@@ -478,9 +500,20 @@ fn presentNotices(pilot: *Graphical, flight: *FlightFrame, strings: game.languag
             var fallback: [64]u8 = undefined;
             notice.event.present(messages, strings, viewer, pilotName(&fallback, strings, &notice.name, notice.event.pilot.slot));
         },
+        .tag_bomb => |*notice| {
+            var fallback: [2][64]u8 = undefined;
+            notice.event.present(messages, strings, viewer, pilotName(&fallback[0], strings, &notice.name, notice.event.pilot.slot), pilotName(&fallback[1], strings, &notice.other_name, notice.event.other.slot));
+        },
         .pilot => |notice| presentPilotNotice(messages, strings, notice),
         .chat => |line| presentChat(messages, strings, line, flight.drawn.clock.frame_start),
     };
+    if (flight.drawn.tag_bomb) |bomb| {
+        const active = bomb.carrier != null;
+        // The original init announces a loose bomb only on the playing host (0x004B4398).
+        if (!active and (flight.bomb_was_active orelse (pilot.hosted != null)))
+            messages.add(strings.string(0x2E3) orelse "No-one has the bomb", flight.drawn.clock.frame_start);
+        flight.bomb_was_active = active;
+    }
     pilot.notice_count = 0;
 }
 

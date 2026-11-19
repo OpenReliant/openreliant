@@ -13,6 +13,7 @@ rays_drawing: game.erayfx.Drawing,
 tables: game.create.Stats,
 random: engine.random.Random = .{},
 tick: ?u32 = null,
+bomb_was_active: ?bool = null,
 host_ship_reuse: [wire.slots]u32 = @splat(0),
 respawns: game.deathmatch.respawn.View = .{},
 wall: game.deathmatch.Boundary.Flashes = .{},
@@ -185,6 +186,7 @@ fn presentWeapons(frame: *FlightFrame, status: ?wire.ordnance.Status) void {
     const slot = &all.slots[all.player];
     const weapons = &all.player_states[all.player].weapons;
     const prior = weapons.ring;
+    if (status) |shown| shown.panels.apply(&slot.object);
     const decoys_before = slot.object.countermeasures;
     weapons.ring = if (status) |shown| shown.ring() else .{};
     weapons.lock = if (status) |shown| shown.held else .{};
@@ -192,7 +194,7 @@ fn presentWeapons(frame: *FlightFrame, status: ?wire.ordnance.Status) void {
     if (slot.object.countermeasures < decoys_before) game.hud.beep(frame.world(), .done);
     slot.object.missile_homing = @intFromBool(if (status) |shown| shown.incoming else false);
     if (status != null and (weapons.ring.left < prior.left or weapons.ring.armed != prior.armed)) {
-        if (frame.drawn.display.windows.open(.missiles, true))
+        if (frame.drawn.display.windows.open(.missiles, false))
             frame.drawn.display.windows.status.getPtr(.missiles).held = true;
     }
     if (frame.sounds) |asked| frame.lock_tone.sound(weapons.lock.locked(), asked, frame.drawn.player.viewing.last);
@@ -243,7 +245,7 @@ fn presentMines(frame: *FlightFrame, snapshot: *const wire.Snapshot, types: game
     }
 }
 
-fn world(frame: *FlightFrame) game.gameobj.World {
+pub fn world(frame: *FlightFrame) game.gameobj.World {
     return .{
         .objects = frame.drawn.objects,
         .player = &frame.drawn.player,
@@ -369,7 +371,6 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         frame.drawn.shake = 1;
     };
     if (scene.flash) |flash| flash.countDown(scene.clock.frame_duration);
-    frame.drawn.display.windows.step(.comms, scene.clock.frame_duration);
     frame.drawn.display.messages.expire(scene.clock.frame_start);
     if (scene.sparks) |sparks| sparks.frame(scene.clock);
     try frame.rocks.apply(all, &snapshot.rocks);
@@ -463,8 +464,15 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     if (snapshot.scenario != null and snapshot.scenario.?.hasPowerUps()) frame.presentPower(snapshot.power);
     // Reserve the identities used during the session in the local mission's slot counters.
     for (local.reuses[0..wire.slots], all.reuses[0..wire.slots]) |*reuse, received| reuse.* = received +% 1;
+    frame.drawn.tag_bomb = switch (snapshot.objectives) {
+        .tag_bomb => |active| if (active) |bomb| .{
+            .carrier = if (all.playerBinding(bomb.carrier)) |pilot| pilot.participant else null,
+            .remaining = bomb.remaining,
+        } else .{},
+        else => null,
+    };
     frame.drawn.beacon_snapshot = switch (snapshot.objectives) {
-        .none => null,
+        .none, .tag_bomb => null,
         .dark_reign => |mode| view: {
             try frame.presentDarkReign(scene, mode);
             break :view null;
@@ -478,6 +486,9 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
             break :view captured;
         },
     };
+    frame.drawn.display.followTarget(all, true);
+    frame.drawn.display.zoomRadar(scene);
+    frame.drawn.display.finishGameFrame(scene);
     frame.drawn.display.messages.expire(frame.drawn.clock.frame_start);
     const seconds = ticks / game.main.ticks_per_second;
     frame.drawn.clock.play = .{
@@ -543,4 +554,43 @@ test "the flight view follows host admissions and objective carriers" {
     try std.testing.expectEqualStrings("", all.player_states[0].membership.joined.name.slice());
     try std.testing.expectEqual(0, frame.drawn.beacon_snapshot.?.countAt(all, all.player));
     try std.testing.expectEqual(2, game.hud.Readout.skull.value(all, &frame.drawn.player));
+}
+
+test "the target panel opens and closes as flight snapshots advance" {
+    const gpa = std.testing.allocator;
+    var random: engine.random.Random = .{};
+    const local = try game.create.Objects.create(gpa, &random);
+    defer local.destroy();
+    const tables = game.create.testing.tables();
+    const frame = try create(gpa, local, &tables);
+    defer frame.destroy();
+    const all = frame.drawn.objects;
+    const display = &frame.drawn.display;
+    const no_models = game.create.testing.no_models;
+    const admission: wire.Admission = .{ .slot = 0, .generation = 1 };
+    var snapshot: wire.Snapshot = .{
+        .tick = 1,
+        .ships = .{
+            .{ .generation = 1, .position = @splat(0) },
+            .{ .generation = 2, .position = .{ 0, 0, 2000 } },
+            null,
+        },
+    };
+    try frame.apply(&snapshot, admission, local, no_models);
+    try std.testing.expect(engine.input.setPilotTarget(display, all, 0, 1, game.aigeneric.Target.whole, true));
+    try std.testing.expectEqual(.opening, display.windows.status.get(.target).phase);
+
+    // A duplicate view while paused must leave the window's phase alone.
+    try frame.apply(&snapshot, admission, local, no_models);
+    try std.testing.expectEqual(0, display.windows.status.get(.target).progress);
+    const animation_steps = std.math.divCeil(u32, game.hud.windows.opening_ticks, game.gameobj.ticks_per_step) catch unreachable;
+    snapshot.tick += animation_steps;
+    try frame.apply(&snapshot, admission, local, no_models);
+    try std.testing.expectEqual(.open, display.windows.status.get(.target).phase);
+
+    try std.testing.expect(engine.input.setPilotTarget(display, all, 0, -1, game.aigeneric.Target.whole, true));
+    try std.testing.expectEqual(.closing, display.windows.status.get(.target).phase);
+    snapshot.tick += animation_steps;
+    try frame.apply(&snapshot, admission, local, no_models);
+    try std.testing.expectEqual(.shut, display.windows.status.get(.target).phase);
 }

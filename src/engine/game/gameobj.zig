@@ -2168,6 +2168,7 @@ pub const World = struct {
     /// Host output for primary weapon effects that other pilots can see.
     gun_effects: ?@import("guns.zig").FlightEffect.Sink = null,
     /// Arena-wide Uber kill notices for the session to deliver to viewers.
+    tag_bomb_notices: ?@import("deathmatch.zig").tag_bomb.Notice.Sink = null,
     beacon_notices: ?@import("deathmatch.zig").six_beacons.Notice.Sink = null,
     uber_kills: ?@import("deathmatch.zig").UberKill.Sink = null,
     /// The host sends a fighter's final breakup to the arena's viewers.
