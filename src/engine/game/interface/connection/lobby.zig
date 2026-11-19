@@ -106,7 +106,7 @@ fn modeFrame(lobby: *Lobby, pointer: ui.Pointer, escape: bool) void {
             lobby.preview = @fromBackingInt(@intCast(index));
         } else if (modal_cancel.holds(pointer.at)) {
             lobby.mode_open = false;
-        } else if (modal_select.holds(pointer.at) and lobby.preview.available()) {
+        } else if (modal_select.holds(pointer.at)) {
             lobby.scenario = lobby.preview;
             lobby.mode_open = false;
         }
@@ -178,7 +178,7 @@ fn description(mode: scenarios.Scenario) Label {
         .dark_reign => "Recover the comms relay to keep the Dark Reign from targeting you and earn credit for its kills.",
         .tag_bomb => "The first pilot destroyed respawns with an active bomb. Hit another pilot with your guns to pass it before your timer expires.",
         .hunt_the_shadow => "The first pilot to score a kill becomes the Shadow. The Shadow is cloaked and has no shields. Kill the Shadow to take over.",
-        .vampires => "Survive as a human or infect the remaining pilots as a vampire.",
+        .vampires => "The first pilot to die becomes a vampire. Vampires infect human pilots by killing them. The last human earns five frags and the roles reset.",
     }, .installed = mode.descriptionString() };
 }
 
@@ -189,17 +189,13 @@ fn drawModes(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
     try widgets.title(canvas, .{ 72, 122 }, change_mode);
     try choices.drawList(canvas, modal_rows, &scenario_options, @backingInt(lobby.preview), lobby.option_under);
     const strings = canvas.strings.*;
-    const heading = scenario_options[@backingInt(lobby.preview)].label;
+    const heading = scenario_options[@backingInt(lobby.preview)];
     try canvas.text(canvas.fonts.small, .{ 261, modal_rows.y + 3 }, heading.text(strings), ui.white, .left);
     try canvas.wrapped(canvas.fonts.small, .{ 261, details_y }, description(lobby.preview).text(strings), ui.blue, .left, details_lines);
     try canvas.text(canvas.fonts.small, .{ 261, team_heading_y }, team_play.text(strings), ui.white, .left);
     try canvas.wrapped(canvas.fonts.small, .{ 261, team_heading_y + 15 }, strings.string(lobby.preview.teamPlayString()) orelse "", ui.blue, .left, .{ .width = 302, .height = 14, .most = 2 });
     try widgets.button(canvas, art, modal_cancel, cancel, true, false);
-    if (lobby.preview.available()) {
-        try widgets.button(canvas, art, modal_select, select_mode, true, false);
-    } else {
-        try canvas.text(canvas.fonts.small, .{ modal_select.x, modal_select.y }, "Unavailable", ui.blue, .left);
-    }
+    try widgets.button(canvas, art, modal_select, select_mode, true, false);
 }
 
 fn drawPlayers(lobby: *const Lobby, canvas: ui.Canvas, panel: ui.Rect) !void {
@@ -245,7 +241,7 @@ fn drawGame(lobby: *const Lobby, canvas: ui.Canvas, panel: ui.Rect, layout: Layo
     const width = panel.width - 2 * inset;
     try widgets.fittedLabel(canvas, .{ x, panel.y + heading_y }, width, scenario_label.text(strings), ui.white, .left);
     const mode = fieldBox(layout, .scenario);
-    try widgets.fittedLabel(canvas, .{ x, mode.y }, width, scenario_options[@backingInt(lobby.scenario)].label.text(strings), ui.blue, .left);
+    try widgets.fittedLabel(canvas, .{ x, mode.y }, width, scenario_options[@backingInt(lobby.scenario)].text(strings), ui.blue, .left);
     if (lobby.role == .host) try widgets.button(canvas, art, modeButton(layout), change_mode, true, lobby.mode_open);
     const ship = fieldBox(layout, .ship);
     try widgets.fittedLabel(canvas, .{ x, ship.y - 18 }, width, ship_label.text(strings), ui.white, .left);

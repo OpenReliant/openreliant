@@ -45,6 +45,7 @@ const ai = @import("ai.zig");
 const six_beacons = @import("dmscenarios/six_beacons.zig");
 const tag_bomb = @import("dmscenarios/tag_bomb.zig");
 const hunt_the_shadow = @import("dmscenarios/hunt_the_shadow.zig");
+const vampires = @import("dmscenarios/vampires.zig");
 const aigeneric = @import("aigeneric.zig");
 const create = @import("create.zig");
 const xtrabits = @import("xtrabits.zig");
@@ -2612,6 +2613,7 @@ pub const Frame = struct {
     relay_carrier: ?players.ControlRef = null,
     tag_bomb: ?tag_bomb.Hud = null,
     shadow: ?players.ParticipantRef = null,
+    vampire_roles: ?vampires.Roles = null,
     beacon_snapshot: ?*const six_beacons.HudSnapshot = null,
     /// The sound the enemy lock's warning plays through (`Drawing.warnOfLock`); none where nothing
     /// is heard.
@@ -2824,6 +2826,8 @@ pub const Instrument = enum {
     tag_bomb_timer,
     /// The role badge displayed to the Shadow.
     shadow_badge,
+    /// The local vampire's role badge.
+    vampire_badge,
 
     /// The instrument a window is; null for the frames alone, which show nothing.
     pub fn ofWindow(window: windows.Window) ?Instrument {
@@ -2886,7 +2890,7 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
     var placing: Placings = .init(frame, pen.scale);
     defer placing.keep(drawing);
     drawing.flashes = .{};
-    const arena_icons = if (frame.beacon_snapshot != null or frame.relay_carrier != null or frame.tag_bomb != null or frame.shadow != null)
+    const arena_icons = if (frame.beacon_snapshot != null or frame.relay_carrier != null or frame.tag_bomb != null or frame.shadow != null or frame.vampire_roles != null)
         resources.arenaIcons(frame.gpa)
     else
         null;
@@ -2914,10 +2918,17 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
             if (arena_icons) |art| try hunt_the_shadow.drawBadge(placing.pen(pen, .shadow_badge), art);
         }
     }
-    const badge: ?TargetScene.CarrierBadge = if (frame.relay_carrier) |carrier|
-        .{ .pilot = carrier.participant, .icons = arena_icons, .shape = 0x11, .part = .target_markers_relay }
+    if (frame.vampire_roles) |roles| {
+        if (frame.all.player < vampires.Roles.bit_length and roles.isSet(frame.all.player)) {
+            if (arena_icons) |art| try vampires.drawBadge(placing.pen(pen, .vampire_badge), art);
+        }
+    }
+    const badge: ?TargetScene.PilotBadge = if (frame.relay_carrier) |carrier|
+        .{ .pilots = .{ .carrier = carrier.participant }, .icons = arena_icons, .shape = 0x11, .part = .target_markers_relay }
     else if (bomb_carrier) |carrier|
-        .{ .pilot = carrier, .icons = arena_icons, .shape = 0x0F, .part = .target_markers_bomb }
+        .{ .pilots = .{ .carrier = carrier }, .icons = arena_icons, .shape = 0x0F, .part = .target_markers_bomb }
+    else if (frame.vampire_roles) |roles|
+        .{ .pilots = .{ .vampires = roles }, .icons = arena_icons, .shape = vampires.target_badge_shape, .part = .target_markers_vampire }
     else
         null;
     try state.caption.draw(&drawing.caption, placing.pen(pen, .caption), frame.all.mission_number, frame.clock.game_ticks);
@@ -2936,7 +2947,7 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
                 .mode = frame.mode,
                 .speaker = speaker,
                 .beacons = beacons,
-                .carrier_badge = badge,
+                .pilot_badge = badge,
             };
             lead = try drawTarget(drawing, state, placing.pen(pen, .target_markers), &resources.target_fonts, scene, frame.edge_line);
         }
@@ -2967,7 +2978,16 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
         .damage = .{ .object = live },
         .missiles = .{ .ring = &frame.all.player_states[frame.all.player].weapons.ring },
         .power = .{ .ball = resources.ball, .object = live, .hit_shake = frame.hit_shake, .random = frame.random },
-        .target_display = .{ .state = state, .drawing = drawing, .all = frame.all, .beacons = frame.beacon_snapshot, .relay = frame.relay_carrier, .tag_bomb = frame.tag_bomb, .multiplayer = frame.multiplayer },
+        .target_display = .{
+            .state = state,
+            .drawing = drawing,
+            .all = frame.all,
+            .beacons = frame.beacon_snapshot,
+            .relay = frame.relay_carrier,
+            .tag_bomb = frame.tag_bomb,
+            .vampire_roles = frame.vampire_roles,
+            .multiplayer = frame.multiplayer,
+        },
         .objectives = .{ .objectives = &state.objectives },
         .comms = .{ .menu = &frame.player.menu, .font = &resources.target_fonts.new },
         .wing_status = .{ .all = frame.all },
@@ -6157,18 +6177,28 @@ pub const TargetFonts = struct {
 pub const TargetScene = struct {
     sight: Sight,
     beacons: ?six_beacons.Hud = null,
-    carrier_badge: ?CarrierBadge = null,
+    pilot_badge: ?PilotBadge = null,
     all: *const create.Objects,
     mode: camera.CockpitMode,
     /// The ship whose line the radio's window names, where it shows
     /// (`radio.Radio.speakingShip`).
     speaker: ?u16 = null,
 
-    const CarrierBadge = struct {
-        pilot: players.ParticipantRef,
+    const PilotBadge = struct {
+        pilots: union(enum) {
+            carrier: players.ParticipantRef,
+            vampires: vampires.Roles,
+        },
         icons: ?*Art,
         shape: u8,
         part: parts.Part,
+
+        fn includes(badge: PilotBadge, pilot: players.ParticipantRef) bool {
+            return switch (badge.pilots) {
+                .carrier => |carrier| std.meta.eql(carrier, pilot),
+                .vampires => |roles| pilot.slot < vampires.Roles.bit_length and roles.isSet(pilot.slot),
+            };
+        }
     };
 };
 
@@ -6351,10 +6381,10 @@ pub fn drawTarget(drawing: *Drawing, state: *const State, pen: Pen, fonts: *Targ
             const name = &all.player_states[index].membership.joined.name;
             _ = try pen.textIn(&fonts.new, pen.moved(corner, name_offset), name.slice(), .left);
             if (scene.beacons) |beacons| try beacons.drawTarget(pen, &fonts.new, pilot, corner);
-            if (scene.carrier_badge) |carrier| {
-                if (std.meta.eql(carrier.pilot, pilot.participant)) {
-                    if (carrier.icons) |art|
-                        try pen.drawing(.{ .art = art, .gpa = pen.gpa }).partShape(carrier.part, carrier.shape, pen.moved(corner, .{ -33, 2 }));
+            if (scene.pilot_badge) |badge| {
+                if (badge.includes(pilot.participant)) {
+                    if (badge.icons) |art|
+                        try pen.drawing(.{ .art = art, .gpa = pen.gpa }).partShape(badge.part, badge.shape, pen.moved(corner, .{ -33, 2 }));
                 }
             }
         }

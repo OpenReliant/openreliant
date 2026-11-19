@@ -185,7 +185,7 @@ pub fn launch(host: *Host) void {
 }
 
 pub fn selectScenario(host: *Host, scenario: wire.Scenario) void {
-    if (host.start != .lobby or host.start.lobby.scenario == scenario or !scenario.available()) return;
+    if (host.start != .lobby or host.start.lobby.scenario == scenario) return;
     host.start.lobby.scenario = scenario;
     host.roster_dirty = true;
 }
@@ -486,6 +486,8 @@ fn noticeName(host: *const Host, pilot: game.players.ParticipantRef) wire.CallSi
 }
 
 fn broadcastNotices(host: *Host) void {
+    // A departure can queue a notice before the arena step.
+    defer host.arena.notice_count = 0;
     for (host.arena.notices[0..host.arena.notice_count]) |entry| switch (entry) {
         .beacon => |notice| {
             const message: wire.Message = .{ .beacon_notice = .{ .event = notice, .name = host.noticeName(notice.pilot) } };
@@ -505,6 +507,10 @@ fn broadcastNotices(host: *Host) void {
             .event = notice,
             .name = host.noticeName(notice.pilot),
             .other_name = if (notice.other) |other| host.noticeName(other) else .{},
+        } }, null),
+        .vampires => |notice| host.sendPlaying(.{ .vampires_notice = .{
+            .event = notice,
+            .name = if (notice.change.pilot()) |pilot| host.noticeName(pilot) else .{},
         } }, null),
     };
 }

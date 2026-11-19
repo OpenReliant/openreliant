@@ -16,6 +16,7 @@ pub const Mode = enum {
     @"dark-reign",
     @"tag-bomb",
     @"hunt-the-shadow",
+    vampires,
 
     pub fn scenario(mode: Mode) ?wire.Scenario {
         return switch (mode) {
@@ -25,17 +26,18 @@ pub const Mode = enum {
             .@"dark-reign" => .dark_reign,
             .@"tag-bomb" => .tag_bomb,
             .@"hunt-the-shadow" => .hunt_the_shadow,
+            .vampires => .vampires,
         };
     }
 
-    pub fn stockMode(chosen: wire.Scenario) !Mode {
+    pub fn stockMode(chosen: wire.Scenario) Mode {
         return switch (chosen) {
             .nuclear_threat => .@"nuclear-threat",
             .asteroid_field => .@"asteroid-field",
             .dark_reign => .@"dark-reign",
             .tag_bomb => .@"tag-bomb",
             .hunt_the_shadow => .@"hunt-the-shadow",
-            else => error.UnsupportedArena,
+            .vampires => .vampires,
         };
     }
 };
@@ -44,6 +46,7 @@ const Notice = union(enum) {
     beacon: game.deathmatch.six_beacons.Notice,
     tag_bomb: game.deathmatch.tag_bomb.Notice,
     shadow: game.deathmatch.hunt_the_shadow.Notice,
+    vampires: game.deathmatch.vampires.Notice,
 };
 const notice_capacity = wire.slots + 2;
 
@@ -101,7 +104,7 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
             arena.explosions = try .init(gpa, null);
             try simulation.prepareSixBeacons(&arena.mission, &arena.explosions.?);
         },
-        .@"nuclear-threat", .@"asteroid-field", .@"dark-reign", .@"tag-bomb", .@"hunt-the-shadow" => {
+        .@"nuclear-threat", .@"asteroid-field", .@"dark-reign", .@"tag-bomb", .@"hunt-the-shadow", .vampires => {
             // mission_start seeds the game's random stream afresh (0x004936AE).
             var seed: u64 = undefined;
             io.random(std.mem.asBytes(&seed));
@@ -120,7 +123,7 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
                 .dark_reign => arena.mission.objects.arena_scenario == .dark_reign,
                 .tag_bomb => arena.mission.objects.arena_scenario == .tag_bomb,
                 .hunt_the_shadow => arena.mission.objects.arena_scenario == .hunt_the_shadow,
-                else => unreachable,
+                .vampires => arena.mission.objects.arena_scenario == .vampires,
             };
             if (!started) return error.ArenaScriptDidNotStart;
             if (scenario.hasPowerUps()) arena.rocks = try .collect(arena.mission.objects);
@@ -131,7 +134,7 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
 /// Prepare a stock arena with the lobby's admissions. Its objects hold pointers to its ship tables.
 pub fn prepareStock(arena: *const Arena, scenario: wire.Scenario, io: std.Io, directory: std.Io.Dir) !*Arena {
     const gpa = arena.mission.objects.gpa;
-    const next = try create(gpa, try .stockMode(scenario), io, directory);
+    const next = try create(gpa, .stockMode(scenario), io, directory);
     errdefer next.destroy();
     const all = next.mission.objects;
     all.participant_generation = arena.mission.objects.participant_generation;
@@ -173,6 +176,7 @@ fn world(arena: *Arena) game.gameobj.World {
     scene.beacon_notices = .{ .context = arena, .send = noteBeacon };
     scene.tag_bomb_notices = .{ .context = arena, .send = noteBomb };
     scene.shadow_notices = .{ .context = arena, .send = noteShadow };
+    scene.vampires_notices = .{ .context = arena, .send = noteVampires };
     if (arena.decoys) |*decoys| scene.countermeasures = decoys;
     if (arena.waves) |*waves| scene.shockwaves = waves;
     if (arena.cannons) |*cannons| scene.ion_cannons = cannons;
@@ -213,6 +217,11 @@ fn noteBomb(context: *anyopaque, notice: game.deathmatch.tag_bomb.Notice) void {
 fn noteShadow(context: *anyopaque, notice: game.deathmatch.hunt_the_shadow.Notice) void {
     const arena: *Arena = @ptrCast(@alignCast(context));
     arena.note(.{ .shadow = notice });
+}
+
+fn noteVampires(context: *anyopaque, notice: game.deathmatch.vampires.Notice) void {
+    const arena: *Arena = @ptrCast(@alignCast(context));
+    arena.note(.{ .vampires = notice });
 }
 
 fn note(arena: *Arena, notice: Notice) void {
@@ -300,7 +309,6 @@ fn weaponTarget(all: *game.create.Objects, source: u16, ref: game.gameobj.Object
 }
 
 pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
-    arena.notice_count = 0;
     arena.wrecks = @splat(null);
     arena.combat_count = 0;
     arena.mission.clock.advanceTimer(game.gameobj.ticks_per_step);
@@ -391,6 +399,8 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
         const holder = all.arena_scenario.hunt_the_shadow.shadow.owner;
         view.objectives = .{ .hunt_the_shadow = if (holder) |pilot| @intCast(pilot.slot) else null };
     }
+    if (all.arena_scenario == .vampires)
+        view.objectives = .{ .vampires = all.arena_scenario.vampires.infection.roles(all) };
     return view;
 }
 

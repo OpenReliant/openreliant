@@ -106,6 +106,7 @@ pub const Event = union(enum) {
     beacon_notice: wire.BeaconNotice,
     tag_bomb_notice: wire.TagBombNotice,
     shadow_notice: wire.ShadowNotice,
+    vampires_notice: wire.VampiresNotice,
     pilot_notice: wire.PilotNotice,
     chat_line: wire.ChatLine,
     wreck: wire.Wreck,
@@ -209,6 +210,7 @@ pub fn poll(client: *Client, io: Io) !Event {
         },
         .tag_bomb_notice => |notice| return if (client.joined != null and !client.leaving) .{ .tag_bomb_notice = notice } else error.UnexpectedMessage,
         .shadow_notice => |notice| return if (client.joined != null and !client.leaving) .{ .shadow_notice = notice } else .idle,
+        .vampires_notice => |notice| return if (client.joined != null and !client.leaving) .{ .vampires_notice = notice } else .idle,
         .beacon_notice => |notice| return if (client.joined != null and !client.leaving) .{ .beacon_notice = notice } else error.UnexpectedMessage,
         .pilot_notice => |notice| {
             if (client.joined == null or client.leaving) return .idle;
@@ -277,6 +279,7 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
             .idle, .lobby, .combat, .projectiles, .chat_line => {},
             .tag_bomb_notice => |notice| std.debug.print("notice {s} {d} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot, notice.event.other.slot }),
             .shadow_notice => |notice| std.debug.print("shadow-notice {s} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot }),
+            .vampires_notice => |notice| std.debug.print("vampires-notice {s}\n", .{@tagName(notice.event.change)}),
             .beacon_notice => |notice| std.debug.print("notice {s} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot }),
             .pilot_notice => |notice| std.debug.print("pilot-notice {s} {d} {d}\n", .{ @tagName(notice.kind), notice.pilot.slot, notice.pilot.generation }),
             .wreck => |wreck| std.debug.print("wreck {d} {d} {d}\n", .{ wreck.pilot.participant.slot, wreck.pilot.ship.reuse, wreck.tick }),

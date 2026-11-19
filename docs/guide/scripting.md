@@ -1998,6 +1998,11 @@ In Hunt the Shadow, `shadow_badge` places the local role indicator, and
 `shadow_badge_icon` places the icon within it. The role and scoring notices use
 `messages_text`.
 
+In Vampires, `vampire_badge` places the local role indicator, and `vampire_badge_icon`
+places its icon. A targeted vampire's badge is `target_markers_vampire`. The Human or
+Vampire line in the target window is `target_display_vampires_role`. Round notices
+use `messages_text`.
+
 ### Screens
 
 A player or menu script can register a screen: a panel that draws with `ui` and gets the keys while

@@ -27,7 +27,7 @@ const cancel_label: widgets.Label = .{ .english = "CANCEL" };
 const preview_scale = 0.82;
 
 pub fn label(ship: Fighter) widgets.Label {
-    return options[@backingInt(ship)].label;
+    return options[@backingInt(ship)];
 }
 
 fn entry(ship: Fighter) itac.tables.Fighter {

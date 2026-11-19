@@ -25,6 +25,7 @@ const Allocator = std.mem.Allocator;
 
 const six_beacons = @import("../dmscenarios/six_beacons.zig");
 const tag_bomb = @import("../dmscenarios/tag_bomb.zig");
+const vampires = @import("../dmscenarios/vampires.zig");
 const shp = @import("../../../formats/shp.zig");
 const create = @import("../create.zig");
 const hud = @import("../hud.zig");
@@ -58,6 +59,7 @@ pub const Scene = struct {
     beacons: ?*const six_beacons.HudSnapshot = null,
     relay: ?players.ControlRef = null,
     tag_bomb: ?tag_bomb.Hud = null,
+    vampire_roles: ?vampires.Roles = null,
     multiplayer: bool = false,
 
     /// Draws `form`: what it shows now, and what it last showed as it shrinks away closing
@@ -89,6 +91,7 @@ pub const Scene = struct {
             .beacons = if (scene.beacons) |snapshot| snapshot.countAt(scene.all, index) else null,
             .relay = if (scene.relay) |carrier| std.meta.eql(binding, @as(?players.ControlRef, carrier)) else false,
             .bomb_active = if (scene.tag_bomb) |bomb| if (binding) |pilot| bomb.active(pilot.participant) else null else null,
+            .vampire = if (scene.vampire_roles) |roles| if (binding != null and index < vampires.Roles.bit_length) roles.isSet(index) else null else null,
         };
     }
 
@@ -157,6 +160,7 @@ pub const Small = struct {
     beacons: ?u8 = null,
     relay: bool = false,
     bomb_active: ?bool = null,
+    vampire: ?bool = null,
 
     /// Where the ship status stands from the window's place.
     pub const status_at: [2]i32 = .{ -4, -0x2C };
@@ -185,6 +189,14 @@ pub const Small = struct {
             else
                 canvas.pen.strings.string(0x2DA) orelse "Deactivated Bomb";
             try canvas.text(.target_display_bomb, label, scenario_at, lines.alignment);
+        }
+        if (small.vampire) |infected| {
+            // vampires_target_text (0x004B4FE0) shows a role for each targeted pilot.
+            const label = if (infected)
+                canvas.pen.strings.string(0x2DB) orelse "Vampire"
+            else
+                canvas.pen.strings.string(0x2DC) orelse "Human";
+            try canvas.text(.target_display_vampires_role, label, scenario_at, lines.alignment);
         }
         if (small.beacons) |total| {
             var buffer: six_beacons.LabelBuffer = undefined;

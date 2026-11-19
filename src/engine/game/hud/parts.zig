@@ -93,11 +93,15 @@ pub const Part = enum {
     target_display_bomb,
     /// The local Shadow's arena badge.
     shadow_badge_icon,
+    /// The local vampire's badge, the badge at targeted vampires and the target's role.
+    vampire_badge_icon,
+    target_markers_vampire,
+    target_display_vampires_role,
 
     /// Whether it's a picture rather than text, which takes no alignment or words.
     pub fn picture(part: Part) bool {
         return switch (part) {
-            .radio_face, .power_ball, .target_markers_relay, .target_markers_bomb, .shadow_badge_icon => true,
+            .radio_face, .power_ball, .target_markers_relay, .target_markers_bomb, .shadow_badge_icon, .vampire_badge_icon, .target_markers_vampire => true,
             else => false,
         };
     }

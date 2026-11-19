@@ -2169,6 +2169,8 @@ pub const World = struct {
     tag_bomb_notices: ?@import("deathmatch.zig").tag_bomb.Notice.Sink = null,
     /// The host announces Shadow role changes and credited kills.
     shadow_notices: ?@import("dmscenarios/hunt_the_shadow.zig").Notice.Sink = null,
+    /// The host announces infections and resets of the Vampires round.
+    vampires_notices: ?@import("dmscenarios/vampires.zig").Notice.Sink = null,
     beacon_notices: ?@import("deathmatch.zig").six_beacons.Notice.Sink = null,
     uber_kills: ?@import("deathmatch.zig").UberKill.Sink = null,
     /// The host sends a fighter's final breakup to the arena's viewers.
