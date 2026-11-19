@@ -56,8 +56,12 @@ const select_mode: Label = .{ .english = "SELECT MODE" };
 const cancel: Label = .{ .english = "CANCEL" };
 const team_play: Label = .{ .english = "TEAM PLAY", .installed = 0x2C6 };
 const modal_rows: ui.Rect = .{ .x = 72, .y = 168, .width = 168, .height = choices.height * scenario_labels.len };
-const modal_select: ui.Rect = .{ .x = 261, .y = 328, .width = 160, .height = control_height };
-const modal_cancel: ui.Rect = .{ .x = 72, .y = 328, .width = 160, .height = control_height };
+const details_y = 194;
+const details_lines: ui.Canvas.Lines = .{ .width = 302, .height = 15, .most = 8 };
+const team_heading_y = details_y + details_lines.height * details_lines.most + 4;
+const modal_actions_y = team_heading_y + 53;
+const modal_select: ui.Rect = .{ .x = 261, .y = modal_actions_y, .width = 160, .height = control_height };
+const modal_cancel: ui.Rect = .{ .x = 72, .y = modal_actions_y, .width = 160, .height = control_height };
 
 const scenario_labels = [_][]const u8{ "Asteroid Field", "Nuclear Threat", "Dark Reign", "Tag Bomb", "Hunt the Shadow", "Vampires" };
 const scenario_options = choices.options(scenarios.Scenario, &scenario_labels);
@@ -164,17 +168,17 @@ fn description(mode: scenarios.Scenario) Label {
 }
 
 fn drawModes(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
-    const modal: ui.Rect = .{ .x = 44, .y = 107, .width = 552, .height = 261 };
+    const top = 107;
+    const modal: ui.Rect = .{ .x = 44, .y = top, .width = 552, .height = modal_actions_y + 35 - top };
     widgets.modal(canvas, modal);
     try widgets.title(canvas, .{ 72, 122 }, change_mode);
     try choices.drawList(canvas, modal_rows, &scenario_options, @backingInt(lobby.preview), lobby.option_under);
     const strings = canvas.strings.*;
     const heading = scenario_options[@backingInt(lobby.preview)].label;
     try canvas.text(canvas.fonts.small, .{ 261, modal_rows.y + 3 }, heading.text(strings), ui.white, .left);
-    const steps: ui.Canvas.Lines = .{ .width = 302, .height = 15, .most = 7 };
-    try canvas.wrapped(canvas.fonts.small, .{ 261, 194 }, description(lobby.preview).text(strings), ui.blue, .left, steps);
-    try canvas.text(canvas.fonts.small, .{ 261, 285 }, team_play.text(strings), ui.white, .left);
-    try canvas.wrapped(canvas.fonts.small, .{ 261, 300 }, strings.string(lobby.preview.teamPlayString()) orelse "", ui.blue, .left, .{ .width = 302, .height = 14, .most = 2 });
+    try canvas.wrapped(canvas.fonts.small, .{ 261, details_y }, description(lobby.preview).text(strings), ui.blue, .left, details_lines);
+    try canvas.text(canvas.fonts.small, .{ 261, team_heading_y }, team_play.text(strings), ui.white, .left);
+    try canvas.wrapped(canvas.fonts.small, .{ 261, team_heading_y + 15 }, strings.string(lobby.preview.teamPlayString()) orelse "", ui.blue, .left, .{ .width = 302, .height = 14, .most = 2 });
     try widgets.button(canvas, art, modal_cancel, cancel, true, false);
     if (lobby.preview.available()) {
         try widgets.button(canvas, art, modal_select, select_mode, true, false);
