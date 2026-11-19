@@ -1558,10 +1558,10 @@ address	kind	name	type	comment
 0048db00	function	menu_draw	int __fastcall (int count, void *shapes, MenuItem *items, MenuString title, int mouse)	Draws a pause menu title in optfnt over a red rule and count items of 0x30 bytes, each shape placed by screen fractions and offsets with its hover shape under the cursor, then each string white when highlighted, else orange; returns the item under the cursor or -1, testing none when mouse is 0
 0048df20	function	pause_screen_quit	void (void)	Pause screen 0, which nothing selects: four QUIT buttons going to screens 1, 6, 5 and 7; Escape goes to 6
 0048e140	function	pause_screen_debug	void (void)	Pause screen 8, which nothing reaches: lists the mission ships, sync states and globals on screen and appends them to c:\mission.txt every frame
-0048e370	function	pause_session_lost	void (void)	Pause screen 9 once mission_ending is 9: a dialog saying the session was terminated for a bad connection, whose OK leaves the mission as the button is released
+0048e370	function	pause_session_lost	void (void)	Draws installed string 0x5F1 for a lost session. Releasing the OK button selects outcome 7 and leaves the mission
 0048e440	function	pause_multiplayer_enter	void (void)	Entering pause screen 9: clears the scoreboard rows and lag flags, no player to drop, and makes menu_dialog_pane
 0048e500	function	pause_multiplayer_exit	void (void)	Leaving pause screen 9: destroys menu_dialog_pane
-0048e510	function	pause_screen_multiplayer	void (void)	Pause screen 9: PAUSED, LEAVE MISSION (7) and CONTINUE (6), the deathmatch scores with a drop button for each player lagging past 100, the message log, the chat line and who paused or why; Escape goes to 6
+0048e510	function	pause_screen_multiplayer	void (void)	Draws the standings, HUD message log, chat draft and the pause reason. Adds a drop button once a remote pilot's round trip exceeds 100 ticks. Leave Mission sets outcome 7. Continue or Escape sets outcome 6
 0048e8d0	function	pause_screen_main	void (void)	Pause screen 1: SELECT AN OPTION, icons AUDIO (3), CONTROL DEVICES (2) and VIDEO (4), buttons LEAVE MISSION (7), RESTART (5) and CONTINUE (6); Escape goes to 6
 0048ec20	function	pause_audio_enter	void (void)	Entering pause screen 3: keeps the four volumes for Cancel Changes and ends any drag
 0048ec70	function	pause_screen_audio	void (void)	Pause screen 3, SOUND CONFIGURATION: speech, effects, music and master sliders 0 to 127 dragged by their knobs, a test sound as the effects knob is let go, OK (1), RESTART (5), CONTINUE (6), RESET DEFAULTS and CANCEL CHANGES; Escape goes to 1
@@ -3237,3 +3237,4 @@ address	kind	name	type	comment
 005d7620	data	lobby_chat_input	char[80]	The draft typed in the multiplayer chat panel
 005d7670	data	lobby_chat_caret	int	The chat panel toggles this every 25 ticks to blink the entry caret
 005dc0d4	data	received_chat_line		The formatted callsign and message passed to the flight HUD by net_handle_system_message
+004bb950	function	net_send_drop_player	void __fastcall (int slot)	Queues packet 0x4C with the slot of the pilot selected for removal in the pause menu

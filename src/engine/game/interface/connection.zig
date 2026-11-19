@@ -49,7 +49,7 @@ hover: ?Layout.Control = null,
 
 pub fn takesText(screen: *const Connection) bool {
     if (screen.host_choice != null or screen.ship_picker != null) return false;
-    if (screen.lobby) |lobby| return lobby.chat_focused and !lobby.mode_open;
+    if (screen.lobby) |lobby| return lobby.editor.focused and !lobby.mode_open;
     return screen.editing and !screen.busy;
 }
 

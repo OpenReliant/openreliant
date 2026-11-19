@@ -2,7 +2,7 @@
 const wire = @import("wire.zig");
 
 pub const Connection = u32;
-pub const Status = enum(c_int) { incoming, authenticated, closed, unverified, lost };
+pub const Status = enum(c_int) { incoming, authenticated, closed, unverified, lost, dropped };
 pub extern fn session_init(root: ?[*]const u8, root_size: usize, certificate: ?[*]const u8, size: c_int, max_message: c_int) bool;
 pub extern fn session_set_certificate(certificate: [*]const u8, size: c_int) bool;
 pub extern fn session_deinit() void;
@@ -13,6 +13,7 @@ pub extern fn session_ping_ms(conn: Connection) c_int;
 pub extern fn session_listen_close(listener: u32) void;
 pub extern fn session_accept(conn: Connection) bool;
 pub extern fn session_close(conn: Connection) void;
+pub extern fn session_drop(conn: Connection) void;
 pub extern fn session_poll() void;
 pub extern fn session_key() u8;
 extern fn session_send(conn: Connection, bytes: [*]const u8, size: c_int, reliable: bool) bool;

@@ -2594,7 +2594,7 @@ pub const Frame = struct {
     ready: *const Readiness,
     edge_line: EdgeLine,
     multiplayer: bool = false,
-    show_standings: bool = false,
+    standings_first: ?usize = null,
     chat_line: ?[]const u8 = null,
     beacon_snapshot: ?*const six_beacons.HudSnapshot = null,
     /// The sound the enemy lock's warning plays through (`Drawing.warnOfLock`); none where nothing
@@ -2921,10 +2921,10 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
         .wing_status = .{ .all = frame.all },
     };
     try state.windows.draw(pen, &placing, frame.last_view, contents, frame.all.kamovPart());
-    if (frame.show_standings) {
+    if (frame.standings_first) |first| {
         const art = try resources.standingsArt(pen.gpa);
         const labels = if (resources.standings_font) |*font| font else pen.font;
-        try standings.draw(placing.pen(pen, .standings), frame.all, art, labels);
+        try standings.draw(placing.pen(pen, .standings), frame.all, art, labels, first);
     }
     drawing.aim.under_reticle = if (frame.sight) |sight| underReticle(frame.all, .{ .sight = sight, .scale = pen.scale }) else null;
 }

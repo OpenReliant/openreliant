@@ -6,7 +6,7 @@ While a mission is paused, the game draws a configuration menu in place of the h
 
 ## In OpenReliant
 
-[`game/hudoptions.zig`](../../src/engine/game/hudoptions.zig) holds the menu and its screens, with the items, their drawing and the buttons the screens share in [`hudoptions/menu.zig`](../../src/engine/game/hudoptions/menu.zig) and the main screen in [`hudoptions/screens.zig`](../../src/engine/game/hudoptions/screens.zig); `game_pause` is in [`game/main.zig`](../../src/engine/game/main.zig). Ported so far: pausing and resuming, the paused frame's outcomes, the menu's items and pointer, and the main screen. The audio, the video and the controls screens, the last of which F1 opens too, are OpenReliant's settings screen ([The settings screen](front-end.md#the-settings-screen)). Not yet: the multiplayer screen ([#211](https://github.com/OpenReliant/openreliant/issues/211)). RESTART starts the mission again, mission 25 from its first part ([After a mission](rooms.md#after-a-mission)). LEAVE MISSION turns to the restart screen in the campaign ([After a mission](rooms.md#after-a-mission)), goes back to the main menu from INSTANT ACTION and to the simulator pod from its missions ([The simulator pod](simulator-pod.md)), and quits where `--mission` named the mission.
+[`game/hudoptions.zig`](../../src/engine/game/hudoptions.zig) holds the menu and its screens, with the items, their drawing and the buttons the screens share in [`hudoptions/menu.zig`](../../src/engine/game/hudoptions/menu.zig) and the main screen in [`hudoptions/screens.zig`](../../src/engine/game/hudoptions/screens.zig); `game_pause` is in [`game/main.zig`](../../src/engine/game/main.zig). Ported so far: pausing and resuming, the paused frame's outcomes, the menu's items and pointer, and the main screen. The audio, the video and the controls screens, the last of which F1 opens too, are OpenReliant's settings screen ([The settings screen](front-end.md#the-settings-screen)). RESTART starts the mission again, mission 25 from its first part ([After a mission](rooms.md#after-a-mission)). LEAVE MISSION turns to the restart screen in the campaign ([After a mission](rooms.md#after-a-mission)), goes back to the main menu from INSTANT ACTION and to the simulator pod from its missions ([The simulator pod](simulator-pod.md)), and quits where `--mission` named the mission.
 
 **Improvements**, each marked so in the code:
 
@@ -227,15 +227,41 @@ plus the action for a list row, or -1. **Not traced line by line:** how the wait
 
 ### Multiplayer (9)
 
+OpenReliant uses its multiplayer menu style and shares the lobby chat editor and the flight
+standings' ordering. Escape opens the match menu. Continue or Escape returns to flight. Leave
+Mission leaves the session. SEND COMMS MESSAGE or the chat field opens a broadcast draft.
+The connection-loss dialog holds the last scene until the pilot acknowledges it. It uses the
+installed host-departure or connection-failure message.
+
+**Improvement:** Only the player hosting a LAN game can pause or resume the shared simulation.
+Guests and dedicated-server pilots open the match menu locally. A guest can chat or leave
+while the LAN host has paused the match. During a shared pause, the host stops simulation
+ticks and continues to service admissions, chat and disconnects. The roster carries the
+pause state and keeps the connection alive. A pilot joining during the pause receives the
+current arena view. The menu suppresses local flight commands on both host types.
+
+The LAN host can drop a pilot whose measured round trip exceeds the original 100-tick
+threshold or whose input has stalled for the same time. The host checks the pilot's current
+admission again before dropping them. The affected pilot sees a distinct session-ended
+message, and the rest of the session stays open.
+
+The standings panel grows with the roster and stays above chat. The wheel and arrow keys scroll
+further rows. The settings screen's paging buttons and Page Up and Page Down move a page at
+a time. The list keeps its place as pilots come and go.
+
+#### Original behaviour
+
 Entering clears the scoreboard's rows and lag flags, sets no player to drop, and makes the dialog's
 pane; leaving destroys it. Title `0xA9` PAUSED.
 
 - LEAVE MISSION at (+16, -32), 7; CONTINUE at (-16, -32), 6. Escape: 6.
 - The deathmatch scores (`0x004AF650`), with a drop button (shape `0x176`) at (0.5 W + 282, the
   row's y + 7) beside each player whose lag has passed 100 since the screen opened. Clicking one
-  sets `drop_player_slot`, which `mission_paused_frame` drops. **Unverified:** the drop, through
-  `0x004BB950`, `0x004B99B0` and `0x004B6890`.
-- The message log and the chat line, with a `_` caret.
+  sets `drop_player_slot` at 0x0048E6A8. `mission_paused_frame` sends the drop with
+  `net_send_drop_player` (0x004BB950), flushes the network queue and removes the pilot.
+- The message log uses `hud_messages_draw` at 0x0048E6ED. When `chat_typing` is set, the screen
+  reads `chat_input` and draws it with an underscore caret. SEND COMMS MESSAGE opens a
+  broadcast draft in `mission_paused_frame` (0x004920A9).
 - At (0.5 W, 0.2 H + 32) in the large font, `%s: %s` with the pausing player's name and Player has
   paused the game (`0x53E`), or Game paused due to bad connection. (`0x55A`).
 - With `mission_ending` 9, the session-lost dialog instead (`pause_session_lost`, `0x0048E370`):

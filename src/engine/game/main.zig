@@ -498,8 +498,7 @@ pub fn pause(pausing: Pausing, on: bool) !void {
     if (on) {
         if (!clock.paused) {
             clock.paused = true;
-            sound3d.pause(sound, true);
-            sound.pauseAll();
+            pauseFlightVoices(sound, true);
             try menu.open(pausing.gpa, pausing.archive, pausing.outlines);
         }
         menu.view_setting = pausing.world.player.viewing.cockpit_setting;
@@ -507,14 +506,19 @@ pub fn pause(pausing: Pausing, on: bool) !void {
     }
     if (clock.paused) {
         clock.paused = false;
-        sound3d.pause(sound, false);
-        sound.resumeAll();
+        pauseFlightVoices(sound, false);
         menu.close();
         if (menu.view_setting != pausing.world.player.viewing.cockpit_setting) {
             const world = pausing.world.*;
             _ = camera.switchView(world, .cockpit, world.objects.player, false, true);
         }
     }
+}
+
+/// Pause the 3D and foreground voices while the mission clock stands still.
+pub fn pauseFlightVoices(sound: *hog_snd.Sound, on: bool) void {
+    sound3d.pause(sound, on);
+    if (on) sound.pauseAll() else sound.resumeAll();
 }
 
 /// `mission_frame`'s pause keys, which it looks for before its work (`0x0049280B`, `0x00492845`):

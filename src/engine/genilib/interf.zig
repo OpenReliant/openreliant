@@ -188,6 +188,8 @@ pub const Resources = struct {
     background: matmanager.Background = .{},
     fighter_pictures: ?canvas.Shapes = null,
     tried_fighter_pictures: bool = false,
+    paging_shapes: ?canvas.Shapes = null,
+    tried_paging_shapes: bool = false,
     itac_strings: language.Language = .{ .strings = &.{} },
 
     /// The files it reads, which the dialogs' shapes are made of.
@@ -252,6 +254,15 @@ pub const Resources = struct {
         }
     }
 
+    /// The settings arrow pair can also page a list on another screen.
+    pub fn pagingArt(resources: *Resources) ?*hud.Art {
+        if (!resources.tried_paging_shapes) {
+            resources.paging_shapes = canvas.Shapes.read(resources.gpa, &resources.archive, settings.shapes_name);
+            resources.tried_paging_shapes = true;
+        }
+        return if (resources.paging_shapes) |*loaded| &loaded.art else null;
+    }
+
     fn dropShapes(resources: *Resources) void {
         if (resources.shapes) |*art| art.deinit(resources.gpa);
         resources.gpa.free(resources.shapes_file);
@@ -267,6 +278,7 @@ pub const Resources = struct {
         resources.dialog.deinit(gpa);
         resources.about.deinit(gpa);
         if (resources.fighter_pictures) |*pictures| pictures.deinit(gpa);
+        if (resources.paging_shapes) |*paging| paging.deinit(gpa);
         inline for (.{ &resources.large, &resources.small, &resources.developer }) |font| font.deinit(gpa);
         for (resources.files.values) |file| gpa.free(file);
     }

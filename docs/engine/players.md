@@ -113,8 +113,8 @@ Joining the lobby updates the roster. In flight, an arriving pilot adds the orig
 (`net_receive_game_message`, 0x004B6F80, case 6). `mp_player_departed` (0x004B6890) uses
 installed string 0x562 in the lobby and 0x328 on the flight HUD. OpenReliant sends the name and
 admission from the host, so a departure still identifies the right pilot if the slot fills again.
-The lobby shows system lines in its chat log. The multiplayer pause screen, including its
-message log, is tracked in [#211](https://github.com/OpenReliant/openreliant/issues/211).
+The lobby shows system lines in its chat log. The [multiplayer pause screen](pause-menu.md#multiplayer-9)
+keeps recent flight chat and pilot notices, including messages sent during a shared pause.
 
 ### Text chat
 
@@ -223,7 +223,9 @@ Hold **Display Kills** to see the flight standings. The rows follow `mp_draw_sco
 (0x004AF650), which sorts by kills and then by fewest deaths. Exact ties stay in pilot slot
 order. The panel uses the installed arena sprites and shows rank, pilot, kills, deaths and
 ping. OpenReliant reports each pilot's measured round trip to the host. The client checks
-that each name belongs to the same admission as the score.
+that each name belongs to the same admission as the score. The table fits complete rows to the
+HUD scale and the available screen height. When more rows are available, use the mouse wheel or
+Page Up and Page Down while holding Display Kills.
 
 The original sizes the arena wall around the map's scenery and spawn markers
 (`arena_frame`, 0x004AEB50). The host applies the inward push and damping to ships that

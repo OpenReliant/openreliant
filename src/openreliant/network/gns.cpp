@@ -7,11 +7,12 @@
 #include <unistd.h>
 #endif
 
-enum class Status : int { incoming, authenticated, closed, unverified, lost };
+enum class Status : int { incoming, authenticated, closed, unverified, lost, dropped };
 extern "C" void session_status(uint32_t conn, Status status, const char *identity);
 extern "C" bool OpenReliant_SetTransportRoot(const char *key, size_t size);
 extern "C" bool OpenReliant_SetTransportCertificate(const void *certificate, int size);
 
+constexpr int dropped_for_lag = k_ESteamNetConnectionEnd_App_Min + 1;
 constexpr int queued_messages = 32;
 constexpr int queued_bytes = 4096;
 
@@ -34,7 +35,7 @@ static void changed(SteamNetConnectionStatusChangedCallback_t *event) {
             break;
         }
         case k_ESteamNetworkingConnectionState_ClosedByPeer:
-            session_status(conn, Status::closed, nullptr);
+            session_status(conn, info.m_eEndReason == dropped_for_lag ? Status::dropped : Status::closed, nullptr);
             break;
         case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
             session_status(conn, Status::lost, nullptr);
@@ -103,6 +104,10 @@ extern "C" bool session_accept(uint32_t conn) {
 
 extern "C" void session_close(uint32_t conn) {
     SteamNetworkingSockets()->CloseConnection(conn, 0, nullptr, false);
+}
+
+extern "C" void session_drop(uint32_t conn) {
+    SteamNetworkingSockets()->CloseConnection(conn, dropped_for_lag, nullptr, false);
 }
 
 extern "C" void session_poll() { SteamNetworkingSockets()->RunCallbacks(); }

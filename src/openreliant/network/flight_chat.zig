@@ -5,6 +5,7 @@ const game = engine.game;
 const wire = @import("wire.zig");
 const Client = @import("client.zig");
 const FlightChat = @This();
+const type_message: game.radio.menu.Label = .{ .network = .{ .label = .{ .id = 0x176, .english = "Type message" } } };
 
 target: ?@FieldType(wire.ChatRequest, "to") = null,
 line: game.chat.Line = .{},
@@ -33,6 +34,16 @@ pub fn frame(chat: *FlightChat, client: *Client, drawn: *game.main.Drawn, device
     }
 
     const menu = &drawn.player.menu;
+    // mission_frame (0x00492935) opens a draft addressed to all pilots.
+    if (devices.active(.send_comms_message, true)) {
+        _ = windows.open(.comms, true);
+        windows.status.getPtr(.comms).held = true;
+        menu.* = .{ .page = .message_all };
+        menu.add(type_message, .message_all, -1);
+        chat.target = .flight;
+        typed.clear();
+        return true;
+    }
     if (devices.active(.comms_window, true)) {
         if (windows.up(.comms)) {
             windows.close(.comms);
@@ -54,7 +65,7 @@ pub fn frame(chat: *FlightChat, client: *Client, drawn: *game.main.Drawn, device
         .multiplayer => chat.showPilots(menu, client),
         .player => {
             menu.count = 0;
-            menu.add(.{ .network = .{ .label = .{ .id = 0x176, .english = "Type message" } } }, if (menu.addressed < 0) .message_all else .message, menu.addressed);
+            menu.add(type_message, if (menu.addressed < 0) .message_all else .message, menu.addressed);
         },
         .message, .message_all => {
             chat.target = if (menu.page == .message_all) .flight else target: {

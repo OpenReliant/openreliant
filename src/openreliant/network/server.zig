@@ -16,6 +16,9 @@ const ChatBudget = @import("chat_budget.zig");
 
 const timeout = 5 * std.time.us_per_s;
 const held_input_timeout = 250 * std.time.us_per_ms;
+const paused_roster_interval = std.time.us_per_s;
+// pause_screen_multiplayer (0x0048E62D) shows a drop control past 100 game ticks of round-trip time.
+const slow_round_trip = 100 * std.time.ms_per_s / game.main.ticks_per_second;
 const packets_per_tick = 4;
 const max_identity = 32;
 pub const pilots_to_start = 2;
@@ -51,6 +54,8 @@ start: union(enum) {
 listener: u32 = 0,
 peers: [wire.slots]?Peer = @splat(null),
 roster_dirty: bool = false,
+paused: bool = false,
+next_paused_roster: i64 = 0,
 projectile_pages: [ProjectilePage.pages]bool = @splat(false),
 budget: HandshakeBudget = .{},
 chat_budget: ChatBudget = .{},
@@ -67,10 +72,12 @@ fn now(host: *const Host) i64 {
 }
 
 fn release(host: *Host, slot: u8) void {
-    host.remove(slot, host.final_tick == null);
+    host.remove(slot, host.final_tick == null, .normal);
 }
 
-fn remove(host: *Host, slot: u8, announce: bool) void {
+const Departure = enum { normal, dropped };
+
+fn remove(host: *Host, slot: u8, announce: bool, departure: Departure) void {
     const peer = host.peers[slot] orelse return;
     if (host.arena.pilots[slot]) |pilot| {
         if (announce and peer.state == .playing) {
@@ -84,7 +91,11 @@ fn remove(host: *Host, slot: u8, announce: bool) void {
         host.roster_dirty = true;
     }
     host.peers[slot] = null;
-    net.session_close(peer.conn);
+    if (slot == 0 and host.paused) host.setPaused(false);
+    switch (departure) {
+        .normal => net.session_close(peer.conn),
+        .dropped => net.session_drop(peer.conn),
+    }
 }
 
 fn pilotNotice(host: *Host, slot: u8, generation: u64, name: ?wire.CallSign, kind: wire.PilotNotice.Kind) void {
@@ -217,9 +228,35 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
             peer.state = .joining;
             return;
         },
-        .closed, .lost => {},
+        .closed, .lost, .dropped => {},
     }
     if (slot) |index| host.release(index) else net.session_close(conn);
+}
+
+/// The player's local LAN host alone can stop the simulation. The network keeps running.
+pub fn setPaused(host: *Host, paused: bool) void {
+    if (!host.lan_only or host.start != .launched or host.tick == 0 or host.final_tick != null or host.paused == paused) return;
+    host.paused = paused;
+    host.roster_dirty = true;
+    for (&host.peers) |*entry| if (entry.*) |*peer| {
+        peer.flight_command = flight_input.release(peer.flight_command);
+        peer.fire_for = null;
+        peer.presses = .{};
+        if (peer.weapons) |*weapons| weapons.presses = .{};
+    };
+}
+
+pub fn canDropPausedPilot(host: *const Host, admission: wire.Admission) bool {
+    if (!host.paused or admission.slot == 0 or admission.slot >= wire.slots) return false;
+    const peer = host.peers[admission.slot] orelse return false;
+    const pilot = host.arena.pilots[admission.slot] orelse return false;
+    if (peer.state != .playing or pilot.participant.generation != admission.generation) return false;
+    const ping = net.session_ping_ms(peer.conn);
+    return ping > slow_round_trip or host.now() - (peer.expires - timeout) > slow_round_trip * std.time.us_per_ms;
+}
+
+pub fn dropPausedPilot(host: *Host, admission: wire.Admission) void {
+    if (host.canDropPausedPilot(admission)) host.remove(admission.slot, true, .dropped);
 }
 
 fn hasName(host: *const Host, name: []const u8) bool {
@@ -268,6 +305,11 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
             peer.announce_join = host.tick != 0;
             peer.expires = time + timeout;
             try net.send(peer.conn, .{ .joined = admitted });
+            if (host.paused) {
+                const view = try host.arena.snapshot(host.tick);
+                var buffer: [wire.capacity]u8 = undefined;
+                try net.sendBytes(peer.conn, try (wire.Message{ .view = view }).encode(&buffer), true);
+            }
             host.roster_dirty = true;
             std.debug.print("joined {d} {d}\n", .{ slot, admitted.generation });
             return true;
@@ -282,13 +324,13 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                     if (!input.follows(peer.sequence)) return true;
                     peer.sequence = input.sequence;
                     peer.expires = time + timeout;
-                    if (host.start != .lobby) {
+                    if (host.acceptsFlight()) {
                         peer.flight_command = input.command;
                         peer.fire_for = input.fire_for;
                     }
                 },
-                .flight_press => |presses| if (host.start != .lobby) peer.presses.merge(presses),
-                .weapon_order => |order| if (host.start != .lobby) {
+                .flight_press => |presses| if (host.acceptsFlight()) peer.presses.merge(presses),
+                .weapon_order => |order| if (host.acceptsFlight()) {
                     if (peer.weapons) |*pending| pending.merge(order) else peer.weapons = order;
                 },
                 .chat_request => |request| host.relayChat(slot, peer, request, time),
@@ -358,7 +400,7 @@ fn playingCount(host: *const Host) usize {
 fn publishRoster(host: *Host) !void {
     if (!host.roster_dirty or (host.start == .lobby and !host.canLaunch())) return;
     host.roster_dirty = false;
-    var roster: wire.Roster = .{ .lobby = if (host.start == .lobby) host.start.lobby.scenario else null };
+    var roster: wire.Roster = .{ .lobby = if (host.start == .lobby) host.start.lobby.scenario else null, .paused = host.paused };
     for (host.peers, host.arena.pilots, &roster.pilots) |entry, participant, *listed| {
         const peer = entry orelse continue;
         const pilot = participant orelse continue;
@@ -371,6 +413,10 @@ fn publishRoster(host: *Host) !void {
         if (peer.state != .playing) continue;
         net.sendBytes(peer.conn, bytes, true) catch host.release(@intCast(slot));
     }
+}
+
+fn acceptsFlight(host: *const Host) bool {
+    return host.start != .lobby and !host.paused;
 }
 
 fn applyControls(host: *Host, time: i64) void {
@@ -503,7 +549,7 @@ pub fn open(host: *Host, address: [:0]const u8, ticks: ?u32) !void {
 }
 
 pub fn close(host: *Host) void {
-    for (0..host.peers.len) |slot| host.remove(@intCast(slot), false);
+    for (0..host.peers.len) |slot| host.remove(@intCast(slot), false, .normal);
     if (host.listener != 0) {
         net.session_listen_close(host.listener);
         host.listener = 0;
@@ -530,7 +576,12 @@ pub fn pump(host: *Host) !enum { running, finished } {
         }
     }
     try host.servicePeers(time);
+    if (host.paused and time >= host.next_paused_roster) {
+        host.roster_dirty = true;
+        host.next_paused_roster = time + paused_roster_interval;
+    }
     try host.publishRoster();
+    if (host.paused) return .running;
     switch (host.start) {
         .lobby => return .running,
         .automatic => if (host.tick == 0 and host.playingCount() < pilots_to_start) return .running,
@@ -608,4 +659,30 @@ test "chat display names cannot take a name already on the host roster" {
     try std.testing.expectEqual(0, host.chatCallSign(wire.lobbyName(" rook ")).len);
     try std.testing.expectEqual(0, host.chatCallSign(wire.lobbyName("System")).len);
     try std.testing.expectEqualStrings("Falcon", host.chatCallSign(wire.lobbyName("Falcon")).slice());
+}
+
+test "only a launched local LAN host pauses and drops stale flight commands" {
+    var host: Host = .{ .io = std.testing.io, .arena = undefined, .start = .launched, .tick = 8 };
+    host.peers[0] = .{
+        .conn = 1,
+        .expires = timeout,
+        .state = .playing,
+        .fire_for = 4,
+        .flight_command = .{ .afterburner = true },
+    };
+    host.setPaused(true);
+    try std.testing.expect(!host.paused);
+    try std.testing.expect(host.acceptsFlight());
+
+    host.lan_only = true;
+    host.setPaused(true);
+    try std.testing.expect(host.paused);
+    try std.testing.expect(host.roster_dirty);
+    try std.testing.expect(!host.acceptsFlight());
+    try std.testing.expectEqual(null, host.peers[0].?.fire_for);
+    try std.testing.expect(!host.peers[0].?.flight_command.afterburner);
+
+    host.setPaused(false);
+    try std.testing.expect(host.acceptsFlight());
+    try std.testing.expectEqual(8, host.tick);
 }
