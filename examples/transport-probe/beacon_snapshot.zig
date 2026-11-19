@@ -1,6 +1,7 @@
 //! Full objective snapshots for the private Six Beacons workload.
 const std = @import("std");
 const game = @import("openreliant").engine.game;
+const simulation = @import("arena_simulation");
 const objectives = game.deathmatch.six_beacons;
 const ObjectRef = game.gameobj.ObjectRef;
 
@@ -69,15 +70,8 @@ pub const View = struct {
     positions: [objectives.required][3]f32,
 
     pub fn capture(all: *const game.create.Objects, tick: i32) !View {
-        const state = all.arena_scenario.six_beacons.snapshot();
-        var positions: [objectives.required][3]f32 = undefined;
-        for (state.beacons, &positions) |beacon, *position| {
-            const index = beacon.object.resolve(all) orelse return error.MissingBeacon;
-            const object = &all.slots[index].object;
-            if (object.flags.disabled != (beacon.carrier != null)) return error.WrongVisibility;
-            position.* = object.position();
-        }
-        return .{ .tick = tick, .state = state, .positions = positions };
+        const view = try simulation.BeaconView.capture(all);
+        return .{ .tick = tick, .state = view.state, .positions = view.positions };
     }
 
     pub fn encode(view: View, buffer: []u8) ![]const u8 {

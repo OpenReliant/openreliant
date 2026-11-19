@@ -57,47 +57,81 @@ def require(condition, description):
         raise RuntimeError(description)
 
 
-async def run(binary, credentials):
-    sessions = []
-    root = credentials / "root.pub"
+class Loopback:
+    def __init__(self, binary, credentials):
+        self.binary = binary
+        self.credentials = credentials
+        self.sessions = []
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+            udp.bind(("127.0.0.1", 0))
+            self.port = udp.getsockname()[1]
+        self.address = f"127.0.0.1:{self.port}"
 
-    async def start(role, identity, *args, trust=root):
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        for session in self.sessions:
+            if session.process.returncode is None:
+                try:
+                    session.process.kill()
+                except ProcessLookupError:
+                    pass
+        await asyncio.gather(*(session.wait() for session in self.sessions))
+
+    async def start(self, *args, cwd=None):
         process = await asyncio.create_subprocess_exec(
-            str(binary), "session", role, address, str(trust), str(credentials / f"{identity}.cert"), *args,
+            str(self.binary), *args,
+            cwd=cwd,
             stdin=asyncio.subprocess.PIPE if "keyboard" in args else None,
             stderr=asyncio.subprocess.PIPE,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
         session = Session(process)
-        sessions.append(session)
+        self.sessions.append(session)
         return session
 
-    async def join(name, steering, *args):
-        return await start("join", name, "host", steering, *args)
+    async def session(self, role, identity, *args, trust=None):
+        root = trust if trust is not None else self.credentials / "root.pub"
+        certificate = self.credentials / f"{identity}.cert"
+        return await self.start("session", role, self.address, str(root), str(certificate), *args)
 
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
-        udp.bind(("127.0.0.1", 0))
-        address = f"127.0.0.1:{udp.getsockname()[1]}"
+    async def join(self, name, steering, *args):
+        peer = await self.session("join", name, "host", steering, *args)
+        await peer.expect("admitted ")
+        return peer
 
-    try:
+
+async def finish(host, participants):
+    for session in (host, *participants):
+        require(await session.wait() == 0, f"a peer exited before the end of the round. Last message: {session.last_line}")
+    end = host.finished
+    require(end is not None, "the host did not finish")
+    require(host.receipts == len(participants), "the host did not receive every final receipt")
+    require(all(peer.finished == end for peer in participants), "pilots disagree about the final tick")
+    require(all(peer.views[end] == participants[0].views[end] for peer in participants),
+            "pilots disagree about the final snapshot")
+    return end
+
+
+async def check_training(binary, credentials):
+    async with Loopback(binary, credentials) as game:
         with tempfile.TemporaryDirectory() as directory:
             invalid_key = Path(directory) / "root.pub"
             invalid_key.write_text("invalid public key\n", encoding="ascii")
-            invalid = await start("host", "host", "175", trust=invalid_key)
+            invalid = await game.session("host", "host", "175", trust=invalid_key)
             require(await invalid.wait() == 1 and invalid.last_line == "session: InvalidTransportIdentity",
                     "the host accepted an invalid trust root")
-        host = await start("host", "host", "175")
+        host = await game.session("host", "host", "175")
         await host.expect("listening ")
         keyboard = os.name == "posix"
-        first = await join("pilot1", "keyboard" if keyboard else "left")
-        second = await join("pilot2", "right")
-        await first.expect("admitted ")
+        first = await game.join("pilot1", "keyboard" if keyboard else "left")
+        second = await game.join("pilot2", "right")
         if keyboard:
             first.process.stdin.write(b"a\n")
             await first.process.stdin.drain()
         await first.expect("view ")
-        late = await join("pilot3", "straight", "12")
-        await late.expect("admitted ")
+        late = await game.join("pilot3", "straight", "12")
         slot, old_generation = late.admission
         await host.expect(f"left {slot} {old_generation}")
         require(await late.wait() == 0, "the late pilot could not leave cleanly")
@@ -105,19 +139,12 @@ async def run(binary, credentials):
         for peer in (first, second):
             await peer.expect("view ", lambda line: int(line.split()[offset]) == old_generation)
             await peer.expect("view ", lambda line: int(line.split()[offset]) == 0)
-        replacement = await join("pilot3", "straight")
-        await replacement.expect("admitted ")
+        replacement = await game.join("pilot3", "straight")
         new_slot, new_generation = replacement.admission
         require(slot == new_slot and old_generation != new_generation, "the slot was not admitted afresh")
 
         participants = (first, second, replacement)
-        for session in (host, *participants):
-            require(await session.wait() == 0, f"a peer exited before the end of the round. Last message: {session.last_line}")
-        end = host.finished
-        require(end is not None, "the host did not finish")
-        require(host.receipts == len(participants), "the host did not receive every final receipt")
-        require(all(peer.finished == end for peer in participants), "pilots disagree about the final tick")
-        require(all(peer.views[end] == first.views[end] for peer in participants), "pilots disagree about the final snapshot")
+        end = await finish(host, participants)
 
         for peer in (first, second):
             generations = [ships[slot][0] for _, ships in sorted(peer.views.items())]
@@ -134,14 +161,65 @@ async def run(binary, credentials):
         require(dx1 * dx2 < 0 and min(abs(dx1), abs(dx2)) > 1, "opposite flight inputs did not move the two ships apart")
         require(all(result[i][2] > start[i][2] for i in (first_slot, second_slot)), "the host did not move the ships forward")
         print(f"Three pilots confirmed tick {end}. Slot {slot} rejoined with a new admission.")
-    finally:
-        for session in sessions:
-            if session.process.returncode is None:
-                try:
-                    session.process.kill()
-                except ProcessLookupError:
-                    pass
-        await asyncio.gather(*(session.wait() for session in sessions))
+
+
+
+def beacon(line, index, state):
+    fields = line.split()
+    return fields[2:4] == [str(index), state]
+
+
+async def check_beacons(binary, credentials):
+    with tempfile.TemporaryDirectory() as directory:
+        async with Loopback(binary, credentials) as game:
+            await six_beacons(game, Path(directory).resolve() / "server.ini")
+
+
+async def six_beacons(game, config):
+    root = os.path.relpath(game.credentials / "root.pub", config.parent)
+    certificate = os.path.relpath(game.credentials / "host.cert", config.parent)
+    config.write_text(f"""[Server]
+Port={game.port}
+Arena=six-beacons
+Players=3
+RoundTicks=175
+
+[Identity]
+RootPublicKey={root}
+Certificate={certificate}
+""", encoding="utf-8")
+    host = await game.start("--headless", cwd=config.parent)
+    await host.expect("listening ")
+    first = await game.join("pilot1", "straight", "75")
+    second = await game.join("pilot2", "straight")
+    slot, generation = first.admission
+
+    async def pickup(peer):
+        line = await peer.expect("beacon ", lambda line: beacon(line, 0, "carried"))
+        require(tuple(map(int, line.split()[4:])) == (slot, generation), "the pickup had the wrong carrier")
+
+    await pickup(first)
+    await pickup(second)
+    third = await game.join("pilot3", "straight")
+    await pickup(third)
+    await host.expect(f"left {slot} {generation}")
+    require(await first.wait() == 0, "the carrier could not leave cleanly")
+    drops = [await peer.expect("beacon ", lambda line: beacon(line, 0, "loose")) for peer in (second, third)]
+    require(drops[0] == drops[1], "pilots saw different beacon drops")
+
+    replacement = await game.join("pilot1", "straight")
+    new_slot, new_generation = replacement.admission
+    require(new_slot == slot and new_generation != generation, "the carrier's slot did not get a fresh admission")
+    restored = await replacement.expect("beacon ", lambda line: beacon(line, 0, "loose"))
+    require(restored.split()[4:] == drops[0].split()[4:], "the returning pilot saw a different beacon position")
+
+    end = await finish(host, (second, third, replacement))
+    print(f"Six Beacons: a late pilot saw the pickup, both active pilots saw the drop, and the returning pilot confirmed tick {end}.")
+
+
+async def run(binary, credentials):
+    for check in (check_training, check_beacons):
+        await asyncio.wait_for(check(binary, credentials), 30)
 
 
 if __name__ == "__main__":
@@ -149,4 +227,4 @@ if __name__ == "__main__":
     parser.add_argument("binary", type=Path)
     parser.add_argument("credentials", type=Path)
     args = parser.parse_args()
-    asyncio.run(asyncio.wait_for(run(args.binary.resolve(), args.credentials.resolve()), 30))
+    asyncio.run(run(args.binary.resolve(), args.credentials.resolve()))

@@ -47,6 +47,7 @@ pub fn run(client: *Client, io: Io, address: [:0]const u8, controls: Controls, l
     var joined: ?wire.Admission = null;
     var last_tick: u32 = 0;
     var views: u32 = 0;
+    var objectives: wire.Objectives = .none;
     var sequence: u32 = 0;
     var next_input: i64 = 0;
     var leaving = false;
@@ -108,6 +109,10 @@ pub fn run(client: *Client, io: Io, address: [:0]const u8, controls: Controls, l
                             } else std.debug.print(" 0 0 0", .{});
                         }
                         std.debug.print("\n", .{});
+                        if (!std.meta.eql(objectives, view.objectives)) {
+                            objectives = view.objectives;
+                            showObjectives(view);
+                        }
                         if (message == .finished) {
                             try net.send(conn, .{ .received_final = view.tick });
                             leaving = true;
@@ -123,4 +128,12 @@ pub fn run(client: *Client, io: Io, address: [:0]const u8, controls: Controls, l
         };
         try io.sleep(.fromMilliseconds(poll_ms), .awake);
     }
+}
+
+fn showObjectives(view: wire.Snapshot) void {
+    if (view.objectives != .six_beacons) return;
+    for (view.objectives.six_beacons, 0..) |beacon, index| switch (beacon) {
+        .carried => |slot| std.debug.print("beacon {d} {d} carried {d} {d}\n", .{ view.tick, index, slot, view.ships[slot].?.generation }),
+        .loose => |p| std.debug.print("beacon {d} {d} loose {d:.3} {d:.3} {d:.3}\n", .{ view.tick, index, p[0], p[1], p[2] }),
+    };
 }

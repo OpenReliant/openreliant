@@ -1,4 +1,4 @@
-//! An original training arena for direct-IP sessions. It uses the regular host flight step.
+//! Headless arenas for direct-IP sessions, driven by the regular host flight step.
 const std = @import("std");
 const engine = @import("openreliant").engine;
 const game = engine.game;
@@ -9,34 +9,59 @@ const Arena = @This();
 const spawn_spacing: f32 = 12000;
 const steering_scale: f32 = 0.1;
 pub const step_us = game.gameobj.ticks_per_step * std.time.us_per_s / game.main.ticks_per_second;
+pub const Mode = enum { training, @"six-beacons" };
+
+comptime {
+    std.debug.assert(wire.slots == simulation.beacon_spawn_x.len);
+}
 
 mission: game.gameobj.testing.Mission,
+mode: Mode,
+explosions: ?game.explode.Explosions = null,
 devices: engine.input.Devices = .{},
 pilots: [wire.slots]?game.players.ControlRef = @splat(null),
 
-pub fn init(arena: *Arena, gpa: std.mem.Allocator) !void {
+pub fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode) !void {
     try arena.mission.init(gpa);
+    errdefer arena.mission.deinit();
+    arena.mode = mode;
+    arena.explosions = null;
     arena.devices = .{};
     arena.pilots = @splat(null);
-    const all = arena.mission.objects;
-    all.players = wire.slots;
-    all.count = all.players;
+    switch (mode) {
+        .training => {
+            const all = arena.mission.objects;
+            all.players = wire.slots;
+            all.count = all.players;
+        },
+        .@"six-beacons" => {
+            arena.explosions = try .init(gpa, null);
+            errdefer arena.explosions.?.deinit();
+            try simulation.prepareSixBeacons(&arena.mission, &arena.explosions.?);
+        },
+    }
 }
 
 pub fn deinit(arena: *Arena) void {
+    if (arena.explosions) |*explosions| explosions.deinit();
     arena.mission.deinit();
 }
 
+fn effects(arena: *Arena) ?*game.explode.Explosions {
+    return if (arena.explosions) |*explosions| explosions else null;
+}
+
 fn world(arena: *Arena) game.gameobj.World {
-    return simulation.world(&arena.mission, null);
+    return simulation.world(&arena.mission, arena.effects());
 }
 
 pub fn join(arena: *Arena, slot: u8) !wire.Admission {
     const mission = &arena.mission;
     const all = mission.objects;
-    const x = @as(f32, @floatFromInt(slot)) * spawn_spacing;
+    const x = if (arena.mode == .@"six-beacons") simulation.beacon_spawn_x[slot] else @as(f32, @floatFromInt(slot)) * spawn_spacing;
     _ = try game.create.createObject(all, &mission.tables, game.create.testing.no_models, slot, .of(.predator), 0, .{ x, 0, 0 }, &mission.random);
     errdefer game.create.resetSlot(.of(arena.world()), slot);
+    if (arena.mode == .@"six-beacons") mission.slot(slot).object.radius = simulation.beacon_ship_radius;
     const pilot = try simulation.admit(arena.world(), slot);
     errdefer _ = game.create.Objects.leaveParticipant(arena.world(), pilot.participant);
     if (!try game.aigeneric.push(.of(arena.world()), slot, .multiplayer_control, .none)) return error.OrderFailed;
@@ -60,7 +85,7 @@ pub fn input(arena: *Arena, slot: u8, steering: wire.Steering) bool {
 }
 
 pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
-    if (simulation.step(&arena.mission, &arena.devices, null) != .played) return error.ArenaEnded;
+    if (simulation.step(&arena.mission, &arena.devices, arena.effects()) != .played) return error.ArenaEnded;
     const all = arena.mission.objects;
     var view: wire.Snapshot = .{ .tick = tick, .ships = @splat(null) };
     for (arena.pilots, &view.ships) |entry, *ship| {
@@ -70,6 +95,17 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
             .generation = pilot.participant.generation,
             .position = all.slots[index].object.nextPosition(),
         };
+    }
+    if (arena.mode == .@"six-beacons") {
+        const captured = try simulation.BeaconView.capture(all);
+        var beacons: [wire.beacon_count]wire.Beacon = undefined;
+        for (captured.state.beacons, captured.positions, &beacons) |beacon, position, *entry| {
+            entry.* = if (beacon.carrier) |carrier|
+                .{ .carried = @intCast(carrier.participant.slot) }
+            else
+                .{ .loose = position };
+        }
+        view.objectives = .{ .six_beacons = beacons };
     }
     return view;
 }

@@ -6,8 +6,8 @@ const simulation = @import("arena_simulation");
 const wire = @import("beacon_snapshot.zig");
 const Arena = @This();
 
-pub const first_marker = 5000;
-const spawn_x = [_]f32{ first_marker, -8000, -6000 };
+const spawn_x = simulation.beacon_spawn_x;
+pub const first_marker = spawn_x[0];
 pub const pilot_count = spawn_x.len;
 
 mission: game.gameobj.testing.Mission,
@@ -20,20 +20,7 @@ pub fn init(arena: *Arena, allocator: std.mem.Allocator) !void {
     errdefer arena.mission.deinit();
     arena.explosions = try .init(allocator, null);
     errdefer arena.explosions.deinit();
-    const all = arena.mission.objects;
-    all.players = spawn_x.len;
-    // Reserve the empty player slots before adding scenery. Admission creates the ship.
-    all.count = all.players;
-    const gate = try arena.mission.add(.of(.dm_beacon_gate), @splat(0));
-    arena.mission.slot(gate).object.radius = 100;
-    for (0..game.deathmatch.six_beacons.required) |i| {
-        const x: f32 = @floatFromInt(first_marker + i * 1000);
-        const marker = try arena.mission.add(.of(.beacon_marker), .{ x, 0, 0 });
-        arena.mission.slot(marker).object.radius = 0;
-        const beacon = try arena.mission.add(.of(.dm_beacon), .{ 20000, 0, 0 });
-        arena.mission.slot(beacon).object.radius = 20;
-    }
-    try game.deathmatch.six_beacons.Round.start(arena.world(), .free_for_all);
+    try simulation.prepareSixBeacons(&arena.mission, &arena.explosions);
 }
 
 pub fn deinit(arena: *Arena) void {
@@ -63,7 +50,7 @@ pub fn admit(arena: *Arena, slot: u16) !game.players.ControlRef {
         &mission.random,
     );
     errdefer game.create.resetSlot(.of(arena.world()), index);
-    mission.slot(index).object.radius = 10;
+    mission.slot(index).object.radius = simulation.beacon_ship_radius;
     return simulation.admit(arena.world(), index);
 }
 
