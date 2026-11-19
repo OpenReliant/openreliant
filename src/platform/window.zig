@@ -17,7 +17,7 @@ pub const Event = union(enum) {
     quit,
     /// A key went down or up, by its DirectInput scan code (`keyboard.directInput`): the key's
     /// place on the keyboard, whatever it types. Keys DirectInput has no code for are left out.
-    key: struct { scan: keyboard.Key, down: bool },
+    key: struct { scan: keyboard.Key, down: bool, paste: bool = false },
     /// A joystick or gamepad was plugged in or out (`joystick`).
     controllers,
     /// The keyboard's layout changed, which names the keys otherwise (`keyboard.nameKeys`).
@@ -150,7 +150,8 @@ pub const Window = struct {
                     }
                     if (window.taking_text and event.key.down and event.key.scancode == c.SDL_SCANCODE_BACKSPACE) window.backspace_owed = true;
                     const scan = keyboard.directInput(event.key.scancode) orelse continue;
-                    return .{ .key = .{ .scan = scan, .down = event.key.down } };
+                    const paste = event.key.down and !event.key.repeat and event.key.scancode == c.SDL_SCANCODE_V and event.key.mod & (c.SDL_KMOD_CTRL | c.SDL_KMOD_GUI) != 0;
+                    return .{ .key = .{ .scan = scan, .down = event.key.down, .paste = paste } };
                 },
                 c.SDL_EVENT_TEXT_INPUT => {
                     if (!window.taking_text) continue;
@@ -409,4 +410,15 @@ pub fn localTime(since_1970: i64) ?LocalTime {
 /// Opens `url` in the system's web browser (`SDL_OpenURL`); a failure is logged.
 pub fn openUrl(url: [:0]const u8) Error!void {
     if (!c.SDL_OpenURL(url)) return fail("SDL_OpenURL");
+}
+
+/// Copy clipboard text into a bounded field when the player asks to paste.
+pub fn clipboard(buffer: []u8) ?[]const u8 {
+    const bytes = c.SDL_GetClipboardText() orelse return null;
+    defer c.SDL_free(bytes);
+    const text = std.mem.trim(u8, std.mem.span(bytes), " \r\n\t");
+    if (text.len == 0 or text.len > buffer.len) return null;
+    for (text) |ch| if (!std.ascii.isPrint(ch)) return null;
+    @memcpy(buffer[0..text.len], text);
+    return buffer[0..text.len];
 }

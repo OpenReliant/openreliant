@@ -12,7 +12,7 @@ OpenReliant opens in the front end unless `--mission` names a mission. The pilot
 
 Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GAME OPTIONS ([GAME OPTIONS](#game-options)), the audio, the controls and the video, on OpenReliant's settings screen ([The settings screen](#the-settings-screen)), the mods screen ([The mods screen](#the-mods-screen)), the pilot roster with SET GAME DIFFICULTY, the saved games ([The saved games](#the-saved-games)), the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, the movies around a mission ([Movies](movies.md)), and the restart screen. Not yet:
 
-- The multiplayer screens: MULTI PLAYER stays on the main menu ([#404](https://github.com/OpenReliant/openreliant/issues/404)).
+- The multiplayer lobby and loadout screens ([#404](https://github.com/OpenReliant/openreliant/issues/404)).
 - The movies between the screens not yet ported, which come with their screens ([Movies](movies.md)).
 
 **Fix:** a screen takes no press until the button held as it was entered comes up. The movie between two screens gives the press that chose the second time to end; where the transitions are off, the game lets it go on to what lies under the pointer on the new screen.
@@ -24,6 +24,20 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GA
 - The pointer is where the system's is over the window, rather than DirectInput's movements added up.
 - The mouse's wheel scrolls the lists, the saved games' and the controls', three rows a notch, as the system scrolls text by default; the game reads no wheel.
 - OpenReliant's version is written, dimmed, in the window's bottom right corner, as the pause menu writes it ([Pause menu](pause-menu.md)): on the front end's screens, the loading screens and the in-game options over the Reliant's rooms ([The Reliant's rooms](rooms.md)), though not in the rooms themselves.
+
+## Server browser
+
+MULTI PLAYER opens the browser on the hologram backdrop (`interface\sinfade.tga`).
+StarLancer drew its connection options with `interface\frntend3.spr` at `0x004345B0`.
+OpenReliant uses the same buttons for the Internet and LAN lists and for Direct Connect.
+The two panels share their top and bottom edges. The selected server's description wraps
+above Join Game. More rows fit at higher resolutions inside the same 4:3 frame.
+
+Enter a server IP or paste an invite under Direct Connect. Enter or Connect opens the
+game connection. The arena shows the host's ships in chase view. Escape leaves the server.
+Public discovery, LAN discovery and player hosting still need their runtime providers.
+See [public discovery](https://github.com/OpenReliant/openreliant/issues/957) and
+[player hosting](https://github.com/OpenReliant/openreliant/issues/363).
 
 ## The screens
 
@@ -47,7 +61,7 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GA
 | 10 and 11, the multiplayer sessions | `multiplayer_sessions_screen` (`0x0043CA50`), with `0x0051D54C` set or clear | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
 | 12, the pilot roster | `0x00430490` | |
 | 13, the saved games ([The saved games](#the-saved-games)) | `saved_games` (`0x00431730`) | |
-| 14, the multiplayer connection | `multiplayer_connection_screen` (`0x00432FC0`) | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
+| 14, the multiplayer connection | `multiplayer_connection_screen` (`0x00432FC0`) | [Server browser](#server-browser) |
 | 17 and 18, a session's loadout | `session_loadout_screen` (`0x0044B950`), with `0x0051D54C` set or clear | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
 
 Any other number returns 3. **Unknown:** what selects screen 8: `WinMain` plays the landing itself. What `interface_run` returns tells WinMain what to do:

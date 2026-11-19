@@ -59,7 +59,7 @@ pub fn join(arena: *Arena, slot: u8) !wire.Admission {
     const mission = &arena.mission;
     const all = mission.objects;
     const x = if (arena.mode == .@"six-beacons") simulation.beacon_spawn_x[slot] else @as(f32, @floatFromInt(slot)) * spawn_spacing;
-    _ = try game.create.createObject(all, &mission.tables, game.create.testing.no_models, slot, .of(.predator), 0, .{ x, 0, 0 }, &mission.random);
+    _ = try game.create.createObject(all, &mission.tables, game.create.testing.no_models, slot, wire.arena_ship, 0, .{ x, 0, 0 }, &mission.random);
     errdefer game.create.resetSlot(.of(arena.world()), slot);
     if (arena.mode == .@"six-beacons") mission.slot(slot).object.radius = simulation.beacon_ship_radius;
     const pilot = try simulation.admit(arena.world(), slot);
@@ -95,6 +95,7 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
             .generation = pilot.participant.generation,
             .position = all.slots[index].object.nextPosition(),
         };
+        ship.*.?.face(all.slots[index].object.root.next_orientation);
     }
     if (arena.mode == .@"six-beacons") {
         const captured = try simulation.BeaconView.capture(all);

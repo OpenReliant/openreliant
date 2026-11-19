@@ -81,9 +81,9 @@ reports how many pilots confirmed it before shutdown.
 
 Flight commands and interim snapshots use unreliable delivery. They are sent as soon as they
 are ready. Admission, departures and the final result use reliable delivery. A command takes
-6 bytes and a three-pilot training snapshot takes 66 bytes before transport headers. At 25 updates
-per second in both directions that is 1,800 payload bytes per second per pilot. A Six Beacons
-snapshot takes at most 144 bytes and contains all six locations or carriers. A carried beacon
+6 bytes and a three-pilot training snapshot takes 84 bytes before transport headers. At 25 updates
+per second in both directions that is 2,250 payload bytes per second per pilot. A Six Beacons
+snapshot takes at most 162 bytes and contains all six locations or carriers. A carried beacon
 names a slot from the same snapshot, so it refers to the ship and admission in that view. The host
 encodes each snapshot once and sends those bytes to each pilot. Routed latency and sustained
 throughput measurements are tracked in [#1405](https://github.com/OpenReliant/openreliant/issues/1405).
