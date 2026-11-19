@@ -9,6 +9,9 @@ set(BUILD_STATIC_LIB ON CACHE BOOL "")
 add_subdirectory("${GNS_SOURCE}" gns)
 target_compile_definitions(GameNetworkingSockets_s PRIVATE
     STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY="${root_key}")
+if(OPENRELIANT_TRANSPORT_ONLY)
+    return()
+endif()
 
 # Configure and trace native ICE in a build-local copy of the pinned translation unit.
 set(clientlib "${GNS_SOURCE}/src/steamnetworkingsockets/clientlib")

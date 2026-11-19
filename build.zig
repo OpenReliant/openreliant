@@ -168,6 +168,30 @@ pub fn build(b: *std.Build) void {
         }),
     });
     b.installArtifact(openreliant);
+    const gns_prefix = b.option([]const u8, "gns-prefix", "Standalone GameNetworkingSockets headers and static libraries for direct-IP sessions");
+    const network_options = b.addOptions();
+    network_options.addOption(bool, "enabled", gns_prefix != null);
+    openreliant.root_module.addOptions("network_options", network_options);
+    if (gns_prefix) |prefix| {
+        const driver = openreliant.root_module;
+        driver.addIncludePath(b.graph.cwdRelativePath(b.pathJoin(&.{ prefix, "include" })));
+        driver.addCSourceFile(.{ .file = b.path("src/openreliant/network/gns.cpp"), .flags = &.{
+            "-std=c++17", "-DSTEAMNETWORKINGSOCKETS_STATIC_LINK", "-fno-sanitize=undefined",
+        } });
+        driver.link_libcpp = true;
+        driver.addObjectFile(b.graph.cwdRelativePath(b.pathJoin(&.{ prefix, "lib/libGameNetworkingSockets_s.a" })));
+        driver.addObjectFile(b.graph.cwdRelativePath(b.pathJoin(&.{ prefix, "lib/libprotobuf.a" })));
+        if (target.result.os.tag == .windows) {
+            driver.linkSystemLibrary("bcrypt", .{});
+            driver.linkSystemLibrary("crypt32", .{});
+            driver.linkSystemLibrary("ws2_32", .{});
+            driver.linkSystemLibrary("iphlpapi", .{});
+            driver.linkSystemLibrary("winmm", .{});
+        } else {
+            driver.addObjectFile(b.graph.cwdRelativePath(b.pathJoin(&.{ prefix, "lib/libcrypto.a" })));
+        }
+        if (target.result.os.tag == .macos) driver.linkFramework("CoreFoundation", .{});
+    }
 
     // Mission 0, OpenReliant's own: the sandbox as a standard mission file, which the build compiles
     // from its source (`src/openreliant/mission0.mission.luau`) with the mission source compiler,

@@ -39,6 +39,45 @@ it applied. When the loopback runner starts all three processes on one machine, 
 system's monotonic clock. Each pilot then reports the 95th percentile and maximum snapshot age at
 the time it applied the update.
 
+## Run a direct-IP session in OpenReliant
+
+The `openreliant session` command starts the host or a terminal pilot in an original training
+arena with three slots. Two admitted pilots start the round. The host advances the normal
+flight simulation and sends positions from its own state. An admitted pilot can leave or
+reconnect during the round. The other pilots keep receiving snapshots.
+
+Build the transport and the executable for the same target. This example uses Apple silicon.
+The build helper creates a private test trust root and three short-lived pilot identities.
+Each process needs only its own certificate file. Use test credentials for this workload.
+
+```sh
+target=aarch64-macos.15.0
+work=/path/to/scratch
+python3 examples/transport-probe/build.py "$work" "$target" --session
+zig build -Dtarget="$target" -Dgns-prefix="$work/$target/prefix"
+python3 scripts/check-direct-session.py zig-out/bin/openreliant "$work/session-identities"
+```
+
+To try it by hand, start the host first. Choose a different certificate for each pilot.
+The client checks the host identity in the certificate. In keyboard mode, type A, S, D or Q
+and press Enter to steer left, fly straight, steer right or leave.
+
+```sh
+zig-out/bin/openreliant session host 127.0.0.1:27020 "$work/session-identities/host.cert"
+zig-out/bin/openreliant session join 127.0.0.1:27020 "$work/session-identities/pilot1.cert" host keyboard
+zig-out/bin/openreliant session join 127.0.0.1:27020 "$work/session-identities/pilot2.cert" host keyboard
+```
+
+The host limits accepted handshakes, buffers and messages per pilot. It checks the authenticated
+connection and protocol revision before it allocates a ship, and accepts steering only for the
+current admission. A reconnect receives a fresh admission and ship. The app release can differ
+when the protocol revision matches.
+
+The training session is the first game-executable path under
+[#954](https://github.com/OpenReliant/openreliant/issues/954). Release packaging and operator
+credential provisioning are tracked in [#1405](https://github.com/OpenReliant/openreliant/issues/1405).
+The probe below still exercises ICE, TURN and directed events.
+
 ## Run it
 
 On a Unix build machine, install Zig 0.17, Git, patch, CMake, Ninja, Make, Perl, a native C++ compiler

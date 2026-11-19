@@ -167,6 +167,7 @@ pub const help_page = page: {
         \\       openreliant missions [<game-directory>] [--no-mods]
         \\       openreliant hooks [<hook>] [--definitions]
         \\       openreliant debug [--port <port>]
+        \\       openreliant session --help
         \\
         \\
     ++ help.table(&.{.{ .typed = "<game-directory>", .text = "where StarLancer is installed, with resource.hog and tcachehw.dat; by default the first that holds the game of the current directory, the directories in it, the directory openreliant is in and the directories beside it" }}) ++
