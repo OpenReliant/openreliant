@@ -32,7 +32,7 @@ jobs:
       created: ${{ steps.release.outputs.release_created }}
       tag: ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: googleapis/release-please-action@v5.0.0
+      - uses: googleapis/release-please-action@v5
         id: release
         with:
           config-file: release-please-config.json
@@ -64,10 +64,10 @@ jobs:
     steps:
       # The whole history with its tags, so that the build can name the commit a build by hand is
       # past the last release.
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: mlugg/setup-zig@v2.2.1
+      - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.1
       # An explicit target builds for the architecture's baseline processor, so the binary runs on
@@ -102,12 +102,12 @@ jobs:
       # For a release, the archive and the executables in it get a build provenance attestation,
       # signed through Sigstore, which names the workflow run that built them and its commit.
       - if: needs.release-please.outputs.created == 'true'
-        uses: actions/attest@v4.2.2
+        uses: actions/attest@v4
         with:
           subject-path: |
             dist/*
             zig-out/bin/*
-      - uses: actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}
           path: dist/*
@@ -118,8 +118,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # For the script that credits the contributors.
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/download-artifact@v8.0.2
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true

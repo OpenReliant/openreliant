@@ -14,8 +14,8 @@ $(DOWNLOADS_DIR) $(STAMPS_DIR):
 
 # --- JDK (Eclipse Temurin) --------------------------------------------------------------------
 
-JDK_ARCHIVE := $(DOWNLOADS_DIR)/temurin-$(JDK_VERSION)-$(ADOPTIUM_OS)-$(ADOPTIUM_ARCH).tar.gz
-JDK_URL     := https://api.adoptium.net/v3/binary/version/jdk-$(subst +,%2B,$(JDK_VERSION))/$(ADOPTIUM_OS)/$(ADOPTIUM_ARCH)/jdk/hotspot/normal/eclipse
+JDK_ARCHIVE := $(DOWNLOADS_DIR)/temurin-$(JDK_MAJOR)-$(ADOPTIUM_OS)-$(ADOPTIUM_ARCH).tar.gz
+JDK_URL     := https://api.adoptium.net/v3/binary/latest/$(JDK_MAJOR)/ga/$(ADOPTIUM_OS)/$(ADOPTIUM_ARCH)/jdk/hotspot/normal/eclipse
 
 .PHONY: jdk
 jdk: $(JDK_STAMP) ## Eclipse Temurin JDK for this host (Ghidra 12.2 needs 25)

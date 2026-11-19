@@ -37,8 +37,8 @@ GHIDRA_PLATFORM := $(GHIDRA_OS)_$(GHIDRA_ARCH)
 
 # --- pinned versions --------------------------------------------------------------------------
 
-JDK_VERSION ?= 25.0.5.1+2
-GHYDRA_PYTHON_VERSION ?= 3.15.2
+JDK_MAJOR ?= 25
+GHYDRA_PYTHON_VERSION ?= 3.15
 
 GHIDRA_VERSION ?= 12.2
 GHIDRA_DATE    ?= 20261016
@@ -66,7 +66,7 @@ VENV_DIR        := $(TOOLS_DIR)/venv
 SPIRV_CROSS     := $(TOOLS_DIR)/spirv-cross/spirv-cross
 
 # Include the version in each stamp so an existing installation picks up new pins.
-JDK_STAMP            := $(STAMPS_DIR)/jdk-$(JDK_VERSION)
+JDK_STAMP            := $(STAMPS_DIR)/jdk-$(JDK_MAJOR)
 GHIDRA_STAMP         := $(STAMPS_DIR)/ghidra-$(GHIDRA_VERSION)
 GHIDRA_NATIVES_STAMP := $(GHIDRA_STAMP)-natives
 MAVEN_STAMP          := $(STAMPS_DIR)/maven-$(MAVEN_VERSION)
