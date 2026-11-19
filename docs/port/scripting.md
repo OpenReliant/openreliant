@@ -91,7 +91,7 @@ effects' is.
 
 ## Luau implementation
 
-`deps/luau` builds Luau 0.740 from source as two static libraries, split as Luau's `Sources.cmake`
+`deps/luau` builds Luau 0.747 from source as two static libraries, split as Luau's `Sources.cmake`
 splits it: `luau-ast`, the parser (`Luau.Common` and `Luau.Ast`), and `luau` on top of it, the
 bytecode builder, the compiler and the VM (`Luau.Bytecode`, `Luau.Compiler` and `Luau.VM`). The
 build matches Luau's `LUAU_EXTERN_C` option: the C API is `extern "C"`, and Luau errors use

@@ -537,7 +537,6 @@ pub const Type = enum(c_int) {
     boolean = c.LUA_TBOOLEAN,
     light_userdata = c.LUA_TLIGHTUSERDATA,
     number = c.LUA_TNUMBER,
-    integer = c.LUA_TINTEGER,
     vector = c.LUA_TVECTOR,
     string = c.LUA_TSTRING,
     table = c.LUA_TTABLE,

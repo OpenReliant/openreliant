@@ -6,10 +6,10 @@
 
 | Tool | Used for |
 |---|---|
-| Zig 0.17 | Building `sltool` and everything else in `src/`. |
+| Zig 0.17.1 | Building `sltool` and everything else in `src/`. |
 | `uv` | Creating the virtualenv for the `ghydra` CLI and MCP bridge. |
 | A C++ toolchain | Compiling Ghidra's native helpers. On macOS, the Xcode command line tools. |
-| Gradle 8.5+ | Driving that native build. |
+| Gradle with Java 25 support | Driving the native build. Ghidra has a bundled wrapper. |
 
 `make doctor` reports which of these, and which build products, are present.
 
@@ -17,13 +17,13 @@
 
 | Target | Installs |
 |---|---|
-| `make jdk` | Eclipse Temurin JDK 21, the minimum Ghidra 12 accepts. |
+| `make jdk` | Eclipse Temurin JDK 25, required by Ghidra 12.2. |
 | `make ghidra` | Ghidra, verified against its published SHA-256, plus native helpers. |
 | `make ghydra` | The GhydraMCP Ghidra plugin and the `ghydra` CLI. |
 
 Versions are pinned in [`mk/config.mk`](../mk/config.mk) and can be overridden on the command line, for example `make setup GHIDRA_VERSION=12.1.2 GHIDRA_DATE=... GHIDRA_SHA256=...`.
 
-Each step writes a stamp under `tools/.stamps/`, so re-running `make setup` does only what is missing. Downloaded archives are order-only prerequisites: re-fetching one never forces a rebuild.
+Each setup step writes a stamp under `tools/.stamps/` with its version. Re-running `make setup` picks up new pins and reuses existing installations.
 
 ### Ghidra
 

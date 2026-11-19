@@ -137,6 +137,14 @@ test "records" {
     );
 }
 
+test "number spellings preserve mission integers" {
+    try expectTree(
+        \\return 4294967295, 0xFFFF_FFFF, 0b1010_0101, -0x8000_0000
+    ,
+        \\(return (number 4294967295) (number 4294967295) (number 165) (unary minus (number 2147483648)))
+    );
+}
+
 test "triggers and parts" {
     try expectTree(
         \\on(convoy, "shot_at", { attacker = any_ship }, function(attacker: MissionShip, hull_damage) end)

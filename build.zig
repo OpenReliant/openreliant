@@ -194,13 +194,16 @@ pub fn build(b: *std.Build) void {
         } });
         driver.link_libcpp = true;
         driver.addObjectFile(b.graph.cwdRelativePath(b.pathJoin(&.{ prefix, "lib/libGameNetworkingSockets_s.a" })));
-        driver.addObjectFile(b.graph.cwdRelativePath(b.pathJoin(&.{ prefix, "lib/libprotobuf.a" })));
+        driver.addObjectFile(b.graph.cwdRelativePath(b.pathJoin(&.{ prefix, "lib/libopenreliant-protobuf.a" })));
         if (target.result.os.tag == .windows) {
             driver.linkSystemLibrary("bcrypt", .{});
             driver.linkSystemLibrary("crypt32", .{});
             driver.linkSystemLibrary("ws2_32", .{});
             driver.linkSystemLibrary("iphlpapi", .{});
             driver.linkSystemLibrary("winmm", .{});
+            // Abseil uses these Windows libraries through Protobuf.
+            driver.linkSystemLibrary("advapi32", .{});
+            driver.linkSystemLibrary("dbghelp", .{});
         } else {
             driver.addObjectFile(b.graph.cwdRelativePath(b.pathJoin(&.{ prefix, "lib/libcrypto.a" })));
         }

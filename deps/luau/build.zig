@@ -117,7 +117,6 @@ const sources = [_][]const u8{
     "VM/src/ludata.cpp",
     "VM/src/lutf8lib.cpp",
     "VM/src/lveclib.cpp",
-    "VM/src/lintlib.cpp",
     "VM/src/lvmexecute.cpp",
     "VM/src/lclass.cpp",
     "VM/src/lclasslib.cpp",

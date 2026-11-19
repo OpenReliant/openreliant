@@ -10,7 +10,7 @@ OpenReliant needs the assets from a legally obtained copy of StarLancer (discs o
   - Extracted disc folders.
 - OpenReliant binary:
   - Download the latest release from the [releases page](https://github.com/OpenReliant/openreliant/releases/latest) (on a Mac, macOS 15 or newer; on Windows, Windows 10 or newer), or
-  - Build from source using Zig 0.17.
+  - Build from source using Zig 0.17.1.
 
 ## Quickstart
 
@@ -120,7 +120,7 @@ or one of those libraries does, the file ends with what the crash says.
 
 ## Building from source
 
-To compile OpenReliant, install [Zig 0.17](https://ziglang.org). Dependencies (SDL3, OpenAL Soft, FFmpeg, libarchive) build from source automatically:
+To compile OpenReliant, install [Zig 0.17.1](https://ziglang.org). Dependencies (SDL3, OpenAL Soft, FFmpeg, libarchive) build from source automatically:
 
 ```bash
 zig build --release=fast

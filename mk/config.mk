@@ -37,18 +37,19 @@ GHIDRA_PLATFORM := $(GHIDRA_OS)_$(GHIDRA_ARCH)
 
 # --- pinned versions --------------------------------------------------------------------------
 
-JDK_MAJOR ?= 21
+JDK_VERSION ?= 25.0.5.1+2
+GHYDRA_PYTHON_VERSION ?= 3.15.2
 
-GHIDRA_VERSION ?= 12.1.3
-GHIDRA_DATE    ?= 20260817
-GHIDRA_SHA256  ?= 93a5d11a9ad510622acaaf908c556a7b9b764d338e78a7567f3689bf5081fd54
+GHIDRA_VERSION ?= 12.2
+GHIDRA_DATE    ?= 20261016
+GHIDRA_SHA256  ?= 2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67
 
-MAVEN_VERSION ?= 3.9.16
-MAVEN_SHA512  ?= 831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6
+MAVEN_VERSION ?= 3.10.1
+MAVEN_SHA512  ?= 8af2fcc48ee6b8f8fc0b21054226e14404b88500df6483cdeb3ae603408f6de27b1397ac591a9fb0d98fee64f4f624fee1383efd25b8998786cda1598fb9ea39
 
 # Turns the game's shaders from SPIR-V into Metal's language: only `make shaders` needs it.
-SPIRV_CROSS_VERSION ?= vulkan-sdk-1.4.357.0
-SPIRV_CROSS_SHA256  ?= 97c910326afdd44d794ce8561326fa675fd1958b27142f03295403044d639639
+SPIRV_CROSS_VERSION ?= vulkan-sdk-1.4.363.0
+SPIRV_CROSS_SHA256  ?= f708982e88b763ef5b0394ed468fc2c3628f68cdab89f2e7a946cd628c04e721
 
 # The Ghidra plugin must be built against the exact Ghidra version, so it is built from source.
 GHYDRA_REPO ?= https://github.com/starsong-consulting/GhydraMCP.git
@@ -63,6 +64,15 @@ MAVEN_HOME      := $(TOOLS_DIR)/apache-maven-$(MAVEN_VERSION)
 GHYDRA_SRC      := $(TOOLS_DIR)/ghydramcp-src
 VENV_DIR        := $(TOOLS_DIR)/venv
 SPIRV_CROSS     := $(TOOLS_DIR)/spirv-cross/spirv-cross
+
+# Include the version in each stamp so an existing installation picks up new pins.
+JDK_STAMP            := $(STAMPS_DIR)/jdk-$(JDK_VERSION)
+GHIDRA_STAMP         := $(STAMPS_DIR)/ghidra-$(GHIDRA_VERSION)
+GHIDRA_NATIVES_STAMP := $(GHIDRA_STAMP)-natives
+MAVEN_STAMP          := $(STAMPS_DIR)/maven-$(MAVEN_VERSION)
+GHYDRA_SRC_STAMP     := $(STAMPS_DIR)/ghydra-src-$(subst /,-,$(GHYDRA_REF))
+GHYDRA_PLUGIN_STAMP  := $(GHYDRA_SRC_STAMP)-plugin-$(GHIDRA_VERSION)
+GHYDRA_CLI_STAMP     := $(GHYDRA_SRC_STAMP)-cli-$(GHYDRA_PYTHON_VERSION)
 
 # Prefer a native arm64 Zig over an x86_64 one that happens to be first on PATH. `make doctor`
 # warns when it isn't the version build.zig.zon asks for.

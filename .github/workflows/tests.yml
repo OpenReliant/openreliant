@@ -22,10 +22,10 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: mlugg/setup-zig@v2
+      - uses: actions/checkout@v7.0.1
+      - uses: mlugg/setup-zig@v2.2.1
         with:
-          version: 0.17.0
+          version: 0.17.1
       # The formatting is the same on every system, so it's checked once.
       - if: runner.os == 'Linux'
         run: zig fmt --check src build.zig

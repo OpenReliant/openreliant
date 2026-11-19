@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) void {
     const info = b.addConfigHeader(.{
         .style = .{ .cmake = glslang.path("build_info.h.tmpl") },
         .include_path = "glslang/build_info.h",
-    }, .{ .major = 16, .minor = 1, .patch = 0, .flavor = "" });
+    }, .{ .major = 16, .minor = 6, .patch = 0, .flavor = "" });
     module.addConfigHeader(info);
     module.addCMacro("ENABLE_SPIRV", "1");
     const flags: []const []const u8 = &.{ "-std=c++17", "-fno-sanitize=undefined" };

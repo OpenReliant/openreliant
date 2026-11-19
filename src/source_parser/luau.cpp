@@ -157,8 +157,6 @@ struct Builder {
         if (expr->is<Luau::AstExprConstantNil>()) return node(OR_NIL, at, {});
         if (auto found = expr->as<Luau::AstExprConstantBool>()) return node(OR_BOOLEAN, at, {}, found->value ? 1 : 0);
         if (auto found = expr->as<Luau::AstExprConstantNumber>()) return node(OR_NUMBER, at, {}, 0, found->value);
-        if (auto found = expr->as<Luau::AstExprConstantInteger>())
-            return node(OR_NUMBER, at, {}, 0, static_cast<double>(found->value));
         if (auto found = expr->as<Luau::AstExprConstantString>()) return string(at, found->value);
         // A string in backquotes with no values put into it is text like any other.
         if (auto found = expr->as<Luau::AstExprInterpString>()) {

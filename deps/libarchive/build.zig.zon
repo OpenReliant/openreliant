@@ -1,17 +1,14 @@
 .{
     .name = .libarchive,
-    .version = "3.8.10",
+    .version = "3.8.11",
     .fingerprint = 0x2cf9e53f30944fd,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .upstream = .{
-            .url = "git+https://github.com/libarchive/libarchive.git?ref=v3.8.10#79c571f845dbdd250d69bff9d93ae034f674135e",
-            .hash = "N-V-__8AAKTIPwGHO-KTQxfMyhIEBeIHBARGacwN8CqTOuBd",
+            .url = "git+https://github.com/libarchive/libarchive.git?ref=v3.8.11#03036ffa409a2aa1c5bbad35be2202641a040fda",
+            .hash = "N-V-__8AANpeQAH2sI83eMFckJk8h-cewdw4Vn1gl69qp5Vl",
         },
-        .zlib = .{
-            .url = "git+https://github.com/allyourcodebase/zlib.git?ref=v1.3.2#d3b5519d3b73616a6bfece0712f080029d2a9244",
-            .hash = "zlib-1.3.2-ZZQ7lc8NAAAHm9MDfplvwoesXvk4tVm6VCsiI8KnIbT0",
-        },
+        .zlib = .{ .path = "../zlib" },
     },
     .paths = .{
         "build.zig",

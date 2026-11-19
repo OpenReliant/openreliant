@@ -7,7 +7,7 @@ and `CLAUDE.md` point agents here.
 
 ## Getting started
 
-- Install [Zig 0.17](https://ziglang.org). `zig build` builds everything, `zig build sltool`
+- Install [Zig 0.17.1](https://ziglang.org). `zig build` builds everything, `zig build sltool`
   builds `sltool` alone, and `zig build test` runs the tests. `zig build check -fincremental
   --watch` compiles everything without linking the programs and reports errors moments after a
   save; its first run builds the C libraries.

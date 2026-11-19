@@ -46,7 +46,7 @@ define GHIDRA_GROUP_RULES
 .PHONY: ghidra-import-$(1) ghidra-export-$(1) ghidra-forget-$(1)
 ghidra-import-$(1): $$(GHIDRA_PROJECT_DIR)/.imported-$(1)
 
-$$(GHIDRA_PROJECT_DIR)/.imported-$(1): | $$(GAME_DIR)/.stamp-install $$(STAMPS_DIR)/ghidra-natives
+$$(GHIDRA_PROJECT_DIR)/.imported-$(1): | $$(GAME_DIR)/.stamp-install $$(GHIDRA_NATIVES_STAMP)
 	mkdir -p $$(GHIDRA_PROJECT_DIR)
 	$$(HEADLESS) $$(GHIDRA_PROJECT)/$(1) \
 	    -import $$(addprefix $$(GAME_DIR)/,$$(GHIDRA_FILES_$(1))) $$(IMPORT_FLAGS) \
@@ -103,11 +103,11 @@ ghidra-annotate: | $(GHIDRA_PROJECT_DIR)/.imported-game $(GHIDRA_PROJECT_DIR)/.i
 	    -max-cpu $(HEADLESS_MAX_CPU) -log $(GHIDRA_PROJECT_DIR)/annotate.log
 
 .PHONY: ghidra-gui
-ghidra-gui: | $(STAMPS_DIR)/ghidra-natives ## Open the project in the Ghidra GUI; the Ghydra plugin serves HTTP on :8192+ per open program
+ghidra-gui: | $(GHIDRA_NATIVES_STAMP) ## Open the project in the Ghidra GUI; the Ghydra plugin serves HTTP on :8192+ per open program
 	$(WITH_JDK) $(GHIDRA_HOME)/ghidraRun "$(GHIDRA_PROJECT_DIR)/$(GHIDRA_PROJECT).gpr"
 
 .PHONY: ghydra-status
-ghydra-status: | $(STAMPS_DIR)/ghydra-cli ## List the Ghidra instances the ghydra CLI / MCP bridge can reach
+ghydra-status: | $(GHYDRA_CLI_STAMP) ## List the Ghidra instances the ghydra CLI / MCP bridge can reach
 	$(VENV_DIR)/bin/ghydra instances list
 
 ##@ Derived tables
