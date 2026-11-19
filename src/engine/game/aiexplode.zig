@@ -736,7 +736,7 @@ test huge {
     // order below.
     aigeneric.objectOrders(ctx, ship);
     const blast = &stage.explosions.uber.blast.?;
-    try std.testing.expectEqual(ship, blast.owner.slot);
+    try std.testing.expectEqual(ship, blast.owner.object.slot);
     try std.testing.expectEqual(@as(Vector, .{ 0, 0, 1000 }), blast.place.position);
     try std.testing.expectEqual(huge_size, blast.size);
     try std.testing.expectEqual(.do_nothing, stage.mission.objects.slots[ship].current().?.order);

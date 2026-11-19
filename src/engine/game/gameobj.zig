@@ -34,6 +34,8 @@ const hooks = @import("../hooks.zig");
 /// A slot of the object array as an object names one, or `none` for no slot, which the game holds
 /// as -1.
 pub const Slot = enum(i32) {
+    /// In last_attacker, the Uber blast has already handled the kill (0x004732F2).
+    uber_blast = -2,
     none = -1,
     _,
 
@@ -48,7 +50,10 @@ pub const Slot = enum(i32) {
 
     /// The slot it names, or null for none.
     pub fn index(slot: Slot) ?u16 {
-        return if (slot == .none) null else @intCast(@backingInt(slot));
+        return switch (slot) {
+            .none, .uber_blast => null,
+            else => @intCast(@backingInt(slot)),
+        };
     }
 };
 
@@ -2163,6 +2168,8 @@ pub const World = struct {
     cues: ?*@import("main/cues.zig").Cues = null,
     /// Optional host output for notifications addressed to a participant and their ship.
     hit_feedback: ?collision.HitFeedback.Sink = null,
+    /// Arena-wide Uber kill notices for the session to deliver to viewers.
+    uber_kills: ?@import("deathmatch.zig").UberKill.Sink = null,
     /// The countermeasures in flight (`cloak.cpp`); null where none are dropped.
     countermeasures: ?*@import("cloak.zig").Countermeasures = null,
     /// The capital ships' shields showing (`shield.cpp`); null where none show.

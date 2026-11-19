@@ -13,8 +13,7 @@
 //! **Improvement:** the game opens the halves and spreads the ball by rounded factors (3.33333 and
 //! 1.42857 a share, 0.19635 and 0.349066 radians); OpenReliant divides.
 //!
-//! The arena rules for which pilots the blast spares, who earns the kill and what the players
-//! see are tracked in [#1412](https://github.com/OpenReliant/openreliant/issues/1412).
+//! In arenas the blast spares its owner and catches other bound pilots, including teammates.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -208,14 +207,23 @@ pub const Images = struct {
 /// **Fix:** a replacement object cannot inherit a victim's place in an existing blast.
 pub const Caught = struct {
     object: gameobj.ObjectRef,
+    arena_admission: ?u64 = null,
     reached: bool = false,
+
+    fn resolve(caught: Caught, all: *const create.Objects) ?u16 {
+        if (caught.arena_admission) |generation| {
+            const victim = all.playerBindingFor(caught.object, generation) orelse return null;
+            return victim.participant.slot;
+        }
+        return caught.object.resolve(all);
+    }
 };
 
 /// A blast going off.
 pub const Blast = struct {
     /// The original owner (`0x00558718`). **Fix:** completion events and sound cannot follow a
     /// replacement object in the owner's slot.
-    owner: gameobj.ObjectRef,
+    owner: gameobj.DamageSource,
     /// The blast's origin, reach (`0x00558714`), start tick and duration (`0x0055870C`, `0x00558710`).
     place: math.Place,
     size: f32,
@@ -287,7 +295,7 @@ pub const Blast = struct {
     /// away from the origin, spins it, starts five fireballs in sequence and replaces its orders
     /// with Do Nothing.
     fn strike(blast: *const Blast, world: gameobj.World, caught: *Caught) void {
-        const index = caught.object.resolve(world.objects) orelse return;
+        const index = caught.resolve(world.objects) orelse return;
         const slot = &world.objects.slots[index];
         const object = &slot.object;
         if (object.type.base() == .stand_in) return;
@@ -500,18 +508,11 @@ pub const Uber = struct {
         return own;
     }
 
-    /// `uber_explode_start` (`0x00472AB0`): sets a blast of `size` off at `place` for `owner`, over
-    /// `duration` ticks, in place of any going off, shown in `style` where it is drawn
-    /// (`Blast.show`). It lists the ships it may reach: each object but the player's ship that is
-    /// created and not disabled, of a side but the neutral one, with combat stats and an order, but
-    /// for the gates, the Boridin and its breakaway, and within `reach` of its size. The view
-    /// flashes, the two rings of `waves` spread, and the owner's ship sounds `uberexp`.
-    ///
-    /// The game asks for an order stack, which it makes with an object's first order; OpenReliant
-    /// asks for an order.
-    ///
-    /// **Fix:** the game lists every ship in reach, running past the end of its list with more than
-    /// `max_caught`; OpenReliant lists the first `max_caught`.
+    /// `uber_explode_start` (0x00472AB0) replaces the current blast and lists eligible ships
+    /// within reach. In an arena it skips the owner and checks the player slots. Elsewhere it
+    /// skips the displayed ship. The blast flashes the view, starts two rings and plays UBEREXP.
+    /// **Fix:** the list holds at most `max_caught` ships. Each arena target keeps the ship
+    /// and admission it had at launch so that a replacement pilot cannot inherit the hit.
     pub fn start(uber: *Uber, world: gameobj.World, owner: u16, place: math.Place, size: f32, duration: i32, style: Style) void {
         const now = world.clock.frame_start;
         uber.blast = .{ .owner = .of(world.objects, owner), .place = place, .size = size, .started = now, .duration = duration };
@@ -519,10 +520,15 @@ pub const Uber = struct {
         if (uber.look) |*look| blast.show(look, style, now);
 
         const all = world.objects;
-        for (all.slots[0..all.count], 0..) |*slot, index| {
+        const arena = world.damage_rules == .arena;
+        const spared = if (arena) owner else all.player;
+        const count = if (arena) @min(all.players, all.count) else all.count;
+        for (all.slots[0..count], 0..) |*slot, index| {
             if (blast.caught_count == max_caught) break;
-            if (index == all.player or !catches(slot, place.position, size)) continue;
-            blast.caught[blast.caught_count] = .{ .object = .of(all, @intCast(index)) };
+            if (index == spared or !catches(slot, place.position, size)) continue;
+            const ship: u16 = @intCast(index);
+            const admission = if (arena) (all.playerBinding(ship) orelse continue).participant.generation else null;
+            blast.caught[blast.caught_count] = .{ .object = .of(all, ship), .arena_admission = admission };
             blast.caught_count += 1;
         }
 
@@ -531,7 +537,7 @@ pub const Uber = struct {
             .kind = .uber,
             .size = size * wave.size,
             .life = @intFromFloat(@as(f32, @floatFromInt(duration)) * wave.life),
-            .owner = .of(world.objects, owner),
+            .owner = blast.owner,
         });
         sound3d.playIn(world, null, null, owner, .uberexp, 1, .guaranteed);
     }
@@ -574,10 +580,9 @@ pub const Uber = struct {
         if (done > faded) for (0..drawn) |_| blast.throwBits(world);
     }
 
-    /// The blast's end: it goes (`uber_explode_free`, `0x004731A0`), its owner's ship sounds
-    /// `capexp`, and each ship the ball reached stops turning and, unless it is exploding already,
-    /// is destroyed, neither spinning nor ejecting. Last, the owner's ExplosionShip event is posted
-    /// (`events.exploded`).
+    /// At the end of `uber_explode_update` (0x00473210), CAPEXP plays and each reached ship
+    /// stops turning. The original awards arena kills before ordering the victims to explode.
+    /// The owner then raises its ExplosionShip event.
     fn end(uber: *Uber, world: gameobj.World) void {
         const blast = &uber.blast.?;
         defer uber.blast = null;
@@ -586,16 +591,23 @@ pub const Uber = struct {
         const ctx: aigeneric.Context = .of(world);
         for (blast.listed()) |caught| {
             if (!caught.reached) continue;
-            const index = caught.object.resolve(world.objects) orelse continue;
-            const object = &world.objects.slots[index].object;
+            const index = caught.resolve(world.objects) orelse continue;
+            const slot = &world.objects.slots[index];
+            const object = &slot.object;
             object.rotation = math.identity;
             object.roll_rate = 0;
             object.pitch_rate = 0;
             object.yaw_rate = 0;
-            const entry = world.objects.slots[index].current() orelse continue;
-            if (entry.order != .explode) ai.objectDestroyed(ctx, index, false, true);
+            if (slot.running(.explode) != null) continue;
+            // Player slots refuse Do Nothing after the strike pops their control order.
+            // The original still has an allocated order stack and destroys the reached ship.
+            if (caught.arena_admission == null and slot.current() == null) continue;
+            if (caught.arena_admission) |generation| {
+                @import("../deathmatch.zig").uberKill(world, blast.owner, .{ .slot = index, .generation = generation });
+            }
+            ai.objectDestroyed(ctx, index, false, true);
         }
-        events.explodedFrom(world, blast.owner);
+        events.explodedFrom(world, blast.owner.object);
     }
 
     /// The blast's objects, in the world's layer, where it shows: the halves until `faded`, with
@@ -953,5 +965,89 @@ test "a blast cannot reach or destroy a replacement victim" {
         try std.testing.expectEqual(.fly_aimlessly, all.slots[replaced].current().?.order);
         try std.testing.expectEqual(.fly_aimlessly, all.slots[later].current().?.order);
         try std.testing.expectEqual(.explode, all.slots[live].current().?.order);
+    }
+}
+
+test "the host settles each arena blast victim once for the original pilot admissions" {
+    const deathmatch = @import("../deathmatch.zig");
+    const Notice = deathmatch.UberKill;
+    const Capture = struct {
+        notice: ?Notice = null,
+        count: usize = 0,
+
+        fn send(context: *anyopaque, notice: Notice) void {
+            const capture: *@This() = @ptrCast(@alignCast(context));
+            capture.notice = notice;
+            capture.count += 1;
+        }
+    };
+    const Case = enum { free_for_all, teammate, opponent, owner_left, victim_left, already_exploding };
+    for (std.enums.values(Case)) |case| {
+        var stage: explode.testing.Stage = undefined;
+        try stage.initShowing(null);
+        defer stage.deinit();
+        var world = stage.world();
+        world.damage_rules = .{ .arena = null };
+        var capture: Capture = .{};
+        world.uber_kills = .{ .context = &capture, .send = Capture.send };
+        const all = world.objects;
+        const ctx: aigeneric.Context = .of(world);
+        const mission = &stage.mission;
+        const victim = try mission.add(.of(.predator), .{ 0, 0, 100 });
+        const shooter = try mission.add(.of(.predator), @splat(0));
+        const previous = try mission.add(.of(.predator), .{ 0, 0, 9000 });
+        const npc = try mission.add(.of(.sabre), .{ 0, 0, 500 });
+        all.players = 3;
+        for ([_]u16{ victim, shooter, previous }) |i| try std.testing.expect(try aigeneric.push(ctx, i, .player_control, .none));
+        try std.testing.expect(try aigeneric.push(ctx, npc, .do_nothing, .none));
+        const target = all.joinParticipant(victim).?;
+        const owner = all.joinParticipant(shooter).?;
+        const other = all.joinParticipant(previous).?;
+        _ = all.bindParticipant(target, .of(all, victim)).?;
+        _ = all.bindParticipant(owner, .of(all, shooter)).?;
+        _ = all.bindParticipant(other, .of(all, previous)).?;
+        try std.testing.expect(all.setParticipantTeam(target, if (case == .teammate) .first else .second));
+        try std.testing.expect(all.setParticipantTeam(owner, .first));
+        try std.testing.expect(all.setParticipantTeam(other, .third));
+        deathmatch.startRound(all, if (case == .free_for_all) .free_for_all else .teams);
+        all.slots[victim].setAttacker(.of(all, previous));
+
+        const uber = stage.explosions.uber;
+        mission.clock.frame_start = 1000;
+        uber.start(world, shooter, .{ .position = @splat(0) }, 1000, 1000, .original);
+        try std.testing.expectEqual(1, uber.blast.?.caught_count);
+        try std.testing.expectEqual(victim, uber.blast.?.caught[0].object.slot);
+        mission.clock.frame_start = 1900;
+        uber.frame(world);
+        try std.testing.expect(uber.blast.?.caught[0].reached);
+        try std.testing.expectEqual(0, capture.count);
+
+        switch (case) {
+            .owner_left, .victim_left => {
+                const leaving = if (case == .owner_left) owner else target;
+                try std.testing.expect(create.Objects.leaveParticipant(world, leaving));
+                const newcomer = all.joinParticipant(leaving.slot).?;
+                _ = all.bindParticipant(newcomer, .of(all, leaving.slot)).?;
+                try std.testing.expect(all.setParticipantTeam(newcomer, .first));
+            },
+            .already_exploding => ai.objectDestroyed(ctx, victim, false, true),
+            else => {},
+        }
+        mission.clock.frame_start = 2001;
+        uber.frame(world);
+        uber.frame(world);
+        aigeneric.objectOrders(ctx, victim);
+        const blasted = case != .victim_left and case != .already_exploding;
+        const awarded = blasted and case != .owner_left;
+        try std.testing.expectEqual(@intFromBool(blasted), capture.count);
+        if (capture.notice) |notice| {
+            try std.testing.expectEqual(Notice{ .owner = owner, .victim = target, .awarded = awarded, .tick = 2001 }, notice);
+            try std.testing.expectEqual(.uber_blast, all.slots[victim].object.last_attacker);
+            try std.testing.expectEqual(null, all.slots[victim].object.last_attacker.index());
+        }
+        try std.testing.expectEqual(@intFromBool(awarded), all.player_states[shooter].membership.joined.kills.count);
+        try std.testing.expectEqual(@intFromBool(case == .already_exploding), all.player_states[previous].membership.joined.kills.count);
+        try std.testing.expectEqual(@intFromBool(case != .victim_left), all.player_states[victim].membership.joined.deaths);
+        if (all.arena_scores == .teams) try std.testing.expectEqual(@intFromBool(awarded), all.arena_scores.teams.get(.first).kills);
     }
 }
