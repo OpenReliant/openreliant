@@ -1,12 +1,14 @@
 //! Messages used by the direct-IP session. Every message fits in one datagram.
 const std = @import("std");
 const version = @import("version");
+const identity = @import("identity.zig");
 
 pub const revision: u16 = 2;
 pub const slots = 3;
 pub const beacon_count = @import("openreliant").engine.game.deathmatch.six_beacons.required;
 // A tag and tick, three full ship records, and six loose beacons.
-pub const capacity = 1 + @sizeOf(u32) + slots * (@sizeOf(u64) + 3 * @sizeOf(f32)) + 1 + beacon_count * (1 + 3 * @sizeOf(f32));
+const max_snapshot_size = 1 + @sizeOf(u32) + slots * (@sizeOf(u64) + 3 * @sizeOf(f32)) + 1 + beacon_count * (1 + 3 * @sizeOf(f32));
+pub const capacity = @max(max_snapshot_size, 1 + identity.Certificate.max_public_size);
 const max_release = 96;
 
 pub const Steering = enum(i8) { left = -1, straight = 0, right = 1 };
@@ -58,6 +60,8 @@ pub const Message = union(enum(u8)) {
     finished: Snapshot,
     leave,
     received_final: u32,
+    request_identity: [identity.PublicKey.encoded_length]u8,
+    issued_identity: []const u8,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -101,6 +105,11 @@ pub const Message = union(enum(u8)) {
             },
             .leave => {},
             .received_final => |tick| try w.writeInt(u32, tick, .little),
+            .request_identity => |key| try w.writeAll(&key),
+            .issued_identity => |cert| {
+                if (cert.len == 0 or cert.len > identity.Certificate.max_public_size) return error.InvalidIdentityCertificate;
+                try w.writeAll(cert);
+            },
         }
         return w.buffered();
     }
@@ -157,6 +166,12 @@ pub const Message = union(enum(u8)) {
             },
             .leave => .leave,
             .received_final => .{ .received_final = try r.takeInt(u32, .little) },
+            .request_identity => .{ .request_identity = (try r.takeArray(identity.PublicKey.encoded_length)).* },
+            .issued_identity => issued: {
+                const len = r.bufferedLen();
+                if (len == 0 or len > identity.Certificate.max_public_size) return error.InvalidIdentityCertificate;
+                break :issued .{ .issued_identity = try r.take(len) };
+            },
         };
         if (r.bufferedLen() != 0) return error.TrailingData;
         return message;
@@ -209,8 +224,9 @@ test "the objective view fits one packet and a carrier needs a current ship" {
         .ships = @splat(.{ .generation = 2, .position = @splat(0) }),
         .objectives = .{ .six_beacons = @splat(.{ .loose = .{ 2, 3, 4 } }) },
     } };
-    try std.testing.expectEqual(capacity, (try view.encode(&buffer)).len);
-    try std.testing.expectEqualDeep(view, try Message.decode(&buffer));
+    const bytes = try view.encode(&buffer);
+    try std.testing.expectEqual(max_snapshot_size, bytes.len);
+    try std.testing.expectEqualDeep(view, try Message.decode(bytes));
     view.view.objectives.six_beacons[0] = .{ .carried = 1 };
     try std.testing.expectEqualDeep(view, try Message.decode(try view.encode(&buffer)));
     view.view.ships[1] = null;

@@ -3,6 +3,7 @@ const std = @import("std");
 const Io = std.Io;
 const wire = @import("wire.zig");
 const net = @import("transport.zig");
+const identity = @import("identity.zig");
 const Client = @This();
 
 pub const Controls = union(enum) { keyboard, fixed: wire.Steering };
@@ -13,16 +14,19 @@ const input_interval_us = 40 * std.time.us_per_ms;
 
 expected_host: []const u8,
 conn: net.Connection = 0,
-state: enum { connecting, authenticated, closed } = .connecting,
+state: enum { connecting, authenticated, unverified, closed } = .connecting,
 
 pub fn status(client: *Client, conn: net.Connection, event: net.Status, name: ?[]const u8) void {
     if (conn != client.conn or (event == .authenticated and (name == null or !std.mem.eql(u8, name.?, client.expected_host)))) {
         net.session_close(conn);
-        if (conn == client.conn) client.state = .closed;
+        if (conn == client.conn) client.state = .unverified;
         return;
     }
     switch (event) {
-        .incoming => net.session_close(conn),
+        .incoming, .unverified => {
+            net.session_close(conn);
+            client.state = .unverified;
+        },
         .authenticated => client.state = .authenticated,
         .closed => {
             net.session_close(conn);
@@ -31,11 +35,52 @@ pub fn status(client: *Client, conn: net.Connection, event: net.Status, name: ?[
     }
 }
 
-pub fn run(client: *Client, io: Io, address: [:0]const u8, controls: Controls, leave_after: ?u32) !void {
+fn connect(client: *Client, address: [:0]const u8) !net.Connection {
     const conn = net.session_open(address, false);
     if (conn == 0) return error.ConnectFailed;
     client.conn = conn;
-    defer if (client.state != .closed) net.session_close(conn);
+    client.state = .connecting;
+    return conn;
+}
+
+fn close(client: *Client) void {
+    if (client.state == .connecting or client.state == .authenticated) net.session_close(client.conn);
+}
+
+pub fn requestIdentity(client: *Client, io: Io, address: [:0]const u8, key: *const identity.KeyPair) !identity.Certificate {
+    const conn = try client.connect(address);
+    defer client.close();
+    const deadline = Io.Clock.awake.now(io).toMicroseconds() + timeout;
+    var requested = false;
+    var signed: ?[]const u8 = null;
+    var buffer: [wire.capacity]u8 = undefined;
+    while (true) {
+        net.session_poll();
+        if (client.state == .unverified) return error.UnverifiedServer;
+        if (client.state == .closed) {
+            if (signed) |certificate| return identity.Certificate.withPrivateKey(certificate, key);
+            return error.Disconnected;
+        }
+        if (Io.Clock.awake.now(io).toMicroseconds() >= deadline) return error.IdentityRequestTimedOut;
+        if (client.state == .authenticated and signed == null) {
+            if (!requested) {
+                try net.send(conn, .{ .request_identity = key.public_key.toBytes() });
+                requested = true;
+            }
+            if (try net.receive(conn, &buffer)) |message| {
+                if (message != .issued_identity) return error.UnexpectedMessage;
+                signed = message.issued_identity;
+                // Wait for the host to free the enrollment slot before connecting again.
+                try net.send(conn, .leave);
+            }
+        }
+        try io.sleep(.fromMilliseconds(poll_ms), .awake);
+    }
+}
+
+pub fn run(client: *Client, io: Io, address: [:0]const u8, controls: Controls, leave_after: ?u32) !void {
+    const conn = try client.connect(address);
+    defer client.close();
 
     var deadline = Io.Clock.awake.now(io).toMicroseconds() + timeout;
     var steering: wire.Steering = switch (controls) {
@@ -55,7 +100,7 @@ pub fn run(client: *Client, io: Io, address: [:0]const u8, controls: Controls, l
 
     while (true) {
         net.session_poll();
-        if (client.state == .closed) {
+        if (client.state == .closed or client.state == .unverified) {
             if (leaving) return;
             return error.Disconnected;
         }

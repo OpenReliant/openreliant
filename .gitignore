@@ -67,6 +67,9 @@
 /zig-out/
 zig-pkg/
 
+# Private identity created by the headless server beside its INI.
+server.key
+
 # Local-only editor / agent state.
 /.claude/settings.local.json
 .DS_Store

@@ -91,9 +91,11 @@ throughput measurements are tracked in [#1405](https://github.com/OpenReliant/op
 
 Run `openreliant --headless path/to/server.ini` with the settings in the
 [headless server guide](../guide/configuration.md#headless-server-configuration-serverini).
-Each pilot uses the `session join` command above. The loopback check starts the host from its INI,
-then checks that the host drops a departing carrier's beacon. Both active pilots and the returning
-pilot see the same position.
+By default the host creates its own identity and prints an IP invite. Pilots can use
+`openreliant session join '<invite>'`. The loopback check verifies that the same invite works
+after restart and that a pilot can leave and return during a round. A separate Six Beacons check
+starts the host with managed identity files and verifies that both active pilots and the returning
+pilot see the beacon in the same position after a carrier leaves.
 
 The training session is the first game-executable path under
 [#954](https://github.com/OpenReliant/openreliant/issues/954). The release build prepares the

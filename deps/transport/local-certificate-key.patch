@@ -1,0 +1,20 @@
+--- a/csteamnetworkingsockets.cpp
++++ b/csteamnetworkingsockets.cpp
+@@ -819 +819,8 @@
+-	// Save it off
++	// The signed envelope is sent to peers. Keep its optional private field local.
++	if ( msgCertSigned.has_private_key_data() )
++	{
++		auto *keyData = msgCertSigned.mutable_private_key_data();
++		if ( !keyData->empty() )
++			SecureZeroMemory( &(*keyData)[0], keyData->size() );
++		msgCertSigned.clear_private_key_data();
++	}
+@@ -2534,0 +2542,7 @@
++// OpenReliant uses this entry point so older libraries cannot load its identities.
++extern "C" bool OpenReliant_SetTransportCertificate( const void *certificate, int size )
++{
++	SteamNetworkingErrMsg error{};
++	return SteamNetworkingSockets()->SetCertificate( certificate, size, error );
++}
++

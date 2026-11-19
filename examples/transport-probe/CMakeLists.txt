@@ -9,19 +9,10 @@ set(BUILD_STATIC_LIB ON CACHE BOOL "")
 add_subdirectory("${GNS_SOURCE}" gns)
 target_compile_definitions(GameNetworkingSockets_s PRIVATE
     STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY="${root_key}")
+include(../../deps/transport/PatchGnsSource.cmake)
 # Configure and trace native ICE in a build-local copy of the pinned translation unit.
-set(clientlib "${GNS_SOURCE}/src/steamnetworkingsockets/clientlib")
-set(ice_source "${clientlib}/steamnetworkingsockets_ice_client.cpp")
-set(trace_source "${CMAKE_CURRENT_BINARY_DIR}/ice-trace.cpp")
-find_program(PATCH patch REQUIRED)
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ice_source}" native-ice.patch)
-execute_process(
-    COMMAND "${PATCH}" -s -F 0 -o "${trace_source}" "${ice_source}" -i "${CMAKE_CURRENT_SOURCE_DIR}/native-ice.patch"
-    COMMAND_ERROR_IS_FATAL ANY)
-set_source_files_properties("${ice_source}" TARGET_DIRECTORY GameNetworkingSockets_s PROPERTIES HEADER_FILE_ONLY TRUE)
-target_sources(GameNetworkingSockets_s PRIVATE "${trace_source}")
-set_source_files_properties("${trace_source}" TARGET_DIRECTORY GameNetworkingSockets_s
-    PROPERTIES INCLUDE_DIRECTORIES "${clientlib}")
+openreliant_patch_gns_source(src/steamnetworkingsockets/clientlib/steamnetworkingsockets_ice_client.cpp
+    "${CMAKE_CURRENT_SOURCE_DIR}/native-ice.patch")
 
 add_executable(transport-probe transport.cpp ice.cpp)
 target_compile_features(transport-probe PRIVATE cxx_std_17)
