@@ -13,7 +13,7 @@ extern fn probe_open(address: [*:0]const u8, host: bool) bool;
 extern fn probe_send(conn: u32, lane: u16, data: [*]const u8, size: c_int) bool;
 extern fn probe_receive(conn: u32, data: [*]u8, capacity: c_int, lane: *u16) c_int;
 extern fn probe_now() i64;
-extern fn probe_poll() void;
+extern fn probe_poll() bool;
 extern fn probe_delivered(conn: u32) bool;
 
 fn send(frame: wire.Frame, conn: u32) !void {
@@ -204,7 +204,7 @@ fn run(role: Role, address: [*:0]const u8, shared_clock: bool) !void {
     if (!probe_open(address, role == .host)) return error.OpenFailed;
     const deadline = probe_now() + deadline_us;
     while (!scenario.success) {
-        probe_poll();
+        if (!probe_poll()) return error.SignallingClosed;
         if (scenario.success) break;
         const now = probe_now();
         if (now >= deadline) {
@@ -217,7 +217,7 @@ fn run(role: Role, address: [*:0]const u8, shared_clock: bool) !void {
         // Keep servicing the final reliable acknowledgements after both pilots finish.
         const drain_until = probe_now() + std.time.us_per_s;
         while (probe_now() < drain_until and (scenario.peers[0].conn != null or scenario.peers[1].conn != null))
-            probe_poll();
+            if (!probe_poll()) return error.SignallingClosed;
         for (scenario.peers, 1..) |peer, pilot| {
             std.debug.print("pilot {d}: {d} applied snapshots acknowledged, maximum age at acknowledgement {d} ms\n", .{
                 pilot, peer.samples, @divTrunc(peer.max_ack_us, std.time.us_per_ms),

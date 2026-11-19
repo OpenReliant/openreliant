@@ -2,6 +2,7 @@
 #include <steam/steamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
 
+#include "ice.h"
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -10,6 +11,9 @@
 extern "C" bool probe_connected(uint32_t connection, const char *identity, bool incoming);
 extern "C" void probe_closed(uint32_t connection);
 extern "C" int probe_run(const char *role, const char *address, bool shared_clock);
+
+static bool using_ice;
+static ice::Mode ice_mode = ice::Mode::direct;
 
 static void status_changed(SteamNetConnectionStatusChangedCallback_t *event) {
     auto *net = SteamNetworkingSockets();
@@ -24,10 +28,16 @@ static void status_changed(SteamNetConnectionStatusChangedCallback_t *event) {
             constexpr int unsafe = k_nSteamNetworkConnectionInfoFlags_Unauthenticated |
                                    k_nSteamNetworkConnectionInfoFlags_Unencrypted;
             constexpr int priorities[] = {0, 0, 1}; // Flight, mission events, background.
+            const bool relayed = info.m_nFlags & k_nSteamNetworkConnectionInfoFlags_Relayed;
+            if (using_ice && ((ice_mode == ice::Mode::direct && relayed) ||
+                              (ice_mode == ice::Mode::relay_only && !relayed))) break;
             const char *identity = info.m_identityRemote.GetGenericString();
             if (!(info.m_nFlags & unsafe) && identity &&
                 net->ConfigureConnectionLanes(conn, 3, priorities, nullptr) == k_EResultOK &&
-                probe_connected(conn, identity, incoming)) return;
+                probe_connected(conn, identity, incoming)) {
+                if (using_ice) std::fprintf(stderr, "ICE %s connected to %s\n", relayed ? "private TURN" : "direct UDP", identity);
+                return;
+            }
             break;
         }
         case k_ESteamNetworkingConnectionState_ClosedByPeer:
@@ -41,6 +51,7 @@ static void status_changed(SteamNetConnectionStatusChangedCallback_t *event) {
 }
 
 extern "C" bool probe_open(const char *address, bool host) {
+    if (using_ice) return ice::open(address[3] ? address + 4 : nullptr, host, ice_mode);
     SteamNetworkingIPAddr endpoint;
     if (!endpoint.ParseString(address)) return false;
     auto *net = SteamNetworkingSockets();
@@ -90,9 +101,11 @@ extern "C" int64_t probe_now() {
     return std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
-extern "C" void probe_poll() {
+extern "C" bool probe_poll() {
+    if (using_ice && !ice::poll()) return false;
     SteamNetworkingSockets()->RunCallbacks();
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    return true;
 }
 
 static bool set_certificate(const char *path, SteamNetworkingErrMsg &error) {
@@ -107,10 +120,19 @@ static bool set_certificate(const char *path, SteamNetworkingErrMsg &error) {
 }
 
 int main(int argc, char **argv) {
-    const bool shared_clock = argc == 5 && std::strcmp(argv[4], "--shared-clock") == 0;
-    if (argc != 4 && !shared_clock) {
-        std::fprintf(stderr, "usage: transport-probe host|pilot1|pilot2|reject ADDRESS:PORT CERT [--shared-clock]\n");
+    if (argc < 4) {
+        std::fprintf(stderr, "usage: transport-probe host|pilot1|pilot2|reject ADDRESS:PORT|ice[:STUN_LIST] CERT [--shared-clock] [--private-turn|--relay-only]\n");
         return 2;
+    }
+    using_ice = std::strcmp(argv[2], "ice") == 0 || std::strncmp(argv[2], "ice:", 4) == 0;
+    bool shared_clock = false;
+    for (int i = 4; i < argc; ++i) {
+        if (!shared_clock && std::strcmp(argv[i], "--shared-clock") == 0) shared_clock = true;
+        else if (using_ice && ice_mode == ice::Mode::direct && std::strcmp(argv[i], "--private-turn") == 0)
+            ice_mode = ice::Mode::private_turn;
+        else if (using_ice && ice_mode == ice::Mode::direct && std::strcmp(argv[i], "--relay-only") == 0)
+            ice_mode = ice::Mode::relay_only;
+        else return 2;
     }
     SteamNetworkingErrMsg error = {};
     if (!GameNetworkingSockets_Init(nullptr, error)) {
@@ -118,8 +140,11 @@ int main(int argc, char **argv) {
         return 1;
     }
     auto *utils = SteamNetworkingUtils();
-    utils->SetDebugOutputFunction(k_ESteamNetworkingSocketsDebugOutputType_Warning,
-        [](ESteamNetworkingSocketsDebugOutputType, const char *message) { std::fprintf(stderr, "%s\n", message); });
+    utils->SetDebugOutputFunction(using_ice ? k_ESteamNetworkingSocketsDebugOutputType_Msg : k_ESteamNetworkingSocketsDebugOutputType_Warning,
+        [](ESteamNetworkingSocketsDebugOutputType, const char *message) {
+            if (!using_ice || std::strncmp(message, "probe ICE ", 10) == 0)
+                std::fprintf(stderr, "%s\n", message);
+        });
     // Standalone GNS requires this to open a listener. The connected callback
     // checks both encryption and the authenticated identity before admitting a peer.
     int result = 1;

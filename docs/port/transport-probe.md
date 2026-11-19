@@ -28,7 +28,7 @@ the time it applied the update.
 
 ## Run it
 
-On a Unix build machine, install Zig 0.17, Git, CMake, Ninja, Make, Perl, a native C++ compiler
+On a Unix build machine, install Zig 0.17, Git, patch, CMake, Ninja, Make, Perl, a native C++ compiler
 and Python 3.9 or newer with the `cryptography` package (version 40 or newer). Apple targets need
 the macOS SDK. From the repository root, pick a target and a scratch directory outside the checkout.
 For example, on an Apple silicon Mac:
@@ -64,8 +64,64 @@ Run `transport-probe pilot1 HOST:PORT pilot1.cert` and `transport-probe pilot2 H
 on the clients with their own credentials from the same set. Start both clients within 30 seconds.
 The probe opens UDP sockets, runs without a window or audio device, and exits after the exchange.
 
-The same workload also ran in a test adapter using Valve's native ICE across two networks. Direct
-punchthrough timed out on that pair, although both machines received STUN binding responses.
-With TURN forced, both sides reported a relayed connection and all three processes completed.
-SSH carried only signalling in that test. The executable above uses direct IP. Repeatable ICE
-route tests are tracked in [#1404](https://github.com/OpenReliant/openreliant/issues/1404).
+## ICE servers and routes
+
+The probe uses direct UDP by default. Public STUN helps each peer learn the address its router
+gives it. The default list has two independent operators:
+
+| Operator | UDP endpoint |
+| --- | --- |
+| [Metered](https://www.metered.ca/docs/turn-server-service/quickstart/) | `stun.relay.metered.ca:80` |
+| [Cloudflare](https://developers.cloudflare.com/realtime/turn/faq/) | `stun.cloudflare.com:3478` |
+
+Run the same-machine test with the defaults, replace the list with your own comma-separated
+hosts and ports, or pass an empty string to use only local candidates:
+
+```sh
+python3 "$probe/direct.py" "$work" "$target"
+python3 "$probe/direct.py" "$work" "$target" "$STUN"
+python3 "$probe/direct.py" "$work" "$target" ""
+```
+
+The executable accepts `ice` for the defaults and `ice:` followed by the replacement list.
+A direct-IP connection opens a UDP socket to the supplied address without contacting an ICE
+service.
+
+TURN is optional. To allow a private relay alongside direct routes, configure
+`OPENRELIANT_TURN_SERVER` (one UDP hostname and port), `OPENRELIANT_TURN_USERNAME` and
+`OPENRELIANT_TURN_PASSWORD` in each participating process's environment. Supply each peer
+with credentials from your relay. The library uses commas to separate list entries, so each
+value must be free of commas. Run:
+
+```sh
+python3 "$probe/direct.py" --private-turn "$work" "$target"
+```
+
+Use `--relay-only` in place of `--private-turn` to verify the private relay. The default run
+ignores TURN configuration and rejects relay candidates.
+
+For a two-site test, place the host binary and its own certificate from the same build set on
+the second machine. Start the host through a command that pipes standard input and output. For
+example, with those two files in the remote working directory:
+
+```sh
+python3 "$probe/direct.py" "$work" "$target" "$STUN" \
+    ssh -T "$REMOTE" "./transport-probe host ice:$STUN host.cert"
+```
+
+For a remote relay test, pass the same route flag to the runner and the remote executable.
+Set the remote credentials on the host.
+
+The runner checks each signal with the pinned Protobuf schema. It refuses application messages
+and counts the candidate types it forwards. The transport reports when it sends a discovery
+request, reads a mapped address, or gets a STUN error or timeout. Request counts include
+retries and packets subject to simulated loss. A mapping that matches the interface already
+has a host candidate. A different mapping can appear in a signal as `srflx`. Each authenticated
+peer reports the selected route when it connects. The runner exits unsuccessfully if a peer fails and
+prints the candidate counts even when no route connects.
+
+The pinned native ICE library sends a mapped-address attribute in a STUN binding request.
+Some services reject it with error 420. The probe omits the attribute from discovery and
+keepalive requests. Both default services returned mappings that the peers advertised.
+Cross-network route results are tracked in
+[#1404](https://github.com/OpenReliant/openreliant/issues/1404).
