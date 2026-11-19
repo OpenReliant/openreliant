@@ -2,6 +2,7 @@
 const std = @import("std");
 const engine = @import("openreliant").engine;
 const game = engine.game;
+const simulation = @import("arena_simulation.zig");
 const Host = @This();
 
 const spawn_x: [2]f32 = .{ -30000, 30000 };
@@ -19,20 +20,14 @@ pub fn init(host: *Host) !void {
     for (&host.pilots, spawn_x, 0..) |*pilot, x, index| {
         const ship = try host.mission.add(.of(.predator), .{ x, 0, 0 });
         if (ship != index) return error.WrongShipSlot;
-        const participant = all.joinParticipant(ship) orelse return error.JoinFailed;
-        pilot.* = all.bindParticipant(participant, .of(all, ship)) orelse return error.BindFailed;
-        if (!try game.aigeneric.push(.of(host.world()), ship, .multiplayer_control, .none)) return error.OrderFailed;
+        const world = simulation.world(&host.mission, null);
+        pilot.* = try simulation.admit(world, ship);
+        if (!try game.aigeneric.push(.of(world), ship, .multiplayer_control, .none)) return error.OrderFailed;
     }
 }
 
 pub fn deinit(host: *Host) void {
     host.mission.deinit();
-}
-
-fn world(host: *Host) game.gameobj.World {
-    var arena = host.mission.world();
-    arena.damage_rules = .{ .arena = null };
-    return arena;
 }
 
 pub fn step(host: *Host, controls: [2]i8) ![2][3]f32 {
@@ -45,10 +40,7 @@ pub fn step(host: *Host, controls: [2]i8) ![2][3]f32 {
         } })) return error.InputRejected;
     }
 
-    const clock = &host.mission.clock;
-    clock.advanceTimer(game.gameobj.ticks_per_step);
-    if (game.main.gameFrames(clock, &host.devices, null, host.world(), .in_turn, null) == .over)
-        return error.ArenaEnded;
+    if (simulation.step(&host.mission, &host.devices, null) == .over) return error.ArenaEnded;
 
     var positions: [2][3]f32 = undefined;
     for (&positions, host.pilots) |*position, pilot| {
