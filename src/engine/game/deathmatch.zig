@@ -66,21 +66,85 @@ pub fn creditDestruction(world: gameobj.World, index: u16, channels: radio.KillC
             world.player.kills.add(1, all.rules().counts_kills);
             radio.killRemark(world, index);
         },
-        .cooperative, .arena => {
+        .cooperative => {
             const binding = slot.attackerBinding(all) orelse return;
-            const pilot = &all.player_states[binding.participant.slot].membership.joined;
-            if (world.damage_rules == .arena and all.arena_scores == .teams) {
-                const team = pilot.team orelse return;
+            all.player_states[binding.participant.slot].membership.joined.kills.add(1, all.rules().counts_kills);
+            radio.hostedKillRemark(world, index, binding, channels);
+        },
+        .arena => {
+            const binding = slot.attackerBinding(all) orelse return;
+            if (all.arena_scores == .teams) {
                 if (all.playerBinding(index)) |victim| {
                     const opposing = all.participantTeam(victim.participant) orelse return;
-                    if (opposing == team) return;
+                    if (opposing == all.participantTeam(binding.participant)) return;
                 }
-                all.arena_scores.teams.getPtr(team).kills += 1;
             }
-            pilot.kills.add(1, world.damage_rules == .cooperative and all.rules().counts_kills);
-            if (world.damage_rules == .cooperative) radio.hostedKillRemark(world, index, binding, channels);
+            _ = awardArenaKill(all, binding);
         },
     }
+}
+
+/// Adds one kill to the bound pilot and, in team games, to their assigned team.
+fn awardArenaKill(all: *Objects, binding: players.ControlRef) bool {
+    const pilot = &all.player_states[binding.participant.slot].membership.joined;
+    if (all.arena_scores == .teams) {
+        const team = pilot.team orelse return false;
+        all.arena_scores.teams.getPtr(team).kills += 1;
+    }
+    pilot.kills.add(1, false);
+    return true;
+}
+
+/// An arena-wide HUD message from the host. The session resolves names by admission.
+pub const UberKill = struct {
+    owner: players.ParticipantRef,
+    victim: players.ParticipantRef,
+    awarded: bool,
+    tick: i32,
+
+    const message_id = 0x301; // uber_explode_update, 0x00473340
+    const award_suffix_id = 0x2F4; // 0x00473309
+
+    pub const Sink = struct {
+        context: *anyopaque,
+        send: *const fn (*anyopaque, UberKill) void,
+    };
+
+    /// Formats the installed language's kill line (0x301). Only the scorer sees the
+    /// award suffix (0x2F4). The HUD keeps as much of the message as fits on one line.
+    pub fn present(notice: UberKill, messages: *@import("hud.zig").Messages, strings: @import("language.zig").Language, viewer: players.ParticipantRef, owner_name: []const u8, victim_name: []const u8) void {
+        const format = strings.string(message_id) orelse return;
+        const scored = notice.awarded and std.meta.eql(notice.owner, viewer);
+        const suffix = if (scored) strings.string(award_suffix_id) orelse "" else "";
+        var buffer: [@import("hud.zig").Messages.line_size]u8 = undefined;
+        var line: std.Io.Writer = .fixed(&buffer);
+        var parts = std.mem.splitSequence(u8, format, "%s");
+        line.writeAll(parts.first()) catch {};
+        for ([_][]const u8{ owner_name, victim_name, suffix }) |value| {
+            const after = parts.next() orelse break;
+            line.writeAll(value) catch break;
+            line.writeAll(after) catch break;
+        }
+        messages.add(line.buffered(), notice.tick);
+    }
+};
+
+/// `uber_explode_update` clears the previous attacker, awards the blast owner a kill
+/// without testing team allegiance (0x00473372), then posts the HUD message (0x0047337E).
+pub fn uberKill(world: gameobj.World, source: gameobj.DamageSource, victim: players.ParticipantRef) void {
+    const all = world.objects;
+    const slot = &all.slots[victim.slot];
+    slot.setAttacker(null);
+    slot.object.last_attacker = .uber_blast;
+    const generation = source.participant_generation orelse return;
+    const binding = all.playerBindingFor(source.object, generation);
+    const awarded = if (binding) |owner| awardArenaKill(all, owner) else false;
+    if (world.uber_kills) |sink| sink.send(sink.context, .{
+        .owner = .{ .slot = source.object.slot, .generation = generation },
+        .victim = victim,
+        .awarded = awarded,
+        .tick = world.clock.frame_start,
+    });
 }
 
 test "a co-op pilot keeps kills across ships and starts each mission with a fresh mission tally" {
@@ -279,4 +343,22 @@ test "team totals stay with the team until its last pilot leaves" {
     try std.testing.expectEqual(TeamScore{}, all.arena_scores.teams.get(.second));
     try std.testing.expect(Objects.leaveParticipant(mission.world(), second));
     try std.testing.expectEqual(TeamScore{}, all.arena_scores.teams.get(.first));
+}
+
+test "the Uber announcement uses the viewer's language and only the scorer sees the award" {
+    var text: [UberKill.message_id][]const u8 = @splat("");
+    text[UberKill.message_id - 1] = "%s / %s %s";
+    text[UberKill.award_suffix_id - 1] = "+1";
+    const strings: @import("language.zig").Language = .{ .strings = &text };
+    var messages: @import("hud.zig").Messages = .{};
+    const notice: UberKill = .{
+        .owner = .{ .slot = 0, .generation = 1 },
+        .victim = .{ .slot = 1, .generation = 2 },
+        .awarded = true,
+        .tick = 100,
+    };
+    notice.present(&messages, strings, notice.owner, "Alpha", "%s");
+    notice.present(&messages, strings, notice.victim, "Alpha", "%s");
+    try std.testing.expectEqualStrings("Alpha / %s +1", messages.line(0));
+    try std.testing.expectEqualStrings("Alpha / %s ", messages.line(1));
 }

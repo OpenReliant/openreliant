@@ -462,10 +462,13 @@ The Huuuuuuuge Explosion order (43, `order_huuuuuuuge_explosion`, `0x004086C0`) 
 Explode where the object stands, of size 50000 over 1500 ticks, and pops ([Orders](orders.md)). One
 goes off at a time; another takes its place.
 
-`uber_explode_start` (`0x00472AB0`) lists up to 80 objects it may reach (`uber_caught`,
-`0x00562B88`): each but the player's ship that is created and not disabled, with combat stats of a
-side but the neutral one and an order stack, and within 5 times its size, but for the gates (types
-`0x6D` and `0x6E`), the Boridin and its breakaway (`0xA8`). It makes:
+`uber_explode_start` (0x00472AB0) lists up to 80 objects within five times the blast size.
+Each must be active, have a ship order and have non-neutral combat stats. Gates, the Boridin
+and its breakaway are immune. In campaign missions the blast spares the displayed ship.
+In an arena the original checks its eight player slots and spares the blast owner. The host
+checks the ships bound to its pilots. Team membership gives no protection.
+
+The blast uses the following effects.
 
 - Two halves of a hemisphere (`uber_hemisphere`, `0x00562CD0`, which `explosions_init` makes
   through `0x00473BF0`), the second turned half round: a pole and seven rings of 18 vertices, a
@@ -493,11 +496,19 @@ duration it is:
 | From 0.5 | 12 to 24 burning bits a frame fly at the camera ([Burning bits](#burning-bits)) |
 | From 0.95 | The view flashes for 2000 ticks a share past 0.95, so 100 at the end |
 
-Past its duration it frees its objects and sounds `CAPEXP` from the owner. Each ship the ball
-reached stops turning and, unless it is exploding already, is destroyed (`object_destroyed`,
-neither spinning nor ejecting). The owner's mission ship then raises its explosion event
-(`0x0045AB50`). In a multiplayer game the blast spares its owner in place of the player, and counts
-and tells the players the kills.
+When the blast ends, CAPEXP plays and each reached ship stops turning. If the ship is still
+alive and has no Explode order, the blast orders it to explode without ejecting. It then
+posts the owner's ExplosionShip event (0x0045AB50).
+
+**Improvement:** the host retains both the ship and the pilot's admission from launch.
+A replacement pilot cannot inherit the hit or the award, even in the same ship. For each
+reached arena victim the original clears the previous attacker (0x004732F2), adds one kill
+for the owner (0x00473372), and announces it before starting the victim's explosion
+(0x0047337E). The host uses that sequence even for teammates. The normal explosion records
+the death. Each kill notice identifies the two original pilots. The HUD uses the viewer's
+installed string 0x301 and shows the award suffix (0x2F4) only to the pilot who scored.
+The Six Beacons gate trigger and its separate launch announcement are tracked in
+[#1414](https://github.com/OpenReliant/openreliant/issues/1414).
 
 **Fix:** the blast keeps its original owner's identity. If that object has left, the completion
 sound plays at the captured blast position, and the explosion event keeps the original handle

@@ -34,7 +34,7 @@ once for each connected ship would give them all the same controls.
 
 The original remains the comparison for gameplay rules and timing. Host authority requires
 simulation state and commands for each participant, rather than treating remote reported ship
-state as authoritative ([#954](https://github.com/OpenReliant/openreliant/issues/954)).
+state as authoritative ([#954](https://github.com/OpenReliant/openreliant/issues/954).
 
 ## Flight commands and targets
 
@@ -180,8 +180,9 @@ Starting an arena round clears individual and team scores and keeps the pilots' 
 (`mp_arena_init`, 0x004AE860). Respawning preserves scores. A team keeps its score while any
 member remains, including a pilot waiting for a ship. When its last pilot leaves or changes
 teams, both team totals return to zero (`mp_reset_team_tallies`, 0x004B15E0).
-The Uber blast has separate award and protection rules tracked in
-[#1412](https://github.com/OpenReliant/openreliant/issues/1412).
+The [Uber blast](effects.md#the-uber-explode) can also award a kill for a teammate. Its host
+notice carries the owner and victim admissions and the scoring tick. Session delivery and pilot name lookup
+are tracked in [#954](https://github.com/OpenReliant/openreliant/issues/954).
 
 ## Remaining work
 
