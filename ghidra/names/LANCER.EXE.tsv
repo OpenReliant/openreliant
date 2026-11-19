@@ -3275,4 +3275,15 @@ address	kind	name	type	comment
 005db580	data	tag_bomb_pending_respawn	int	Zero until a pilot is due to get the bomb on respawn, then their attacker's slot plus one or minus one for no attacker
 005db584	data	tag_bomb_detonating	bool	The local carrier's death was caused by their bomb
 005db588	data	tag_bomb_remaining_ticks	int	The local pilot's remaining fuse, initially 4500 ticks
+004b48c0	function	shadow_init	void (void)	Starts without a Shadow or restores the Shadow from the join state
+004b4920	function	shadow_pilot_destroyed	void __fastcall (int pilot)	Grants or clears the role when a pilot dies and credits the Shadow's own kills
+004b49d0	function	shadow_pilot_left	void __fastcall (int pilot)	Clears the role if the departing pilot was the Shadow
+004b49f0	function	shadow_assign	void __fastcall (int pilot, bool report)	Awards the five-frag bonus on a transfer, cloaks the new Shadow and turns off their targeting and shields
+004b4b30	function	shadow_killed_pilot	void __fastcall (int victim, bool report)	Announces a kill by the Shadow and replaces ordinary kill credit with one frag
+004b4be0	function	shadow_draw_hud	void (void)	Draws shape 13 at the arena objective anchor for the local Shadow
+004b4c80	function	shadow_write_state	void (void)	Writes the Shadow's slot or eight if no pilot has the role
+004b4cb0	function	shadow_read_state	void (void)	Reads the Shadow's slot into the shared arena join state
+004b2dc0	function	mp_can_take_powerup	bool __fastcall (int pilot)	Refuses random power-ups for the Shadow and for vampires
+005db608	data	shadow_join_slot	int	The Shadow's slot from a resync packet, or minus one
+005d7c94	data	shadow_show_debug	bool	Enables the unused shadow slot text in the HUD
 005db58c	data	tag_bomb_previous_tick	int	The last frame tick used to advance the bomb

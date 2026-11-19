@@ -501,6 +501,11 @@ fn broadcastNotices(host: *Host) void {
             .name = host.noticeName(notice.pilot),
             .other_name = host.noticeName(notice.other),
         } }, null),
+        .shadow => |notice| host.sendPlaying(.{ .shadow_notice = .{
+            .event = notice,
+            .name = host.noticeName(notice.pilot),
+            .other_name = if (notice.other) |other| host.noticeName(other) else .{},
+        } }, null),
     };
 }
 

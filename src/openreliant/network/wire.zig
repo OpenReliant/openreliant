@@ -7,7 +7,7 @@ pub const ordnance = @import("ordnance.zig");
 const flight = engine.input.flight;
 pub const Fighter = engine.game.dmscenarios.Fighter;
 pub const Scenario = engine.game.dmscenarios.Scenario;
-pub const revision: u16 = 16;
+pub const revision: u16 = 17;
 pub const slots = 3;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
@@ -33,6 +33,10 @@ const dark_reign_capacity = snapshot_header + slots + DarkReign.encoded_size + 1
 const snapshot_capacity = @max(beacon_snapshot_capacity, asteroid_capacity, dark_reign_capacity);
 pub const capacity = @max(snapshot_capacity + ordnance.Status.capacity, Combat.capacity, ordnance.Page.capacity);
 const max_release = 96;
+
+fn compactRocks(scenario: ?Scenario) bool {
+    return scenario == .dark_reign or scenario == .hunt_the_shadow;
+}
 
 pub const Input = struct {
     sequence: u32,
@@ -85,6 +89,20 @@ pub const Roster = struct {
     pub const Pilot = struct { generation: u64, name: CallSign = .{} };
 };
 pub const BeaconNotice = struct { event: engine.game.deathmatch.six_beacons.Notice, name: CallSign };
+const ParticipantRef = engine.game.players.ParticipantRef;
+
+fn writeParticipant(w: *std.Io.Writer, pilot: ParticipantRef) !void {
+    try w.writeByte(@intCast(pilot.slot));
+    try w.writeInt(u64, pilot.generation, .little);
+}
+
+fn readParticipant(r: *std.Io.Reader) !ParticipantRef {
+    const slot = try r.takeByte();
+    const generation = try r.takeInt(u64, .little);
+    if (slot >= slots or generation == 0) return error.InvalidParticipant;
+    return .{ .slot = slot, .generation = generation };
+}
+
 pub const TagBombNotice = struct {
     event: engine.game.deathmatch.tag_bomb.Notice,
     name: CallSign,
@@ -94,10 +112,8 @@ pub const TagBombNotice = struct {
         try w.writeByte(@backingInt(notice.event.kind));
         try w.writeInt(i32, notice.event.tick, .little);
         try w.writeByte(@intFromBool(notice.event.awarded));
-        for ([_]engine.game.players.ParticipantRef{ notice.event.pilot, notice.event.other }) |pilot| {
-            try w.writeByte(@intCast(pilot.slot));
-            try w.writeInt(u64, pilot.generation, .little);
-        }
+        try writeParticipant(w, notice.event.pilot);
+        try writeParticipant(w, notice.event.other);
         try writeCallSign(w, &notice.name);
         try writeCallSign(w, &notice.other_name);
     }
@@ -107,17 +123,44 @@ pub const TagBombNotice = struct {
         const tick = try r.takeInt(i32, .little);
         const award = try r.takeByte();
         if (tick < 0 or award > 1 or (kind == .passed and award != 0)) return error.InvalidTagBombNotice;
-        var pilots: [2]engine.game.players.ParticipantRef = undefined;
-        for (&pilots) |*pilot| {
-            const slot = try r.takeByte();
-            const generation = try r.takeInt(u64, .little);
-            if (slot >= slots or generation == 0) return error.InvalidTagBombNotice;
-            pilot.* = .{ .slot = slot, .generation = generation };
-        }
+        const pilot = try readParticipant(r);
+        const other = try readParticipant(r);
         return .{
-            .event = .{ .kind = kind, .tick = tick, .awarded = award != 0, .pilot = pilots[0], .other = pilots[1] },
+            .event = .{ .kind = kind, .tick = tick, .awarded = award != 0, .pilot = pilot, .other = other },
             .name = try readCallSign(r),
             .other_name = try readCallSign(r),
+        };
+    }
+};
+
+pub const ShadowNotice = struct {
+    event: engine.game.deathmatch.hunt_the_shadow.Notice,
+    name: CallSign,
+    other_name: CallSign = .{},
+
+    fn write(notice: ShadowNotice, w: *std.Io.Writer) !void {
+        try w.writeByte(@backingInt(notice.event.kind));
+        try w.writeInt(i32, notice.event.tick, .little);
+        try writeParticipant(w, notice.event.pilot);
+        try writeCallSign(w, &notice.name);
+        if (notice.event.other) |other| {
+            try writeParticipant(w, other);
+            try writeCallSign(w, &notice.other_name);
+        }
+    }
+
+    fn read(r: *std.Io.Reader) !ShadowNotice {
+        const kind = try r.takeEnum(engine.game.deathmatch.hunt_the_shadow.Notice.Kind, .little);
+        const tick = try r.takeInt(i32, .little);
+        if (tick < 0) return error.InvalidShadowNotice;
+        const pilot = try readParticipant(r);
+        const name = try readCallSign(r);
+        const other = if (kind != .claimed) try readParticipant(r) else null;
+        if (other != null and other.?.slot == pilot.slot) return error.InvalidShadowNotice;
+        return .{
+            .event = .{ .kind = kind, .pilot = pilot, .other = other, .tick = tick },
+            .name = name,
+            .other_name = if (other != null) try readCallSign(r) else .{},
         };
     }
 };
@@ -209,7 +252,13 @@ pub const Ship = struct {
     }
 };
 pub const Beacon = union(enum(u8)) { loose: [3]f32, carried: u8 };
-pub const Objectives = union(enum(u8)) { none, six_beacons: [beacon_count]Beacon, dark_reign: DarkReign, tag_bomb: ?ActiveBomb };
+pub const Objectives = union(enum(u8)) {
+    none,
+    six_beacons: [beacon_count]Beacon,
+    dark_reign: DarkReign,
+    tag_bomb: ?ActiveBomb,
+    hunt_the_shadow: ?u8,
+};
 
 pub const ActiveBomb = struct {
     carrier: u8,
@@ -258,8 +307,7 @@ pub const Rocks = struct {
         try w.writeByte(rocks.count);
         for (rocks.angles[0..rocks.count]) |entry| {
             if (compact) {
-                // Dark Reign has over a hundred rocks. Ten bits per visual axis
-                // leave the whole arena view small enough for a single packet.
+                // Ten bits per visual axis keep larger stock arenas in one packet.
                 var bits: u32 = 0;
                 if (entry) |facing| {
                     bits = 1 << 30;
@@ -604,6 +652,7 @@ pub const Message = union(enum(u8)) {
     chat_request: ChatRequest,
     chat_line: ChatLine,
     tag_bomb_notice: TagBombNotice,
+    shadow_notice: ShadowNotice,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -672,9 +721,13 @@ pub const Message = union(enum(u8)) {
                         try w.writeByte(if (active) |bomb| bomb.carrier else slots);
                         if (active) |bomb| try w.writeInt(u16, bomb.remaining, .little);
                     },
+                    .hunt_the_shadow => |shadow| {
+                        if (view.scenario != .hunt_the_shadow) return error.InvalidSnapshot;
+                        try w.writeByte(shadow orelse slots);
+                    },
                 }
                 if (view.scenario != null and view.scenario.?.hasPowerUps()) {
-                    try view.rocks.write(&w, view.scenario == .dark_reign);
+                    try view.rocks.write(&w, compactRocks(view.scenario));
                     try writeArena(&w, &view);
                 }
                 if (view.scenario == .nuclear_threat) try Blast.write(view.blast, &w);
@@ -702,6 +755,7 @@ pub const Message = union(enum(u8)) {
                 try writeCallSign(&w, &notice.name);
             },
             .tag_bomb_notice => |notice| try notice.write(&w),
+            .shadow_notice => |notice| try notice.write(&w),
             .combat => |combat| try writeCombat(&w, &combat),
             .weapon_order => |order| try ordnance.writeOrder(&w, order),
             .projectiles => |page| try page.write(&w),
@@ -828,11 +882,19 @@ pub const Message = union(enum(u8)) {
                             return error.InvalidSnapshot;
                         break :objectives .{ .tag_bomb = .{ .carrier = slot, .remaining = remaining } };
                     },
+                    .hunt_the_shadow => shadow: {
+                        if (view.scenario != .hunt_the_shadow) return error.InvalidSnapshot;
+                        const slot = try r.takeByte();
+                        if (slot == slots) break :shadow .{ .hunt_the_shadow = null };
+                        if (slot >= slots or view.ships[slot] == null) return error.InvalidSnapshot;
+                        break :shadow .{ .hunt_the_shadow = slot };
+                    },
                 };
                 if (view.scenario == .dark_reign and view.objectives != .dark_reign) return error.InvalidSnapshot;
                 if (view.scenario == .tag_bomb and view.objectives != .tag_bomb) return error.InvalidSnapshot;
+                if (view.scenario == .hunt_the_shadow and view.objectives != .hunt_the_shadow) return error.InvalidSnapshot;
                 if (view.scenario != null and view.scenario.?.hasPowerUps()) {
-                    view.rocks = try .read(&r, view.scenario == .dark_reign);
+                    view.rocks = try .read(&r, compactRocks(view.scenario));
                     try readArena(&r, &view);
                 }
                 if (view.scenario == .nuclear_threat) view.blast = try Blast.read(&r, view.tick);
@@ -876,6 +938,7 @@ pub const Message = union(enum(u8)) {
                 break :notice .{ .beacon_notice = .{ .event = .{ .pilot = .{ .slot = slot, .generation = generation }, .tick = tick, .kind = kind }, .name = try readCallSign(&r) } };
             },
             .tag_bomb_notice => .{ .tag_bomb_notice = try .read(&r) },
+            .shadow_notice => .{ .shadow_notice = try .read(&r) },
             .combat => .{ .combat = try readCombat(&r) },
             .weapon_order => .{ .weapon_order = try ordnance.readOrder(&r, slots) },
             .projectiles => .{ .projectiles = try ordnance.Page.read(&r) },
@@ -1258,4 +1321,42 @@ test "a Tag Bomb detonation notice retains both names and the scorer's admission
     } };
     const received = (try Message.decode(try sent.encode(&buffer))).tag_bomb_notice;
     try std.testing.expectEqualDeep(sent.tag_bomb_notice, received);
+}
+
+test "Shadow snapshots carry an admitted slot and the arena's thirty-three rocks" {
+    var buffer: [capacity]u8 = undefined;
+    var view: Snapshot = .{
+        .tick = 62,
+        .scenario = .hunt_the_shadow,
+        .ships = @splat(null),
+        .objectives = .{ .hunt_the_shadow = null },
+        .rocks = .{ .count = 33 },
+    };
+    view.rocks.angles[32] = .{ -128, 256, 512 };
+    try std.testing.expectEqualDeep(view, (try Message.decode(try (Message{ .view = view }).encode(&buffer))).view);
+    view.ships[1] = .{ .generation = 2, .position = @splat(0), .cloaked = true };
+    view.objectives = .{ .hunt_the_shadow = 1 };
+    try std.testing.expectEqualDeep(view, (try Message.decode(try (Message{ .view = view }).encode(&buffer))).view);
+    view.objectives = .{ .hunt_the_shadow = 2 };
+    try std.testing.expectError(error.InvalidSnapshot, Message.decode(try (Message{ .view = view }).encode(&buffer)));
+}
+
+test "Shadow notices retain only the pilots involved in the event" {
+    var buffer: [capacity]u8 = undefined;
+    const sent: Message = .{ .shadow_notice = .{
+        .event = .{
+            .kind = .transferred,
+            .tick = 303,
+            .pilot = .{ .slot = 2, .generation = 9 },
+            .other = .{ .slot = 0, .generation = 4 },
+        },
+        .name = lobbyName("Rook"),
+        .other_name = lobbyName("Falcon"),
+    } };
+    try std.testing.expectEqualDeep(sent, try Message.decode(try sent.encode(&buffer)));
+    var claim = sent;
+    claim.shadow_notice.event.kind = .claimed;
+    claim.shadow_notice.event.other = null;
+    claim.shadow_notice.other_name = .{};
+    try std.testing.expectEqualDeep(claim, try Message.decode(try claim.encode(&buffer)));
 }

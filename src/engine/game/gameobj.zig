@@ -1971,9 +1971,7 @@ test ShieldReserves {
 ///
 /// An object whose components are listed recharges no shields here, and neither does one holding
 /// the `no_shield_recharge` power-up. One whose `invulnerable` is `_unknown_5` has its shields
-/// emptied instead. **Unknown:** what that value means. Not ported: the case in a multiplayer game
-/// where the player's shields aren't recharged (`0x005D76F0` at 4 with `0x005DB538` naming the
-/// player) ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// emptied instead. **Unknown:** what that value means.
 pub fn rechargeShields(object: *GameObject, combat: *const create.ShipCombat, reserves: ?ShieldReserves) void {
     if (object.flags.components) return;
     if (object.invulnerable == ._unknown_5) {
@@ -2169,6 +2167,8 @@ pub const World = struct {
     gun_effects: ?@import("guns.zig").FlightEffect.Sink = null,
     /// Arena-wide Uber kill notices for the session to deliver to viewers.
     tag_bomb_notices: ?@import("deathmatch.zig").tag_bomb.Notice.Sink = null,
+    /// The host announces Shadow role changes and credited kills.
+    shadow_notices: ?@import("dmscenarios/hunt_the_shadow.zig").Notice.Sink = null,
     beacon_notices: ?@import("deathmatch.zig").six_beacons.Notice.Sink = null,
     uber_kills: ?@import("deathmatch.zig").UberKill.Sink = null,
     /// The host sends a fighter's final breakup to the arena's viewers.
@@ -2297,7 +2297,10 @@ pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool
         var live = world;
         updateTree(&object.root, if (slot.model) |*model| model else null, guns.clipEvents(&live, @intCast(index)));
         const combat = slot.combat orelse continue;
-        rechargeShields(object, combat, if (all.playerState(index)) |state| state.shield_reserves else null);
+        // Fix: the original skips recharge for every ship on the Shadow's machine (0x00476FFF).
+        // The host skips it only for the Shadow's fighter.
+        if (world.damage_rules != .arena or !@import("dmscenarios/hunt_the_shadow.zig").isShadow(all, index))
+            rechargeShields(object, combat, if (all.playerState(index)) |state| state.shield_reserves else null);
         guns.step(world, clock, index);
     }
     // Each participant's controls run again before movement, at the original local player's

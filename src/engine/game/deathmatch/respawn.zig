@@ -20,7 +20,7 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
     slot.object.invulnerable = ._unknown_4;
     slot.object.flags.no_collisions = true;
     // The original enables targeting with the default flag at 0x0050C2F0.
-    slot.object.flags.targetable = true;
+    slot.object.flags.targetable = !@import("../dmscenarios/hunt_the_shadow.zig").isShadow(ctx.world.objects, index);
     sound(ctx.world, index);
 }
 

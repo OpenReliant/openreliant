@@ -44,6 +44,7 @@ const srapi = @import("../surrender/surrenderlib/srapi.zig");
 const ai = @import("ai.zig");
 const six_beacons = @import("dmscenarios/six_beacons.zig");
 const tag_bomb = @import("dmscenarios/tag_bomb.zig");
+const hunt_the_shadow = @import("dmscenarios/hunt_the_shadow.zig");
 const aigeneric = @import("aigeneric.zig");
 const create = @import("create.zig");
 const xtrabits = @import("xtrabits.zig");
@@ -2610,6 +2611,7 @@ pub const Frame = struct {
     chat_line: ?[]const u8 = null,
     relay_carrier: ?players.ControlRef = null,
     tag_bomb: ?tag_bomb.Hud = null,
+    shadow: ?players.ParticipantRef = null,
     beacon_snapshot: ?*const six_beacons.HudSnapshot = null,
     /// The sound the enemy lock's warning plays through (`Drawing.warnOfLock`); none where nothing
     /// is heard.
@@ -2820,6 +2822,8 @@ pub const Instrument = enum {
     dark_reign_relay,
     /// The local pilot's active bomb and timer in Tag Bomb.
     tag_bomb_timer,
+    /// The role badge displayed to the Shadow.
+    shadow_badge,
 
     /// The instrument a window is; null for the frames alone, which show nothing.
     pub fn ofWindow(window: windows.Window) ?Instrument {
@@ -2882,7 +2886,7 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
     var placing: Placings = .init(frame, pen.scale);
     defer placing.keep(drawing);
     drawing.flashes = .{};
-    const arena_icons = if (frame.beacon_snapshot != null or frame.relay_carrier != null or frame.tag_bomb != null)
+    const arena_icons = if (frame.beacon_snapshot != null or frame.relay_carrier != null or frame.tag_bomb != null or frame.shadow != null)
         resources.arenaIcons(frame.gpa)
     else
         null;
@@ -2903,6 +2907,11 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
         if (bomb_carrier) |carrier| {
             if (carrier.slot == frame.all.player)
                 try bomb.drawLocal(placing.pen(pen, .tag_bomb_timer), arena_icons);
+        }
+    }
+    if (frame.shadow) |owner| {
+        if (owner.slot == frame.all.player) {
+            if (arena_icons) |art| try hunt_the_shadow.drawBadge(placing.pen(pen, .shadow_badge), art);
         }
     }
     const badge: ?TargetScene.CarrierBadge = if (frame.relay_carrier) |carrier|

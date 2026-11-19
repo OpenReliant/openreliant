@@ -14,6 +14,7 @@ tables: game.create.Stats,
 random: engine.random.Random = .{},
 tick: ?u32 = null,
 bomb_was_active: ?bool = null,
+shadow_was_active: ?bool = null,
 host_ship_reuse: [wire.slots]u32 = @splat(0),
 respawns: game.deathmatch.respawn.View = .{},
 wall: game.deathmatch.Boundary.Flashes = .{},
@@ -434,6 +435,8 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
             }
         }
         slot.object.flags.exploding = ship.dying;
+        if (snapshot.objectives == .hunt_the_shadow)
+            slot.object.flags.targetable = snapshot.objectives.hunt_the_shadow != @as(u8, @intCast(index));
         if (!ship.dying and index == admission.slot) frame.death_view = null;
         all.player_states[index].membership.joined.kills.count = ship.kills;
         all.player_states[index].membership.joined.deaths = ship.deaths;
@@ -471,8 +474,15 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         } else .{},
         else => null,
     };
+    frame.drawn.shadow = if (snapshot.objectives == .hunt_the_shadow)
+        if (snapshot.objectives.hunt_the_shadow) |owner|
+            if (all.playerBinding(owner)) |pilot| pilot.participant else null
+        else
+            null
+    else
+        null;
     frame.drawn.beacon_snapshot = switch (snapshot.objectives) {
-        .none, .tag_bomb => null,
+        .none, .tag_bomb, .hunt_the_shadow => null,
         .dark_reign => |mode| view: {
             try frame.presentDarkReign(scene, mode);
             break :view null;
