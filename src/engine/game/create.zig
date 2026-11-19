@@ -918,6 +918,13 @@ pub const Objects = struct {
         return state;
     }
 
+    /// Sets the session name for this admission. A late rename cannot reach a replacement pilot.
+    pub fn setParticipantName(all: *Objects, ref: players.ParticipantRef, name: []const u8) bool {
+        const state = all.joinedParticipant(ref) orelse return false;
+        state.membership.joined.name.set(std.mem.sliceTo(name, 0));
+        return true;
+    }
+
     /// **Improvement:** the host assigns or clears an arena team for this admission,
     /// even while the pilot is waiting for a ship.
     pub fn setParticipantTeam(all: *Objects, ref: players.ParticipantRef, team: ?players.ArenaTeam) bool {
@@ -1001,13 +1008,17 @@ pub const Objects = struct {
     /// Identifies the current recipient for this ship. It remains valid during an explosion
     /// until the ship leaves its slot, so the final hit can still reach the pilot.
     pub fn playerBinding(all: *const Objects, index: u16) ?players.ControlRef {
+        const joined = all.boundParticipant(index) orelse return null;
+        return .{ .participant = .{ .slot = index, .generation = joined.generation }, .ship = joined.ship.? };
+    }
+
+    /// The admission that owns the ship currently occupying this slot.
+    pub fn boundParticipant(all: *const Objects, index: u16) ?*const players.Membership.Joined {
         if (index >= all.players or index >= all.player_states.len) return null;
-        const membership = all.player_states[index].membership;
-        if (membership != .joined) return null;
-        const joined = membership.joined;
-        const ship = joined.ship orelse return null;
-        if (ship.resolve(all) != index) return null;
-        return .{ .participant = .{ .slot = index, .generation = joined.generation }, .ship = ship };
+        const membership = &all.player_states[index].membership;
+        if (membership.* != .joined) return null;
+        const ship = membership.joined.ship orelse return null;
+        return if (ship.resolve(all) == index) &membership.joined else null;
     }
 
     /// Finds the pilot who owned a retained source. Both the ship and its admission must match.
@@ -3106,6 +3117,26 @@ test "player state follows participants across ship replacement and is copied fo
     all.reset(&mission.random);
     try std.testing.expectEqual(players.State{}, all.playerState(first).?.*);
     try std.testing.expectEqual(players.State{ .controls = .{ .throttle = 0.7, .afterburner_toggled = true } }, all.playerState(second).?.*);
+}
+
+test "the session name belongs to the admission across mission and ship changes" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const index = try mission.add(.of(.predator), @splat(0));
+    const pilot = all.joinParticipant(index).?;
+    const full = "0123456789ABCDEFGHIJKLMNOPQRSTUV";
+    try std.testing.expect(all.setParticipantName(pilot, full ++ "extra"));
+    _ = all.bindParticipant(pilot, .of(all, index)).?;
+    try std.testing.expectEqualStrings(full, all.boundParticipant(index).?.name.slice());
+    all.reset(&mission.random);
+    try std.testing.expectEqual(null, all.boundParticipant(index));
+    const replacement = try mission.add(.of(.predator), @splat(0));
+    _ = all.bindParticipant(pilot, .of(all, replacement)).?;
+    try std.testing.expectEqualStrings(full, all.boundParticipant(index).?.name.slice());
+    try std.testing.expect(all.setParticipantName(pilot, "Ace\x00ignored"));
+    try std.testing.expectEqualStrings("Ace", all.boundParticipant(index).?.name.slice());
 }
 
 test "leaving revokes commands even when the next participant binds the same ship" {
