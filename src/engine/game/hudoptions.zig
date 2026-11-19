@@ -8,8 +8,8 @@
 //! buttons the screens share ([`hudoptions/menu.zig`](hudoptions/menu.zig)); the pointer, the
 //! fonts and the screens' order (`pause_menu_draw`); and the main screen
 //! ([`hudoptions/screens.zig`](hudoptions/screens.zig)). The audio, controls and video screens, the
-//! controls of which F1 opens too, are OpenReliant's settings screen (`SettingsScreen`). Not yet:
-//! the multiplayer screen (#211); and the two screens nothing reaches.
+//! controls of which F1 opens too, use OpenReliant's settings screen.
+//! The multiplayer overlay lives in `hudoptions/multiplayer.zig`.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -29,6 +29,7 @@ const settings_screen = interface.settings;
 
 pub const menu = @import("hudoptions/menu.zig");
 pub const screens = @import("hudoptions/screens.zig");
+pub const multiplayer = @import("hudoptions/multiplayer.zig");
 
 test {
     std.testing.refAllDecls(@This());

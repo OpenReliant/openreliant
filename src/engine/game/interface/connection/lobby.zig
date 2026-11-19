@@ -4,6 +4,7 @@ const std = @import("std");
 const ui = @import("../canvas.zig");
 const hud = @import("../../hud.zig");
 const chat = @import("../../chat.zig");
+pub const chat_panel = @import("chat_panel.zig");
 const Typed = @import("../../winmain.zig").Typed;
 const input = @import("../../../input.zig");
 const scenarios = @import("../../dmscenarios.zig");
@@ -14,7 +15,7 @@ const choices = @import("choice_list.zig");
 const ShipPicker = @import("ship_picker.zig");
 const Label = widgets.Label;
 const Lobby = @This();
-pub const History = hud.MessageList(6); // session loadout variant, 0x004AE365
+pub const History = chat_panel.History;
 
 const Control = enum { leave, launch };
 const Field = enum { scenario, ship };
@@ -24,8 +25,7 @@ const Role = union(enum) { host: struct { can_launch: bool = false, port: u16 },
 role: Role,
 roster: []const ?CallSign,
 notices: ?*const History = null,
-chat_line: chat.Line = .{},
-chat_focused: bool = false,
+editor: chat_panel.Editor = .{},
 local_slot: usize,
 scenario: scenarios.Scenario = .nuclear_threat,
 ship: scenarios.Fighter = .predator,
@@ -38,7 +38,6 @@ const panel_top = 153;
 const panel_bottom = 291;
 const chat_top = 297;
 const chat_bottom = 408;
-const chat_spacing = 11;
 const left_edge = 48;
 const divider = 343;
 const right_edge = 592;
@@ -52,7 +51,6 @@ const control_width = 180;
 
 const host_title: Label = .{ .english = "DEATHMATCH HOST", .installed = 0x2C1 };
 const guest_title: Label = .{ .english = "DEATHMATCH JOIN", .installed = 0x2D3 };
-const chat_label: Label = .{ .english = "CHAT", .installed = 0x140 };
 const players_label: Label = .{ .english = "PLAYERS", .installed = 0x141 };
 const fallback_player: Label = .{ .english = "PILOT", .installed = 0xBF };
 const host_label: Label = .{ .english = "HOST", .installed = 0x13C };
@@ -128,25 +126,11 @@ pub fn frame(lobby: *Lobby, pointer: ui.Pointer, keys: *input.Keyboard, typed: *
         lobby.modeFrame(pointer, escape);
         return null;
     }
-    if (pointer.down) lobby.chat_focused = chatField(chatPanel(layout)).holds(at);
-    if (lobby.chat_focused) {
-        chat.edit(&lobby.chat_line, typed, null);
-        if (escape) {
-            lobby.chat_focused = false;
-            return null;
-        }
-        if (chat.submitted(keys)) {
-            const line = lobby.chat_line;
-            lobby.chat_line.len = 0;
-            if (chat.trim(line.slice()).len != 0) return .{ .send_chat = line };
-        }
-        return null;
-    }
-    typed.clear();
-    if (chat.submitted(keys)) {
-        lobby.chat_focused = true;
-        return null;
-    }
+    const was_focused = lobby.editor.focused;
+    var chat_pointer = pointer;
+    chat_pointer.at = at;
+    if (lobby.editor.frame(chatPanel(layout), chat_pointer, keys, typed, escape)) |line| return .{ .send_chat = line };
+    if (lobby.editor.focused or (escape and was_focused)) return null;
     lobby.hover = if (control(layout, .leave).holds(at)) .leave else if (lobby.canLaunch() and control(layout, .launch).holds(at)) .launch else null;
     if (escape) return .leave;
     if (!pointer.down) return null;
@@ -174,7 +158,7 @@ pub fn draw(lobby: *const Lobby, original: ui.Canvas, art: *hud.Art) !void {
     widgets.panel(canvas, game_box);
     try lobby.drawPlayers(canvas, players_box);
     try lobby.drawGame(canvas, game_box, layout, art);
-    try lobby.drawChat(canvas, chatPanel(layout));
+    try chat_panel.draw(canvas, chatPanel(layout), lobby.notices, &lobby.editor);
     const leave: Label = .{ .english = if (lobby.role == .host) "STOP HOSTING" else "LEAVE GAME" };
     try widgets.button(canvas, art, control(layout, .leave), leave, true, lobby.hover == .leave);
     if (lobby.role == .host) try widgets.button(canvas, art, control(layout, .launch), launch_label, lobby.canLaunch(), lobby.hover == .launch);
@@ -253,37 +237,6 @@ fn chatPanel(layout: Layout) ui.Rect {
     return .{ .x = @intCast(left), .y = @intCast(top), .width = @intCast(right - left), .height = @intCast(bottom - top) };
 }
 
-fn chatField(panel: ui.Rect) ui.Rect {
-    const inset = Layout.footer_inset;
-    return .{ .x = panel.x + inset, .y = panel.y + panel.height - inset - control_height, .width = panel.width - 2 * inset, .height = control_height };
-}
-
-/// `multiplayer_chat_panel` (0x004AE2D0) places a scrolling log above the line
-/// the pilot types. OpenReliant fits the same controls into its shared lobby.
-fn drawChat(lobby: *const Lobby, canvas: ui.Canvas, panel: ui.Rect) !void {
-    widgets.panel(canvas, panel);
-    const field = chatField(panel);
-    const font = canvas.fonts.small;
-    const top = panel.y + heading_y;
-    try canvas.text(font, .{ field.x, top }, chat_label.text(canvas.strings.*), ui.white, .left);
-    if (lobby.notices) |notices| {
-        for (0..notices.count) |index| {
-            const y = top + chat_spacing * @as(i16, @intCast(index + 1));
-            try canvas.within(panel).text(font, .{ field.x, y }, notices.line(index), ui.blue, .left);
-        }
-    }
-    widgets.panel(canvas, field);
-    const padding = 5;
-    var buffer: [chat.capacity + 1]u8 = undefined;
-    var line = lobby.chat_line.slice();
-    while (line.len != 0 and font.textWidth(line) + font.textWidth("_") > field.width - 2 * padding)
-        line = line[1..];
-    @memcpy(buffer[0..line.len], line);
-    buffer[line.len] = '_';
-    const colour = if (lobby.chat_focused) ui.white else ui.blue;
-    try canvas.within(field).text(font, .{ field.x + padding, field.y + 3 }, buffer[0 .. line.len + @intFromBool(lobby.chat_focused)], colour, .left);
-}
-
 fn drawGame(lobby: *const Lobby, canvas: ui.Canvas, panel: ui.Rect, layout: Layout, art: *hud.Art) !void {
     const font = canvas.fonts.small;
     const strings = canvas.strings.*;
@@ -331,4 +284,8 @@ test "guests can choose a ship, while only the host can open the scenario select
     try std.testing.expect(!lobby.mode_open);
     const ship = fieldBox(layout, .ship);
     try std.testing.expectEqual(.choose_ship, lobby.frame(.{ .at = ship.centre(), .down = true }, &keys, &typed, window).?);
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }

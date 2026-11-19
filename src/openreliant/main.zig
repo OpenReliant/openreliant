@@ -665,6 +665,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer sound_commands.deinit(sound);
     var online_sounds: game.hog_snd.commands.Commands = .{ .gpa = gpa };
     defer online_sounds.deinit(sound);
+    var network_voices_paused = false;
     try loading.show(game.xtrabits.loading.startup_step);
     // What the explosions leave for the frames after them, and the particles they send out.
     var explosions: game.explode.Explosions = try .init(gpa, try .load(&textures));
@@ -1147,11 +1148,15 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             front_context.window = size;
             front_context.elapsed = elapsed;
             // While the console is up, it takes the pass.
-            if (network_enabled) network_pilot.update(io, &front, &devices, &typed, presentation, strings, &display.resources.font, app.active and !console_up);
+            if (network_enabled) network_pilot.update(io, &front, .{
+                .devices = &devices,
+                .typed = &typed,
+                .window = size,
+                .scale = display.ui_scale,
+                .elapsed = elapsed,
+                .standings_scale = display.placements.get(.standings).scale,
+            }, presentation, strings, &display.resources.font, app.active and !console_up);
             const in_arena = network_enabled and network_pilot.flying();
-            if (!console_up and in_arena and network_pilot.chat.target == null and devices.keyboard.pressed(engine.input.scan.escape, .none, true)) {
-                network_pilot.leave(&front.connection, presentation);
-            }
             const front_outcome = if (console_up or in_arena) null else front.frame(front_context);
             // The movie a menu script asked for (`ui.play_movie`).
             if (presentation) |shown| if (shown.takeMovie()) |name| {
@@ -1330,7 +1335,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             _ = try movies.play(name, .over_screen) orelse return;
         }
         // Take text while a front-end field or the flight chat line is open.
-        window.takeText(console_up or (flow.in_front_end and (front.takesText() or (network_enabled and network_pilot.chat.target != null))));
+        window.takeText(console_up or (flow.in_front_end and (front.takesText() or (network_enabled and network_pilot.takesText()))));
         const orders: game.aigeneric.Context = .{ .world = world, .devices = &game_devices };
         const slot = &objects.slots[objects.player];
         // Whether the drawn frame's view frame runs this pass, with the step the launch is at.
@@ -1478,6 +1483,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             }
         else
             null;
+        const network_pause_voices = network_frame != null and (network_pilot.sharedPaused() or network_pilot.session_lost != null);
+        if (network_voices_paused != network_pause_voices) {
+            network_voices_paused = network_pause_voices;
+            game.main.pauseFlightVoices(sound, network_voices_paused);
+        }
         if (display.multiplayer != (network_frame != null)) {
             if (display.multiplayer) {
                 display.drawing.warnOfLock(sound, false, false);
@@ -1491,8 +1501,20 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             if (network_frame) |flight| space.place(sky, flight.objects, flight.objects.count);
         }
         display.multiplayer = network_frame != null;
-        display.show_standings = display.multiplayer and network_pilot.show_standings;
+        display.standings_first = if (display.multiplayer) network_pilot.standings_first else null;
         display.chat_line = if (display.multiplayer and network_pilot.chat.target != null) network_pilot.chat.line.slice() else null;
+        display.network_pause = if (network_frame != null) paused: {
+            const shown = network_pilot.menuView(strings) orelse break :paused null;
+            const front_art = &front_resources.?;
+            const art = if (front_art.shapes) |*loaded| loaded else break :paused null;
+            break :paused .{
+                .view = shown,
+                .state = &network_pilot.pause_menu,
+                .fonts = .{ .large = &front_art.large.font, .small = &front_art.small.font },
+                .art = art,
+                .paging_art = if (shown == .match) front_art.pagingArt() else null,
+            };
+        } else null;
         display.drawn = network_frame orelse &drawn;
         display.drawing.takeUp(if (network_frame) |flight| &flight.display else &game_display);
         // The frame draws a copy of the game: of the objects, which with smooth motion has what
@@ -1531,7 +1553,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 const fonts = &front_resources.?;
                 frames.show(&host, .ui, &fonts.small.font, game.interface.canvas.scaleFor(size), if (fonts.shapes) |*art| art else null, null);
             } else {
-                const layer: scripting.drawing.Which = if (pause_menu.isOpen()) .ui else .hud;
+                const layer: scripting.drawing.Which = if (pause_menu.isOpen() or display.network_pause != null) .ui else .hud;
                 if (script_font) |*file| frames.show(&host, layer, &file.font, display.ui_scale.of(size), &display.resources.art, display.resources.scripts_ball);
                 if (network_frame == null) {
                     host.camera = .{ .camera = &view, .viewing = &drawn.player.viewing, .bounds = .of(drawn_world), .now = drawn.clock.viewTime(), .player = drawn.objects.player };
@@ -1585,7 +1607,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 const viewing = &flight.player.viewing;
                 const place = network_pilot.cameraPlace(flight);
                 viewing.seen_from = place;
-                online_sounds.play(sound, place);
+                if (!network_voices_paused) online_sounds.play(sound, place);
                 context.camera = .{ .position = place.position, .orientation = place.orientation };
                 context.projection = (camera.Camera{}).projection(viewing.view, size[0], size[1], field_of_view);
                 display.device = gpu.interface();
@@ -1732,7 +1754,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         }
         // The menus draw their own pointer over the window, in place of the system's, which also
         // hides in full screen and once it rests over the window.
-        const menu_pointer = (flow.in_front_end and !network_pilot.flying()) or pause_menu.isOpen();
+        const menu_pointer = (flow.in_front_end and !network_pilot.flying()) or pause_menu.isOpen() or display.network_pause != null;
         window.showPointer(menu_pointer);
         // Steering by the mouse, the window holds it in flight, as the game holds DirectInput's
         // mouse while it is in the foreground.
@@ -2686,8 +2708,15 @@ const Display = struct {
     /// DRIVE (`game.main.Drawn`).
     drawn: *const game.main.Drawn,
     multiplayer: bool = false,
-    show_standings: bool = false,
+    standings_first: ?usize = null,
     chat_line: ?[]const u8 = null,
+    network_pause: ?struct {
+        view: game.hudoptions.multiplayer.View,
+        state: *const game.hudoptions.multiplayer.State,
+        fonts: game.interface.canvas.Fonts,
+        art: *game.hud.Art,
+        paging_art: ?*game.hud.Art,
+    } = null,
     /// What drawing hands the game (`game.main.Handed`), here what the player aimed at as the
     /// display was drawn.
     handed: *game.main.Handed,
@@ -2735,6 +2764,19 @@ const Display = struct {
     /// menu scripts draw over it.
     fn drawOverlay(display: *Display) !void {
         if (display.console) |console| if (console.isUp()) return console.draw(display.device, display.screen, display.strings, .mission);
+        if (display.network_pause) |menu| {
+            const canvas: game.interface.canvas.Canvas = .{
+                .gpa = display.gpa,
+                .target = display.device,
+                .window = display.screen,
+                .share = display.ui_scale.share(),
+                .fonts = menu.fonts,
+                .strings = display.strings,
+            };
+            try menu.state.draw(menu.view, canvas, menu.art, menu.paging_art);
+            if (display.presentation) |scripts| try scripts.draw(.ui, display.device, null);
+            return menu.state.drawPointer(canvas, menu.art);
+        }
         if (display.pause_menu.isOpen()) {
             const frame = display.pauseFrame();
             try display.pause_menu.draw(frame);
@@ -2784,7 +2826,7 @@ const Display = struct {
             .strings = display.strings,
             .hit_shake = if (display.multiplayer) 0 else display.view.shake_left,
             .multiplayer = display.multiplayer,
-            .show_standings = display.show_standings,
+            .standings_first = display.standings_first,
             .chat_line = display.chat_line,
             .sound = display.settings.sound,
             .radio = if (drawn.radio) |*on_air| on_air else null,

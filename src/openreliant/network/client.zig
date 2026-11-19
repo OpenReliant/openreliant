@@ -2,7 +2,8 @@
 const std = @import("std");
 const Io = std.Io;
 const flight = @import("openreliant").engine.input.flight;
-const Presses = @import("flight_input.zig").Presses;
+const flight_input = @import("flight_input.zig");
+const Presses = flight_input.Presses;
 const wire = @import("wire.zig");
 const net = @import("transport.zig");
 const Client = @This();
@@ -26,7 +27,7 @@ const poll_ms = 4;
 
 expected_host: ?[]const u8,
 conn: net.Connection = 0,
-state: enum { connecting, connected, unverified, closed, lost } = .connecting,
+state: enum { connecting, connected, unverified, closed, lost, dropped } = .connecting,
 
 deadline: i64 = 0,
 sent_join: bool = false,
@@ -56,7 +57,7 @@ pub fn status(client: *Client, conn: net.Connection, event: net.Status, name: ?[
         else
             true,
         .unverified => client.expected_host == null,
-        .incoming, .closed, .lost => false,
+        .incoming, .closed, .lost, .dropped => false,
     };
     if (accepted) {
         client.state = .connected;
@@ -65,6 +66,7 @@ pub fn status(client: *Client, conn: net.Connection, event: net.Status, name: ?[
         client.state = switch (event) {
             .closed => .closed,
             .lost => .lost,
+            .dropped => .dropped,
             else => .unverified,
         };
     }
@@ -122,6 +124,13 @@ pub fn setFlight(client: *Client, command: flight.Command) void {
     client.presses.take(&client.flight_command);
 }
 
+pub fn releaseFlight(client: *Client) void {
+    client.flight_command = flight_input.release(client.flight_command);
+    client.presses = .{};
+    client.fire_primary = false;
+    if (client.weapons) |*pending| pending.presses = .{};
+}
+
 pub fn setWeapons(client: *Client, order: wire.ordnance.Order) void {
     if (client.weapons) |*pending| pending.merge(order) else client.weapons = order;
 }
@@ -137,6 +146,7 @@ pub fn poll(client: *Client, io: Io) !Event {
     net.session_poll();
     if (client.state == .unverified) return error.UnverifiedServer;
     if (client.state == .closed) return if (client.leaving) .closed else error.Disconnected;
+    if (client.state == .dropped) return error.DroppedForLag;
     if (client.state == .lost) return if (client.leaving) .closed else error.TransportLost;
     const now = Io.Clock.awake.now(io).toMicroseconds();
     // The first pilot may wait as long as needed for a second to join.
@@ -186,6 +196,8 @@ pub fn poll(client: *Client, io: Io) !Event {
             if (roster.pilots[admission.slot] == null or roster.pilots[admission.slot].?.generation != admission.generation)
                 return error.UnexpectedMessage;
             client.roster = roster;
+            // A paused session sends roster heartbeats while simulation snapshots are stopped.
+            if (roster.paused) client.deadline = now + timeout;
             if (client.latest == null) if (roster.lobby) |scenario| return .{ .lobby = scenario };
             return .idle;
         },
@@ -193,7 +205,7 @@ pub fn poll(client: *Client, io: Io) !Event {
         .pilot_notice => |notice| {
             if (client.joined == null or client.leaving) return .idle;
             const entry = &client.roster.pilots[notice.pilot.slot];
-            if (notice.kind == .left_lobby and entry.* != null and entry.*.?.generation == notice.pilot.generation)
+            if (notice.kind != .joined_flight and entry.* != null and entry.*.?.generation == notice.pilot.generation)
                 entry.* = null;
             return .{ .pilot_notice = notice };
         },

@@ -69,6 +69,11 @@ pub const Line = struct {
     const box_drop = 2;
     const lit_shapes = std.EnumArray(Step, usize).init(.{ .back = 0x2F, .on = 0x30 });
 
+    /// A line whose arrow pair starts at `at`, for screens that use only the arrows.
+    pub fn withArrowsAt(at: [2]i32) Line {
+        return .{ .edge = at[0] - arrows_from, .y = at[1] + arrows_raise };
+    }
+
     pub fn label(line: Line, text: Label.Text) Label {
         return .{ .text = text, .at = .{ line.edge, line.y }, .alignment = .right };
     }

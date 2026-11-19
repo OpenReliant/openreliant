@@ -3,7 +3,9 @@ const std = @import("std");
 const hud = @import("../hud.zig");
 const players = @import("../players.zig");
 const Objects = @import("../create.zig").Objects;
-const max_pilots = @import("../deathmatch/spawn.zig").positions;
+const ui = @import("../interface/canvas.zig");
+pub const max_pilots = @import("../gameobj.zig").max_objects;
+pub const Scroll = ui.Scrolled(usize);
 
 // Bitmap blocks and pixel positions used by mp_draw_scoreboard (0x004AF650).
 pub const palette_block = 0x13;
@@ -17,6 +19,8 @@ const width = 2 * half_width;
 const rise = 110;
 const first_row = 21;
 const row_height = 17;
+const scroll_footer = 24;
+const bottom_margin = 12;
 const rank_x = 6;
 const pilot_x = 20;
 const kills_x = 223;
@@ -28,7 +32,7 @@ const heading_colour = hud.rgb(0xFFFFFF);
 const row_colour = hud.rgb(0xFFFFFF);
 const pane_colour: [4]f32 = .{ 0.015, 0.033, 0.048, 0.9 };
 
-const Row = struct {
+pub const Row = struct {
     slot: usize,
     pilot: *const players.Membership.Joined,
 
@@ -40,36 +44,69 @@ const Row = struct {
     }
 };
 
-/// `mp_draw_scoreboard` (0x004AF650) shows the stock free-for-all standings in the flight HUD.
-/// Team standings need the team setup and rules ([#1400](https://github.com/OpenReliant/openreliant/issues/1400)).
-pub fn draw(pen: hud.Pen, all: *const Objects, art: ?*hud.Art, labels: *hud.Opened) !void {
-    var rows: [max_pilots]Row = undefined;
+/// Collect the scores in the order `mp_draw_scoreboard` (0x004AF650) uses.
+pub fn rowsOf(all: *const Objects, rows: *[max_pilots]Row) []const Row {
     var count: usize = 0;
     for (all.player_states[0..@min(all.players, rows.len)], 0..) |*state, slot| {
         if (state.membership != .joined) continue;
         rows[count] = .{ .slot = slot, .pilot = &state.membership.joined };
         count += 1;
     }
-    if (count == 0) return;
-    std.mem.sort(Row, rows[0..count], {}, Row.before);
+    return ordered(rows[0..count]);
+}
 
-    const screen_w: f32 = @floatFromInt(pen.screen[0]);
-    const screen_h: f32 = @floatFromInt(pen.screen[1]);
-    const scale = @min(pen.scale, screen_w / width, screen_h / (2 * rise));
-    const placement: Layout = .{ .left = screen_w * 0.5 - half_width * scale, .top = screen_h * 0.5 - rise * scale, .scale = scale };
-    const footer: f32 = @floatFromInt(first_row + count * row_height);
+pub fn ordered(rows: []Row) []const Row {
+    std.mem.sort(Row, rows, {}, Row.before);
+    return rows;
+}
+
+pub fn scrollWindow(first: usize, count: usize, shown: usize) Scroll {
+    return .{ .first = @min(first, count -| shown), .count = count, .shown = shown };
+}
+
+pub fn scrollWheel(scroll: *Scroll, notches: i32) void {
+    scroll.wheel(std.math.clamp(notches, -max_pilots, max_pilots));
+}
+
+pub fn scrollPage(scroll: *Scroll, way: ui.Arrow) void {
+    switch (way) {
+        .up => scroll.first -|= scroll.shown,
+        .down => scroll.first = @min(scroll.first + scroll.shown, scroll.count -| scroll.shown),
+    }
+}
+
+/// **Improvement:** Fit complete rows and keep room at the bottom for the scroll range.
+pub fn visibleRows(screen: [2]u32, scale: f32) usize {
+    const layout: Layout = .fit(screen, scale);
+    if (layout.scale <= 0) return 1;
+    const available = (@as(f32, @floatFromInt(screen[1])) - layout.top) / layout.scale;
+    return @intFromFloat(@min(max_pilots, @max(1, @floor((available - first_row - scroll_footer - bottom_margin) / row_height))));
+}
+
+/// `mp_draw_scoreboard` (0x004AF650) shows the stock free-for-all standings in the flight HUD.
+/// Team standings need the team setup and rules ([#1400](https://github.com/OpenReliant/openreliant/issues/1400)).
+pub fn draw(pen: hud.Pen, all: *const Objects, art: ?*hud.Art, labels: *hud.Opened, first: usize) !void {
+    var buffer: [max_pilots]Row = undefined;
+    const rows = rowsOf(all, &buffer);
+    const count = rows.len;
+    if (count == 0) return;
+
+    const placement: Layout = .fit(pen.screen, pen.scale);
+    const scroll = scrollWindow(first, count, visibleRows(pen.screen, pen.scale));
+    const visible = rows[scroll.first..scroll.end()];
+    const footer: f32 = @floatFromInt(first_row + visible.len * row_height);
     if (art) |icons| {
         var shapes = pen;
         shapes.art = icons;
-        shapes.scale = scale;
+        shapes.scale = placement.scale;
         shapes.colour = @splat(1);
         try shapes.shape(header_shape, placement.point(0, 0));
-        for (0..count) |row| {
+        for (0..visible.len) |row| {
             try shapes.shape(row_shape, placement.point(0, @floatFromInt(first_row + row * row_height)));
         }
         try shapes.shape(footer_shape, placement.point(0, footer));
     } else {
-        hud.drawFilled(pen.device, .{ .left = placement.left, .top = placement.top, .right = placement.left + width * scale, .bottom = placement.top + footer * scale }, pane_colour);
+        hud.drawFilled(pen.device, .{ .left = placement.left, .top = placement.top, .right = placement.left + width * placement.scale, .bottom = placement.top + footer * placement.scale }, pane_colour);
     }
     var headings = pen;
     headings.font = labels;
@@ -78,12 +115,12 @@ pub fn draw(pen: hud.Pen, all: *const Objects, art: ?*hud.Art, labels: *hud.Open
     try placement.text(headings, kills_x, 0, pen.strings.string(0x308) orelse "Kills", heading_colour, .centre, tally_width);
     try placement.text(headings, deaths_x, 0, pen.strings.string(0x307) orelse "Deaths", heading_colour, .centre, tally_width);
     try placement.text(headings, ping_x, 0, pen.strings.string(0x559) orelse "Ping", heading_colour, .centre, tally_width);
-    for (rows[0..count], 1..) |row, position| {
-        const y: f32 = @floatFromInt(first_row - 1 + (position - 1) * row_height);
+    for (visible, 0..) |row, position| {
+        const y: f32 = @floatFromInt(first_row - 1 + position * row_height);
         var fallback: [64]u8 = undefined;
         const name = row.pilot.name.slice();
         const label = if (name.len > 0) name else std.fmt.bufPrint(&fallback, "{s} {d}", .{ pilot_label, row.slot + 1 }) catch pilot_label;
-        try placement.number(headings, rank_x, y, position, heading_colour);
+        try placement.number(headings, rank_x, y, scroll.first + position + 1, heading_colour);
         try placement.text(pen, pilot_x, y, label, row_colour, .left, pilot_width);
         try placement.number(pen, kills_x, y, row.pilot.kills.count, row_colour);
         try placement.number(pen, deaths_x, y, row.pilot.deaths, row_colour);
@@ -93,12 +130,24 @@ pub fn draw(pen: hud.Pen, all: *const Objects, art: ?*hud.Art, labels: *hud.Open
             try placement.text(pen, ping_x, y, "-", row_colour, .centre, tally_width);
         }
     }
+    if (count > scroll.shown) {
+        var buffer_range: [32]u8 = undefined;
+        const range = std.fmt.bufPrint(&buffer_range, "{d}-{d}/{d}", .{ scroll.first + 1, scroll.end(), count }) catch unreachable;
+        try placement.text(headings, half_width, footer + row_height, range, heading_colour, .centre, tally_width);
+    }
 }
 
 const Layout = struct {
     left: f32,
     top: f32,
     scale: f32,
+
+    fn fit(screen: [2]u32, requested: f32) Layout {
+        const screen_w: f32 = @floatFromInt(screen[0]);
+        const screen_h: f32 = @floatFromInt(screen[1]);
+        const scale = @min(requested, screen_w / width, screen_h / (2 * rise));
+        return .{ .left = screen_w * 0.5 - half_width * scale, .top = screen_h * 0.5 - rise * scale, .scale = scale };
+    }
 
     fn point(layout: Layout, x: f32, y: f32) [2]i32 {
         return .{ @intFromFloat(@round(layout.left + x * layout.scale)), @intFromFloat(@round(layout.top + y * layout.scale)) };
@@ -112,8 +161,8 @@ const Layout = struct {
 
     fn text(layout: Layout, pen: hud.Pen, x: f32, y: f32, words: []const u8, colour: [3]f32, alignment: hud.Align, available: f32) !void {
         const measured: f32 = @floatFromInt(@max(1, pen.font.textWidth(words)));
-        const fit = @min(1, available / measured);
-        _ = try hud.drawTextIn(pen.font, pen.gpa, pen.device, layout.point(x, y), words, hud.atBrightness(colour, 1), alignment, layout.scale * fit, null);
+        const fitted = @min(1, available / measured);
+        _ = try hud.drawTextIn(pen.font, pen.gpa, pen.device, layout.point(x, y), words, hud.atBrightness(colour, 1), alignment, layout.scale * fitted, null);
     }
 };
 
@@ -128,4 +177,19 @@ test "arena standings break a kill tie by deaths and keep exact ties in slot ord
     for (&rows, &pilots, 0..) |*row, *pilot, slot| row.* = .{ .slot = slot, .pilot = pilot };
     std.mem.sort(Row, &rows, {}, Row.before);
     for (rows, [_]usize{ 2, 3, 0, 1 }) |row, slot| try std.testing.expectEqual(slot, row.slot);
+}
+
+test "flight standings resize and keep the final ranked row in view" {
+    const count = 60;
+    const small = visibleRows(.{ 640, 360 }, 1);
+    const tall = visibleRows(.{ 640, 900 }, 1);
+    try std.testing.expect(small < tall and tall < count);
+    var scroll = scrollWindow(count, count, small);
+    try std.testing.expectEqual(count - small, scroll.first);
+    try std.testing.expectEqual(count, scroll.end());
+    scrollPage(&scroll, .up);
+    try std.testing.expectEqual(count - small * 2, scroll.first);
+    scrollPage(&scroll, .down);
+    scrollPage(&scroll, .down);
+    try std.testing.expectEqual(count - small, scroll.first);
 }

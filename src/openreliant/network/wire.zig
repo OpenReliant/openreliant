@@ -7,7 +7,7 @@ pub const ordnance = @import("ordnance.zig");
 const flight = engine.input.flight;
 pub const Fighter = engine.game.dmscenarios.Fighter;
 pub const Scenario = engine.game.dmscenarios.Scenario;
-pub const revision: u16 = 13;
+pub const revision: u16 = 14;
 pub const slots = 3;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
@@ -78,6 +78,7 @@ fn writeChat(writer: *std.Io.Writer, text: *const chat.Line) !void {
 pub const CallSign = engine.game.interface.pilot_roster.CallSign;
 pub const Roster = struct {
     lobby: ?Scenario = null,
+    paused: bool = false,
     pilots: [slots]?Pilot = @splat(null),
 
     pub const Pilot = struct { generation: u64, name: CallSign = .{} };
@@ -554,6 +555,7 @@ pub const Message = union(enum(u8)) {
             .flight_press => |presses| try w.writeByte(@bitCast(presses)),
             .roster => |roster| {
                 try writeScenario(&w, roster.lobby);
+                try w.writeByte(@intFromBool(roster.paused));
                 for (roster.pilots) |entry| {
                     try w.writeInt(u64, if (entry) |pilot| pilot.generation else 0, .little);
                     if (entry) |pilot| try writeCallSign(&w, &pilot.name);
@@ -711,10 +713,17 @@ pub const Message = union(enum(u8)) {
             },
             .roster => roster: {
                 var view: Roster = .{ .lobby = try readScenario(&r) };
+                view.paused = switch (try r.takeByte()) {
+                    0 => false,
+                    1 => true,
+                    else => return error.InvalidRoster,
+                };
+                if (view.paused and view.lobby != null) return error.InvalidRoster;
                 for (&view.pilots) |*entry| {
                     const generation = try r.takeInt(u64, .little);
                     if (generation != 0) entry.* = .{ .generation = generation, .name = try readCallSign(&r) };
                 }
+                if (view.paused and view.pilots[0] == null) return error.InvalidRoster;
                 break :roster .{ .roster = view };
             },
             .call_sign => .{ .call_sign = try readCallSign(&r) },
@@ -1043,4 +1052,19 @@ test "chat requests carry a destination and bounded text without a sender field"
     try std.testing.expectEqual(1, delivered.sender);
     try std.testing.expectEqualStrings("Viper", delivered.name.slice());
     try std.testing.expectEqualStrings("caf\xe9", delivered.text.slice());
+}
+
+test "a paused roster names the host and cannot describe a waiting lobby" {
+    var buffer: [capacity]u8 = undefined;
+    var roster: Message = .{ .roster = .{ .paused = true } };
+    roster.roster.pilots[0] = .{ .generation = 19, .name = lobbyName("Falcon") };
+    const encoded = try roster.encode(&buffer);
+    const decoded = (try Message.decode(encoded)).roster;
+    try std.testing.expect(decoded.paused);
+    try std.testing.expectEqual(19, decoded.pilots[0].?.generation);
+    roster.roster.lobby = .asteroid_field;
+    try std.testing.expectError(error.InvalidRoster, Message.decode(try roster.encode(&buffer)));
+    roster.roster.lobby = null;
+    roster.roster.pilots[0] = null;
+    try std.testing.expectError(error.InvalidRoster, Message.decode(try roster.encode(&buffer)));
 }

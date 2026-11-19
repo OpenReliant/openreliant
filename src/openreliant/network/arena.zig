@@ -266,6 +266,11 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
     arena.combat_count = 0;
     arena.mission.clock.advanceTimer(game.gameobj.ticks_per_step);
     if (game.main.gameFrames(&arena.mission.clock, &arena.devices, null, arena.world(), .in_turn, arena.loaded) != .played) return error.ArenaEnded;
+    return arena.snapshot(tick);
+}
+
+/// Capture an arena view at the current tick. A pilot joining during a pause still needs one.
+pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
     const all = arena.mission.objects;
     var view: wire.Snapshot = .{ .tick = tick, .scenario = arena.mode.scenario(), .ships = @splat(null) };
     view.rocks = arena.rocks.capture(all);

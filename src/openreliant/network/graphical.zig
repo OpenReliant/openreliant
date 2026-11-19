@@ -6,7 +6,7 @@ const math = engine.surrender.math;
 const Presentation = @import("scripting").Presentation;
 const session = @import("session.zig");
 const wire = @import("wire.zig");
-const flight_input = @import("flight_input.zig");
+const MultiplayerMenu = game.hudoptions.multiplayer;
 const stock = @import("stock_arena.zig");
 const FlightChat = @import("flight_chat.zig");
 const FlightFrame = @import("flight_frame.zig");
@@ -20,6 +20,7 @@ const FlightNotice = union(enum) { beacon: wire.BeaconNotice, pilot: wire.PilotN
 const host_left: Connection.Label = .{ .english = "The host has left the game", .installed = 0x3B7 };
 // pause_session_lost (0x0048E370) uses 0x5F1 for a failed connection.
 const connection_lost: Connection.Label = .{ .english = "The connection to the host was lost", .installed = 0x5F1 };
+const dropped: Connection.Label = .{ .english = "The host dropped your connection" };
 const could_not_connect: Connection.Label = .{ .english = "Could not open the connection", .installed = 0x569 };
 const round_finished: Connection.Label = .{ .english = "Round finished" };
 
@@ -31,12 +32,19 @@ notices: [game.hud.Messages.capacity]FlightNotice = undefined,
 notice_count: usize = 0,
 lobby_notices: Connection.Lobby.History = .{},
 chat: FlightChat = .{},
+flight_history: MultiplayerMenu.History = .{},
+pause_menu: MultiplayerMenu.State = .{},
+menu_open: bool = false,
+session_lost: ?Connection.Label = null,
+pause_players: [wire.slots]?MultiplayerMenu.Player = @splat(null),
+pause_name: [64]u8 = undefined,
+last_camera: ?game.camera.Place = null,
 wrecks: [2 * wire.slots]wire.Wreck = undefined,
 wreck_count: usize = 0,
 combat: [combat_messages_per_frame * wire.Combat.max]game.guns.FlightEffect = undefined,
 combat_count: usize = 0,
 stick: [2]i16 = @splat(0),
-show_standings: bool = false,
+standings_first: ?usize = null,
 
 pub fn start(pilot: *Graphical, io: std.Io, target: []const u8, screen: *Connection, name: *const wire.CallSign) void {
     if (pilot.client != null) return;
@@ -114,10 +122,16 @@ pub fn leave(pilot: *Graphical, screen: *Connection, presentation: ?*Presentatio
     pilot.returnToBrowser(screen, presentation, .{ .english = if (pilot.hosted != null) "LAN game stopped" else "Left the server" });
 }
 
-pub fn stop(pilot: *Graphical, presentation: ?*Presentation) void {
+fn stopConnection(pilot: *Graphical) void {
     if (pilot.client) |*client| {
         if (pilot.hosted) |hosted| hosted.stop(client) else session.disconnect(client);
     }
+    pilot.client = null;
+    pilot.hosted = null;
+}
+
+pub fn stop(pilot: *Graphical, presentation: ?*Presentation) void {
+    pilot.stopConnection();
     if (pilot.flight) |flight| {
         if (presentation) |shown| {
             shown.endGame();
@@ -132,6 +146,7 @@ pub fn stop(pilot: *Graphical, presentation: ?*Presentation) void {
 }
 
 pub fn flying(pilot: *const Graphical) bool {
+    if (pilot.session_lost != null) return pilot.flight != null;
     return if (pilot.client) |*client| client.latest != null and !client.leaving else false;
 }
 
@@ -139,17 +154,84 @@ pub fn sendLobbyChat(pilot: *Graphical, line: game.chat.Line) void {
     if (pilot.client) |*client| client.sendChat(.{ .to = .lobby, .text = line });
 }
 
-pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Interface, devices: *engine.input.Devices, typed: *game.winmain.Typed, presentation: ?*Presentation, strings: game.language.Language, chat_font: *const game.hud.Opened, reads_controls: bool) void {
-    const client = if (pilot.client) |*active| active else return;
+pub fn sharedPaused(pilot: *const Graphical) bool {
+    if (pilot.hosted) |hosted| return hosted.host.paused;
+    return if (pilot.client) |*client| client.roster.paused else false;
+}
+
+pub fn menuVisible(pilot: *const Graphical) bool {
+    return pilot.flight != null and (pilot.menu_open or pilot.sharedPaused() or pilot.session_lost != null);
+}
+
+pub fn takesText(pilot: *const Graphical) bool {
+    return if (pilot.menuVisible()) pilot.session_lost == null and pilot.pause_menu.editor.focused else pilot.chat.target != null;
+}
+
+pub fn menuView(pilot: *Graphical, strings: game.language.Language) ?MultiplayerMenu.View {
+    if (!pilot.menuVisible()) return null;
+    if (pilot.session_lost) |reason| return .{ .lost = reason };
+    const client = &pilot.client.?;
+    const shared = pilot.sharedPaused();
+    for (client.roster.pilots, &pilot.pause_players, 0..) |entry, *row, slot| {
+        row.* = if (entry) |peer| .{
+            .generation = peer.generation,
+            .name = peer.name,
+            .can_drop = if (pilot.hosted) |hosted| hosted.host.canDropPausedPilot(.{ .slot = @intCast(slot), .generation = peer.generation }) else false,
+        } else null;
+    }
+    const host = &client.roster.pilots[0];
+    return .{ .match = .{
+        .all = pilot.flight.?.drawn.objects,
+        .history = &pilot.flight_history,
+        .players = &pilot.pause_players,
+        .paused_by = if (shared) pilotName(&pilot.pause_name, strings, if (host.*) |*peer| &peer.name else &.{}, 0) else null,
+        .can_continue = !shared or pilot.hosted != null,
+    } };
+}
+
+fn menuAction(pilot: *Graphical, action: MultiplayerMenu.Action, screen: *Connection, presentation: ?*Presentation) void {
+    switch (action) {
+        .resume_match => {
+            pilot.menu_open = false;
+            pilot.pause_menu = .{};
+            if (pilot.hosted) |hosted| hosted.host.setPaused(false);
+        },
+        .leave_match => {
+            if (pilot.session_lost) |reason| pilot.returnToBrowser(screen, presentation, reason) else pilot.leave(screen, presentation);
+        },
+        .send_chat => |line| pilot.client.?.sendChat(.{ .to = .flight, .text = line }),
+        .drop => |admission| if (pilot.hosted) |hosted| hosted.host.dropPausedPilot(.{ .slot = @intCast(admission.slot), .generation = admission.generation }),
+    }
+}
+
+fn showSessionLoss(pilot: *Graphical, screen: *Connection, presentation: ?*Presentation, reason: Connection.Label) void {
+    if (pilot.flight == null) {
+        pilot.returnToBrowser(screen, presentation, reason);
+        return;
+    }
+    pilot.stopConnection();
+    pilot.session_lost = reason;
+    pilot.pause_menu = .{};
+    pilot.chat = .{};
+}
+
+pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Interface, controls: MultiplayerMenu.ControlFrame, presentation: ?*Presentation, strings: game.language.Language, chat_font: *const game.hud.Opened, reads_controls: bool) void {
+    if (pilot.client == null and pilot.session_lost == null) return;
     if (front.screen != .connection) {
         pilot.returnToBrowser(&front.connection, presentation, .{});
         return;
     }
+    if (pilot.session_lost != null) {
+        if (reads_controls) if (pilot.pause_menu.frame(pilot.menuView(strings).?, controls)) |action|
+            pilot.menuAction(action, &front.connection, presentation);
+        return;
+    }
+    const client = if (pilot.client) |*active| active else return;
     if (pilot.hosted) |hosted| {
         if (front.connection.lobby) |lobby| hosted.host.selectScenario(lobby.scenario);
         const result = hosted.host.pump() catch |err| {
             std.log.warn("LAN game ended: {s}", .{@errorName(err)});
-            pilot.returnToBrowser(&front.connection, presentation, .{ .english = "The LAN game stopped" });
+            pilot.showSessionLoss(&front.connection, presentation, .{ .english = "The LAN game stopped" });
             return;
         };
         if (result == .finished) {
@@ -159,11 +241,45 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
         if (front.connection.lobby) |*lobby| lobby.role.host.can_launch = hosted.host.canLaunch();
     }
     if (pilot.flight) |flight| {
-        const typing = pilot.chat.frame(client, &flight.drawn, devices, typed, chat_font, reads_controls);
+        const devices = controls.devices;
+        const typed = controls.typed;
+        var consumed = pilot.menuVisible();
+        if (consumed) {
+            if (reads_controls) if (pilot.pause_menu.frame(pilot.menuView(strings).?, controls)) |action| {
+                pilot.menuAction(action, &front.connection, presentation);
+                if (pilot.client == null) return;
+            };
+        } else {
+            // COMMS and its active draft get Escape before the match menu.
+            consumed = pilot.chat.frame(client, &flight.drawn, devices, typed, chat_font, reads_controls);
+            if (reads_controls and !consumed and devices.keyboard.pressed(engine.input.scan.escape, .none, true)) {
+                pilot.menu_open = true;
+                pilot.pause_menu = .{};
+                typed.clear();
+                if (pilot.hosted) |hosted| hosted.host.setPaused(true);
+                consumed = true;
+            }
+        }
         devices.keyboard.numbers_taken = flight.drawn.display.windows.up(.comms);
         defer devices.keyboard.numbers_taken = false;
-        pilot.show_standings = reads_controls and !typing and devices.active(.display_kills, false);
-        if (reads_controls and !typing) {
+        if (reads_controls and !consumed and devices.active(.display_kills, false)) {
+            const standings = game.hud.standings;
+            var count: usize = 0;
+            for (client.roster.pilots) |entry| if (entry != null) {
+                count += 1;
+            };
+            const shown = standings.visibleRows(controls.window, controls.scale.of(controls.window) * controls.standings_scale);
+            var scroll = standings.scrollWindow(pilot.standings_first orelse 0, count, shown);
+            if (count > shown) {
+                standings.scrollWheel(&scroll, devices.mouse.notches());
+                if (devices.keyboard.pressed(@backingInt(engine.input.Key.page_up), .none, true)) standings.scrollPage(&scroll, .up);
+                if (devices.keyboard.pressed(@backingInt(engine.input.Key.page_down), .none, true)) standings.scrollPage(&scroll, .down);
+            }
+            pilot.standings_first = scroll.first;
+        } else {
+            pilot.standings_first = null;
+        }
+        if (reads_controls and !consumed) {
             const player = &flight.drawn.player;
             game.hud.targetKeys(&flight.drawn.display, .{
                 .devices = devices,
@@ -179,26 +295,26 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             if (client.latest.?.scenario != null)
                 client.setWeapons(.{ .aim = flight.weaponAim(), .presses = .from(engine.input.sampleOrdnance(player, devices)) });
         } else {
-            client.setFlight(flight_input.release(client.flight_command));
-            client.fire_primary = false;
-            if (client.weapons) |*pending| pending.presses = .{};
+            client.releaseFlight();
         }
     }
+    const shared_before = pilot.sharedPaused();
     // Catch up after a slow render without letting a busy connection hold the frame.
     for (0..messages_per_frame) |_| {
         const event = client.poll(io) catch |err| {
             const message: Connection.Label = switch (err) {
                 error.IncompatibleProtocol => .{ .english = "Incompatible multiplayer protocol" },
                 error.UnverifiedServer => .{ .english = "Server identity does not match the invite" },
+                error.DroppedForLag => dropped,
                 error.Disconnected => if (client.joined != null) host_left else could_not_connect,
                 error.TransportLost, error.SessionTimedOut => if (client.joined != null) connection_lost else could_not_connect,
-                else => could_not_connect,
+                else => if (pilot.flight != null) connection_lost else could_not_connect,
             };
-            pilot.returnToBrowser(&front.connection, presentation, message);
+            pilot.showSessionLoss(&front.connection, presentation, message);
             return;
         };
         switch (event) {
-            .idle => return,
+            .idle => break,
             .projectiles => {},
             .snapshot => {
                 front.connection.lobby = null;
@@ -223,12 +339,16 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                     pilot.roster[notice.pilot.slot] = if (listed) |entry| entry.name else null;
                     presentPilotNotice(&pilot.lobby_notices, strings, notice);
                 } else {
+                    presentPilotNotice(&pilot.flight_history, strings, notice);
                     pilot.queueNotice(.{ .pilot = notice });
                 }
             },
             .chat_line => |line| switch (line.scope) {
                 .lobby => if (client.latest == null) presentChat(&pilot.lobby_notices, strings, line, 0),
-                .flight, .private => pilot.queueNotice(.{ .chat = line }),
+                .flight, .private => {
+                    presentChat(&pilot.flight_history, strings, line, 0);
+                    pilot.queueNotice(.{ .chat = line });
+                },
             },
             .wreck => |wreck| {
                 if (pilot.wreck_count < pilot.wrecks.len) {
@@ -253,10 +373,20 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             },
         }
     }
+    if (!shared_before and pilot.sharedPaused()) {
+        if (pilot.flight) |flight| flight.drawn.display.windows.close(.comms);
+        pilot.chat = .{};
+        controls.typed.clear();
+        client.releaseFlight();
+    } else if (shared_before and !pilot.sharedPaused() and !pilot.menu_open) {
+        pilot.pause_menu = .{};
+        controls.typed.clear();
+    }
 }
 
 pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Objects, tables: *const game.create.Stats, types: game.create.Types, files: stock.Files, strings: game.language.Language, presentation: ?*Presentation, combat_assets: FlightFrame.CombatAssets) !?*game.main.Drawn {
     if (!pilot.flying()) return null;
+    if (pilot.session_lost != null) return &pilot.flight.?.drawn;
     const client = &pilot.client.?;
     if (pilot.flight) |flight| {
         try flight.apply(&client.latest.?, client.joined.?, local, types);
@@ -355,6 +485,15 @@ fn presentNotices(pilot: *Graphical, flight: *FlightFrame, strings: game.languag
 }
 
 pub fn cameraPlace(pilot: *Graphical, drawn: *const game.main.Drawn) game.camera.Place {
+    if (pilot.sharedPaused() or pilot.session_lost != null) {
+        if (pilot.last_camera) |place| return place;
+    }
+    const place = pilot.flightCamera(drawn);
+    pilot.last_camera = place;
+    return place;
+}
+
+fn flightCamera(pilot: *Graphical, drawn: *const game.main.Drawn) game.camera.Place {
     const slot = &drawn.objects.slots[drawn.objects.player];
     const flight = pilot.flight.?;
     const left = flight.respawns.left[drawn.objects.player];
