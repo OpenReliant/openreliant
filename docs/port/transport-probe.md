@@ -15,7 +15,9 @@ the first pilot. Flight updates and mission events have separate lanes at the sa
 Background traffic has a lower priority. The probe caps the send rate at 64 KiB/s per connection
 and simulates 8% outgoing packet loss, 20 ms of delay and 12% reordering with an extra 30 ms of
 delay. Both pilots must apply snapshots during the burst, receive every background message in
-order and receive exactly the number of recalls the host assigned them.
+order and receive exactly the number of recalls the host assigned them. Each pilot reports that
+it finished, waits for the host's receipt and confirms it. The host can finish as soon as both
+pilots confirm, even if a relay delays the connection close notifications.
 
 The host reports the time between sending a snapshot and receiving a pilot's acknowledgement
 that it applied it. This includes the return trip and the wait for the next input message. All
@@ -62,6 +64,8 @@ Run `transport-probe pilot1 HOST:PORT pilot1.cert` and `transport-probe pilot2 H
 on the clients with their own credentials from the same set. Start both clients within 30 seconds.
 The probe opens UDP sockets, runs without a window or audio device, and exits after the exchange.
 
-Two-network ICE signalling and forced TURN are tracked in
-[#1404](https://github.com/OpenReliant/openreliant/issues/1404). The direct IP probe measures
-neither NAT traversal nor relay latency.
+The same workload also ran in a test adapter using Valve's native ICE across two networks. Direct
+punchthrough timed out on that pair, although both machines received STUN binding responses.
+With TURN forced, both sides reported a relayed connection and all three processes completed.
+SSH carried only signalling in that test. The executable above uses direct IP. Repeatable ICE
+route tests are tracked in [#1404](https://github.com/OpenReliant/openreliant/issues/1404).

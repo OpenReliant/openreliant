@@ -14,6 +14,7 @@ extern fn probe_send(conn: u32, lane: u16, data: [*]const u8, size: c_int) bool;
 extern fn probe_receive(conn: u32, data: [*]u8, capacity: c_int, lane: *u16) c_int;
 extern fn probe_now() i64;
 extern fn probe_poll() void;
+extern fn probe_delivered(conn: u32) bool;
 
 fn send(frame: wire.Frame, conn: u32) !void {
     var buffer: [wire.capacity]u8 = undefined;
@@ -25,6 +26,7 @@ const Peer = struct {
     conn: ?u32 = null,
     control: ?wire.Control = null,
     done: bool = false,
+    confirmed: bool = false,
     applied: u16 = 0,
     samples: u16 = 0,
     max_ack_us: i64 = 0,
@@ -62,6 +64,11 @@ const Scenario = struct {
                 peer.done = true;
                 try send(.receipt, peer.conn.?);
             },
+            .confirmed => {
+                if (!peer.done or peer.confirmed) return error.BadResult;
+                peer.confirmed = true;
+                s.success = s.peers[0].confirmed and s.peers[1].confirmed;
+            },
             else => return error.WrongDirection,
         }
     }
@@ -97,8 +104,9 @@ const Scenario = struct {
                 s.finished = true;
             },
             .receipt => {
-                if (!peer.done) return error.BadResult;
-                s.success = true;
+                if (!peer.done or peer.confirmed) return error.BadResult;
+                try send(.confirmed, peer.conn.?);
+                peer.confirmed = true;
             },
             else => return error.WrongDirection,
         }
@@ -123,6 +131,10 @@ const Scenario = struct {
                 const frame = try wire.Frame.decode(bytes[0..@intCast(count)], lane);
                 if (s.role == .host) try s.hostFrame(peer, frame) else try s.pilotFrame(peer, frame);
             }
+        }
+        if (s.role != .host and s.peers[0].confirmed) {
+            if (s.peers[0].conn) |conn| s.success = probe_delivered(conn);
+            return;
         }
         if (now < s.next_tick) return;
         s.next_tick = now + tick_us;
@@ -175,16 +187,15 @@ export fn probe_connected(conn: u32, name: [*:0]const u8, incoming: bool) bool {
 }
 
 export fn probe_closed(conn: u32) void {
-    if (scenario.role != .host and !scenario.success) scenario.disconnected = true;
+    if (scenario.role != .host and !scenario.success) {
+        if (scenario.peers[0].confirmed) scenario.success = true else scenario.disconnected = true;
+    }
     for (&scenario.peers) |*peer| {
         if (peer.conn != conn) continue;
         peer.conn = null;
-        if (scenario.role == .host and peer.done) {
-            scenario.success = scenario.peers[0].done and scenario.peers[1].done and
-                scenario.peers[0].conn == null and scenario.peers[1].conn == null;
-        } else if (scenario.role != .host or scenario.tick != 0) {
-            scenario.disconnected = true;
-        } else peer.control = null;
+        if (scenario.role == .host and !peer.confirmed) {
+            if (scenario.tick != 0) scenario.disconnected = true else peer.control = null;
+        }
     }
 }
 
@@ -203,6 +214,10 @@ fn run(role: Role, address: [*:0]const u8, shared_clock: bool) !void {
         try scenario.step(now);
     }
     if (role == .host) {
+        // Keep servicing the final reliable acknowledgements after both pilots finish.
+        const drain_until = probe_now() + std.time.us_per_s;
+        while (probe_now() < drain_until and (scenario.peers[0].conn != null or scenario.peers[1].conn != null))
+            probe_poll();
         for (scenario.peers, 1..) |peer, pilot| {
             std.debug.print("pilot {d}: {d} applied snapshots acknowledged, maximum age at acknowledgement {d} ms\n", .{
                 pilot, peer.samples, @divTrunc(peer.max_ack_us, std.time.us_per_ms),

@@ -13,6 +13,7 @@ pub const Frame = union(enum(u8)) {
     finish: u16,
     done: u16,
     receipt,
+    confirmed,
 
     const Kind = std.meta.Tag(Frame);
 
@@ -20,7 +21,7 @@ pub const Frame = union(enum(u8)) {
         return switch (kind) {
             .input, .snapshot => .flight,
             .bulk => .background,
-            .recall, .finish, .done, .receipt => .event,
+            .recall, .finish, .done, .receipt, .confirmed => .event,
         };
     }
 
@@ -29,7 +30,7 @@ pub const Frame = union(enum(u8)) {
             .input => 4,
             .snapshot => 15,
             .bulk => capacity,
-            .receipt => 1,
+            .receipt, .confirmed => 1,
             .recall, .finish, .done => 3,
         };
     }
@@ -47,7 +48,7 @@ pub const Frame = union(enum(u8)) {
                 std.mem.writeInt(i16, buffer[5..7], snapshot.positions[1], .little);
                 std.mem.writeInt(i64, buffer[7..15], snapshot.sent_us, .little);
             },
-            .receipt => {},
+            .receipt, .confirmed => {},
             inline else => |value, kind| {
                 std.mem.writeInt(u16, buffer[1..3], value, .little);
                 if (kind == .bulk) @memset(buffer[3..], 0);
@@ -71,6 +72,7 @@ pub const Frame = union(enum(u8)) {
                 .positions = .{ std.mem.readInt(i16, bytes[3..5], .little), std.mem.readInt(i16, bytes[5..7], .little) },
             } },
             .receipt => .receipt,
+            .confirmed => .confirmed,
             inline else => |tag| @unionInit(Frame, @tagName(tag), std.mem.readInt(u16, bytes[1..3], .little)),
         };
     }

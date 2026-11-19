@@ -80,6 +80,12 @@ extern "C" int probe_receive(uint32_t conn, uint8_t *bytes, int capacity, uint16
     return size;
 }
 
+extern "C" bool probe_delivered(uint32_t conn) {
+    SteamNetConnectionRealTimeStatus_t status;
+    return SteamNetworkingSockets()->GetConnectionRealTimeStatus(conn, &status, 0, nullptr) == k_EResultOK &&
+           status.m_cbPendingReliable == 0 && status.m_cbSentUnackedReliable == 0;
+}
+
 extern "C" int64_t probe_now() {
     return std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
