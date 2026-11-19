@@ -748,6 +748,7 @@ pub const Objects = struct {
     /// OpenReliant's: each participant's simulation state. Only the first `players` entries
     /// belong to participants, independently of which player this machine displays (`player`).
     player_states: [gameobj.max_objects]players.State = @splat(.{}),
+    arena_scenario: @import("deathmatch.zig").Scenario = .deathmatch,
     arena_scores: @import("deathmatch.zig").ArenaScores = .free_for_all,
     /// Advances on each admission and survives mission resets within the same session.
     participant_generation: u64 = 0,
@@ -884,6 +885,7 @@ pub const Objects = struct {
         for (&all.reuses) |*count| count.* +%= 1;
         all.types = @splat(.{});
         all.count = 0;
+        all.arena_scenario = .deathmatch;
         for (&all.player_states) |*state| state.resetMission();
         all.camera_marker = null;
         all.bombarded = null;
@@ -955,6 +957,7 @@ pub const Objects = struct {
     pub fn leaveParticipant(world: gameobj.World, ref: players.ParticipantRef) bool {
         const all = world.objects;
         const state = all.joinedParticipant(ref) orelse return false;
+        all.arena_scenario.releaseShip(all, ref.slot);
         const bound = state.membership.joined.ship;
         const team = state.membership.joined.team;
         state.* = .{ .membership = .vacant };
@@ -2201,6 +2204,7 @@ pub const testing = struct {
 /// past this file's known code.
 pub fn resetSlot(ctx: aigeneric.Context, index: u16) void {
     const all = ctx.world.objects;
+    all.arena_scenario.releaseShip(all, index);
     const slot = &all.slots[index];
     if (slot.object.type.base() != .stand_in) hooks.tell(ctx, .object_removed, .{ .object = .of(index) });
     aigeneric.popAll(ctx, index);
@@ -2218,6 +2222,7 @@ pub fn resetSlot(ctx: aigeneric.Context, index: u16) void {
 /// **Unverified:** it lies just past this file's known code, after `object_reset`.
 pub fn retire(ctx: aigeneric.Context, index: u16) void {
     const all = ctx.world.objects;
+    all.arena_scenario.releaseShip(all, index);
     const object = &all.slots[index].object;
     if (object.type.base() != .stand_in) hooks.tell(ctx, .object_removed, .{ .object = .of(index) });
     object.type = .of(.stand_in);

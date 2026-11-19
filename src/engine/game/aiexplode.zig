@@ -127,7 +127,9 @@ pub const Data = extern struct {
 /// Not ported: in a multiplayer game, a player's power-up is ended first (`0x004AF120`,
 /// [#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn init(ctx: Context, index: u16) void {
-    const slot = &ctx.world.objects.slots[index];
+    const all = ctx.world.objects;
+    if (ctx.world.damage_rules == .arena) all.arena_scenario.releaseShip(all, index);
+    const slot = &all.slots[index];
     const state = &slot.state.explode;
     state.mode = .of(&slot.object, slot.orders[0].target.resolve(ctx.world.objects));
     switch (state.mode) {
@@ -340,7 +342,7 @@ fn shipInit(ctx: Context, index: u16) void {
             .halt => .pull_back,
         };
         _ = camera.switchView(world, view, index, true, true);
-        world.player.ending = .destroyed;
+        if (world.damage_rules != .arena) world.player.ending = .destroyed;
     }
 
     switch (state.style) {
@@ -406,8 +408,17 @@ fn shipUpdate(ctx: Context, index: u16) void {
         .burst => explode.burst(ctx.world, index),
         .spin_out, .halt => if (!slot.object.type.base().isTorpedo()) explode.blast(ctx.world, index),
     }
+    const all = ctx.world.objects;
+    if (ctx.world.damage_rules == .arena) {
+        if (all.playerBinding(index)) |pilot| {
+            // explode_ship, 0x00408AD9: the respawned pilot has to wait before collecting pickups.
+            all.player_states[pilot.participant.slot].membership.joined.pickups_after = ctx.world.clock.frame_start +| respawn_pickup_delay;
+        }
+    }
     create.retire(ctx, index);
 }
+
+const respawn_pickup_delay = 100;
 
 /// The trail a spinning ship leaves: `trail_bits` bits (`0x00408BD4`, `0x00408D34`, `0x00409100`,
 /// `0x004094F3`), a small bit of debris a frame while it has less than `trail_ticks` a bit left

@@ -39,6 +39,7 @@ pub const Membership = union(enum) {
         team: ?ArenaTeam = null,
         kills: Kills = .{},
         deaths: u32 = 0,
+        pickups_after: i32 = 0,
         ending: @import("main.zig").Ending = .playing,
     };
 };
