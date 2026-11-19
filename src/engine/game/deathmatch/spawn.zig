@@ -57,6 +57,8 @@ pub fn reset(world: gameobj.World, pilot: players.ParticipantRef, fighter: gameo
     if (!try aigeneric.push(.of(world), index, .multiplayer_control, .none)) return error.OrderFailed;
     if (!try aigeneric.push(.of(world), index, .deathmatch_respawn_effect, .none)) return error.OrderFailed;
     _ = all.bindParticipant(pilot, .of(all, index)) orelse return error.BindFailed;
+    const shadow = @import("../dmscenarios/hunt_the_shadow.zig");
+    if (shadow.isShadow(all, index)) shadow.cloakShip(world, index);
 }
 
 test "a second admitted fighter spawns clear of the first" {

@@ -177,7 +177,7 @@ fn description(mode: scenarios.Scenario) Label {
         .nuclear_threat => "Collect six beacons and take them to the gate. Losing your ship drops the beacons you carry.",
         .dark_reign => "Recover the comms relay to keep the Dark Reign from targeting you and earn credit for its kills.",
         .tag_bomb => "The first pilot destroyed respawns with an active bomb. Hit another pilot with your guns to pass it before your timer expires.",
-        .hunt_the_shadow => "Hunt the cloaked pilot to become the Shadow.",
+        .hunt_the_shadow => "The first pilot to score a kill becomes the Shadow. The Shadow is cloaked and has no shields. Kill the Shadow to take over.",
         .vampires => "Survive as a human or infect the remaining pilots as a vampire.",
     }, .installed = mode.descriptionString() };
 }

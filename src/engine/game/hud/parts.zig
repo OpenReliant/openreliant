@@ -91,11 +91,13 @@ pub const Part = enum {
     tag_bomb_countdown,
     target_markers_bomb,
     target_display_bomb,
+    /// The local Shadow's arena badge.
+    shadow_badge_icon,
 
     /// Whether it's a picture rather than text, which takes no alignment or words.
     pub fn picture(part: Part) bool {
         return switch (part) {
-            .radio_face, .power_ball, .target_markers_relay, .target_markers_bomb => true,
+            .radio_face, .power_ball, .target_markers_relay, .target_markers_bomb, .shadow_badge_icon => true,
             else => false,
         };
     }

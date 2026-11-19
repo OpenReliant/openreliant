@@ -1994,6 +1994,10 @@ In Tag Bomb, `tag_bomb_timer` lays out the local carrier's badge and timer. Its 
 `tag_bomb_countdown`. The targeted carrier's badge is `target_markers_bomb`, and the label
 in the target window is `target_display_bomb`.
 
+In Hunt the Shadow, `shadow_badge` places the local role indicator, and
+`shadow_badge_icon` places the icon within it. The role and scoring notices use
+`messages_text`.
+
 ### Screens
 
 A player or menu script can register a screen: a panel that draws with `ui` and gets the keys while

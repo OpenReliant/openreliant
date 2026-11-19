@@ -15,6 +15,7 @@ pub const Mode = enum {
     @"asteroid-field",
     @"dark-reign",
     @"tag-bomb",
+    @"hunt-the-shadow",
 
     pub fn scenario(mode: Mode) ?wire.Scenario {
         return switch (mode) {
@@ -23,6 +24,7 @@ pub const Mode = enum {
             .@"asteroid-field" => .asteroid_field,
             .@"dark-reign" => .dark_reign,
             .@"tag-bomb" => .tag_bomb,
+            .@"hunt-the-shadow" => .hunt_the_shadow,
         };
     }
 
@@ -32,6 +34,7 @@ pub const Mode = enum {
             .asteroid_field => .@"asteroid-field",
             .dark_reign => .@"dark-reign",
             .tag_bomb => .@"tag-bomb",
+            .hunt_the_shadow => .@"hunt-the-shadow",
             else => error.UnsupportedArena,
         };
     }
@@ -40,6 +43,7 @@ const Pilot = struct { participant: game.players.ParticipantRef, fighter: wire.F
 const Notice = union(enum) {
     beacon: game.deathmatch.six_beacons.Notice,
     tag_bomb: game.deathmatch.tag_bomb.Notice,
+    shadow: game.deathmatch.hunt_the_shadow.Notice,
 };
 const notice_capacity = wire.slots + 2;
 
@@ -97,7 +101,7 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
             arena.explosions = try .init(gpa, null);
             try simulation.prepareSixBeacons(&arena.mission, &arena.explosions.?);
         },
-        .@"nuclear-threat", .@"asteroid-field", .@"dark-reign", .@"tag-bomb" => {
+        .@"nuclear-threat", .@"asteroid-field", .@"dark-reign", .@"tag-bomb", .@"hunt-the-shadow" => {
             // mission_start seeds the game's random stream afresh (0x004936AE).
             var seed: u64 = undefined;
             io.random(std.mem.asBytes(&seed));
@@ -115,6 +119,7 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
                 .asteroid_field => arena.mission.objects.arena_scenario == .asteroid_field,
                 .dark_reign => arena.mission.objects.arena_scenario == .dark_reign,
                 .tag_bomb => arena.mission.objects.arena_scenario == .tag_bomb,
+                .hunt_the_shadow => arena.mission.objects.arena_scenario == .hunt_the_shadow,
                 else => unreachable,
             };
             if (!started) return error.ArenaScriptDidNotStart;
@@ -167,6 +172,7 @@ fn world(arena: *Arena) game.gameobj.World {
     if (arena.loaded) |loaded| scene = stock.withMission(scene, loaded);
     scene.beacon_notices = .{ .context = arena, .send = noteBeacon };
     scene.tag_bomb_notices = .{ .context = arena, .send = noteBomb };
+    scene.shadow_notices = .{ .context = arena, .send = noteShadow };
     if (arena.decoys) |*decoys| scene.countermeasures = decoys;
     if (arena.waves) |*waves| scene.shockwaves = waves;
     if (arena.cannons) |*cannons| scene.ion_cannons = cannons;
@@ -202,6 +208,11 @@ fn noteBeacon(context: *anyopaque, notice: game.deathmatch.six_beacons.Notice) v
 fn noteBomb(context: *anyopaque, notice: game.deathmatch.tag_bomb.Notice) void {
     const arena: *Arena = @ptrCast(@alignCast(context));
     arena.note(.{ .tag_bomb = notice });
+}
+
+fn noteShadow(context: *anyopaque, notice: game.deathmatch.hunt_the_shadow.Notice) void {
+    const arena: *Arena = @ptrCast(@alignCast(context));
+    arena.note(.{ .shadow = notice });
 }
 
 fn note(arena: *Arena, notice: Notice) void {
@@ -375,6 +386,10 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
             .{ .carrier = @intCast(pilot.slot), .remaining = bomb.remaining }
         else
             null };
+    }
+    if (all.arena_scenario == .hunt_the_shadow) {
+        const holder = all.arena_scenario.hunt_the_shadow.shadow.owner;
+        view.objectives = .{ .hunt_the_shadow = if (holder) |pilot| @intCast(pilot.slot) else null };
     }
     return view;
 }

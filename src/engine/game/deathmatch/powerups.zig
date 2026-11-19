@@ -9,6 +9,7 @@ const main = @import("../main.zig");
 const six_beacons = @import("../dmscenarios/six_beacons.zig");
 const sound3d = @import("../sound3d.zig");
 const objects = @import("../objects.zig");
+const shadow = @import("../dmscenarios/hunt_the_shadow.zig");
 
 const Kind = gameobj.PowerUp;
 pub const Rule = struct {
@@ -136,6 +137,7 @@ pub const Round = struct {
         for (states, 0..) |*state, at| {
             const index: u16 = @intCast(at);
             if (!all.hasBoundPlayerShip(index)) continue;
+            if (shadow.isShadow(all, index)) continue;
             const slot = &all.slots[index];
             if (slot.object.power_up != .none or world.clock.frame_start < state.membership.joined.pickups_after or
                 slot.running(.deathmatch_respawn_effect) != null) continue;
@@ -158,7 +160,7 @@ pub const Round = struct {
             const index: u16 = @intCast(at);
             const object = &all.slots[index].object;
             if (object.power_up_until == -1 or world.clock.frame_start <= object.power_up_until) continue;
-            if (object.power_up == .cloak) cloak.uncloak(world, index);
+            if (object.power_up == .cloak and !shadow.isShadow(all, index)) cloak.uncloak(world, index);
             round.release(all, index);
         }
     }
