@@ -3,6 +3,7 @@
 #include <steam/isteamnetworkingutils.h>
 
 #include "ice.h"
+#include "incoming.h"
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -15,6 +16,11 @@ extern "C" int probe_run(const char *role, const char *address, bool shared_cloc
 static bool using_ice;
 static ice::Mode ice_mode = ice::Mode::direct;
 
+extern "C" bool probe_close(uint32_t conn) {
+    probe_release_incoming(conn);
+    return SteamNetworkingSockets()->CloseConnection(conn, 0, nullptr, false);
+}
+
 static void status_changed(SteamNetConnectionStatusChangedCallback_t *event) {
     auto *net = SteamNetworkingSockets();
     const auto conn = event->m_hConn;
@@ -22,12 +28,14 @@ static void status_changed(SteamNetConnectionStatusChangedCallback_t *event) {
     const bool incoming = info.m_hListenSocket != k_HSteamListenSocket_Invalid;
     switch (info.m_eState) {
         case k_ESteamNetworkingConnectionState_Connecting:
-            if (!incoming || net->AcceptConnection(conn) == k_EResultOK) return;
+            if (!incoming) return;
+            if (probe_reserve_incoming(conn) && net->AcceptConnection(conn) == k_EResultOK) return;
             break;
         case k_ESteamNetworkingConnectionState_Connected: {
             constexpr int unsafe = k_nSteamNetworkConnectionInfoFlags_Unauthenticated |
                                    k_nSteamNetworkConnectionInfoFlags_Unencrypted;
             constexpr int priorities[] = {0, 0, 1}; // Flight, mission events, background.
+            if (incoming && !probe_has_incoming(conn)) break;
             const bool relayed = info.m_nFlags & k_nSteamNetworkConnectionInfoFlags_Relayed;
             if (using_ice && ((ice_mode == ice::Mode::direct && relayed) ||
                               (ice_mode == ice::Mode::relay_only && !relayed))) break;
@@ -47,7 +55,7 @@ static void status_changed(SteamNetConnectionStatusChangedCallback_t *event) {
         default:
             return;
     }
-    net->CloseConnection(conn, 0, nullptr, false);
+    probe_close(conn);
 }
 
 extern "C" bool probe_open(const char *address, bool host, int max_message_size) {
@@ -96,10 +104,6 @@ extern "C" int probe_receive(uint32_t conn, uint8_t *bytes, int capacity, uint16
     }
     message->Release();
     return size;
-}
-
-extern "C" bool probe_close(uint32_t conn) {
-    return SteamNetworkingSockets()->CloseConnection(conn, 0, nullptr, false);
 }
 
 extern "C" bool probe_delivered(uint32_t conn) {

@@ -10,6 +10,20 @@ pub extern fn probe_now() i64;
 pub extern fn probe_poll() bool;
 pub extern fn probe_delivered(conn: Connection) bool;
 
+var incoming: @import("incoming_connections.zig") = .{};
+
+export fn probe_reserve_incoming(conn: Connection) bool {
+    return incoming.reserve(conn, probe_now());
+}
+
+export fn probe_has_incoming(conn: Connection) bool {
+    return incoming.contains(conn);
+}
+
+export fn probe_release_incoming(conn: Connection) void {
+    incoming.release(conn);
+}
+
 pub fn send(conn: Connection, lane: u16, bytes: []const u8) !void {
     if (!probe_send(conn, lane, bytes.ptr, @intCast(bytes.len))) return error.SendFailed;
 }

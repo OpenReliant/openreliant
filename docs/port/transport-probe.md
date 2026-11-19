@@ -18,10 +18,18 @@ order and receive exactly the number of recalls the host assigned them. Each pil
 it finished, waits for the host's receipt and confirms it. The host can finish as soon as both
 pilots confirm, even if a relay delays the connection close notifications.
 
-Before opening a connection, the probe configures GameNetworkingSockets to limit the size of
-each incoming message to the workload's packet buffer. Each peer can queue up to 128 messages
-and 64 KiB of received data. The public host also needs to bound pending admissions and keep
-serving other pilots when a client breaks the protocol. See
+The probe listener has four connection slots shared by handshakes, pilots negotiating admission
+and playing pilots. It allows four handshake starts in any rolling second. Direct UDP reserves a
+slot before accepting the connection. ICE reserves one before creating the incoming signalling
+channel and uses the same reservation when the transport accepts the connection. Closing a
+connection frees its slot. Its start still counts for the rest of that second. The transport
+checks encryption and the signed identity before the workload admits a pilot.
+
+GameNetworkingSockets limits each incoming message to the workload's packet buffer. Each
+accepted connection can queue up to 128 messages and 64 KiB of received data, for a total of
+512 messages and 256 KiB across the four slots. These limits cover receive queues on accepted
+connections. The library processes initial packets before it calls the listener.
+Public-server traffic limits and isolation of errors from playing pilots remain in
 [#1432](https://github.com/OpenReliant/openreliant/issues/1432).
 
 The host reports the time between sending a snapshot and receiving a pilot's acknowledgement

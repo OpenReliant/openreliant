@@ -329,9 +329,14 @@ pub fn build(b: *std.Build) void {
     // Every module's tests, and `zig build check`, which compiles the programs and the tests
     // without linking them (the C libraries, translate-c and mission 0 build once first):
     // `zig build check -fincremental --watch` reports compile errors within moments of a save.
+    const incoming_connections = b.createModule(.{
+        .root_source_file = b.path("examples/transport-probe/incoming_connections.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const test_step = b.step("test", "Run tests");
     const check_step = b.step("check", "Check that the programs and the tests compile, without writing binaries");
-    for ([_]*std.Build.Module{ lib, platform, scripting, source_parser, version, openreliant.root_module, sltool.root_module, tablegen.root_module, ghidragen.root_module, build_resources.root_module }) |module| {
+    for ([_]*std.Build.Module{ lib, platform, scripting, source_parser, version, incoming_connections, openreliant.root_module, sltool.root_module, tablegen.root_module, ghidragen.root_module, build_resources.root_module }) |module| {
         const tests = b.addTest(.{ .root_module = module });
         test_step.dependOn(&b.addRunArtifact(tests).step);
         check_step.dependOn(&b.addTest(.{ .root_module = module }).step);

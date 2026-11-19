@@ -1,5 +1,6 @@
 // The runner routes these messages between peers over a separate signalling channel.
 #include "ice.h"
+#include "incoming.h"
 #include <steam/steamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
 #include <steam/steamnetworkingcustomsignaling.h>
@@ -41,9 +42,10 @@ public:
 };
 
 class Receiver final : public ISteamNetworkingSignalingRecvContext {
-    ISteamNetworkingConnectionSignaling *OnConnectRequest(HSteamNetConnection, const SteamNetworkingIdentity &id, int port) override {
+    ISteamNetworkingConnectionSignaling *OnConnectRequest(HSteamNetConnection conn, const SteamNetworkingIdentity &id, int port) override {
         const char *name = id.GetGenericString();
         if (port || !name || (std::strcmp(name, "pilot1") && std::strcmp(name, "pilot2"))) return nullptr;
+        if (!probe_reserve_incoming(conn)) return nullptr;
         return new Channel(name);
     }
     void SendRejectionSignal(const SteamNetworkingIdentity &, const void *, int) override {}
