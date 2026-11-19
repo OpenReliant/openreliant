@@ -81,6 +81,8 @@ pub const Part = enum {
     /// The wing status window's title, and the wingmen's numbers.
     wing_status_title,
     wing_status_numbers,
+    /// The selected pilot's beacon count in the small target window.
+    target_display_beacons,
 
     /// Whether it's a picture rather than text, which takes no alignment or words.
     pub fn picture(part: Part) bool {

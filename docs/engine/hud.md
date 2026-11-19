@@ -495,9 +495,17 @@ from `hud_target` at 0x0048AD97. Six Beacons draws shape 0x10 from `dmicons.spr`
 left and 2 pixels below the box's top left. It centres the count in `newfont.fnt` 24 pixels
 left and 18 pixels below that corner (0x004B3840). An empty-handed pilot shows zero.
 
-The full scoreboard (0x004AF650) ranks pilots by kills and then by deaths. The local pilot's
-own HUD counter is a separate display using shape 0x0B (0x004B3570). The remaining arena
-displays are tracked in [#1416](https://github.com/OpenReliant/openreliant/issues/1416).
+The local pilot's counter uses shape 0x0B at the top of the HUD, 25 pixels left of centre
+(0x004B32E0). It centres the number in the HUD font 21 pixels right and 40 pixels down from
+the icon's anchor (0x004B3570). The counter stays visible when the camera changes.
+
+The small target window shows the selected pilot's count 12 pixels below speed. It prints the
+number, a space and the installed game's word for one beacon (string 0x2D6) or several
+(0x2D7). Zero also takes the plural (0x004B37B0). **Fix:** the original slot check includes
+the first slot past the eight pilots. OpenReliant checks that the target belongs to a pilot.
+
+Mods can place the local counter with `beacon_counter` and the target window line with
+`target_display_beacons`. The full scoreboard (0x004AF650) ranks pilots by kills and then by deaths.
 
 ### The flyback markers
 
@@ -594,8 +602,8 @@ the small form reads through the object's `pilot_record`. Every ship but a stand
 Bandit, and a mission's ship record can name another (`mission_ship_create`). The large form shows
 no pilot.
 
-**Not ported:** in a multiplayer game, the players' names and one more line of the small form
-([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+The small window also shows the [Six Beacons target count](#six-beacons-target-count).
+Multiplayer pilot names are tracked in [#1421](https://github.com/OpenReliant/openreliant/issues/1421).
 
 ## The radar
 

@@ -4,6 +4,7 @@
 const std = @import("std");
 const ai = @import("../ai.zig");
 const hud = @import("../hud.zig");
+const language = @import("../language.zig");
 const input = @import("../../input.zig");
 const math = @import("../../surrender/math.zig");
 const gameobj = @import("../gameobj.zig");
@@ -39,7 +40,7 @@ pub const Notice = struct {
         send: *const fn (*anyopaque, Notice) void,
     };
 
-    pub fn present(notice: Notice, messages: *hud.Messages, strings: @import("../language.zig").Language, viewer: players.ParticipantRef, pilot_name: []const u8) void {
+    pub fn present(notice: Notice, messages: *hud.Messages, strings: language.Language, viewer: players.ParticipantRef, pilot_name: []const u8) void {
         if (notice.kind == .waiting_for_players and !std.meta.eql(viewer, notice.pilot)) return;
         const format = strings.string(@backingInt(notice.kind)) orelse return;
         deathmatch.addMessage(messages, notice.tick, format, &.{pilot_name});
@@ -71,25 +72,68 @@ pub const Snapshot = struct {
     pub fn countFor(view: *const Snapshot, binding: players.ControlRef) u8 {
         return count(&view.beacons, binding.participant, binding.ship);
     }
+
+    /// **Fix:** six_beacons_target_text accepts slot eight, just past the original pilot slots.
+    /// Only a ship bound to a pilot has a count.
+    pub fn countAt(view: *const Snapshot, all: *const create.Objects, slot: u16) ?u8 {
+        return view.countFor(all.playerBinding(slot) orelse return null);
+    }
 };
 
-/// six_beacons_draw_pilot_count (0x004B3840), called by hud_target through
-/// mp_draw_target_badge (0x0048AD97). Both offsets start at the top left of the target box.
-pub const TargetHud = struct {
+pub const Hud = struct {
     snapshot: *const Snapshot,
     icons: ?*hud.Art,
 
-    const icon = 0x10;
-    const icon_offset: [2]i32 = .{ -33, 2 };
-    const count_offset: [2]i32 = .{ -24, 18 };
+    const Counter = struct {
+        shape: usize,
+        icon: [2]i32,
+        digits: [2]i32,
+    };
 
-    pub fn draw(view: TargetHud, pen: hud.Pen, font: *hud.Opened, pilot: players.ControlRef, corner: [2]i32) hud.Error!void {
-        if (view.icons) |art| try pen.drawing(.{ .art = art, .gpa = pen.gpa }).shape(icon, pen.moved(corner, icon_offset));
+    const local: Counter = .{ .shape = 0x0B, .icon = .{ 0, 0 }, .digits = .{ 21, 40 } }; // 0x004B3570
+    const target: Counter = .{ .shape = 0x10, .icon = .{ -33, 2 }, .digits = .{ -24, 18 } }; // 0x004B3840
+
+    /// six_beacons_draw_hud (0x004B3570) and six_beacons_hud_position (0x004B32E0).
+    /// The local counter stays at the top of the screen when the camera changes.
+    pub fn drawLocal(view: Hud, pen: hud.Pen, all: *const create.Objects) hud.Error!void {
+        if (all.player_states[all.player].membership != .joined) return;
+        const anchor = pen.placed(.{ -25, 0 }, 0.5, 0);
+        try view.drawCounter(pen, pen.font, local, anchor, view.snapshot.countAt(all, all.player) orelse 0);
+    }
+
+    /// six_beacons_draw_pilot_count (0x004B3840). Both offsets start at the top left of the target box.
+    pub fn drawTarget(view: Hud, pen: hud.Pen, font: *hud.Opened, pilot: players.ControlRef, corner: [2]i32) hud.Error!void {
+        try view.drawCounter(pen, font, target, corner, view.snapshot.countFor(pilot));
+    }
+
+    fn drawCounter(view: Hud, pen: hud.Pen, font: *hud.Opened, counter: Counter, anchor: [2]i32, total: u8) hud.Error!void {
+        if (view.icons) |art| try pen.drawing(.{ .art = art, .gpa = pen.gpa }).shape(counter.shape, pen.moved(anchor, counter.icon));
         var buffer: [3]u8 = undefined;
-        const digits = std.fmt.bufPrint(&buffer, "{d}", .{view.snapshot.countFor(pilot)}) catch unreachable;
-        _ = try pen.textIn(font, pen.moved(corner, count_offset), digits, .centre);
+        const digits = std.fmt.bufPrint(&buffer, "{d}", .{total}) catch unreachable;
+        _ = try pen.textIn(font, pen.moved(anchor, counter.digits), digits, .centre);
     }
 };
+
+/// six_beacons_target_text (0x004B37B0). The longest language string fits after a count and space.
+pub const LabelBuffer = [language.max_length + 4]u8;
+pub fn targetText(buffer: *LabelBuffer, strings: language.Language, total: u8) ?[]const u8 {
+    const singular = 0x2D6;
+    const plural = 0x2D7;
+    const noun = strings.string(if (total == 1) singular else plural) orelse return null;
+    return std.fmt.bufPrint(buffer, "{d} {s}", .{ total, noun }) catch null;
+}
+
+test "the target window uses the installed singular and plural beacon names" {
+    var words: [0x2D7][]const u8 = @splat("");
+    words[0x2D6 - 1] = "balise";
+    words[0x2D7 - 1] = "balises";
+    const strings: language.Language = .{ .strings = &words };
+    var buffer: LabelBuffer = undefined;
+    try std.testing.expectEqualStrings("0 balises", targetText(&buffer, strings, 0).?);
+    try std.testing.expectEqualStrings("1 balise", targetText(&buffer, strings, 1).?);
+    try std.testing.expectEqualStrings("6 balises", targetText(&buffer, strings, 6).?);
+    try std.testing.expectEqual(null, targetText(&buffer, .{ .strings = &.{} }, 1));
+}
 
 pub const Round = struct {
     beacons: [required]Beacon,

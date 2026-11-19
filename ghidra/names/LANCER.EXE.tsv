@@ -3142,6 +3142,6 @@ address	kind	name	type	comment
 004af650	function	mp_draw_scoreboard	void (void)	Draws the team and pilot score panels, sorts pilots by kills then deaths and records each pilot row for the pause menu
 004b2d50	function	scenario_draw_hud	void (void)	Calls the selected scenario's HUD callback at offset 0x28
 004b32e0	function	six_beacons_hud_position	void __fastcall (int *x, int *y)	Places the local beacon counter at the top of the HUD, 25 pixels left of centre
-004b3570	function	six_beacons_draw_hud	void (void)	Draws the local beacon count using shape 0x0B and hud_font, followed by diagnostics when enabled
+004b3570	function	six_beacons_draw_hud	void (void)	Draws shape 0x0B at the local HUD anchor and centres the count in hud_font 21 pixels right and 40 below it, then draws diagnostics when enabled
 004b2d70	function	scenario_target_text	bool __fastcall (GameObject *target, char *text)	Asks the selected scenario for the extra text in the target window
-004b37b0	function	six_beacons_target_text	bool __fastcall (GameObject *target, char *text)	Formats the targeted pilot's beacon count with singular or plural language text
+004b37b0	function	six_beacons_target_text	bool __fastcall (GameObject *target, char *text)	Writes the count, a space and language string 0x2D6 for one or 0x2D7 for zero or more than one

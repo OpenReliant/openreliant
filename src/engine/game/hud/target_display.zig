@@ -17,12 +17,14 @@
 //! for the range, the name and the rest. OpenReliant keeps what each form last showed and closes it
 //! with that.
 //!
-//! Not ported: in a multiplayer game, the players' names and one more line of the small form
-//! ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+//! The small form also shows the targeted pilot's count in Six Beacons.
+//! Multiplayer pilot names are tracked in
+//! [#1421](https://github.com/OpenReliant/openreliant/issues/1421).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const six_beacons = @import("../dmscenarios/six_beacons.zig");
 const shp = @import("../../../formats/shp.zig");
 const create = @import("../create.zig");
 const hud = @import("../hud.zig");
@@ -51,6 +53,7 @@ pub const Scene = struct {
     /// last showed.
     drawing: *hud.Drawing,
     all: *const create.Objects,
+    beacons: ?*const six_beacons.Snapshot = null,
 
     /// Draws `form`: what it shows now, and what it last showed as it shrinks away closing
     /// (`closing`).
@@ -73,7 +76,12 @@ pub const Scene = struct {
         if (hidden(slot)) return null;
         const status = hud.ShipStatus.ofTarget(slot, .{ .counts = &scene.state.events.target_hits, .seen = &scene.drawing.target_hits });
         scene.drawing.flashes.target_hits = status.hits;
-        return .{ .status = status, .facts = .of(scene.all, index), .pilot = pilotName(scene.all, slot) };
+        return .{
+            .status = status,
+            .facts = .of(scene.all, index),
+            .pilot = pilotName(scene.all, slot),
+            .beacons = if (scene.beacons) |snapshot| snapshot.countAt(scene.all, index) else null,
+        };
     }
 
     /// What the large form shows now.
@@ -136,8 +144,9 @@ pub const Lines = struct {
 pub const Small = struct {
     status: hud.ShipStatus.Shown,
     facts: Facts,
-    /// The name of the target's pilot, a string of the game's (`pilotName`); null for none.
+    /// Language string for the target's pilot name, when available.
     pilot: ?u16 = null,
+    beacons: ?u8 = null,
 
     /// Where the ship status stands from the window's place.
     pub const status_at: [2]i32 = .{ -4, -0x2C };
@@ -145,12 +154,20 @@ pub const Small = struct {
     /// Where the pilot's name goes: under the type's name, at the same x (`0x00487D0F`).
     pub const pilot_at: [2]i32 = .{ 0x37, -0x37 };
 
+    /// hud_window_draw (0x00487D86) puts the scenario line below the speed.
+    const beacons_at: [2]i32 = .{ 0x37, -0x13 };
+
     fn draw(small: Small, context: Context) windows.Canvas.Error!void {
         const canvas = context.canvas;
         try hud.ShipStatus.draw(small.status, .target, canvas.pen, canvas.place(status_at), canvas.clip);
         try context.name(small.facts, lines);
         if (small.pilot) |id| try canvas.string(.target_display_pilot, id, pilot_at, lines.alignment);
         try context.figures(small.facts, lines);
+        if (small.beacons) |total| {
+            var buffer: six_beacons.LabelBuffer = undefined;
+            if (six_beacons.targetText(&buffer, canvas.pen.strings.*, total)) |text|
+                try canvas.text(.target_display_beacons, text, beacons_at, lines.alignment);
+        }
     }
 };
 
