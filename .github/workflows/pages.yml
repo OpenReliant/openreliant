@@ -42,10 +42,9 @@ jobs:
       # the lines of a diff, which the docs' style colours.
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
-      - run: pip install "mkdocs>=1.6,<2" pymdown-extensions pygments
+          python-version: "3.15"
+      - run: pip install -r website/requirements.txt
       # The game's menu font, which the headings use, in a form browsers accept.
-      - run: pip install fonttools
       - run: mkdir -p website/fonts && python3 .github/scripts/web_font.py deps/newtown/Newtown.ttf website/fonts/Newtown.ttf
       - run: mkdocs build --strict --config-file website/mkdocs.yml
       - uses: actions/configure-pages@v6

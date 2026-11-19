@@ -12,6 +12,12 @@ HERE = Path(__file__).resolve().parent
 TARGETS = [f"{arch}-{system}" for arch in ("x86_64", "aarch64")
            for system in ("windows-gnu", "linux-gnu.2.31", "macos.15.0")]
 
+# Stable release commits. UTF8 Range is part of the pinned Protobuf tree.
+GNS_COMMIT = "d534c19aa760df3fb75fd20db13ba1932b8a5463"  # v1.6.1
+PROTOBUF_COMMIT = "2c74169b34066ceb8ddb6b882fcb3fb32d737a55"  # v36.2
+ABSEIL_COMMIT = "2065f4ded0558c6f89fee67c8e5228feb4eb960e"  # 20260817.0
+OPENSSL_COMMIT = "2f4e3a5fec05394068cfa7379890ab552483a8a6"  # openssl-4.1.0
+
 
 def source(work, project, commit):
     path = work / "sources" / project.rsplit("/", 1)[1]
@@ -37,6 +43,23 @@ def cmake(src, out, options, target=None):
     subprocess.run(["cmake", "--build", out, *(["--target", target] if target else [])], check=True)
 
 
+def build_abseil(abseil, out, prefix, options=()):
+    cmake(abseil, out, [*options, "-DABSL_ENABLE_INSTALL=ON",
+                        "-DCMAKE_CXX_STANDARD=17", "-DCMAKE_INSTALL_LIBDIR=lib",
+                        f"-DCMAKE_INSTALL_PREFIX={prefix}"], "install")
+
+
+def bundle_protobuf(directory, abseil_manifest, ar):
+    # Zig links the optional session transport without invoking CMake. Bundle the
+    # static dependencies of Protobuf so both build systems use the same runtime.
+    libraries = ["libprotobuf.a", "libutf8_validity.a"]
+    libraries += sorted(path.name for path in map(Path, abseil_manifest.read_text().splitlines())
+                        if path.parent == directory and path.name.startswith("libabsl_") and path.suffix == ".a")
+    script = "\n".join(["CREATE libopenreliant-protobuf.a",
+                        *(f"ADDLIB {name}" for name in libraries), "SAVE", "END", ""])
+    subprocess.run([ar, "-M"], input=script, text=True, cwd=directory, check=True)
+
+
 def cross_tools(out, target, system, arch, sdk):
     tools = {}
     for name, tool in (("CC", "cc"), ("CXX", "c++"), ("AR", "ar"), ("RANLIB", "ranlib"), ("RC", "rc")):
@@ -45,7 +68,11 @@ def cross_tools(out, target, system, arch, sdk):
         if name in ("CC", "CXX"):
             args.extend(["-target", target, "-Wno-date-time"])
             if sdk:
-                args.extend(["-isysroot", sdk])
+                frameworks = Path(sdk) / "System" / "Library" / "Frameworks"
+                args.extend(["-isysroot", sdk, "-iframework", str(frameworks)])
+                if name == "CXX":
+                    # Apple's CoreFoundation headers use an enum extension that Clang 22 diagnoses.
+                    args.append("-Wno-elaborated-enum-base")
         wrapper.write_text("#!/bin/sh\nexec " + shlex.join(args) + ' "$@"\n')
         wrapper.chmod(0o755)
         tools[name] = str(wrapper)
@@ -65,10 +92,14 @@ def cross_tools(out, target, system, arch, sdk):
 def build(work, target, workload):
     os.environ.setdefault("SOURCE_DATE_EPOCH", "1")
     jobs = os.environ.setdefault("CMAKE_BUILD_PARALLEL_LEVEL", "4")
-    gns = source(work, "ValveSoftware/GameNetworkingSockets", "d534c19aa760df3fb75fd20db13ba1932b8a5463")
-    pb = source(work, "protocolbuffers/protobuf", "f0dc78d7e6e331b8c6bb2d5283e06aa26883ca7c")
-    pb_options = ["-DCMAKE_POLICY_VERSION_MINIMUM=3.5", "-Dprotobuf_BUILD_TESTS=OFF", "-Dprotobuf_WITH_ZLIB=OFF"]
-    cmake(pb, work / "host", pb_options, "protoc")
+    gns = source(work, "ValveSoftware/GameNetworkingSockets", GNS_COMMIT)
+    pb = source(work, "protocolbuffers/protobuf", PROTOBUF_COMMIT)
+    abseil = source(work, "abseil/abseil-cpp", ABSEIL_COMMIT)
+    pb_options = ["-Dprotobuf_BUILD_TESTS=OFF", "-Dprotobuf_WITH_ZLIB=OFF",
+                  "-Dprotobuf_LOCAL_DEPENDENCIES_ONLY=ON", "-DCMAKE_CXX_STANDARD=17"]
+    host_prefix = work / "host-prefix"
+    build_abseil(abseil, work / "host-abseil", host_prefix)
+    cmake(pb, work / "host", pb_options + [f"-Dabsl_DIR={host_prefix}/lib/cmake/absl"], "protoc")
     protoc = work / "host" / "protoc"
     session = workload == "session"
     late_pilot = workload in ("six-beacons", "session")
@@ -86,13 +117,21 @@ def build(work, target, workload):
     tools, toolchain = cross_tools(out, target, system, arch, sdk)
     cross = [f"-DCMAKE_TOOLCHAIN_FILE={toolchain}"]
     prefix = out / "prefix"
+    absl_config = prefix / "lib" / "cmake" / "absl"
+    absl_build = out / "abseil"
+    absl_options = cross.copy()
+    if system == "Windows":
+        # Abseil's ddbdebc6c8 adds this fallback for MinGW in its zoneinfo reader.
+        absl_options.append("-DCMAKE_CXX_FLAGS=-DO_NONBLOCK=0")
+    build_abseil(abseil, absl_build, prefix, absl_options)
     cmake(pb, out / "protobuf", cross + pb_options + [
         "-Dprotobuf_BUILD_PROTOC_BINARIES=OFF", "-Dprotobuf_BUILD_LIBPROTOC=OFF",
-        f"-DCMAKE_INSTALL_PREFIX={prefix}"], "install")
+        "-Dprotobuf_BUILD_LIBUPB=OFF", f"-Dabsl_DIR={absl_config}",
+        "-DCMAKE_INSTALL_LIBDIR=lib", f"-DCMAKE_INSTALL_PREFIX={prefix}"], "install")
     if system == "Windows":
         crypto = ["-DUSE_CRYPTO=BCrypt", "-DUSE_CRYPTO25519=Reference"]
     else:
-        openssl = source(work, "openssl/openssl", "45e844fa2a14ec92d146bd8f5778ac130b6625fb")
+        openssl = source(work, "openssl/openssl", OPENSSL_COMMIT)
         ssl = out / "openssl"
         ssl.mkdir(exist_ok=True)
         config = "darwin64-" + arch.replace("aarch64", "arm64") + "-cc" if sdk else "linux-" + arch
@@ -120,9 +159,11 @@ def build(work, target, workload):
         directory = workload + "-probe"
     cmake(HERE, out / directory, cross + crypto + options + [
         f"-DGNS_SOURCE={gns}", f"-DPROBE_ROOT_KEY={credentials}/root.pub", f"-DPROBE_ZIG_TARGET={target}",
+        f"-Dabsl_DIR={absl_config}", f"-Dutf8_range_DIR={prefix}/lib/cmake/utf8_range",
         f"-DProtobuf_DIR={prefix}/lib/cmake/protobuf", f"-DProtobuf_PROTOC_EXECUTABLE={protoc}"],
         "GameNetworkingSockets_s" if session else None)
     if session:
+        bundle_protobuf(prefix / "lib", absl_build / "install_manifest.txt", tools["AR"])
         shutil.copytree(gns / "include" / "steam", prefix / "include" / "steam", dirs_exist_ok=True)
         shutil.copyfile(out / directory / "gns" / "src" / "libGameNetworkingSockets_s.a",
                         prefix / "lib" / "libGameNetworkingSockets_s.a")

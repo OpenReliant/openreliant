@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.17.0
+          version: 0.17.1
       # The formatting is the same on every system, so it's checked once.
       - if: runner.os == 'Linux'
         run: zig fmt --check src build.zig

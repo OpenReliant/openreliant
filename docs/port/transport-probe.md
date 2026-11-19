@@ -83,9 +83,10 @@ each snapshot once and sends those bytes to each pilot. Routed latency and susta
 throughput measurements are tracked in [#1405](https://github.com/OpenReliant/openreliant/issues/1405).
 
 The training session is the first game-executable path under
-[#954](https://github.com/OpenReliant/openreliant/issues/954). A released dedicated server should
-start from the packaged executable on the player's operating system. Operators should set ordinary
-game options such as the port, player limit and match rotation. The server should provision and
+[#954](https://github.com/OpenReliant/openreliant/issues/954). The `-Dgns-prefix` flag is a
+temporary development step. OpenReliant's multiplayer release must include the transport in
+the packaged executable on every supported platform. Operators should set ordinary game
+options such as the port, player limit and match rotation. The server should provision and
 renew its own credentials as part of that setup. Release packaging and credential provisioning
 are tracked in [#1405](https://github.com/OpenReliant/openreliant/issues/1405) and
 [#364](https://github.com/OpenReliant/openreliant/issues/364).
@@ -94,7 +95,8 @@ The probe below still exercises ICE, TURN and directed events.
 ## Run it
 
 On a Unix build machine, install Zig 0.17, Git, patch, CMake, Ninja, Make, Perl, a native C++ compiler
-and Python 3.9 or newer with the `cryptography` package (version 40 or newer). Apple targets need
+and Python 3.9 or newer. Install the test certificate helper's dependencies with
+`python3 -m pip install -r examples/transport-probe/requirements.txt`. Apple targets need
 the macOS SDK. From the repository root, pick a target and a scratch directory outside the checkout.
 For example, on an Apple silicon Mac:
 
@@ -109,9 +111,10 @@ python3 "$probe/loopback.py" "$work/$target/probe/transport-probe" "$work/identi
 
 The build script accepts x86_64 and aarch64 for Windows GNU, Linux GNU with glibc 2.31, and
 macOS 15. Its `--help` lists the target names. Reuse the scratch directory to share the pinned
-sources and native Protobuf compiler across targets. The script builds Protobuf 3.21.12 for the
-host compiler and the target runtime, GameNetworkingSockets 1.6.1, and OpenSSL 3.5.9 on Linux
-and macOS. Windows uses BCrypt. The OpenSSL build uses portable C with assembly disabled. Production dependency versions,
+sources and native Protobuf compiler across targets. The script builds Protobuf 36.2 (C++ 7.36.2)
+and Abseil 20260817.0 for the host compiler and the target runtime. It builds
+GameNetworkingSockets 1.6.1 with OpenSSL 4.1.0 on Linux and macOS. Windows uses BCrypt.
+The OpenSSL build uses portable C with assembly disabled. Production dependency versions,
 CPU throughput and reproducible release packaging are tracked in
 [#1405](https://github.com/OpenReliant/openreliant/issues/1405).
 

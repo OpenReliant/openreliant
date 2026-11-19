@@ -15,9 +15,16 @@ check() { # check <label> <command...>
 native() { [[ -x "$ghidra_home/Ghidra/Features/Decompiler/build/os/$platform/decompile" ||
               -x "$ghidra_home/Ghidra/Features/Decompiler/os/$platform/decompile" ]]; }
 
+zig_compatible() {
+    local actual
+    actual=$("$zig" version) || return 1
+    [[ "${actual%.*}" == "${zig_version%.*}" && "${actual##*.}" =~ ^[0-9]+$ ]] || return 1
+    (( 10#${actual##*.} >= 10#${zig_version##*.} ))
+}
+
 echo "toolchain"
 check "zig ($("$zig" version 2>/dev/null || echo '?'))"   "$zig" version
-check "zig is ${zig_version%.*}.x, as build.zig.zon asks"   bash -c '[[ "$1" == "$2".* ]]' _ "$("$zig" version 2>/dev/null)" "${zig_version%.*}"
+check "zig meets the ${zig_version} minimum in build.zig.zon" zig_compatible
 check "uv (ghydra CLI + MCP bridge)"                       command -v uv
 check "JDK at tools/jdk"                                   "$jdk_home/bin/java" -version
 check "Ghidra at ${ghidra_home#"$root"/}"                  test -x "$ghidra_home/ghidraRun"

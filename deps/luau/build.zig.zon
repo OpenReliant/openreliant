@@ -1,13 +1,13 @@
 .{
     .name = .luau,
-    // Luau's release 0.740: the tag 0.740, commit c0e346edd89066b44dca174c9f54ce84c746a540.
-    .version = "0.740.0",
+    // Luau's release 0.747: the tag 0.747, commit c87565b8b0db5d5d5bfd2b8b00ad6573e5d06d9f.
+    .version = "0.747.0",
     .fingerprint = 0x5e07e249cf44ac0f,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .upstream = .{
-            .url = "git+https://github.com/luau-lang/luau.git?ref=0.740#c0e346edd89066b44dca174c9f54ce84c746a540",
-            .hash = "N-V-__8AAJStHwHBMyJpk0Co2z_LW7obT2wCMdyGdJZ6LYHH",
+            .url = "git+https://github.com/luau-lang/luau.git?ref=0.747#c87565b8b0db5d5d5bfd2b8b00ad6573e5d06d9f",
+            .hash = "N-V-__8AAN25JgHhBgsXx07A-RGrISpqw9Ll8QzU7Nf3Yq3E",
         },
     },
     .paths = .{

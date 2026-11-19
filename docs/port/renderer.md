@@ -127,8 +127,8 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
 OpenReliant runs, into SPIR-V for Vulkan and Metal's source for Metal: mods' post effects, the
 variants of the device shader with mods' functions in them
 ([Surface and lighting functions](#surface-and-lighting-functions)), and mods' replacements for
-OpenReliant's shaders ([Replacements](#replacements)). It links glslang 16.1.0 and SPIRV-Cross
-vulkan-sdk-1.4.357.0, built from pinned source packages. OpenReliant's own shaders are compiled
+OpenReliant's shaders ([Replacements](#replacements)). It links glslang 16.6.0 and SPIRV-Cross
+vulkan-sdk-1.4.363.0, built from pinned source packages. OpenReliant's own shaders are compiled
 ahead of time by `make shaders`, and their outputs are committed.
 
 - A shader is GLSL 450 for Vulkan 1.0 and SPIR-V 1.0, translated to Metal 2.2. It can be made of

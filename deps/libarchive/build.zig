@@ -6,7 +6,7 @@ const std = @import("std");
 const version: std.SemanticVersion = .{
     .major = 3,
     .minor = 8,
-    .patch = 10,
+    .patch = 11,
 };
 const version_string = std.fmt.comptimePrint("{f}", .{version});
 

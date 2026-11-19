@@ -88,7 +88,7 @@ test-controllers: ## Test joysticks and gamepads on Linux with virtual controlle
 	$(ZIG) build --release=fast -Dtarget=$(CONTROLLER_TEST_ARCH)-linux-gnu --prefix $(ROOT)/zig-out/linux
 	docker run --rm --privileged --platform $(CONTROLLER_TEST_PLATFORM) -v /dev:/dev \
 	    -v $(ROOT)/scripts/controllers:/test:ro -v $(ROOT)/zig-out/linux/bin/openreliant:/opt/openreliant:ro \
-	    ubuntu:24.04 /test/run.sh /opt/openreliant
+	    ubuntu:26.04 /test/run.sh /opt/openreliant
 
 .PHONY: fmt
 fmt: ## Format the Zig sources
