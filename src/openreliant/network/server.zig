@@ -22,6 +22,7 @@ const Peer = struct {
     state: enum { connecting, joining, playing, closing } = .connecting,
     identity: [max_identity]u8 = undefined,
     identity_len: u8 = 0,
+    call_sign: ?wire.CallSign = null,
     expires: i64,
     sequence: ?u32 = null,
     flight_command: flight.Command = .{},
@@ -33,6 +34,11 @@ arena: Arena,
 signer: ?*const identity.Server = null,
 player_limit: u8 = wire.slots,
 lan_only: bool = false,
+start: union(enum) {
+    automatic,
+    lobby: struct { changed: bool = false },
+    launched,
+} = .automatic,
 listener: u32 = 0,
 peers: [wire.slots]?Peer = @splat(null),
 budget: HandshakeBudget = .{},
@@ -53,6 +59,7 @@ fn release(host: *Host, slot: u8) void {
     if (host.arena.pilots[slot]) |pilot| {
         std.debug.print("left {d} {d}\n", .{ slot, pilot.participant.generation });
         host.arena.leave(slot);
+        host.lobbyChanged();
     }
     host.peers[slot] = null;
     net.session_close(peer.conn);
@@ -81,9 +88,23 @@ fn acceptsRemote(host: *const Host, conn: net.Connection) bool {
     return net.session_peer_ip(conn, &address) and isLan(address);
 }
 
-pub fn takeLocalPilot(host: *Host, server_end: net.Connection) void {
+pub fn takeLocalPilot(host: *Host, server_end: net.Connection, name: wire.CallSign) void {
     std.debug.assert(host.peers[0] == null);
-    host.peers[0] = .{ .conn = server_end, .state = .joining, .expires = host.now() + timeout };
+    host.peers[0] = .{ .conn = server_end, .state = .joining, .call_sign = name, .expires = host.now() + timeout };
+}
+
+pub fn canLaunch(host: *const Host) bool {
+    const local = host.peers[0] orelse return false;
+    return host.start == .lobby and local.state == .playing;
+}
+
+/// Only the local host's menu calls this. Pilots can join an arena after it starts.
+pub fn launch(host: *Host) void {
+    if (host.canLaunch()) host.start = .launched;
+}
+
+fn lobbyChanged(host: *Host) void {
+    if (host.start == .lobby) host.start.lobby.changed = true;
 }
 
 pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]const u8) void {
@@ -92,7 +113,9 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
         .incoming => {
             if (slot != null) return;
             if (host.final_tick == null and host.acceptsRemote(conn)) {
-                for (host.peers[0..host.player_limit]) |*entry| {
+                // A player-hosted game keeps slot zero for the local connection even if it closes.
+                const first_remote: usize = @intFromBool(host.start != .automatic);
+                for (host.peers[first_remote..host.player_limit]) |*entry| {
                     if (entry.* != null) continue;
                     const time = host.now();
                     if (host.budget.take(time) and net.session_accept(conn)) {
@@ -150,6 +173,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
             peer.state = .playing;
             peer.expires = time + timeout;
             try net.send(peer.conn, .{ .joined = admitted });
+            host.lobbyChanged();
             std.debug.print("joined {d} {d}\n", .{ slot, admitted.generation });
             return true;
         },
@@ -161,11 +185,19 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
             switch (message) {
                 .input => |input| {
                     if (!input.follows(peer.sequence)) return true;
-                    peer.flight_command = input.command;
                     peer.sequence = input.sequence;
                     peer.expires = time + timeout;
+                    if (host.start != .lobby) peer.flight_command = input.command;
                 },
-                .flight_press => |presses| peer.presses.merge(presses),
+                .flight_press => |presses| if (host.start != .lobby) peer.presses.merge(presses),
+                .call_sign => |name| {
+                    // A callsign is a display name. It never identifies or controls a pilot.
+                    // Accept it once to keep updates bounded, including during launch.
+                    if (peer.call_sign == null) {
+                        peer.call_sign = name;
+                        host.lobbyChanged();
+                    }
+                },
                 else => return false,
             }
             return true;
@@ -210,6 +242,23 @@ fn playingCount(host: *const Host) usize {
         if (peer.state == .playing) count += 1;
     }
     return count;
+}
+
+fn publishLobby(host: *Host) !void {
+    if (!host.start.lobby.changed or !host.canLaunch()) return;
+    host.start.lobby.changed = false;
+    var roster: wire.Lobby = @splat(null);
+    for (host.peers, &roster) |entry, *name| {
+        const peer = entry orelse continue;
+        if (peer.state == .playing) name.* = peer.call_sign orelse .{};
+    }
+    var buffer: [wire.capacity]u8 = undefined;
+    const bytes = try (wire.Message{ .lobby = roster }).encode(&buffer);
+    for (host.peers, 0..) |entry, slot| {
+        const peer = entry orelse continue;
+        if (peer.state != .playing) continue;
+        net.sendBytes(peer.conn, bytes, true) catch host.release(@intCast(slot));
+    }
 }
 
 fn applyControls(host: *Host, time: i64) void {
@@ -278,7 +327,14 @@ pub fn pump(host: *Host) !enum { running, finished } {
         }
     }
     try host.servicePeers(time);
-    if (host.tick == 0 and host.playingCount() < pilots_to_start) return .running;
+    switch (host.start) {
+        .lobby => {
+            try host.publishLobby();
+            return .running;
+        },
+        .automatic => if (host.tick == 0 and host.playingCount() < pilots_to_start) return .running,
+        .launched => {},
+    }
     host.applyControls(time);
     host.tick += 1;
     const view = try host.arena.step(host.tick);
@@ -318,4 +374,17 @@ test "a LAN listener accepts private, link-local and loopback peers" {
     for (allowed) |ip| try std.testing.expect(isLan(Ip6Address.fromAny(try Io.net.IpAddress.parse(ip, 0)).bytes));
     const denied = [_][]const u8{ "192.0.2.1", "172.32.1.1", "2001:db8::1", "::", "0.0.0.0" };
     for (denied) |ip| try std.testing.expect(!isLan(Ip6Address.fromAny(try Io.net.IpAddress.parse(ip, 0)).bytes));
+}
+
+test "only an admitted local pilot can launch a player-hosted match" {
+    var host: Host = .{ .io = std.testing.io, .arena = undefined, .start = .{ .lobby = .{} } };
+    host.peers[1] = .{ .conn = 2, .expires = 0, .state = .playing };
+    host.launch();
+    try std.testing.expect(host.start == .lobby);
+    host.peers[0] = .{ .conn = 1, .expires = 0, .state = .joining };
+    host.launch();
+    try std.testing.expect(host.start == .lobby);
+    host.peers[0].?.state = .playing;
+    host.launch();
+    try std.testing.expect(host.start == .launched);
 }

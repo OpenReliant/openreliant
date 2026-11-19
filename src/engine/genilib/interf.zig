@@ -83,7 +83,8 @@ pub const Screen = enum(u8) {
 pub const Outcome = union(enum) {
     join_server: []const u8,
     host_lan,
-    stop_hosting,
+    leave_session,
+    launch_session,
     /// QUIT, answered YES: 3.
     quit,
     /// START GAME: 1, a single-player campaign, which `WinMain` takes into the Reliant's rooms
@@ -431,7 +432,8 @@ pub const Interface = struct {
                 switch (action) {
                     .join => |target| return .{ .join_server = target },
                     .host_lan => return .host_lan,
-                    .stop_hosting => return .stop_hosting,
+                    .leave_session => return .leave_session,
+                    .launch_session => return .launch_session,
                     .back => {
                         front.screen = .main_menu;
                         return null;

@@ -31,6 +31,8 @@ state: enum { connecting, connected, unverified, closed, lost } = .connecting,
 deadline: i64 = 0,
 sent_join: bool = false,
 joined: ?wire.Admission = null,
+call_sign: ?wire.CallSign = null,
+sent_call_sign: bool = false,
 latest: ?wire.Snapshot = null,
 sequence: u32 = 0,
 next_input: i64 = 0,
@@ -90,7 +92,7 @@ pub fn leave(client: *Client, io: Io) !void {
     client.leaving = true;
 }
 
-pub const Event = enum { idle, admitted, snapshot, finished, closed };
+pub const Event = union(enum) { idle, admitted, lobby: wire.Lobby, snapshot, finished, closed };
 
 pub fn setFlight(client: *Client, command: flight.Command) void {
     client.flight_command = command;
@@ -132,8 +134,23 @@ pub fn poll(client: *Client, io: Io) !Event {
             std.debug.print("server requires multiplayer protocol {d} (OpenReliant {s})\n", .{ required.protocol, required.release });
             return error.IncompatibleProtocol;
         },
-        .view, .finished => |view| {
+        .lobby => |roster| {
             const admission = client.joined orelse return error.UnexpectedMessage;
+            if (client.latest != null or client.leaving) return .idle;
+            if (roster[admission.slot] == null) return error.UnexpectedMessage;
+            if (client.call_sign) |name| {
+                if (!client.sent_call_sign) {
+                    try net.send(client.conn, .{ .call_sign = name });
+                    client.sent_call_sign = true;
+                }
+            }
+            return .{ .lobby = roster };
+        },
+        .view, .finished => |view| {
+            const admission = client.joined orelse {
+                // Unreliable flight updates can arrive before the reliable admission.
+                return if (message == .view) .idle else error.UnexpectedMessage;
+            };
             if (client.leaving or view.tick <= if (client.latest) |last| last.tick else @as(u32, 0)) return .idle;
             const ship = view.ships[admission.slot] orelse return error.MissingShip;
             if (ship.generation != admission.generation) return error.WrongShip;
@@ -175,7 +192,7 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
         client.setFlight(steering.command());
         const event = try client.poll(io);
         switch (event) {
-            .idle => {},
+            .idle, .lobby => {},
             .closed => return,
             .admitted => {
                 const admission = client.joined.?;

@@ -75,7 +75,7 @@ pub const LocalGame = struct {
     server: credential.Server,
     host: Host,
 
-    pub fn start(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, client: *Client, port: u16) !*LocalGame {
+    pub fn start(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, client: *Client, port: u16, call_sign: wire.CallSign) !*LocalGame {
         const game = try gpa.create(LocalGame);
         errdefer gpa.destroy(game);
         game.gpa = gpa;
@@ -83,7 +83,7 @@ pub const LocalGame = struct {
         errdefer game.server.wipe();
         try initAutomatic(&game.server, io);
         errdefer net.session_deinit();
-        game.host = .{ .io = io, .arena = undefined, .signer = &game.server, .lan_only = true };
+        game.host = .{ .io = io, .arena = undefined, .signer = &game.server, .lan_only = true, .start = .{ .lobby = .{} } };
         try game.host.arena.init(gpa, .@"six-beacons");
         errdefer game.host.arena.deinit();
 
@@ -94,7 +94,7 @@ pub const LocalGame = struct {
         var server_end: net.Connection = 0;
         var client_end: net.Connection = 0;
         if (!net.session_local_pair(&server_end, &client_end)) return error.ConnectFailed;
-        game.host.takeLocalPilot(server_end);
+        game.host.takeLocalPilot(server_end, call_sign);
         client.local(io, client_end);
         current = .{ .host = &game.host, .client = client };
         return game;

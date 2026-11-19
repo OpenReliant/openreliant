@@ -7,6 +7,8 @@ const language = @import("../language.zig");
 const winmain = @import("../winmain.zig");
 const input = @import("../../input.zig");
 const Layout = @import("connection/layout.zig");
+const widgets = @import("connection/widgets.zig");
+pub const Lobby = @import("connection/lobby.zig");
 const Connection = @This();
 
 pub const background = "interface\\sinfade.tga";
@@ -21,23 +23,14 @@ pub const Server = struct {
     ping_ms: ?u16 = null,
     target: []const u8,
 };
-pub const Action = union(enum) { back, host_lan, stop_hosting, join: []const u8 };
-
-pub const Label = struct {
-    english: []const u8 = "",
-    installed: u16 = 0,
-
-    fn text(label: Label, strings: language.Language) []const u8 {
-        const value = strings.string(label.installed) orelse return label.english;
-        return if (std.mem.trim(u8, value, " \t\r\n").len == 0) label.english else value;
-    }
-};
+pub const Action = union(enum) { back, host_lan, leave_session, launch_session, join: []const u8 };
+pub const Label = widgets.Label;
 
 address: language.Text(128) = .{},
 message: Label = .{},
 busy: bool = false,
 host_available: bool = false,
-hosting: bool = false,
+lobby: ?Lobby = null,
 source: Source = .internet,
 // The discovery source owns the strings while its list is displayed.
 listings: std.EnumArray(Source, []const Server) = .initFill(&.{}),
@@ -63,13 +56,17 @@ fn enabled(screen: *const Connection, control: Layout.Control) bool {
 }
 
 pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, typed: *winmain.Typed, window: [2]u32) ?Action {
+    if (screen.lobby) |*lobby| return switch (lobby.frame(mouse, keys, window) orelse return null) {
+        .leave => .leave_session,
+        .launch => .launch_session,
+    };
     const layout = Layout.init(window);
     const at = layout.point(mouse.at);
     screen.hover = for (std.enums.values(Layout.Control)) |control| {
         if (screen.enabled(control) and layout.control(control).holds(at)) break control;
     } else null;
     if (keys.pressed(input.scan.escape, .none, true) or (mouse.down and screen.hover == .back))
-        return if (screen.hosting) .stop_hosting else .back;
+        return .back;
     if (screen.busy) return null;
     if (mouse.down) {
         if (screen.hover) |control| switch (control) {
@@ -134,20 +131,6 @@ const headers = [4]Label{
     .{ .english = "PING" },
 };
 
-fn panel(canvas: ui.Canvas, rect: ui.Rect) void {
-    const start = canvas.point(.{ rect.x, rect.y });
-    const end = canvas.point(.{ rect.x + rect.width, rect.y + rect.height });
-    hud.drawFilled(canvas.target, .{ .left = @floatFromInt(start[0]), .top = @floatFromInt(start[1]), .right = @floatFromInt(end[0]), .bottom = @floatFromInt(end[1]) }, .{ 0.015, 0.033, 0.048, 0.67 });
-    canvas.box(.{ rect.x, rect.y }, .{ rect.width, rect.height });
-}
-
-fn fittedLabel(canvas: ui.Canvas, at: [2]i32, width: i16, words: []const u8, colour: [3]f32, alignment: hud.Align) !void {
-    const font = canvas.fonts.small;
-    const measured: f32 = @floatFromInt(@max(1, font.textWidth(words)));
-    const fit = @min(1, @as(f32, @floatFromInt(width)) / measured);
-    _ = try hud.drawTextIn(font, canvas.gpa, canvas.target, canvas.point(at), words, hud.atBrightness(colour, canvas.brightness), alignment, canvas.scale() * fit, null);
-}
-
 fn cells(canvas: ui.Canvas, layout: Layout, y: i16, words: [4][]const u8, colour: [3]f32, heading: bool) !void {
     const list = layout.list;
     var columns: [5]i16 = undefined;
@@ -161,7 +144,7 @@ fn cells(canvas: ui.Canvas, layout: Layout, y: i16, words: [4][]const u8, colour
             else => cell.x,
         };
         if (heading) {
-            try fittedLabel(canvas, .{ x, y }, cell.width, word, colour, alignment);
+            try widgets.fittedLabel(canvas, .{ x, y }, cell.width, word, colour, alignment);
         } else {
             try canvas.within(cell).text(canvas.fonts.small, .{ x, y }, word, colour, alignment);
         }
@@ -174,10 +157,11 @@ pub fn draw(screen: *const Connection, original: ui.Canvas, art: *hud.Art, ticks
     canvas.share = layout.share;
     art.global = art.set.paletteAt(0x12);
     defer art.global = art.set.paletteAt(0);
-    _ = try hud.drawTextIn(canvas.fonts.large, canvas.gpa, canvas.target, canvas.point(layout.title()), title.text(canvas.strings.*), hud.atBrightness(ui.white, canvas.brightness), .left, canvas.scale() * 1.37, null);
-    panel(canvas, layout.list);
-    panel(canvas, layout.details);
-    panel(canvas, layout.field);
+    if (screen.lobby) |*lobby| return lobby.draw(original, art);
+    try widgets.title(canvas, layout.title(), title);
+    widgets.panel(canvas, layout.list);
+    widgets.panel(canvas, layout.details);
+    widgets.panel(canvas, layout.field);
     try screen.drawList(canvas, layout);
     try screen.drawDetails(canvas, layout);
     try screen.drawAddress(canvas, layout, ticks);
@@ -189,10 +173,7 @@ pub fn draw(screen: *const Connection, original: ui.Canvas, art: *hud.Art, ticks
             .selected => screen.enabled(.selected),
             else => false,
         };
-        const button = canvas.dimmedUnless(screen.enabled(control));
-        try hud.drawShape(art, button.gpa, button.target, if (lit) 0x18 else 0x17, button.point(.{ box.x, box.y + 2 }), hud.atBrightness(ui.white, button.brightness), button.scale() / Layout.text_scale);
-        const label: Label = if (control == .back and screen.hosting) .{ .english = "STOP HOSTING" } else labels.get(control);
-        try fittedLabel(button, .{ box.x + Layout.label_offset, box.y }, box.width - Layout.label_offset, label.text(canvas.strings.*), if (lit) ui.white else ui.blue, .left);
+        try widgets.button(canvas, art, box, labels.get(control), screen.enabled(control), lit);
     }
 }
 
@@ -214,9 +195,7 @@ fn drawList(screen: *const Connection, canvas: ui.Canvas, layout: Layout) !void 
         try cells(canvas, layout, y + 2, .{ server.name, server.mode, population, latency }, if (chosen) ui.white else ui.blue, false);
     }
     if (list.len == 0) {
-        const empty = if (screen.hosting)
-            "Waiting for another pilot"
-        else if (screen.source == .internet)
+        const empty = if (screen.source == .internet)
             "Internet discovery unavailable"
         else
             "LAN discovery unavailable";
@@ -234,7 +213,7 @@ fn drawDetails(screen: *const Connection, canvas: ui.Canvas, layout: Layout) !vo
     if (chosen) |server| {
         try body.text(font, heading_at, server.name, ui.white, .left);
     } else {
-        try fittedLabel(canvas, heading_at, info.width - 2 * Layout.inset, details.text(canvas.strings.*), ui.white, .left);
+        try widgets.fittedLabel(canvas, heading_at, info.width - 2 * Layout.inset, details.text(canvas.strings.*), ui.white, .left);
     }
     canvas.line(.{ info.x + 2, layout.rowTop(0) }, .{ info.x + info.width - 2, layout.rowTop(0) }, hud.rgb(0x324A55));
     if (chosen) |s| try body.wrapped(font, .{ info.x + Layout.inset, layout.rowTop(0) + 2 }, s.description, ui.blue, .left, .{ .width = info.width - 2 * Layout.inset, .height = 16, .most = layout.rows() });
@@ -266,7 +245,7 @@ test "browser labels use the installed language and fall back for missing string
     try std.testing.expectEqualStrings("Connect", (Label{ .english = "Connect" }).text(strings));
 }
 
-test "a LAN host can stop from the browser while waiting for a pilot" {
+test "the browser only offers hosting when the transport is available" {
     const size = [2]u32{ 640, 480 };
     const layout = Layout.init(size);
     const click: ui.Pointer = .{ .at = layout.control(.host).centre(), .down = true };
@@ -278,9 +257,7 @@ test "a LAN host can stop from the browser while waiting for a pilot" {
     screen.host_available = true;
     try std.testing.expect(screen.frame(click, &keys, &typed, size).? == .host_lan);
     screen.busy = true;
-    screen.hosting = true;
     try std.testing.expectEqual(null, screen.frame(click, &keys, &typed, size));
-    try std.testing.expect(screen.frame(.{ .at = layout.control(.back).centre(), .down = true }, &keys, &typed, size).? == .stop_hosting);
 }
 
 test "browser selection and direct entry submit independent targets" {
@@ -334,4 +311,8 @@ test "browser panels, columns of controls and hit targets keep their alignment" 
         try std.testing.expect(back.y + back.height <= end[1]);
     }
     try std.testing.expect(Layout.init(.{ 1440, 810 }).rows() > Layout.init(.{ 640, 480 }).rows());
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }

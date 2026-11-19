@@ -2362,6 +2362,9 @@ address	kind	name	type	comment
 0043ca30	function	landing_movie_screen	int (void)	Screen 8 of interface_run: after a second's wait, play_landing_movie; returns 3. No code found selects it
 00432fc0	function	multiplayer_connection_screen	int (void)	Screen 14 of interface_run, the multiplayer connection: interface\main2mul.tga behind it, interface\frntend3.spr, and tooltips of the game's strings (tooltips_init with 1)
 004345b0	function	multiplayer_connection_draw	void (void)	Render hook installed by multiplayer_connection_screen for screen 14
+0043da40	function	multiplayer_sessions_draw	void (void)	Draws the cooperative session screen with the host call sign, ready status, players and chat
+0044cb60	function	session_loadout_draw	void (void)	Draws the deathmatch setup and lobby on the same screen, with the ship, scenario, players and chat
+004bc550	function	directplay_create_session		Opens a DirectPlay session with the name in ECX, creates the local player with the call sign in EDX and enumerates the players. Both pre-match screens call it on entry for the host
 0043ca50	function	multiplayer_sessions_screen	int (void)	Screens 10 and 11 of interface_run, the multiplayer sessions, by 0x0051D54C: interface\mulfade.tga behind them, interface\frntend3.spr, and tooltips of the game's strings (tooltips_init with 1)
 0044b950	function	session_loadout_screen	int (void)	Screens 17 and 18 of interface_run, a multiplayer session's loadout, by 0x0051D54C, with the multiplayer scenarios (dm_scenarios) and tooltips of the game's strings (tooltips_init with 1)
 00475a60	function	pickup_count	int (void)	Counts a pickup of the ejected pilot by a nanny ship (0x00562ED4): 1 once there have been more than two, which WinMain follows with a transfer's movie; else 0, the count kept for the mission (0x00562E9A)
