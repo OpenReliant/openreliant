@@ -507,8 +507,7 @@ for the owner (0x00473372), and announces it before starting the victim's explos
 (0x0047337E). The host uses that sequence even for teammates. The normal explosion records
 the death. Each kill notice identifies the two original pilots. The HUD uses the viewer's
 installed string 0x301 and shows the award suffix (0x2F4) only to the pilot who scored.
-The Six Beacons gate trigger and its separate launch announcement are tracked in
-[#1414](https://github.com/OpenReliant/openreliant/issues/1414).
+In [Six Beacons](players.md#six-beacons), the host starts this blast when the carrier reaches a gate.
 
 **Fix:** the blast keeps its original owner's identity. If that object has left, the completion
 sound plays at the captured blast position, and the explosion event keeps the original handle

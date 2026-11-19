@@ -2169,6 +2169,7 @@ pub const World = struct {
     /// Optional host output for notifications addressed to a participant and their ship.
     hit_feedback: ?collision.HitFeedback.Sink = null,
     /// Arena-wide Uber kill notices for the session to deliver to viewers.
+    beacon_notices: ?@import("deathmatch.zig").six_beacons.Notice.Sink = null,
     uber_kills: ?@import("deathmatch.zig").UberKill.Sink = null,
     /// The countermeasures in flight (`cloak.cpp`); null where none are dropped.
     countermeasures: ?*@import("cloak.zig").Countermeasures = null,

@@ -755,7 +755,7 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     radio_module.remarksFrame(orders.world);
     input.nextNavPoint(orders.world);
     if (loaded) |playing| {
-        const running = orders.world.damage_rules == .cooperative or (player.ending == .playing and player.showing != .landing);
+        const running = orders.world.damage_rules != .campaign or (player.ending == .playing and player.showing != .landing);
         if (orders.world.clock.frame_duration != 0 and running) {
             playing.tickClock(orders.world.clock.game_ticks);
             playing.flush(orders);
@@ -787,6 +787,9 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     if (orders.world.gun_particles) |pools| pools.frame(orders.world.clock);
     smoke.frame(orders.world);
     objectsPass(orders);
+    if (orders.world.damage_rules == .arena) {
+        orders.world.objects.arena_scenario.frame(orders.world);
+    }
     keepPlayerTarget(orders.world);
     followCarrier(orders.world);
     if (orders.world.forces) |forces| forces.pushFrame(orders.world.clock.frame_start);
@@ -978,9 +981,10 @@ const shot_watched = 500;
 /// that lasts, as `--watch` sets, never ends it (`camera.Viewing.lasting`). It goes by the view the
 /// game keeps (`input.Player.viewing`), so a world that draws nothing ends its mission alike.
 ///
-/// Not ported: a multiplayer game, where the camera goes on to watch another player
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In an arena the death camera can finish while the round continues. Switching to another
+/// pilot's view is tracked in [#55](https://github.com/OpenReliant/openreliant/issues/55).
 pub fn missionOver(world: gameobj.World) bool {
+    if (world.damage_rules == .arena) return false;
     if (world.damage_rules == .cooperative) {
         if (!friendly_fire.recallComplete(world.objects)) return false;
         world.player.ending = .friendly_fire;

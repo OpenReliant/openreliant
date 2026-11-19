@@ -184,6 +184,35 @@ The [Uber blast](effects.md#the-uber-explode) can also award a kill for a teamma
 notice carries the owner and victim admissions and the scoring tick. Session delivery and pilot name lookup
 are tracked in [#954](https://github.com/OpenReliant/openreliant/issues/954).
 
+### Six Beacons
+
+Nuclear Threat is the second stock arena in `dm_scenarios` (0x0050C790). Its map has six
+beacon pickups, six placement markers and a gate. The host selects the rules after loading
+a map. Selection uses the object types, so another map can use the same rules.
+
+Two admitted pilots are enough to start collecting. A ship picks up a beacon when the distance
+between their centres is less than their combined radii (`pickup_frame`, 0x004B24A0).
+If two ships reach it in the same tick, the first pilot in slot order gets it. An exploding
+or respawning ship cannot collect. The pickup delay expires 100 ticks after the explosion ends.
+A lone pilot who touches a beacon sees the waiting message (0x5B9).
+
+The sixth pickup announces the carrier (0x2EB). The blast fires when that pilot comes within
+2,500 units of a gate, including the boundary (0x004B19D2, 0x004B32C0). It starts at the
+first gate's position and orientation, lasts 1,000 ticks and uses 22 percent of the arena
+radius. The launch announces the pilot (0x300) and puts all six beacons back into play.
+
+A pilot who dies or leaves drops their cargo beside their ship. The host keeps running the
+round when the pilot's death camera finishes. Drops cycle through the six
+world axes at 0.8 times the ship's radius. At reset, each beacon takes the first marker clear
+of the other beacons. If every marker is occupied, it stays where it is. Every 50 ticks the
+host checks for loose beacons less than 500 units inside the arena boundary or beyond it and places
+them again. Every 25 ticks it checks that six objectives are accounted for.
+
+**Improvement:** the host determines pickup, loss and gate contact from its simulated ships.
+Each beacon has a single carrier identified by admission and ship. Clients can display the
+counts and localized notices from the host. The client HUD, scoreboard and pickup rings are
+tracked in [#1416](https://github.com/OpenReliant/openreliant/issues/1416).
+
 ## Remaining work
 
 The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/955).

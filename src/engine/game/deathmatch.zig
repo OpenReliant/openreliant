@@ -7,6 +7,68 @@ const radio = @import("radio.zig");
 const Objects = @import("create.zig").Objects;
 const players = @import("players.zig");
 
+pub const six_beacons = @import("dmscenarios/six_beacons.zig");
+const math = @import("../surrender/math.zig");
+
+/// The first arena_frame (0x004AEB50) fits a sphere around the arena scenery and spawn markers.
+pub const Bounds = struct {
+    centre: math.Vector,
+    radius: f32,
+
+    pub fn of(all: *const Objects) Bounds {
+        const scenery = all.slots[@min(all.players, all.count)..all.count];
+        var low: math.Vector = @splat(std.math.inf(f32));
+        var high = -low;
+        for (scenery) |*slot| {
+            if (!includes(slot.object.type.base())) continue;
+            const extent: math.Vector = @splat(slot.object.radius);
+            low = @min(low, slot.object.position() - extent);
+            high = @max(high, slot.object.position() + extent);
+        }
+        if (low[0] > high[0]) return .{ .centre = @splat(0), .radius = 0 };
+        const centre = (low + high) * @as(math.Vector, @splat(0.5));
+        var radius: f32 = 0;
+        for (scenery) |*slot| {
+            if (includes(slot.object.type.base())) radius = @max(radius, math.distance(centre, slot.object.position()) + slot.object.radius);
+        }
+        return .{ .centre = centre, .radius = radius };
+    }
+
+    fn includes(kind: gameobj.GameType) bool {
+        const Type = gameobj.GameType;
+        const id = kind.number();
+        if (id <= Type.phoenix.number() or id >= Type.marker.number()) return false;
+        return switch (id) {
+            Type.proximity_mine.number(),
+            Type.dm_beacon.number(),
+            Type.neptune_hi.number()...Type.earth.number(),
+            Type.neptune_lo.number()...Type.venus_lo.number(),
+            => false,
+            else => true,
+        };
+    }
+};
+
+/// Rules selected by the host after loading an arena. Ordinary deathmatch has no objectives.
+pub const Scenario = union(enum) {
+    deathmatch,
+    six_beacons: six_beacons.Round,
+
+    pub fn frame(scenario: *Scenario, world: gameobj.World) void {
+        switch (scenario.*) {
+            .deathmatch => {},
+            .six_beacons => |*round| round.frame(world),
+        }
+    }
+
+    pub fn releaseShip(scenario: *Scenario, all: *Objects, index: u16) void {
+        switch (scenario.*) {
+            .deathmatch => {},
+            .six_beacons => |*round| round.drop(all, index),
+        }
+    }
+};
+
 pub const TeamScore = struct {
     kills: i32 = 0,
     deaths: u32 = 0,
@@ -31,6 +93,7 @@ pub const ArenaScores = union(enum) {
 /// The host starts a fresh arena round with the current admissions and team assignments.
 /// `mp_arena_init` (0x004AE860) clears both the player and team scores.
 pub fn startRound(all: *Objects, mode: std.meta.Tag(ArenaScores)) void {
+    all.arena_scenario = .deathmatch;
     all.arena_scores = switch (mode) {
         .free_for_all => .free_for_all,
         .teams => .{ .teams = .initFill(.{}) },
@@ -39,6 +102,7 @@ pub fn startRound(all: *Objects, mode: std.meta.Tag(ArenaScores)) void {
         if (state.membership == .joined) {
             state.membership.joined.kills.count = 0;
             state.membership.joined.deaths = 0;
+            state.membership.joined.pickups_after = 0;
         }
     }
 }
@@ -116,18 +180,23 @@ pub const UberKill = struct {
         const format = strings.string(message_id) orelse return;
         const scored = notice.awarded and std.meta.eql(notice.owner, viewer);
         const suffix = if (scored) strings.string(award_suffix_id) orelse "" else "";
-        var buffer: [@import("hud.zig").Messages.line_size]u8 = undefined;
-        var line: std.Io.Writer = .fixed(&buffer);
-        var parts = std.mem.splitSequence(u8, format, "%s");
-        line.writeAll(parts.first()) catch {};
-        for ([_][]const u8{ owner_name, victim_name, suffix }) |value| {
-            const after = parts.next() orelse break;
-            line.writeAll(value) catch break;
-            line.writeAll(after) catch break;
-        }
-        messages.add(line.buffered(), notice.tick);
+        addMessage(messages, notice.tick, format, &.{ owner_name, victim_name, suffix });
     }
 };
+
+/// Fills the original HUD string's %s fields and clips the result to one message line.
+pub fn addMessage(messages: *@import("hud.zig").Messages, tick: i32, format: []const u8, values: []const []const u8) void {
+    var buffer: [@import("hud.zig").Messages.line_size]u8 = undefined;
+    var line: std.Io.Writer = .fixed(&buffer);
+    var parts = std.mem.splitSequence(u8, format, "%s");
+    line.writeAll(parts.first()) catch {};
+    for (values) |value| {
+        const after = parts.next() orelse break;
+        line.writeAll(value) catch break;
+        line.writeAll(after) catch break;
+    }
+    messages.add(line.buffered(), tick);
+}
 
 /// `uber_explode_update` clears the previous attacker, awards the blast owner a kill
 /// without testing team allegiance (0x00473372), then posts the HUD message (0x0047337E).
@@ -361,4 +430,8 @@ test "the Uber announcement uses the viewer's language and only the scorer sees 
     notice.present(&messages, strings, notice.victim, "Alpha", "%s");
     try std.testing.expectEqualStrings("Alpha / %s +1", messages.line(0));
     try std.testing.expectEqualStrings("Alpha / %s ", messages.line(1));
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }

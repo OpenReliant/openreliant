@@ -3112,6 +3112,28 @@ address	kind	name	type	comment
 005db8f4	data	mp_first_lobby_player_name	char	Start of the first lobby player name, with a 0xFC stride
 005db920	data	mp_first_lobby_player_team	int	Team index in the first lobby row, with a 0xFC stride
 004b3180	function	six_beacons_trigger_nuke	void __fastcall (int slot, bool report)	Starts an Uber blast at the Six Beacons gate, announces its owner with string 0x300, resets the beacons and optionally reports the trigger
-004b32c0	function	six_beacons_check_nuke	void __fastcall (int slot)	Triggers the nuke when the pilot has six beacons and calls the host update
-004b2ff0	function	six_beacons_reset	void (void)	Clears the occupied player slots' beacon counts and runs the beacon setup six times
+004b32c0	function	six_beacons_check_nuke	void __fastcall (int slot)	On gate contact, fires the nuke if the pilot carries all six beacons and sends the new counts
+004b2ff0	function	six_beacons_reset	void (void)	Clears every admitted pilot's count and places six beacons at free beacon markers
 004bb130	function	mp_report_six_beacons_nuke	void __fastcall (int slot)	Sends the triggering pilot slot in Six Beacons message 0x36
+004b18e0	function	mp_arena_pickups_frame	void (void)	Checks pickup contact and expired power-ups, checks the scenario gate on the host, and draws the pickup rings
+004b2300	function	six_beacons_collect	void __fastcall (int pilot, int pickup)	Collects a beacon, announces the sixth, hides the pickup and sends updated counts
+004b24a0	function	pickup_frame	void __fastcall (int pilot)	Checks nearby pickups for a pilot who can collect them and warns a lone pilot
+004b25c0	function	pickup_collect	void __fastcall (int pilot, int pickup, bool report)	Dispatches collection to the power-up or scenario and optionally reports it
+004b26b0	function	pickup_drop	void __fastcall (int pilot, ObjectType type, int pickup, bool report)	Returns a pickup beside the pilot along the next of six directions
+004b27f0	function	pickup_place_at_marker	void __fastcall (int pickup, ObjectType marker)	Places the pickup at the first marker clear of other pickups of its type and plays its spawn sound
+004b2f10	function	six_beacons_init	void (void)	Resets the host objectives or restores the beacon state for a joining pilot
+004b3080	function	six_beacons_pilot_destroyed	void __fastcall (int pilot)	Drops the destroyed pilot's beacons on the host and sends the counts
+004b30a0	function	six_beacons_pilot_left	void __fastcall (int pilot)	Saves the departing pilot's count and drops their beacons on the host
+004b30d0	function	six_beacons_drop	void __fastcall (int pilot, bool report)	Releases the pilot's beacons beside the ship and clears their count
+004b3140	function	six_beacons_sync_counts	void (void)	Sends the host's beacon counts to the other admitted pilots
+004b3300	function	six_beacons_frame	void (void)	Returns loose beacons near the arena boundary and repairs the total in play
+004b3510	function	six_beacons_total	int (void)	Counts enabled beacons and the beacons carried by admitted pilots
+004b3840	function	six_beacons_draw_pilot_count	void __fastcall (int pilot, int x, int y)	Draws the beacon icon and the pilot's count in the scoreboard
+0050c4ac	data	pickup_drop_directions	Vec3[6]	The six world axes in the order used to drop pickups
+005db318	data	pickup_drop_direction	int	The next axis used when a pilot drops a pickup
+005db3e0	data	mp_pickup_after	int[8]	The first tick when each respawned pilot may collect a pickup
+005db400	data	pickup_last_solo_contact	int	The last tick when a lone pilot touched a pickup
+0050c500	data	six_beacons_gate_distance	float	The largest distance from a gate at which a pilot carrying six beacons triggers the blast
+0050c4f8	data	gate_trigger_scenario	int	The scenario that enables gate contact checks
+0050c4fc	data	gate_trigger_type	ObjectType	The type of object that triggers the scenario's gate check
+0050c504	data	gate_trigger_callback	void *	The callback for a pilot within the scenario's gate distance
