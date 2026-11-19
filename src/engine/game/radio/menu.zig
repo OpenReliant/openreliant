@@ -4,10 +4,9 @@
 //! what they do lie among the radio's code, from `0x00453A70` to `0x00455D40`. **Unknown:** their
 //! file, as for the rest of the radio.
 //!
-//! Not ported: a multiplayer game's pages (`Page.multiplayer` to `Page.deny`), which list the other
-//! players, send them messages and the wingmen's commands, and answer another player's request,
-//! and the chat line they type in (`chat_typing`, `0x00529FB8`)
-//! ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+//! The network flight view uses the same menu to address chat to other pilots.
+//! Multiplayer radio requests and wing commands are tracked in
+//! [#1368](https://github.com/OpenReliant/openreliant/issues/1368).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -83,6 +82,11 @@ pub const Page = enum(i16) {
 pub const Label = union(enum) {
     /// A string of the game's (`language_string`).
     string: u16,
+    /// Network menu labels with a fallback, or a pilot's callsign.
+    network: union(enum) {
+        label: struct { id: u16, english: []const u8 },
+        callsign: @import("../interface/pilot_roster.zig").CallSign,
+    },
     /// A wingman, as "Bandit (Alpha 2)" (`0x004F0D64`): the string that names its pilot, where it
     /// has one, and its call sign.
     pilot: struct { name: ?u16, call_sign: u16 },
@@ -96,6 +100,10 @@ pub const Label = union(enum) {
     pub fn words(label: Label, said: *const language.Language, buffer: *[room]u8) []const u8 {
         return switch (label) {
             .string => |id| said.string(id) orelse "",
+            .network => |network| switch (network) {
+                .label => |fallback| said.string(fallback.id) orelse fallback.english,
+                .callsign => |callsign| std.fmt.bufPrint(buffer, "{s}", .{callsign.slice()}) catch unreachable,
+            },
             .pilot => |pilot| {
                 const call_sign = said.string(pilot.call_sign) orelse "";
                 const name = said.string(pilot.name orelse return call_sign) orelse "";
@@ -170,7 +178,7 @@ pub const Menu = struct {
     }
 
     /// `0x00453B50`: an item more on the page.
-    fn add(menu: *Menu, label: Label, page: Page, addressed: i16) void {
+    pub fn add(menu: *Menu, label: Label, page: Page, addressed: i16) void {
         if (menu.count == capacity) return;
         menu.items[menu.count] = .{ .label = label, .page = page, .addressed = addressed };
         menu.count += 1;
@@ -211,14 +219,19 @@ pub const Menu = struct {
             if (menu.count > 0 or from == .top) break;
         }
         const devices = ctx.devices orelse return;
+        if (menu.choose(&devices.keyboard)) hud.beep(world, .done);
+    }
+
+    /// Takes the numbered choice shared by the single-player and multiplayer pages.
+    pub fn choose(menu: *Menu, keys: *input.Keyboard) bool {
         for (menu.shown(), 0..) |item, index| {
             const key: u8 = @intCast(@backingInt(input.Key.one) + index);
-            if (!devices.keyboard.pressed(key, .none, true)) continue;
-            hud.beep(world, .done);
+            if (!keys.pressed(key, .none, true)) continue;
             menu.page = item.page;
             menu.addressed = item.addressed;
-            return;
+            return true;
         }
+        return false;
     }
 
     /// The page's work (`0x00455D66`): its items, or what its item says. Whether it did something,

@@ -8,12 +8,13 @@ const session = @import("session.zig");
 const wire = @import("wire.zig");
 const flight_input = @import("flight_input.zig");
 const stock = @import("stock_arena.zig");
+const FlightChat = @import("flight_chat.zig");
 const FlightFrame = @import("flight_frame.zig");
 const Graphical = @This();
 const Connection = game.interface.Connection;
 const combat_messages_per_frame = 8;
 const messages_per_frame = combat_messages_per_frame + wire.ordnance.Page.pages;
-const FlightNotice = union(enum) { beacon: wire.BeaconNotice, pilot: wire.PilotNotice };
+const FlightNotice = union(enum) { beacon: wire.BeaconNotice, pilot: wire.PilotNotice, chat: wire.ChatLine };
 
 // net_handle_system_message (0x004B6A80) posts 0x3B7 on session loss in flight.
 const host_left: Connection.Label = .{ .english = "The host has left the game", .installed = 0x3B7 };
@@ -28,7 +29,8 @@ roster: [wire.slots]?wire.CallSign = @splat(null),
 flight: ?*FlightFrame = null,
 notices: [game.hud.Messages.capacity]FlightNotice = undefined,
 notice_count: usize = 0,
-lobby_notices: game.hud.Messages = .{},
+lobby_notices: Connection.Lobby.History = .{},
+chat: FlightChat = .{},
 wrecks: [2 * wire.slots]wire.Wreck = undefined,
 wreck_count: usize = 0,
 combat: [combat_messages_per_frame * wire.Combat.max]game.guns.FlightEffect = undefined,
@@ -71,7 +73,7 @@ pub fn hostLan(pilot: *Graphical, io: std.Io, gpa: std.mem.Allocator, directory:
     pilot.client.?.fighter = screen.fighter;
     screen.selected = 0;
     screen.first = 0;
-    pilot.roster[0] = call_sign;
+    pilot.roster[0] = pilot.hosted.?.host.localCallSign();
     screen.lobby = .{
         .role = .{ .host = .{ .port = session.default_port } },
         .roster = &pilot.roster,
@@ -133,7 +135,11 @@ pub fn flying(pilot: *const Graphical) bool {
     return if (pilot.client) |*client| client.latest != null and !client.leaving else false;
 }
 
-pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Interface, devices: *engine.input.Devices, presentation: ?*Presentation, strings: game.language.Language, reads_controls: bool) void {
+pub fn sendLobbyChat(pilot: *Graphical, line: game.chat.Line) void {
+    if (pilot.client) |*client| client.sendChat(.{ .to = .lobby, .text = line });
+}
+
+pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Interface, devices: *engine.input.Devices, typed: *game.winmain.Typed, presentation: ?*Presentation, strings: game.language.Language, chat_font: *const game.hud.Opened, reads_controls: bool) void {
     const client = if (pilot.client) |*active| active else return;
     if (front.screen != .connection) {
         pilot.returnToBrowser(&front.connection, presentation, .{});
@@ -153,8 +159,11 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
         if (front.connection.lobby) |*lobby| lobby.role.host.can_launch = hosted.host.canLaunch();
     }
     if (pilot.flight) |flight| {
-        pilot.show_standings = reads_controls and devices.active(.display_kills, false);
-        if (reads_controls) {
+        const typing = pilot.chat.frame(client, &flight.drawn, devices, typed, chat_font, reads_controls);
+        devices.keyboard.numbers_taken = flight.drawn.display.windows.up(.comms);
+        defer devices.keyboard.numbers_taken = false;
+        pilot.show_standings = reads_controls and !typing and devices.active(.display_kills, false);
+        if (reads_controls and !typing) {
             const player = &flight.drawn.player;
             game.hud.targetKeys(&flight.drawn.display, .{
                 .devices = devices,
@@ -216,6 +225,10 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 } else {
                     pilot.queueNotice(.{ .pilot = notice });
                 }
+            },
+            .chat_line => |line| switch (line.scope) {
+                .lobby => if (client.latest == null) presentChat(&pilot.lobby_notices, strings, line, 0),
+                .flight, .private => pilot.queueNotice(.{ .chat = line }),
             },
             .wreck => |wreck| {
                 if (pilot.wreck_count < pilot.wrecks.len) {
@@ -309,7 +322,7 @@ fn pilotName(fallback: *[64]u8, strings: game.language.Language, name: *const wi
 
 /// The in-flight join text is literal in the original (0x0050DE30). Departures use the
 /// installed lobby (0x562) or HUD (0x328) format from `mp_player_departed` (0x004B6890).
-fn presentPilotNotice(messages: *game.hud.Messages, strings: game.language.Language, notice: wire.PilotNotice) void {
+fn presentPilotNotice(messages: anytype, strings: game.language.Language, notice: wire.PilotNotice) void {
     const format = switch (notice.kind) {
         .joined_flight => "%s has joined the game",
         .left_flight => strings.string(0x328) orelse "%s has left the game",
@@ -317,6 +330,14 @@ fn presentPilotNotice(messages: *game.hud.Messages, strings: game.language.Langu
     };
     var fallback: [64]u8 = undefined;
     game.deathmatch.addMessage(messages, notice.tick, format, &.{pilotName(&fallback, strings, &notice.name, notice.pilot.slot)});
+}
+
+/// The original receives chat as "%s: %s" (0x00503184) in both the lobby
+/// and the flight HUD.
+fn presentChat(messages: anytype, strings: game.language.Language, line: wire.ChatLine, tick: i32) void {
+    var fallback: [64]u8 = undefined;
+    const name = pilotName(&fallback, strings, &line.name, line.sender);
+    game.deathmatch.addMessage(messages, tick, "%s: %s", &.{ name, line.text.slice() });
 }
 
 fn presentNotices(pilot: *Graphical, flight: *FlightFrame, strings: game.language.Language, admission: wire.Admission) void {
@@ -328,6 +349,7 @@ fn presentNotices(pilot: *Graphical, flight: *FlightFrame, strings: game.languag
             notice.event.present(messages, strings, viewer, pilotName(&fallback, strings, &notice.name, notice.event.pilot.slot));
         },
         .pilot => |notice| presentPilotNotice(messages, strings, notice),
+        .chat => |line| presentChat(messages, strings, line, flight.drawn.clock.frame_start),
     };
     pilot.notice_count = 0;
 }

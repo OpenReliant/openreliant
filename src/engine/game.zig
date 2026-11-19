@@ -18,6 +18,7 @@ pub const ailand = @import("game/ailand.zig");
 pub const backdrop = @import("game/backdrop.zig");
 pub const bigfile = @import("game/bigfile.zig");
 pub const camera = @import("game/camera.zig");
+pub const chat = @import("game/chat.zig");
 pub const cbox = @import("game/cbox.zig");
 pub const cloak = @import("game/cloak.zig");
 pub const collision = @import("game/collision.zig");

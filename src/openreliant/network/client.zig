@@ -103,6 +103,7 @@ pub const Event = union(enum) {
     lobby: wire.Scenario,
     beacon_notice: wire.BeaconNotice,
     pilot_notice: wire.PilotNotice,
+    chat_line: wire.ChatLine,
     wreck: wire.Wreck,
     combat: wire.Combat,
     projectiles,
@@ -110,6 +111,11 @@ pub const Event = union(enum) {
     finished,
     closed,
 };
+
+pub fn sendChat(client: *Client, request: wire.ChatRequest) void {
+    if (client.joined == null or client.leaving or wire.chat.trim(request.text.slice()).len == 0) return;
+    net.send(client.conn, .{ .chat_request = request }) catch return;
+}
 
 pub fn setFlight(client: *Client, command: flight.Command) void {
     client.flight_command = command;
@@ -191,6 +197,7 @@ pub fn poll(client: *Client, io: Io) !Event {
                 entry.* = null;
             return .{ .pilot_notice = notice };
         },
+        .chat_line => |line| return if (client.joined != null and !client.leaving) .{ .chat_line = line } else .idle,
         .wreck => |wreck| return if (client.joined != null and !client.leaving) .{ .wreck = wreck } else .idle,
         .combat => |effects| return if (client.latest != null and !client.leaving) .{ .combat = effects } else .idle,
         .projectiles => |page| {
@@ -247,7 +254,7 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
         client.setFlight(steering.command());
         const event = try client.poll(io);
         switch (event) {
-            .idle, .lobby, .combat, .projectiles => {},
+            .idle, .lobby, .combat, .projectiles, .chat_line => {},
             .beacon_notice => |notice| std.debug.print("notice {s} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot }),
             .pilot_notice => |notice| std.debug.print("pilot-notice {s} {d} {d}\n", .{ @tagName(notice.kind), notice.pilot.slot, notice.pilot.generation }),
             .wreck => |wreck| std.debug.print("wreck {d} {d} {d}\n", .{ wreck.pilot.participant.slot, wreck.pilot.ship.reuse, wreck.tick }),

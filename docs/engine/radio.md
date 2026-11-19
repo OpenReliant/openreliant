@@ -308,8 +308,14 @@ pointer; OpenReliant names it by its call sign alone. It reads the armour class 
 type's stats through a null pointer for What's your status?, and the carrier for REQUEST BACKUP
 where the ship launched from none; OpenReliant makes no report.
 
-Not ported: a multiplayer game's pages and the chat line they type in (`chat_typing`,
-`0x00529FB8`, [#55](https://github.com/OpenReliant/openreliant/issues/55)).
+In multiplayer, open COMMS and select Multiplayer (0x16D), a pilot or All players (0x16E),
+then Type message (0x176). The player list comes from `comms_menu_multiplayer` (0x004545D0).
+`chat_line_open` (0x004547A0) clears pending characters. `chat_line_frame` (0x004547C0) sends
+on Enter and closes COMMS. OpenReliant also lets Escape cancel the draft.
+
+The host relays a direct message to the selected pilot and echoes it to the sender. The
+original sends direct chat through `net_send_chat` (0x004B9F60). Multiplayer radio requests
+and wing orders are tracked in [#1368](https://github.com/OpenReliant/openreliant/issues/1368).
 
 ## Remarks
 

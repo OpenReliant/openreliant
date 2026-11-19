@@ -1403,7 +1403,10 @@ const version_brightness = 0.5;
 /// whatever room its buffer has, which a line of narrow characters overruns; OpenReliant stops at
 /// the buffer's end.
 pub fn typeInto(typed: *winmain.Typed, buffer: []u8, length: *usize, measure: ?Fit) void {
-    const character = typed.pop() orelse return;
+    typeCharacter(typed.pop() orelse return, buffer, length, measure);
+}
+
+pub fn typeCharacter(character: u8, buffer: []u8, length: *usize, measure: ?Fit) void {
     if (character == backspace) {
         length.* -|= 1;
         return;
@@ -2592,6 +2595,7 @@ pub const Frame = struct {
     edge_line: EdgeLine,
     multiplayer: bool = false,
     show_standings: bool = false,
+    chat_line: ?[]const u8 = null,
     beacon_snapshot: ?*const six_beacons.HudSnapshot = null,
     /// The sound the enemy lock's warning plays through (`Drawing.warnOfLock`); none where nothing
     /// is heard.
@@ -2792,6 +2796,12 @@ pub const Instrument = enum {
     wing_status,
     /// The local pilot's counter in Six Beacons.
     beacon_counter,
+    /// The editable line shown while a pilot types a chat message.
+    chat_input,
+    /// The held arena pickup and its timer.
+    arena_power_up,
+    /// The arena scoreboard.
+    standings,
 
     /// The instrument a window is; null for the frames alone, which show nothing.
     pub fn ofWindow(window: windows.Window) ?Instrument {
@@ -2890,7 +2900,10 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
     try state.subtitle.draw(placing.pen(pen, .subtitle), frame.last_view);
     try state.messages.draw(placing.pen(pen, .messages), &resources.target_fonts.new);
     if (ahead) try state.drawInstruments(drawing, pen, &placing, frame, lead, speaker);
-    if (frame.multiplayer) try drawArenaPowerUp(pen, resources, live, frame.clock.frame_start);
+    if (frame.multiplayer) {
+        try drawArenaPowerUp(placing.pen(pen, .arena_power_up), resources, live, frame.clock.frame_start);
+        if (frame.chat_line) |line| try drawChatInput(placing.pen(pen, .chat_input), line);
+    }
     const contents: windows.Contents = .{
         .radio = if (frame.radio) |on_air| .{
             .radio = on_air,
@@ -2911,9 +2924,17 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
     if (frame.show_standings) {
         const art = try resources.standingsArt(pen.gpa);
         const labels = if (resources.standings_font) |*font| font else pen.font;
-        try standings.draw(pen, frame.all, art, labels);
+        try standings.draw(placing.pen(pen, .standings), frame.all, art, labels);
     }
     drawing.aim.under_reticle = if (frame.sight) |sight| underReticle(frame.all, .{ .sight = sight, .scale = pen.scale }) else null;
+}
+
+/// `hud_draw` (0x00486789) draws the chat line centred 106 pixels above the lower
+/// HUD anchor, with an underscore at the end.
+fn drawChatInput(pen: Pen, line: []const u8) !void {
+    const at = pen.placed(.{ 0, -106 }, 0.5, 1);
+    const end = try pen.partText(.chat_input_text, at, line, .centre);
+    _ = try pen.partText(.chat_input_caret, .{ end, at[1] }, "_", .left);
 }
 
 pub const standings = @import("hud/standings.zig");
@@ -3213,73 +3234,79 @@ test Subtitle {
 ///
 /// **Fix:** the game copies a line whole into its hundred bytes, and so runs into the next line, or
 /// past the last, with a longer one. OpenReliant keeps a line's first 99 bytes.
-pub const Messages = struct {
-    lines: [capacity][line_size]u8 = @splat(@splat(0)),
-    lens: [capacity]u8 = @splat(0),
-    count: u8 = 0,
-    until: [capacity]i32 = @splat(0),
+pub const Messages = MessageList(4);
 
-    /// The most lines there are, and the bytes each holds with its end.
-    pub const capacity = 4;
-    pub const line_size = 100;
+/// The same bounded line storage is used for the lobby's chat history.
+pub fn MessageList(comptime limit: u8) type {
+    return struct {
+        const List = @This();
+        pub const capacity = limit;
+        lines: [capacity][line_size]u8 = @splat(@splat(0)),
+        lens: [capacity]u8 = @splat(0),
+        count: u8 = 0,
+        until: [capacity]i32 = @splat(0),
 
-    /// What each line is drawn after (`0x00502570`).
-    const line_prefix = "- ";
+        /// The most lines there are, and the bytes each holds with its end.
+        pub const line_size = 100;
 
-    /// The ticks a line is shown for (`hud_message_add`).
-    pub const shown_for = 1000;
+        /// What each line is drawn after (`0x00502570`).
+        const line_prefix = "- ";
 
-    /// Where the lines stand, from the middle of the screen, and how far apart (`hud_draw`,
-    /// `hud_messages_draw`).
-    pub const offset: [2]i32 = .{ -0x6E, -0x8C };
-    pub const spacing: i32 = 0xB;
+        /// The ticks a line is shown for (`hud_message_add`).
+        pub const shown_for = 1000;
 
-    /// `hud_message_add` (`0x0048CEB0`): adds `text`, shown until `shown_for` ticks after
-    /// `frame_start`, dropping the oldest first where there are `capacity` already.
-    pub fn add(messages: *Messages, text: []const u8, frame_start: i32) void {
-        if (messages.count == capacity) messages.drop();
-        const kept = @min(text.len, line_size - 1);
-        @memcpy(messages.lines[messages.count][0..kept], text[0..kept]);
-        messages.lens[messages.count] = @intCast(kept);
-        messages.until[messages.count] = frame_start +% shown_for;
-        messages.count += 1;
-    }
+        /// Where the lines stand, from the middle of the screen, and how far apart (`hud_draw`,
+        /// `hud_messages_draw`).
+        pub const offset: [2]i32 = .{ -0x6E, -0x8C };
+        pub const spacing: i32 = 0xB;
 
-    /// `hud_message_drop` (`0x0048CF90`): drops the oldest, moving the others up.
-    pub fn drop(messages: *Messages) void {
-        if (messages.count == 0) return;
-        @memmove(messages.lines[0 .. capacity - 1], messages.lines[1..]);
-        @memmove(messages.lens[0 .. capacity - 1], messages.lens[1..]);
-        @memmove(messages.until[0 .. capacity - 1], messages.until[1..]);
-        messages.lens[capacity - 1] = 0;
-        messages.count -= 1;
-    }
-
-    /// `hud_messages_expire` (`0x0048D010`), which `hud_draw` runs, and OpenReliant runs in the
-    /// game frame (`State.gameFrame`): drops the oldest once its time is up, one a frame.
-    pub fn expire(messages: *Messages, frame_start: i32) void {
-        if (messages.count != 0 and messages.until[0] < frame_start) messages.drop();
-    }
-
-    /// The line at `at`, oldest first.
-    pub fn line(messages: *const Messages, at: usize) []const u8 {
-        return messages.lines[at][0..messages.lens[at]];
-    }
-
-    /// `hud_messages_draw` (`0x0048CF20`): each line as `- %s` (`0x00502570`) in `font`, from
-    /// `offset` down, `spacing` apart, lined up on the left.
-    pub fn draw(messages: *const Messages, pen: Pen, font: *Opened) Allocator.Error!void {
-        var at = pen.placed(offset, 0.5, 0.5);
-        for (0..messages.count) |index| {
-            const shown = messages.line(index);
-            var buffer: [line_prefix.len + line_size]u8 = undefined;
-            @memcpy(buffer[0..line_prefix.len], line_prefix);
-            @memcpy(buffer[line_prefix.len..][0..shown.len], shown);
-            _ = try pen.partTextIn(.messages_text, font, at, buffer[0 .. line_prefix.len + shown.len], .left);
-            at = pen.moved(at, .{ 0, spacing });
+        /// `hud_message_add` (`0x0048CEB0`): adds `text`, shown until `shown_for` ticks after
+        /// `frame_start`, dropping the oldest first where there are `capacity` already.
+        pub fn add(messages: *List, text: []const u8, frame_start: i32) void {
+            if (messages.count == capacity) messages.drop();
+            const kept = @min(text.len, line_size - 1);
+            @memcpy(messages.lines[messages.count][0..kept], text[0..kept]);
+            messages.lens[messages.count] = @intCast(kept);
+            messages.until[messages.count] = frame_start +% shown_for;
+            messages.count += 1;
         }
-    }
-};
+
+        /// `hud_message_drop` (`0x0048CF90`): drops the oldest, moving the others up.
+        pub fn drop(messages: *List) void {
+            if (messages.count == 0) return;
+            @memmove(messages.lines[0 .. capacity - 1], messages.lines[1..]);
+            @memmove(messages.lens[0 .. capacity - 1], messages.lens[1..]);
+            @memmove(messages.until[0 .. capacity - 1], messages.until[1..]);
+            messages.lens[capacity - 1] = 0;
+            messages.count -= 1;
+        }
+
+        /// `hud_messages_expire` (`0x0048D010`), which `hud_draw` runs, and OpenReliant runs in the
+        /// game frame (`State.gameFrame`): drops the oldest once its time is up, one a frame.
+        pub fn expire(messages: *List, frame_start: i32) void {
+            if (messages.count != 0 and messages.until[0] < frame_start) messages.drop();
+        }
+
+        /// The line at `at`, oldest first.
+        pub fn line(messages: *const List, at: usize) []const u8 {
+            return messages.lines[at][0..messages.lens[at]];
+        }
+
+        /// `hud_messages_draw` (`0x0048CF20`): each line as `- %s` (`0x00502570`) in `font`, from
+        /// `offset` down, `spacing` apart, lined up on the left.
+        pub fn draw(messages: *const List, pen: Pen, font: *Opened) Allocator.Error!void {
+            var at = pen.placed(offset, 0.5, 0.5);
+            for (0..messages.count) |index| {
+                const shown = messages.line(index);
+                var buffer: [line_prefix.len + line_size]u8 = undefined;
+                @memcpy(buffer[0..line_prefix.len], line_prefix);
+                @memcpy(buffer[line_prefix.len..][0..shown.len], shown);
+                _ = try pen.partTextIn(.messages_text, font, at, buffer[0 .. line_prefix.len + shown.len], .left);
+                at = pen.moved(at, .{ 0, spacing });
+            }
+        }
+    };
+}
 
 test Messages {
     var messages: Messages = .{};
@@ -4748,9 +4775,8 @@ pub const Keys = struct {
 /// Before the keys, while the radio's window is open, the radio's menu runs
 /// (`radio.menu.Menu.run`).
 ///
-/// Not yet ported: what the game does while a multiplayer game's chat line is typed
-/// (`chat_typing`, `0x00529FB8`), which leaves out every key after the radio's menu
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// (`chat_typing`, `0x00529FB8`) skips the targeting keys while the pilot types.
+/// The online flight view handles this before it calls `targetKeys`.
 pub fn targetKeys(state: *State, keys: Keys) void {
     const all = keys.all;
     const devices = keys.devices;

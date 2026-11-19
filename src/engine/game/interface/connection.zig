@@ -26,7 +26,9 @@ pub const Server = struct {
     ping_ms: ?u16 = null,
     target: []const u8,
 };
-pub const Action = union(enum) { back, host_lan, leave_session, launch_session, choose_ship: scenarios.Fighter, join: []const u8 };
+const chat = @import("../chat.zig");
+
+pub const Action = union(enum) { send_chat: chat.Line, back, host_lan, leave_session, launch_session, choose_ship: scenarios.Fighter, join: []const u8 };
 pub const Label = widgets.Label;
 
 address: language.Text(128) = .{},
@@ -44,6 +46,12 @@ selected: usize = 0,
 first: usize = 0,
 editing: bool = true,
 hover: ?Layout.Control = null,
+
+pub fn takesText(screen: *const Connection) bool {
+    if (screen.host_choice != null or screen.ship_picker != null) return false;
+    if (screen.lobby) |lobby| return lobby.chat_focused and !lobby.mode_open;
+    return screen.editing and !screen.busy;
+}
 
 fn servers(screen: *const Connection) []const Server {
     return screen.listings.get(screen.source);
@@ -92,9 +100,10 @@ pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, type
             },
         }
     }
-    if (screen.lobby) |*lobby| return switch (lobby.frame(mouse, keys, window) orelse return null) {
+    if (screen.lobby) |*lobby| return switch (lobby.frame(mouse, keys, typed, window) orelse return null) {
         .leave => .leave_session,
         .launch => .launch_session,
+        .send_chat => |line| .{ .send_chat = line },
         .choose_ship => open: {
             screen.ship_picker = .{ .preview = lobby.ship };
             break :open null;
