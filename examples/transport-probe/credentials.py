@@ -23,24 +23,27 @@ def literal(data):
     return '"' + "".join(f"\\{byte:03o}" for byte in data) + '"'
 
 
-def issue(directory, schema, protoc="protoc"):
+def issue(directory, schema, protoc="protoc", *, late_pilot=False):
     if directory.exists():
         raise FileExistsError(directory)
     # Publish the set only after every certificate has been signed.
     with tempfile.TemporaryDirectory(dir=directory.parent) as temporary:
         stage = Path(temporary)
-        write_identities(stage, schema, protoc)
+        write_identities(stage, schema, protoc, late_pilot)
         stage.rename(directory)
 
 
-def write_identities(directory, schema, protoc):
+def write_identities(directory, schema, protoc, late_pilot):
     ca = Ed25519PrivateKey.generate()
     public = ca.public_key()
     key_id = int.from_bytes(hashlib.sha256(public.public_bytes_raw()).digest()[:8], "little")
     ssh = public.public_bytes(serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH)
     (directory / "root.pub").write_bytes(ssh + f" ID{key_id}\n".encode())
     now = int(time.time())
-    for name in ("host", "pilot1", "pilot2"):
+    names = ["host", "pilot1", "pilot2"]
+    if late_pilot:
+        names.append("pilot3")
+    for name in names:
         key = Ed25519PrivateKey.generate()
         cert = encode(protoc, schema, "CMsgSteamDatagramCertificate", f"""
             key_type: ED25519

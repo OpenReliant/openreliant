@@ -3,6 +3,7 @@ const std = @import("std");
 
 const Role = enum { host, pilot1, pilot2, reject };
 const wire = @import("wire.zig");
+const socket = @import("socket.zig");
 const Host = @import("host_simulation");
 const tick_us = 40 * std.time.us_per_ms;
 const last_tick = 100;
@@ -10,17 +11,10 @@ const burst_tick = last_tick / 4;
 const bulk_count = 64;
 const deadline_us = 30 * std.time.us_per_s;
 
-extern fn probe_open(address: [*:0]const u8, host: bool) bool;
-extern fn probe_send(conn: u32, lane: u16, data: [*]const u8, size: c_int) bool;
-extern fn probe_receive(conn: u32, data: [*]u8, capacity: c_int, lane: *u16) c_int;
-extern fn probe_now() i64;
-extern fn probe_poll() bool;
-extern fn probe_delivered(conn: u32) bool;
-
 fn send(frame: wire.Frame, conn: u32) !void {
     var buffer: [wire.capacity]u8 = undefined;
     const bytes = frame.encode(&buffer);
-    if (!probe_send(conn, @backingInt(wire.Frame.lane(frame)), bytes.ptr, @intCast(bytes.len))) return error.SendFailed;
+    try socket.send(conn, @backingInt(wire.Frame.lane(frame)), bytes);
 }
 
 const Peer = struct {
@@ -60,7 +54,7 @@ const Scenario = struct {
                 if (input.applied <= peer.applied) return;
                 peer.applied = input.applied;
                 peer.samples += 1;
-                peer.max_ack_us = @max(peer.max_ack_us, probe_now() - s.sent_at[input.applied]);
+                peer.max_ack_us = @max(peer.max_ack_us, socket.probe_now() - s.sent_at[input.applied]);
             },
             .done => |count| {
                 if (s.tick != last_tick or peer.done or peer.samples == 0 or count == 0 or count > last_tick)
@@ -84,7 +78,7 @@ const Scenario = struct {
                 try Host.check(snapshot.tick, snapshot.positions);
                 if (snapshot.tick > peer.applied) {
                     if (s.shared_clock) {
-                        const applied_at = probe_now();
+                        const applied_at = socket.probe_now();
                         if (snapshot.sent_us < 0 or snapshot.sent_us > applied_at) return error.BadTimestamp;
                         s.applied_ages[peer.samples] = applied_at - snapshot.sent_us;
                     }
@@ -126,16 +120,13 @@ const Scenario = struct {
             // Bound each peer's work per poll so that a burst cannot starve the other pilot.
             for (0..32) |_| {
                 var bytes: [wire.capacity]u8 = undefined;
-                var lane: u16 = undefined;
-                const count = probe_receive(conn, &bytes, bytes.len, &lane);
-                if (count < 0) return error.ReceiveFailed;
-                if (count == 0) break;
-                const frame = try wire.Frame.decode(bytes[0..@intCast(count)], lane);
+                const packet = try socket.receive(conn, &bytes) orelse break;
+                const frame = try wire.Frame.decode(packet.bytes, packet.lane);
                 if (s.role == .host) try s.hostFrame(peer, frame) else try s.pilotFrame(peer, frame);
             }
         }
         if (s.role != .host and s.peers[0].confirmed) {
-            if (s.peers[0].conn) |conn| s.success = probe_delivered(conn);
+            if (s.peers[0].conn) |conn| s.success = socket.probe_delivered(conn);
             return;
         }
         if (now < s.next_tick) return;
@@ -209,12 +200,12 @@ fn run(role: Role, address: [*:0]const u8, shared_clock: bool) !void {
     scenario = .{ .role = role, .shared_clock = shared_clock };
     if (role == .host) try scenario.host.init();
     defer if (role == .host) scenario.host.deinit();
-    if (!probe_open(address, role == .host)) return error.OpenFailed;
-    const deadline = probe_now() + deadline_us;
+    if (!socket.probe_open(address, role == .host)) return error.OpenFailed;
+    const deadline = socket.probe_now() + deadline_us;
     while (!scenario.success) {
-        if (!probe_poll()) return error.SignallingClosed;
+        if (!socket.probe_poll()) return error.SignallingClosed;
         if (scenario.success) break;
-        const now = probe_now();
+        const now = socket.probe_now();
         if (now >= deadline) {
             std.debug.print("tick {d}, peers {any}, bulk {d}, recalls {d}\n", .{ scenario.tick, scenario.peers, scenario.bulk, scenario.recalls });
             return error.TimedOut;
@@ -224,9 +215,9 @@ fn run(role: Role, address: [*:0]const u8, shared_clock: bool) !void {
     if (role == .host) {
         std.debug.print("host: {d} simulation steps\n", .{scenario.tick});
         // Keep servicing the final reliable acknowledgements after both pilots finish.
-        const drain_until = probe_now() + std.time.us_per_s;
-        while (probe_now() < drain_until and (scenario.peers[0].conn != null or scenario.peers[1].conn != null))
-            if (!probe_poll()) return error.SignallingClosed;
+        const drain_until = socket.probe_now() + std.time.us_per_s;
+        while (socket.probe_now() < drain_until and (scenario.peers[0].conn != null or scenario.peers[1].conn != null))
+            if (!socket.probe_poll()) return error.SignallingClosed;
         for (scenario.peers, 1..) |peer, pilot| {
             std.debug.print("pilot {d}: {d} applied snapshots acknowledged, maximum age at acknowledgement {d} ms\n", .{
                 pilot, peer.samples, @divTrunc(peer.max_ack_us, std.time.us_per_ms),

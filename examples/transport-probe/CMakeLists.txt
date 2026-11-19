@@ -25,8 +25,8 @@ set_source_files_properties("${trace_source}" TARGET_DIRECTORY GameNetworkingSoc
     PROPERTIES INCLUDE_DIRECTORIES "${clientlib}")
 
 add_executable(transport-probe transport.cpp ice.cpp)
-if(PROBE_ARENA_LIBRARY)
-    target_link_libraries(transport-probe PRIVATE "${PROBE_ARENA_LIBRARY}")
+if(PROBE_WORKLOAD_LIBRARY)
+    target_link_libraries(transport-probe PRIVATE "${PROBE_WORKLOAD_LIBRARY}")
 else()
     find_program(ZIG zig REQUIRED)
     if(PROBE_ZIG_TARGET)
@@ -40,7 +40,7 @@ else()
                 "-femit-bin=${object}" --dep host_simulation
                 "-Mroot=${CMAKE_CURRENT_SOURCE_DIR}/scenario.zig"
                 -OReleaseSafe ${target_args} "-Mhost_simulation=${CMAKE_CURRENT_SOURCE_DIR}/toy.zig"
-        DEPENDS scenario.zig toy.zig wire.zig VERBATIM)
+        DEPENDS scenario.zig socket.zig toy.zig wire.zig VERBATIM)
     target_sources(transport-probe PRIVATE "${object}")
 endif()
 target_link_libraries(transport-probe PRIVATE GameNetworkingSockets::static)
