@@ -335,7 +335,11 @@ fn shipInit(ctx: Context, index: u16) void {
         .halt
     else
         @fromBackingInt(@intCast(xtrabits.objectRandom15(object) % std.enums.values(Style).len));
-    if (world.damage_rules == .arena) deathmatch.recordDeath(world.objects, index);
+    if (world.damage_rules == .arena) {
+        const scenario = &world.objects.arena_scenario;
+        if (scenario.* == .tag_bomb) scenario.tag_bomb.bomb.destroyed(world, index);
+        deathmatch.recordDeath(world.objects, index);
+    }
     killCredit(world, index);
     world.objects.wingmen.lose(object.pilot);
     events.destroyed(world, index, null);

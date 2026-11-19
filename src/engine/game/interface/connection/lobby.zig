@@ -176,7 +176,7 @@ fn description(mode: scenarios.Scenario) Label {
         .asteroid_field => "Fight for the most kills in an asteroid field.",
         .nuclear_threat => "Collect six beacons and take them to the gate. Losing your ship drops the beacons you carry.",
         .dark_reign => "Recover the comms relay to keep the Dark Reign from targeting you and earn credit for its kills.",
-        .tag_bomb => "Pass the ticking bomb to another pilot before it goes off.",
+        .tag_bomb => "The first pilot destroyed respawns with an active bomb. Hit another pilot with your guns to pass it before your timer expires.",
         .hunt_the_shadow => "Hunt the cloaked pilot to become the Shadow.",
         .vampires => "Survive as a human or infect the remaining pilots as a vampire.",
     }, .installed = mode.descriptionString() };

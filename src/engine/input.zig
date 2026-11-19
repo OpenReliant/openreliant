@@ -1611,6 +1611,10 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
                 _ = aimPlayerFor(world, index, target);
             },
         }
+        if (command.cockpit.next_guns) guns.nextGroup(&slot.object, slot.groupCount());
+        if (command.cockpit.sync_guns) slot.object.gun_mode.synchronised = !slot.object.gun_mode.synchronised;
+        if (command.cockpit.full_guns) _ = guns.fullGuns(&slot.object, slot.guns, slot.gun_groups, slot.groupCount());
+        if (command.cockpit.power) |preset| power.choose(&slot.object, preset);
         flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, command.flight, world.clock.frame_duration);
         matchSpeedFor(world, index, command.match_speed, if (index == all.player) world.view() else .cockpit);
         flight.limitArenaThrottle(&slot.object);
@@ -2618,6 +2622,8 @@ pub const FrameKeys = struct {
     view: camera.View,
     game_ticks: u32,
     multiplayer: bool,
+    /// A network flight sends ship changes to the host. COMMS uses the chat controls.
+    submitted: ?*players.CockpitCommand = null,
     /// The world the keys' sounds are heard in; null where nothing is heard.
     world: ?gameobj.World = null,
     /// The objects, among which PRIMARY TARGET aims the player; null where there are none, as in
@@ -2707,11 +2713,11 @@ pub fn frameKeys(keys: FrameKeys) void {
     if (devices.active(.permission_to_land, true) and !multiplayer) {
         if (keys.world) |world| radio.permissionToLand(world, keys.game_ticks);
     }
-    if (devices.active(.toggle_blindfire, true) and display.blind_fire_fitted) {
+    if (keys.submitted == null and devices.active(.toggle_blindfire, true) and display.blind_fire_fitted) {
         display.blind_fire = !display.blind_fire;
         betty.sayIn(keys.world, blind_fire_said.of(display.blind_fire));
     }
-    if (devices.active(.comms_window, true)) {
+    if (keys.submitted == null and devices.active(.comms_window, true)) {
         hud.beep(keys.world, .done);
         const comms = windows.status.getPtr(.comms);
         switch (comms.phase) {
@@ -2739,7 +2745,7 @@ pub fn frameKeys(keys: FrameKeys) void {
     if (devices.active(.gunnery_window, true)) {
         hud.beep(keys.world, .done);
         _ = windows.open(.gunnery, multiplayer);
-        guns.nextGroup(object, groups);
+        if (keys.submitted) |pending| pending.next_guns = true else guns.nextGroup(object, groups);
     }
     if (devices.active(.gunnery_window_locked, true)) {
         if (windows.status.get(.gunnery).phase == .open) {
@@ -2750,10 +2756,15 @@ pub fn frameKeys(keys: FrameKeys) void {
     }
     if (devices.active(.synchronise_guns, true)) {
         _ = windows.open(.gunnery, multiplayer);
-        object.gun_mode.synchronised = !object.gun_mode.synchronised;
-        hud.beep(keys.world, if (object.gun_mode.synchronised) .on else .off);
+        if (keys.submitted) |pending| {
+            pending.sync_guns = true;
+            hud.beep(keys.world, if (object.gun_mode.synchronised) .off else .on);
+        } else {
+            object.gun_mode.synchronised = !object.gun_mode.synchronised;
+            hud.beep(keys.world, if (object.gun_mode.synchronised) .on else .off);
+        }
     }
-    if (devices.active(.ecm, true) and charges.get(.ecm).setting != .absent) {
+    if (keys.submitted == null and devices.active(.ecm, true) and charges.get(.ecm).setting != .absent) {
         const on = !object.flags.ecm;
         hud.beep(keys.world, if (on) .on else .off);
         setEcm(charges, object, on);
@@ -2767,9 +2778,15 @@ pub fn frameKeys(keys: FrameKeys) void {
             windows.status.getPtr(.damage).held = true;
         }
     }
-    if (devices.active(.full_guns, true) and guns.fullGuns(object, slot.guns, slot.gun_groups, groups)) {
-        hud.beep(keys.world, .done);
-        if (windows.open(.gunnery, multiplayer) and devices.keyboard.shift()) windows.status.getPtr(.gunnery).held = true;
+    if (devices.active(.full_guns, true)) {
+        const changed = if (keys.submitted) |pending| changed: {
+            pending.full_guns = groups > 1;
+            break :changed pending.full_guns;
+        } else guns.fullGuns(object, slot.guns, slot.gun_groups, groups);
+        if (changed) {
+            hud.beep(keys.world, .done);
+            if (windows.open(.gunnery, multiplayer) and devices.keyboard.shift()) windows.status.getPtr(.gunnery).held = true;
+        }
     }
     if (devices.active(.objectives_window, true)) {
         hud.beep(keys.world, .done);
@@ -2790,7 +2807,9 @@ pub fn frameKeys(keys: FrameKeys) void {
         for (power_keys) |key| {
             if (!devices.active(key.action, false)) continue;
             if (devices.active(key.action, true)) hud.beep(keys.world, .done);
-            power.choose(object, key.preset);
+            if (keys.submitted) |pending| {
+                if (!std.meta.eql(power.point(object), power.presets.get(key.preset))) pending.power = key.preset;
+            } else power.choose(object, key.preset);
             _ = windows.open(.power, multiplayer);
         }
     }

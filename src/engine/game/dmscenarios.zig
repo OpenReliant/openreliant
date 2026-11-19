@@ -33,12 +33,15 @@ pub const Scenario = enum(u8) {
     }
 
     pub fn hasPowerUps(scenario: Scenario) bool {
-        return scenario == .asteroid_field or scenario == .dark_reign;
+        return switch (scenario) {
+            .asteroid_field, .dark_reign, .tag_bomb => true,
+            else => false,
+        };
     }
 
     pub fn available(scenario: Scenario) bool {
         return switch (scenario) {
-            .asteroid_field, .nuclear_threat, .dark_reign => true,
+            .asteroid_field, .nuclear_threat, .dark_reign, .tag_bomb => true,
             else => false,
         };
     }

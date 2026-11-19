@@ -1,14 +1,16 @@
 //! Pilot weapon input and the host's private weapon display state.
 const std = @import("std");
-const game = @import("openreliant").engine.game;
+const engine = @import("openreliant").engine;
+const game = engine.game;
 const display = game.hud.missile_display;
 const missile = game.missiles;
 const lock = game.main.lock;
-const Vector = @import("openreliant").engine.surrender.math.Vector;
+const Vector = engine.surrender.math.Vector;
 
 pub const Order = struct {
     aim: Aim,
     presses: Presses = .{},
+    cockpit: game.players.CockpitCommand = .{},
 
     pub fn merge(pending: *Order, next: Order) void {
         if (pending.aim.reuse != next.aim.reuse) {
@@ -19,6 +21,7 @@ pub const Order = struct {
         if (!std.meta.eql(pending.aim.target, next.aim.target)) pending.presses.launch = false;
         pending.aim = next.aim;
         pending.presses.merge(next.presses);
+        pending.cockpit.merge(next.cockpit);
     }
 };
 
@@ -77,9 +80,24 @@ pub const Presses = packed struct(u8) {
     }
 };
 
+const CockpitBits = packed struct(u8) {
+    next_guns: bool,
+    full_guns: bool,
+    sync_guns: bool,
+    preset: u3,
+    reserved: u2 = 0,
+};
+
 pub fn writeOrder(w: *std.Io.Writer, order: Order) !void {
     try w.writeInt(u32, order.aim.reuse, .little);
     try w.writeByte(@bitCast(order.presses));
+    const cockpit: CockpitBits = .{
+        .next_guns = order.cockpit.next_guns,
+        .full_guns = order.cockpit.full_guns,
+        .sync_guns = order.cockpit.sync_guns,
+        .preset = if (order.cockpit.power) |preset| @as(u3, @backingInt(preset)) + 1 else 0,
+    };
+    try w.writeByte(@bitCast(cockpit));
     if (order.aim.target) |target| {
         try w.writeInt(u16, target.slot, .little);
         try w.writeInt(u32, target.reuse, .little);
@@ -89,6 +107,17 @@ pub fn writeOrder(w: *std.Io.Writer, order: Order) !void {
 pub fn readOrder(r: *std.Io.Reader, pilot_slots: usize) !Order {
     var order: Order = .{ .aim = .{ .reuse = try r.takeInt(u32, .little) }, .presses = @bitCast(try r.takeByte()) };
     if (order.presses.reserved != 0 or std.enums.fromInt(Rotation, order.presses.rotation) == null) return error.InvalidWeaponOrder;
+    const cockpit: CockpitBits = @bitCast(try r.takeByte());
+    if (cockpit.reserved != 0) return error.InvalidWeaponOrder;
+    order.cockpit = .{
+        .next_guns = cockpit.next_guns,
+        .full_guns = cockpit.full_guns,
+        .sync_guns = cockpit.sync_guns,
+        .power = if (cockpit.preset != 0)
+            std.enums.fromInt(engine.input.power.Preset, cockpit.preset - 1) orelse return error.InvalidWeaponOrder
+        else
+            null,
+    };
     if (r.bufferedLen() == 0) return order;
     const slot = try r.takeInt(u16, .little);
     if (slot >= pilot_slots) return error.InvalidWeaponOrder;
@@ -96,27 +125,78 @@ pub fn readOrder(r: *std.Io.Reader, pilot_slots: usize) !Order {
     return order;
 }
 
+/// The private, host-owned readings for GUNNERY, DAMAGE and POWER.
+pub const Panels = struct {
+    power: [2]f32 = @splat(0),
+    conditions: [3]f32 = @splat(1),
+    guns: game.gameobj.GunMode = .created(1),
+    rounds: i32 = 0,
+
+    const size = 5 * @sizeOf(f32) + @sizeOf(u16) + @sizeOf(i32);
+
+    fn capture(object: *const game.gameobj.GameObject) Panels {
+        return .{
+            .power = engine.input.power.point(object),
+            .conditions = .{ object.gun_condition, object.armor_speed_factor, object.shield_condition },
+            .guns = object.gun_mode,
+            .rounds = object.rounds,
+        };
+    }
+
+    pub fn apply(panel: Panels, object: *game.gameobj.GameObject) void {
+        object.power_setting.x = panel.power[0];
+        object.power_setting.y = panel.power[1];
+        object.gun_condition = panel.conditions[0];
+        object.armor_speed_factor = panel.conditions[1];
+        object.shield_condition = panel.conditions[2];
+        object.gun_mode = panel.guns;
+        object.rounds = panel.rounds;
+    }
+
+    fn write(panel: Panels, w: *std.Io.Writer) !void {
+        for (panel.power ++ panel.conditions) |value| try w.writeInt(u32, @bitCast(value), .little);
+        try w.writeInt(u16, @bitCast(panel.guns), .little);
+        try w.writeInt(i32, panel.rounds, .little);
+    }
+
+    fn read(r: *std.Io.Reader) !Panels {
+        var values: [5]f32 = undefined;
+        for (&values) |*value| {
+            value.* = @bitCast(try r.takeInt(u32, .little));
+            if (!std.math.isFinite(value.*)) return error.InvalidWeaponStatus;
+        }
+        const maximum_power = engine.input.power.radius + 0.01;
+        if (values[0] * values[0] + values[1] * values[1] > maximum_power * maximum_power) return error.InvalidWeaponStatus;
+        return .{
+            .power = values[0..2].*,
+            .conditions = values[2..5].*,
+            .guns = @bitCast(try r.takeInt(u16, .little)),
+            .rounds = try r.takeInt(i32, .little),
+        };
+    }
+};
+
 pub const Status = struct {
     countermeasures: u16,
     incoming: bool,
     armed: u8,
     ammo: [display.max_entries]?Ammo = @splat(null),
     held: lock.Lock = .{},
+    panels: Panels = .{},
 
     const Ammo = struct { kind: missile.GameMissile, count: i16 };
     const Flags = packed struct(u8) { incoming: bool, locking: bool, reserved: u6 = 0 };
-    pub const capacity = @sizeOf(u16) + 4 + display.max_entries * (2 * @sizeOf(i16)) + 2 + 2 * @sizeOf(i32) + 3 * @sizeOf(f32);
+    pub const capacity = @sizeOf(u16) + 4 + display.max_entries * (2 * @sizeOf(i16)) + 2 + 2 * @sizeOf(i32) + 3 * @sizeOf(f32) + Panels.size;
 
-    pub fn capture(all: *const game.create.Objects, slot: u16) ?Status {
+    pub fn capture(all: *const game.create.Objects, slot: u16) Status {
         const weapons = &all.player_states[slot].weapons;
         const object = &all.slots[slot].object;
         const incoming = object.missile_homing != 0;
-        if (object.countermeasures == 0 and !incoming and weapons.ring.entries[0].left() == null and weapons.lock.phase == .idle)
-            return null;
         var status: Status = .{
             .countermeasures = object.countermeasures,
             .incoming = incoming,
-            .armed = @intCast(weapons.ring.armed),
+            .armed = if (weapons.ring.entries[0].left() == null) 0 else @intCast(weapons.ring.armed),
+            .panels = .capture(object),
             .held = if (weapons.lock.phase == .idle) .{} else .{
                 .phase = weapons.lock.phase,
                 .point = weapons.lock.point,
@@ -161,6 +241,7 @@ pub const Status = struct {
             try w.writeInt(i32, status.held.turn, .little);
             inline for (0..3) |axis| try w.writeInt(u32, @bitCast(status.held.point[axis]), .little);
         }
+        try status.panels.write(w);
     }
 
     pub fn read(r: *std.Io.Reader) !Status {
@@ -190,6 +271,7 @@ pub const Status = struct {
                 if (!std.math.isFinite(status.held.point[axis])) return error.InvalidWeaponStatus;
             }
         }
+        status.panels = try .read(r);
         return status;
     }
 };

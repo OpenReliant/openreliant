@@ -3254,4 +3254,25 @@ address	kind	name	type	comment
 005db500	data	dark_reign_tower_slot	int	The object slot of the Dark Reign tower
 005db508	data	dark_reign_relay_carrier	int	The pilot carrying the relay or minus one when it is loose
 005db518	data	dark_reign_join_carrier	int	The pilot carrying the relay as read from a join packet
-005db51c	data	dark_reign_join_state_ready	bool	The join packet has supplied the relay carrier
+005db51c	data	dm_scenario_join_state_ready	bool	The join packet has supplied state for this arena
+004b4340	function	tag_bomb_init	void (void)	Starts with no active bomb or restores the carrier and last tagger from the join state
+004b43b0	function	tag_bomb_write_join_state	void (void)	Writes the bomb carrier and last tagger to the join packet
+004b4400	function	tag_bomb_read_join_state	void (void)	Reads the bomb carrier and last tagger and marks the state ready
+004b4460	function	tag_bomb_pilot_destroyed	void __fastcall (int pilot)	Schedules bomb assignment on respawn if unowned, or clears the bomb and restores the fuse after detonation
+004b44d0	function	tag_bomb_pilot_left	void __fastcall (int pilot)	Clears the bomb and tagger if the departing pilot was the carrier
+004b44f0	function	tag_bomb_bullet_hit	void __fastcall (int victim, int attacker)	Passes the bomb when a primary gun shot from the active carrier hits the local pilot
+004b4510	function	tag_bomb_pilot_respawned	void __fastcall (int pilot)	Activates the bomb for the local pilot if it was scheduled on their destruction
+004b4550	function	tag_bomb_frame	void (void)	Counts down only while the local pilot carries the bomb and is neither exploding nor respawning
+004b45d0	function	tag_bomb_detonate	void __fastcall (bool local)	Destroys the carrier, names the last tagger, clears normal kill credit and awards the tagger three frags
+004b46b0	function	tag_bomb_draw_hud	void (void)	Draws shape 0x0A and the local carrier's remaining ticks divided by 100 plus one, followed by language string 0x2D5
+004b4760	function	tag_bomb_target_text	bool __fastcall (GameObject *target, char *text)	Writes language string 0x2D9 for the active carrier or 0x2DA for another pilot
+004b47e0	function	tag_bomb_draw_target_badge	void __fastcall (int pilot, int x, int y)	Draws shape 0x0F at x minus 33 and y plus 2 beside the targeted bomb carrier's brackets
+004b4810	function	tag_bomb_set_carrier	void __fastcall (int pilot, int tagger, bool report)	Sets the bomb carrier and tagger without changing the current pilot's countdown
+005db520	data	tag_bomb_join_carrier	int	The bomb carrier as read from the join packet
+005db524	data	tag_bomb_join_tagger	int	The last tagger as read from the join packet
+005db578	data	tag_bomb_carrier	int	The active bomb carrier's slot or minus one
+005db57c	data	tag_bomb_tagger	int	The last tagger's slot or minus one
+005db580	data	tag_bomb_pending_respawn	int	Zero until a pilot is due to get the bomb on respawn, then their attacker's slot plus one or minus one for no attacker
+005db584	data	tag_bomb_detonating	bool	The local carrier's death was caused by their bomb
+005db588	data	tag_bomb_remaining_ticks	int	The local pilot's remaining fuse, initially 4500 ticks
+005db58c	data	tag_bomb_previous_tick	int	The last frame tick used to advance the bomb

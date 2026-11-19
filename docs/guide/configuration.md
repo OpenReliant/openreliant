@@ -267,6 +267,16 @@ picks targets on its own and credits its kills to whoever carries the relay when
 The relay drops beside a destroyed carrier. If the carrier disconnects, it reappears where
 it was last loose. Dark Reign also has random power-up rings.
 
+The arena cockpit uses the usual targeting, radar, gunnery, damage, power, missile and
+wing-status controls. The host supplies the gun selection, ammunition, damage and power
+readings. The wing-status panel uses the current mission's wing.
+
+In **Tag Bomb**, the first pilot destroyed respawns with an active bomb. Hit another pilot
+with your primary guns to pass it. Each pilot has a 45-second fuse that runs only while
+they carry the bomb in flight. A detonation awards the last tagger three frags, as the
+original executable does. If the carrier disconnects, the next pilot destroyed can arm
+their bomb on respawn.
+
 To share an invite that also verifies the server's identity, copy the value after `invite` in the host's output and share it with your pilots. They can paste it in the same address field. The invite contains the IP
 address, port and public server key. Pilots should get the invite from the host operator so they
 can verify the right server. Anyone with the invite can try to join.
@@ -282,7 +292,7 @@ your pilots can reach. Allow incoming UDP on `Port` and use the same port if you
 | `BindAddress` | `127.0.0.1` | The IPv4 or IPv6 address the host listens on. The default accepts pilots from the host machine |
 | `InviteAddress` | `BindAddress` | The IPv4 or IPv6 address to put in the invite. Set this to a specific address when listening on all interfaces |
 | `Port` | `27020` | The UDP port to listen on, from 1 to 65535 |
-| `Arena` | `nuclear-threat` | `nuclear-threat`, `asteroid-field` or `dark-reign` for the stock missions. `six-beacons` and `training` are small transport test arenas |
+| `Arena` | `nuclear-threat` | `nuclear-threat`, `asteroid-field`, `dark-reign` or `tag-bomb` for the stock missions. `six-beacons` and `training` are small transport test arenas |
 | `GameDirectory` | `.` | Installed game folder, relative to `server.ini` or an absolute path. Used by stock missions |
 | `Players` | `3` | The maximum pilots. This build supports 2 or 3, and starts the round once two are admitted |
 | `RoundTicks` | Unset | Keep the host running until stopped. Set a positive tick count to end a test round at that tick |

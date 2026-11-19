@@ -919,7 +919,7 @@ pub const Objects = struct {
         return .{ .slot = index, .generation = generation };
     }
 
-    fn joinedParticipant(all: *Objects, ref: players.ParticipantRef) ?*players.State {
+    pub fn joinedParticipant(all: *Objects, ref: players.ParticipantRef) ?*players.State {
         const state = all.playerState(ref.slot) orelse return null;
         if (state.membership != .joined or state.membership.joined.generation != ref.generation) return null;
         return state;
@@ -971,7 +971,7 @@ pub const Objects = struct {
     pub fn leaveParticipant(world: gameobj.World, ref: players.ParticipantRef) bool {
         const all = world.objects;
         const state = all.joinedParticipant(ref) orelse return false;
-        all.arena_scenario.departShip(all, ref.slot);
+        all.arena_scenario.departShip(all, ref);
         const bound = state.membership.joined.ship;
         const team = state.membership.joined.team;
         state.* = .{ .membership = .vacant };

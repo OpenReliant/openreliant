@@ -129,6 +129,7 @@ pub const Command = struct {
     /// Set the preference for this admission. A missing value keeps the previous setting.
     smart_targeting: ?bool = null,
     weapons: WeaponCommand = .{},
+    cockpit: CockpitCommand = .{},
     devices: ship_devices.Requests = .empty,
     target: union(enum) { keep, clear, aim: Target } = .keep,
 
@@ -137,6 +138,7 @@ pub const Command = struct {
         command.match_speed = false;
         command.target = .keep;
         command.devices = .empty;
+        command.cockpit = .{};
         command.weapons = .{ .fire_guns = command.weapons.fire_guns };
     }
 };
@@ -159,6 +161,25 @@ pub const WeaponCommand = struct {
     launch_missile: bool = false,
     rotate_missiles: ?missile_display.Turn = null,
     countermeasures: bool = false,
+};
+
+/// Cockpit commands change the host's fitted guns and power allocation.
+pub const CockpitCommand = struct {
+    next_guns: bool = false,
+    full_guns: bool = false,
+    sync_guns: bool = false,
+    power: ?@import("../input/power.zig").Preset = null,
+
+    pub fn any(command: CockpitCommand) bool {
+        return command.next_guns or command.full_guns or command.sync_guns or command.power != null;
+    }
+
+    pub fn merge(pending: *CockpitCommand, next: CockpitCommand) void {
+        pending.next_guns = pending.next_guns or next.next_guns;
+        pending.full_guns = pending.full_guns != next.full_guns;
+        pending.sync_guns = pending.sync_guns != next.sync_guns;
+        if (next.power) |preset| pending.power = preset;
+    }
 };
 
 pub const Weapons = struct {

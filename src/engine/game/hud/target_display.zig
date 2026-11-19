@@ -24,6 +24,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const six_beacons = @import("../dmscenarios/six_beacons.zig");
+const tag_bomb = @import("../dmscenarios/tag_bomb.zig");
 const shp = @import("../../../formats/shp.zig");
 const create = @import("../create.zig");
 const hud = @import("../hud.zig");
@@ -56,6 +57,7 @@ pub const Scene = struct {
     all: *const create.Objects,
     beacons: ?*const six_beacons.HudSnapshot = null,
     relay: ?players.ControlRef = null,
+    tag_bomb: ?tag_bomb.Hud = null,
     multiplayer: bool = false,
 
     /// Draws `form`: what it shows now, and what it last showed as it shrinks away closing
@@ -79,12 +81,14 @@ pub const Scene = struct {
         if (hidden(slot)) return null;
         const status = hud.ShipStatus.ofTarget(slot, .{ .counts = &scene.state.events.target_hits, .seen = &scene.drawing.target_hits });
         scene.drawing.flashes.target_hits = status.hits;
+        const binding = scene.all.playerBinding(index);
         return .{
             .status = status,
             .facts = .of(scene.all, index),
             .pilot = PilotName.of(scene.all, index, scene.multiplayer),
             .beacons = if (scene.beacons) |snapshot| snapshot.countAt(scene.all, index) else null,
-            .relay = if (scene.relay) |carrier| std.meta.eql(scene.all.playerBinding(index), @as(?players.ControlRef, carrier)) else false,
+            .relay = if (scene.relay) |carrier| std.meta.eql(binding, @as(?players.ControlRef, carrier)) else false,
+            .bomb_active = if (scene.tag_bomb) |bomb| if (binding) |pilot| bomb.active(pilot.participant) else null else null,
         };
     }
 
@@ -152,6 +156,7 @@ pub const Small = struct {
     pilot: ?PilotName = null,
     beacons: ?u8 = null,
     relay: bool = false,
+    bomb_active: ?bool = null,
 
     /// Where the ship status stands from the window's place.
     pub const status_at: [2]i32 = .{ -4, -0x2C };
@@ -160,7 +165,7 @@ pub const Small = struct {
     pub const pilot_at: [2]i32 = .{ 0x37, -0x37 };
 
     /// hud_window_draw (0x00487D86) puts the scenario line below the speed.
-    const beacons_at: [2]i32 = .{ 0x37, -0x13 };
+    const scenario_at: [2]i32 = .{ 0x37, -0x13 };
 
     fn draw(small: Small, context: Context) windows.Canvas.Error!void {
         const canvas = context.canvas;
@@ -172,12 +177,19 @@ pub const Small = struct {
         }
         try context.figures(small.facts, lines);
         if (small.relay) {
-            try canvas.text(.target_display_relay, canvas.pen.strings.string(0x2D8) orelse "Has Comms Relay", beacons_at, lines.alignment);
+            try canvas.text(.target_display_relay, canvas.pen.strings.string(0x2D8) orelse "Has Comms Relay", scenario_at, lines.alignment);
+        }
+        if (small.bomb_active) |active| {
+            const label = if (active)
+                canvas.pen.strings.string(0x2D9) orelse "Active Bomb"
+            else
+                canvas.pen.strings.string(0x2DA) orelse "Deactivated Bomb";
+            try canvas.text(.target_display_bomb, label, scenario_at, lines.alignment);
         }
         if (small.beacons) |total| {
             var buffer: six_beacons.LabelBuffer = undefined;
             if (six_beacons.targetText(&buffer, canvas.pen.strings.*, total)) |text|
-                try canvas.text(.target_display_beacons, text, beacons_at, lines.alignment);
+                try canvas.text(.target_display_beacons, text, scenario_at, lines.alignment);
         }
     }
 };

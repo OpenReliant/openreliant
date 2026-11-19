@@ -2821,6 +2821,7 @@ const Display = struct {
             .ui_scale = display.ui_scale,
             .sight = display.sight,
             .all = drawn.objects,
+            .tag_bomb = drawn.tag_bomb,
             .relay_carrier = drawn.relay_carrier,
             .beacon_snapshot = if (drawn.beacon_snapshot) |*snapshot| snapshot else null,
             .player = &drawn.player,
