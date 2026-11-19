@@ -1613,6 +1613,7 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
         }
         flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, command.flight, world.clock.frame_duration);
         matchSpeedFor(world, index, command.match_speed, if (index == all.player) world.view() else .cockpit);
+        flight.limitArenaThrottle(&slot.object);
         for ([_]ship_devices.Device{ .ecm, .spectral_shields }) |kind| {
             if (command.devices.contains(kind)) ship_devices.toggle(world, index, kind);
         }
@@ -1656,9 +1657,6 @@ pub fn multiplayerControlOrder(ctx: aigeneric.Context, index: u16) void {
 /// shields instead (`holdStick`), and the throttle is left as it is. The guns and the missiles are
 /// `playerWeapons`'.
 ///
-/// Not yet ported: the `half_throttle` and `reversed_controls` deathmatch power-ups
-/// (`gameobj.PowerUp`); and the objectives window's use of the stick while `0x0051CF04` is set
-/// (`0x00413200`).
 pub fn playerControls(
     player: *const Player,
     state: *flight.State,
@@ -1993,9 +1991,9 @@ test nextNavPoint {
 /// `player_controls` reads after the steering and the throttle (`0x00413BB5`, `0x00413BE7`,
 /// `0x00413CB2`, `0x00413D67`, `0x00413D88`, `0x00413E80`). FIRE LASERS, held, while the ship
 /// isn't jumping, opens the gunnery display and holds the guns' trigger for the frame
-/// (`guns.fire`), which charges a Phoenix's Nova Cannon, unless the ship is cloaked, when it
-/// uncloaks instead (`setCloak`) and fires only once the cloak has gone; let go, the Phoenix, not
-/// jumping, lets its charge go (`guns.nova.release`). The others each act once a press: the one
+/// (`guns.fire`), which charges a Phoenix's Nova Cannon. Outside an arena, a cloaked ship
+/// uncloaks first. Releasing the trigger fires a charged Nova Cannon if the Phoenix is not
+/// jumping (`guns.nova.release`). The others each act once a press: the one
 /// launches the armed missile (`launchMissile`); CLOAK SHIP, outside view 13, on a ship that can
 /// cloak, uncloaks it where it is cloaked and cloaks it where it isn't, with the display's sound and
 /// Betty's word unless the cloak is still coming on or going; JUMP DRIVE, while the mission goes on,
@@ -2007,8 +2005,7 @@ test nextNavPoint {
 /// In the mouse's mode the left button fires as FIRE LASERS does, and the right launches as LAUNCH
 /// MISSILE does, once a press (`Player.mouse_launched`).
 ///
-/// Not ported: in a multiplayer game, FIRE LASERS firing from under the cloak, and typing a
-/// message, which leaves them unread ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// Multiplayer chat input is tracked in [#211](https://github.com/OpenReliant/openreliant/issues/211).
 pub fn playerWeapons(world: gameobj.World, devices: *Devices, index: u16) void {
     const mouse = if (devices.controlMode() == .mouse) devices.mouse.state.buttons else Mouse.Buttons{};
     fireGuns(world, index, primaryHeld(devices), .local_devices);
@@ -2084,7 +2081,8 @@ fn fireGuns(world: gameobj.World, index: u16, held: bool, source: WeaponSource) 
         if (presents) if (world.display) |display| {
             _ = display.windows.open(.gunnery, false);
         };
-        if (object.flags.cloaked) {
+        // Arena pilots can fire while the cloak power-up is active (0x00413BBF).
+        if (object.flags.cloaked and world.damage_rules != .arena) {
             source.setCloakFor(world, index, false);
         } else {
             var trigger = slot.trigger(world.clock.frame_start);
@@ -2177,6 +2175,14 @@ fn launchSelected(world: gameobj.World, index: u16, weapons: *players.Weapons, s
     const slot = &all.slots[index];
     const ship = &slot.object;
     if (ship.flags.missiles_disabled or ship.flags.jumping) return;
+    const powerups = if (world.damage_rules == .arena and all.arena_scenario == .asteroid_field)
+        &all.arena_scenario.asteroid_field
+    else
+        null;
+    if (powerups) |round| {
+        if (!round.launch(world, index)) return;
+    }
+    defer if (powerups) |round| round.release(all, index);
     if (ship.type.base() == .kamov) return launchCarried(world, index, source);
     const display = if (source.presents(all, index)) world.display else null;
     if (source == .local_devices and display == null) return;
@@ -2197,7 +2203,7 @@ fn launchSelected(world: gameobj.World, index: u16, weapons: *players.Weapons, s
         }
         return;
     }
-    if (ship.flags.cloaked) return source.setCloakFor(world, index, false);
+    if (ship.flags.cloaked and powerups == null) return source.setCloakFor(world, index, false);
     if (display) |shown| {
         if (shown.windows.open(.missiles, false)) shown.windows.status.getPtr(.missiles).held = true;
         if (armed.count == 0) betty.sayIn(world, .missiles_gone);

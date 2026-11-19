@@ -253,13 +253,14 @@ beacons drop at the wreck. The pilot respawns in the fighter they chose and keep
 
 Choose **Asteroid Field** for free-for-all combat on the original asteroid map. A LAN host can
 choose it under **Change Game Mode**. Hold **Display Kills** in either arena to see pilots ranked
-by kills, then by fewest deaths. Asteroid Field has no automatic victory threshold. Random
-pickup effects and team selection are tracked in [#1400](https://github.com/OpenReliant/openreliant/issues/1400).
+by kills, then by fewest deaths. Asteroid Field has no automatic victory threshold. With at least
+two pilots, fly through a ring to collect a power-up. The host uses the original odds and each
+fighter can hold one effect. The cockpit shows the held effect above the reticle.
 
-When a fighter has missiles or countermeasures, use the usual targeting, rotate missile, launch
-missile and countermeasure controls. The host checks the lock, applies damage and rolls for the
-decoy. The cockpit shows your missile inventory, lock and incoming missile warning. Stock arena
-spawns have empty racks and zero countermeasures.
+Use **Launch Missile** to fire a Screamer or drop a held mine. Countermeasure pickups add three
+decoys. Drop them with the usual **Countermeasures** control. The host checks locks, applies
+damage and rolls for decoy diversion. The cockpit shows your inventory, lock and incoming
+missile warning. Stock arena spawns have empty racks and zero countermeasures.
 
 To share an invite that also verifies the server's identity, copy the value after `invite` in the host's output and share it with your pilots. They can paste it in the same address field. The invite contains the IP
 address, port and public server key. Pilots should get the invite from the host operator so they

@@ -119,6 +119,11 @@ fn cloakOn(world: gameobj.World, index: u16) void {
     sound3d.playIn(world, null, null, index, .cloak01, 1, sound3d.fxClass(all, index));
 }
 
+/// The arena power-up calls object_cloak directly (0x004B2070) on any fighter.
+pub fn beginPowerUp(world: gameobj.World, index: u16) void {
+    cloakOn(world, index);
+}
+
 /// `object_uncloak` (`0x00463780`): the cloak of the object in slot `index`, where it has one,
 /// starts to go, its Decloaked event posted first (`events.cloaked`), and it sounds `CLOAK01` as it
 /// does coming on.

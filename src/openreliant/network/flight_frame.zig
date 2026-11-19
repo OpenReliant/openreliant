@@ -6,6 +6,7 @@ const wire = @import("wire.zig");
 const stock = @import("stock_arena.zig");
 const Projectiles = @import("projectiles.zig");
 const FlightFrame = @This();
+const powerups = game.deathmatch.powerups;
 
 drawn: game.main.Drawn,
 tables: game.create.Stats,
@@ -17,6 +18,9 @@ loaded: ?*game.mission.Loaded = null,
 environment: game.environfx.Environment = .{},
 beacon_slots: [wire.beacon_count]?u16 = @splat(null),
 rocks: stock.RockSlots = .{},
+pickups: powerups.Pickups = .{},
+mine_start: ?u16 = null,
+host_mines: [powerups.mine_count]?u32 = @splat(null),
 shot_ended_at: [game.guns.max_bullets]i32 = @splat(-1),
 effect_tick: ?i32 = null,
 sounds: ?*game.hog_snd.commands.Commands = null,
@@ -92,7 +96,11 @@ pub fn loadArena(frame: *FlightFrame, files: stock.Files, scenario: wire.Scenari
         .spawn = .{ .tables = &frame.tables, .types = types },
         .environment = &frame.environment,
     });
-    if (scenario == .asteroid_field) frame.rocks = try .collect(drawn.objects);
+    if (scenario == .asteroid_field) {
+        frame.rocks = try .collect(drawn.objects);
+        frame.pickups = try .collect(drawn.objects);
+        frame.mine_start = try powerups.reserveMines(drawn.objects);
+    }
     if (scenario != .nuclear_threat) return;
     var count: usize = 0;
     for (drawn.objects.slots[0..drawn.objects.count], 0..) |*slot, index| {
@@ -139,6 +147,51 @@ fn presentWeapons(frame: *FlightFrame, status: ?wire.ordnance.Status) void {
             frame.drawn.display.windows.status.getPtr(.missiles).held = true;
     }
     if (frame.sounds) |asked| frame.lock_tone.sound(weapons.lock.locked(), asked, frame.drawn.player.viewing.last);
+}
+
+fn presentPower(frame: *FlightFrame, power: ?wire.Power) void {
+    const all = frame.drawn.objects;
+    const ship = &all.slots[all.player].object;
+    if (power) |held| {
+        ship.power_up = held.kind;
+        ship.power_up_since = held.since;
+        ship.power_up_until = if (powerups.rule(held.kind).?.ticks) |duration| held.since +| duration else -1;
+    } else ship.power_up = .none;
+}
+
+fn presentPickups(frame: *FlightFrame, mask: powerups.Pickups.Mask) !void {
+    const scene = frame.world();
+    const before = if (frame.tick != null) frame.pickups.visible(scene.objects) else mask;
+    try frame.pickups.show(scene.objects, mask);
+    var collected = before & ~mask;
+    while (collected != 0) {
+        const index = @ctz(collected);
+        collected &= collected - 1;
+        if (frame.pickups.slots[index].resolve(scene.objects)) |slot|
+            game.sound3d.playIn(scene, null, null, slot, .dmpickup, 1, .not_reserved);
+    }
+}
+
+fn presentMines(frame: *FlightFrame, snapshot: *const wire.Snapshot, types: game.create.Types) !void {
+    const first = frame.mine_start orelse return;
+    const scene = frame.world();
+    const all = scene.objects;
+    for (snapshot.mines, &frame.host_mines, 0..) |entry, *known, offset| {
+        const index = first + @as(u16, @intCast(offset));
+        const slot = &all.slots[index];
+        if (known.*) |before| if (entry == null or entry.?.reuse != before) {
+            if (entry == null) game.explode.fighterFireball(scene, slot.drawn.position, @splat(0), slot.object.radius);
+            game.create.resetSlot(.of(scene), index);
+            known.* = null;
+        };
+        const mine = entry orelse continue;
+        if (known.* == null) {
+            try powerups.makeMine(all, index, &frame.tables, types, &frame.random);
+            known.* = mine.reuse;
+        }
+        game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = mine.position, .orientation = wire.unpackFacing(mine.angles) });
+        if (slot.model) |*model| model.place(slot.drawn.position, slot.drawn.orientation);
+    }
 }
 
 fn world(frame: *FlightFrame) game.gameobj.World {
@@ -193,6 +246,10 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     if (scene.explosions) |effects| effects.frame(scene);
     if (scene.sparks) |sparks| sparks.frame(scene.clock);
     try frame.rocks.apply(all, &snapshot.rocks);
+    if (snapshot.scenario == .asteroid_field) {
+        try frame.presentPickups(snapshot.pickups);
+        try frame.presentMines(snapshot, types);
+    }
     for (snapshot.ships, 0..) |entry, offset| {
         const index: u16 = @intCast(offset);
         const prior = all.playerBinding(index);
@@ -237,9 +294,15 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         all.player_states[index].membership.joined.deaths = ship.deaths;
         slot.object.afterburner = ship.throttle == game.motion.afterburner_throttle;
         slot.object.reverse_thrust = ship.throttle == game.motion.reverse_throttle;
+        const cloaking = if (slot.cloak) |effect| !effect.going else false;
+        if (ship.cloaked != cloaking) {
+            if (ship.cloaked) game.cloak.beginPowerUp(scene, index) else game.cloak.uncloak(scene, index);
+        }
+        if (slot.cloak != null) game.cloak.frame(slot, scene.clock.frame_start);
         if (slot.model) |*model| model.place(slot.drawn.position, slot.drawn.orientation);
     }
     if (snapshot.scenario != null) frame.presentWeapons(snapshot.weapons);
+    if (snapshot.scenario == .asteroid_field) frame.presentPower(snapshot.power);
     // Reserve the identities used during the session in the local mission's slot counters.
     for (local.reuses[0..wire.slots], all.reuses[0..wire.slots]) |*reuse, received| reuse.* = received +% 1;
     frame.drawn.beacon_snapshot = switch (snapshot.objectives) {

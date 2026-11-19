@@ -210,12 +210,17 @@ rocks their slow and medium spins, then calls `ResetToSpawnPositions`. The scena
 provides no special scoring or round-end callback. OpenReliant uses the common arena score
 and spawn rules, with a host snapshot of the rocks' orientation and visibility.
 
-In the original, the shared pickup pass checks contact in pilot and object order and requires
-at least two pilots. `mp_arena_prepare_pickups` (0x004B1760) builds cumulative odds from the
-weights in `mp_powerup_rules` (0x0050C510). The table includes timed effects, repairs, fuel,
-missiles, mines and control penalties. The pickup effects and team selection still belong to
-[#1400](https://github.com/OpenReliant/openreliant/issues/1400). The control penalties also
-depend on [#722](https://github.com/OpenReliant/openreliant/issues/722).
+The pickup pass checks contact in pilot and object order and requires at least two pilots.
+`mp_arena_prepare_pickups` (0x004B1760) builds cumulative odds from the ten weighted records
+in `mp_powerup_rules` (0x0050C508). Each pilot holds one effect. Fuel, repair and
+countermeasures take effect on contact, then show for two seconds. The cloak, temporary
+invulnerability and the three control and shield penalties also take effect on contact.
+Mines and Screamers wait for Launch Missile. The pickup reappears when the effect expires,
+the pilot uses it, or the ship is destroyed or leaves.
+
+The host applies those rules to its simulated ships. The client gets the map's pickup mask,
+the active mine slots and its own power-up. Mine ownership follows the admission and ship
+that placed it. Team selection is tracked in [#1400](https://github.com/OpenReliant/openreliant/issues/1400).
 
 ### Six Beacons
 
@@ -277,6 +282,8 @@ The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/95
 - [#1368](https://github.com/OpenReliant/openreliant/issues/1368): wingman loss, target feedback,
   device notifications and the remaining local combat rules.
 - [#1401](https://github.com/OpenReliant/openreliant/issues/1401): the recalled pilot's cockpit return to the carrier.
+- [#1461](https://github.com/OpenReliant/openreliant/issues/1461): stock arena boundary, respawn,
+  standings and the Nuclear Threat blast presentation.
 
 This state split does not add a network session or change mission files. Single player remains
 one participant running the existing simulation and presentation paths.

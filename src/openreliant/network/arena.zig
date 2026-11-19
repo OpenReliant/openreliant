@@ -85,6 +85,10 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
             try simulation.prepareSixBeacons(&arena.mission, &arena.explosions.?);
         },
         .@"nuclear-threat", .@"asteroid-field" => {
+            // mission_start seeds the game's random stream afresh (0x004936AE).
+            var seed: u64 = undefined;
+            io.random(std.mem.asBytes(&seed));
+            arena.mission.random = .init(seed);
             const assets = try stock.Assets.open(gpa, io, directory, &arena.mission.tables, arena.mission.objects);
             arena.assets = assets;
             arena.explosions = try .init(gpa, null);
@@ -94,7 +98,10 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
             arena.loaded = try assets.files.load(gpa, scenario, arena.world());
             if ((scenario == .nuclear_threat) != (arena.mission.objects.arena_scenario == .six_beacons))
                 return error.ArenaScriptDidNotStart;
-            if (scenario == .asteroid_field) arena.rocks = try .collect(arena.mission.objects);
+            if (scenario == .asteroid_field) {
+                if (arena.mission.objects.arena_scenario != .asteroid_field) return error.ArenaScriptDidNotStart;
+                arena.rocks = try .collect(arena.mission.objects);
+            }
         },
     }
 }
@@ -250,6 +257,16 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
     const all = arena.mission.objects;
     var view: wire.Snapshot = .{ .tick = tick, .scenario = arena.mode.scenario(), .ships = @splat(null) };
     view.rocks = arena.rocks.capture(all);
+    if (all.arena_scenario == .asteroid_field) {
+        const round = &all.arena_scenario.asteroid_field;
+        view.pickups = round.pickups.visible(all);
+        for (&view.mines, 0..) |*entry, i| {
+            const index = round.mine_start + @as(u16, @intCast(i));
+            const object = &all.slots[index].object;
+            if (!object.created or object.flags.disabled or object.flags.stand_in) continue;
+            entry.* = .{ .position = object.nextPosition(), .angles = wire.packFacing(object.root.next_orientation), .reuse = all.reuses[index] };
+        }
+    }
     for (arena.pilots, &view.ships, 0..) |entry, *ship, at| {
         const pilot = entry orelse continue;
         const index: u16 = @intCast(at);
@@ -271,6 +288,7 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
             .armor = object.armor,
             .kills = score.kills.count,
             .deaths = score.deaths,
+            .cloaked = if (all.slots[index].cloak) |cloak| !cloak.going else false,
         };
         ship.*.?.face(object.root.next_orientation);
     }

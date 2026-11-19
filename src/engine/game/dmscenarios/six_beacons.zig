@@ -46,7 +46,7 @@ pub const Notice = struct {
         deathmatch.addMessage(messages, notice.tick, format, &.{pilot_name});
     }
 
-    fn post(world: gameobj.World, pilot: players.ParticipantRef, kind: Kind) void {
+    pub fn post(world: gameobj.World, pilot: players.ParticipantRef, kind: Kind) void {
         if (world.beacon_notices) |sink| sink.send(sink.context, .{ .pilot = pilot, .kind = kind, .tick = world.clock.frame_start });
     }
 };
