@@ -4,6 +4,7 @@ const Io = std.Io;
 const wire = @import("wire.zig");
 const net = @import("transport.zig");
 const Arena = @import("arena.zig");
+const identity = @import("identity.zig");
 const HandshakeBudget = @import("handshake_budget");
 const Host = @This();
 
@@ -14,7 +15,7 @@ pub const pilots_to_start = 2;
 
 const Peer = struct {
     conn: net.Connection,
-    state: enum { connecting, joining, playing, rejecting } = .connecting,
+    state: enum { connecting, joining, playing, closing } = .connecting,
     identity: [max_identity]u8 = undefined,
     identity_len: u8 = 0,
     expires: i64,
@@ -23,6 +24,7 @@ const Peer = struct {
 
 io: Io,
 arena: Arena,
+signer: ?*const identity.Server = null,
 player_limit: u8 = wire.slots,
 peers: [wire.slots]?Peer = @splat(null),
 budget: HandshakeBudget = .{},
@@ -70,14 +72,21 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
         .authenticated => if (slot) |index| {
             const peer = &host.peers[index].?;
             if (peer.state != .connecting) return;
-            if (name) |identity| {
-                if (identity.len > 0 and identity.len <= max_identity and !host.hasName(identity)) {
-                    @memcpy(peer.identity[0..identity.len], identity);
-                    peer.identity_len = @intCast(identity.len);
+            if (name) |pilot_name| {
+                if (pilot_name.len > 0 and pilot_name.len <= max_identity and !host.hasName(pilot_name)) {
+                    @memcpy(peer.identity[0..pilot_name.len], pilot_name);
+                    peer.identity_len = @intCast(pilot_name.len);
                     peer.state = .joining;
                     return;
                 }
             }
+        },
+        .unverified => if (slot) |index| {
+            const peer = &host.peers[index].?;
+            if (peer.state != .connecting) return;
+            // The transport requires encryption. This pilot owns only its new admission.
+            peer.state = .joining;
+            return;
         },
         .closed => {},
     }
@@ -87,7 +96,7 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
 fn hasName(host: *const Host, name: []const u8) bool {
     for (host.peers) |entry| {
         const peer = entry orelse continue;
-        if (peer.state != .connecting and std.mem.eql(u8, peer.identity[0..peer.identity_len], name)) return true;
+        if (peer.identity_len != 0 and std.mem.eql(u8, peer.identity[0..peer.identity_len], name)) return true;
     }
     return false;
 }
@@ -99,7 +108,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
             if (host.final_tick != null or message != .join) return false;
             if (!message.join.compatible()) {
                 try net.send(peer.conn, .{ .wrong_protocol = .local });
-                peer.state = .rejecting;
+                peer.state = .closing;
                 peer.expires = time + timeout;
                 return true;
             }
@@ -123,7 +132,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
             peer.expires = time + timeout;
             return true;
         },
-        .connecting, .rejecting => return false,
+        .connecting, .closing => return false,
     }
 }
 
@@ -133,7 +142,7 @@ fn service(host: *Host, slot: u8, time: i64) !void {
         host.release(slot);
         return;
     }
-    if (peer.state == .connecting or peer.state == .rejecting) return;
+    if (peer.state == .connecting or peer.state == .closing) return;
     var buf: [wire.capacity]u8 = undefined;
     for (0..packets_per_tick) |_| {
         const message = net.receive(peer.conn, &buf) catch {
@@ -148,7 +157,7 @@ fn service(host: *Host, slot: u8, time: i64) !void {
             host.release(slot);
             return;
         }
-        if (peer.state == .rejecting) return;
+        if (peer.state == .closing) return;
     }
 }
 
@@ -180,16 +189,22 @@ fn broadcast(host: *Host, view: wire.Snapshot, final: bool) !void {
     }
 }
 
-pub fn run(host: *Host, address: [:0]const u8, ticks: ?u32) !void {
+pub fn run(host: *Host, address: [:0]const u8, ticks: ?u32, invite: ?identity.Invite) !void {
     const listener = net.session_open(address, true);
     if (listener == 0) return error.ListenFailed;
     defer net.session_listen_close(listener);
     defer for (0..host.peers.len) |slot| host.release(@intCast(slot));
     std.debug.print("listening {s}\n", .{address});
+    if (invite) |value| {
+        std.debug.print("invite {f}\n", .{value});
+    } else if (host.signer != null) {
+        std.debug.print("Set InviteAddress in server.ini to print an invite for this listener.\n", .{});
+    }
 
     var tick: u32 = 0;
     const last_tick = ticks orelse std.math.maxInt(u32);
     var next_step = host.now();
+    var renew_at = next_step + identity.renew_after_us;
     while (tick < last_tick) {
         net.session_poll();
         const time = host.now();
@@ -198,6 +213,15 @@ pub fn run(host: *Host, address: [:0]const u8, ticks: ?u32) !void {
             continue;
         }
         next_step = @max(next_step + Arena.step_us, time);
+        if (host.signer) |signer| {
+            if (time >= renew_at) {
+                var certificate = try signer.hostCertificate(host.io);
+                defer certificate.wipe();
+                if (!net.session_set_certificate(certificate.bytes[0..].ptr, @intCast(certificate.len)))
+                    return error.IdentityRenewalFailed;
+                renew_at = time + identity.renew_after_us;
+            }
+        }
         try host.servicePeers(time);
         if (tick == 0 and host.playingCount() < pilots_to_start) continue;
         tick += 1;

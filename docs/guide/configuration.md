@@ -225,9 +225,8 @@ Run `openreliant --headless` to start the host from the command line. It reads `
 the current folder. Pass a different file as `openreliant --headless path/to/server.ini`.
 The host starts before the game opens a window or initializes sound.
 
-The headless host currently runs the Six Beacons test arena. The example below uses the identity
-files from the [direct-IP session test](../port/transport-probe.md#run-a-direct-ip-session-in-openreliant).
-Save the INI beside those files. Section and key names can be written in any case.
+The headless host currently runs the Six Beacons test arena. Save this example as `server.ini`.
+Section and key names can be written in any case.
 
 ```ini
 [Server]
@@ -235,32 +234,49 @@ BindAddress=127.0.0.1
 Port=27020
 Arena=six-beacons
 Players=3
-
-[Identity]
-RootPublicKey=root.pub
-Certificate=host.cert
 ```
+
+On first start, the host creates `server.key` beside the INI. It reuses that key on every start
+and renews its transport certificate automatically while running. Store the INI in a private
+folder and keep a private backup of `server.key`. If you replace the key, share a new invite.
+
+Pilots can join by IP, for example `openreliant session join 192.0.2.10` or
+`openreliant session join 192.0.2.10:27200`. The default port is 27020. For IPv6 with a port,
+use brackets, for example `openreliant session join '[2001:db8::1]:27200'`. The client opens
+one encrypted connection to the address. Pilots need no credential files.
+
+To share an invite that also verifies the server's identity, copy the value after `invite` in the host's output and share it with your pilots. They can join
+from a terminal by running `openreliant session join '<invite>'`. The invite contains the IP
+address, port and public server key. Pilots should get the invite from the host operator so they
+can verify the right server. Anyone with the invite can try to join.
+
+For an internet server, listen on an address reachable through your firewall and router. If the
+host listens on all interfaces or sits behind a router, set `InviteAddress` to the IP address
+your pilots can reach. Allow incoming UDP on `Port` and use the same port if you forward it.
 
 ### Server
 
 | Key | Default | Description |
 |---|---|---|
 | `BindAddress` | `127.0.0.1` | The IPv4 or IPv6 address the host listens on. The default accepts pilots from the host machine |
+| `InviteAddress` | `BindAddress` | The IPv4 or IPv6 address to put in the invite. Set this to a specific address when listening on all interfaces |
 | `Port` | `27020` | The UDP port to listen on, from 1 to 65535 |
 | `Arena` | `six-beacons` | `six-beacons` for the objective arena or `training` for the flight test |
 | `Players` | `3` | The maximum pilots. This build supports 2 or 3, and starts the round once two are admitted |
 | `RoundTicks` | Unset | Keep the host running until stopped. Set a positive tick count to end a test round at that tick |
 
-### Identity
+### Optional managed identity
+
+For an operator-managed transport identity, add `[Identity]` and set both keys below.
 
 | Key | Default | Description |
 |---|---|---|
-| `RootPublicKey` | Required | The test issuer's OpenSSH public key. Each pilot uses the same public key to verify the host |
-| `Certificate` | Required | The host's signed transport identity. Keep this file private |
+| `RootPublicKey` | Unset | The issuer's OpenSSH Ed25519 public key. Pilots use this public key to verify the host |
+| `Certificate` | Unset | The host's signed GameNetworkingSockets certificate bundle. Keep this file private |
 
-Relative paths in `[Identity]` start at the folder containing the INI. The current headless test
-uses explicit identity files. Automatic setup and renewal for ordinary servers are tracked in
-[#364](https://github.com/OpenReliant/openreliant/issues/364).
+Relative paths start at the folder containing the INI. The operator supplies and renews the host bundle.
+Pilots can still join by IP. Clients with their own managed identity can also use the
+[managed certificate command](../port/transport-probe.md#run-a-direct-ip-session-in-openreliant).
 
 ## Newer releases
 

@@ -7,9 +7,10 @@
 #include <unistd.h>
 #endif
 
-enum class Status : int { incoming, authenticated, closed };
+enum class Status : int { incoming, authenticated, closed, unverified };
 extern "C" void session_status(uint32_t conn, Status status, const char *identity);
 extern "C" bool OpenReliant_SetTransportRoot(const char *key, size_t size);
+extern "C" bool OpenReliant_SetTransportCertificate(const void *certificate, int size);
 
 constexpr int queued_messages = 32;
 constexpr int queued_bytes = 4096;
@@ -25,6 +26,9 @@ static void changed(SteamNetConnectionStatusChangedCallback_t *event) {
         case k_ESteamNetworkingConnectionState_Connected: {
             if (const char *identity = openreliant::gns::authenticated_identity(info))
                 session_status(conn, Status::authenticated, identity);
+            else if ((info.m_nFlags & k_nSteamNetworkConnectionInfoFlags_Unauthenticated) &&
+                     !(info.m_nFlags & k_nSteamNetworkConnectionInfoFlags_Unencrypted))
+                session_status(conn, Status::unverified, nullptr);
             else
                 session_status(conn, Status::closed, nullptr);
             break;
@@ -38,18 +42,22 @@ static void changed(SteamNetConnectionStatusChangedCallback_t *event) {
     }
 }
 
+extern "C" bool session_set_certificate(const uint8_t *certificate, int size) {
+    return OpenReliant_SetTransportCertificate(certificate, size);
+}
+
 extern "C" bool session_init(const char *root, size_t root_size,
                              const uint8_t *certificate, int size, int max_message) {
     SteamNetworkingErrMsg error{};
     if (!GameNetworkingSockets_Init(nullptr, error)) return false;
     auto *utils = SteamNetworkingUtils();
     const bool configured =
-        OpenReliant_SetTransportRoot(root, root_size) &&
+        (root ? OpenReliant_SetTransportRoot(root, root_size) : !certificate) &&
         openreliant::gns::require_encryption(utils) &&
         openreliant::gns::receive_limits(max_message, queued_messages, queued_bytes) &&
         utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_SendBufferSize, queued_bytes) &&
         utils->SetGlobalCallback_SteamNetConnectionStatusChanged(changed) &&
-        SteamNetworkingSockets()->SetCertificate(certificate, size, error);
+        (!certificate || session_set_certificate(certificate, size));
     if (!configured) GameNetworkingSockets_Kill();
     return configured;
 }

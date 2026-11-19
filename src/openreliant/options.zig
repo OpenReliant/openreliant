@@ -159,9 +159,10 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
 
 /// `openreliant session --help`.
 pub const session_help =
-    \\Run a direct-IP session with test identity files.
+    \\Join by IP or invite. The default UDP port is 27020.
     \\
     \\usage: openreliant session host <ip:port> <root-public-key> <certificate> [round-ticks]
+    \\       openreliant session join <ip-address|invite> [keyboard|left|straight|right] [views-before-leaving]
     \\       openreliant session join <ip:port> <root-public-key> <certificate> <host-identity> <keyboard|left|straight|right> [views-before-leaving]
     \\
 ;
@@ -170,8 +171,8 @@ pub const headless_help =
     \\usage: openreliant --headless [<server.ini>]
     \\
     \\Start the headless arena host. The INI file defaults to server.ini in the current folder.
-    \\Set BindAddress, Port, Arena, Players and optional RoundTicks under [Server].
-    \\Set RootPublicKey and Certificate under [Identity]. Relative paths start at the INI file.
+    \\Set the address, port, and round options under [Server]. The host manages its identity by default.
+    \\Set RootPublicKey and Certificate under [Identity] to use managed credentials.
     \\
 ;
 /// `openreliant --help`.

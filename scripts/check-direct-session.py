@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import base64
 import os
 from pathlib import Path
 import socket
@@ -96,6 +97,11 @@ class Loopback:
         certificate = self.credentials / f"{identity}.cert"
         return await self.start("session", role, self.address, str(root), str(certificate), *args)
 
+    async def join_target(self, target, steering, *args):
+        pilot = await self.start("session", "join", target, steering, *args)
+        await pilot.expect("admitted ")
+        return pilot
+
     async def join(self, name, steering, *args):
         peer = await self.session("join", name, "host", steering, *args)
         await peer.expect("admitted ")
@@ -175,6 +181,65 @@ async def check_beacons(binary, credentials):
             await six_beacons(game, Path(directory).resolve() / "server.ini")
 
 
+async def check_invites(binary, credentials):
+    with tempfile.TemporaryDirectory() as directory:
+        async with Loopback(binary, credentials) as game:
+            await ip_invites(game, Path(directory))
+
+
+async def ip_invites(game, directory):
+    (directory / "server.ini").write_text(f"""[Server]
+BindAddress=0.0.0.0
+InviteAddress=127.0.0.1
+Port={game.port}
+Arena=training
+Players=2
+RoundTicks=175
+""", encoding="ascii")
+
+    async def start_host():
+        host = await game.start("--headless", cwd=directory)
+        invite = (await host.expect("invite ")).split()[1]
+        require(invite.startswith(f"orl1:{game.address}/"), "invite has the wrong IP or port")
+        return host, invite
+
+    host, invite = await start_host()
+    key = directory / "server.key"
+    require(key.is_file(), "the host did not create its identity")
+    if os.name == "posix":
+        require(key.stat().st_mode & 0o077 == 0, "other users can access the server key")
+    before_restart = await game.join_target(invite, "left")
+    host.process.terminate()
+    await host.wait()
+    before_restart.process.terminate()
+    await before_restart.wait()
+
+    host, restarted_invite = await start_host()
+    require(invite == restarted_invite, "the invite changed after restarting")
+    other_root = (game.credentials / "root.pub").read_text(encoding="ascii").split()[1]
+    other_key = base64.urlsafe_b64encode(base64.b64decode(other_root)[-32:]).decode().rstrip("=")
+    wrong_invite = f"{invite.split('/')[0]}/{other_key}"
+    denied = await game.start("session", "join", wrong_invite, "left")
+    require(await denied.wait() == 1 and denied.last_line == "session: UnverifiedServer",
+            f"the client did not reject a different server key. Last message: {denied.last_line}")
+    require(denied.admission is None, "a pilot with the wrong invite was admitted")
+
+    first = await game.join_target(invite, "left")
+    leaving = await game.join_target(game.address, "right", "12")
+    slot, generation = leaving.admission
+    await host.expect(f"left {slot} {generation}")
+    require(await leaving.wait() == 0, "the direct-IP pilot could not leave cleanly")
+    offset = 2 + slot * 3
+    await first.expect("view ", lambda line: int(line.split()[offset]) == generation)
+    await first.expect("view ", lambda line: int(line.split()[offset]) == 0)
+    returned = await game.join_target(game.address, "right")
+    new_slot, new_generation = returned.admission
+    require(new_slot == slot and new_generation != generation, "the returning pilot did not get a fresh admission")
+    await first.expect("view ", lambda line: int(line.split()[offset]) == new_generation)
+    end = await finish(host, (first, returned))
+    print(f"IP invite: the same invite worked after restart, the wrong key was rejected, and both pilots confirmed tick {end} after a direct-IP reconnect.")
+
+
 async def six_beacons(game, config):
     root = os.path.relpath(game.credentials / "root.pub", config.parent)
     certificate = os.path.relpath(game.credentials / "host.cert", config.parent)
@@ -191,7 +256,7 @@ Certificate={certificate}
     host = await game.start("--headless", cwd=config.parent)
     await host.expect("listening ")
     first = await game.join("pilot1", "straight", "75")
-    second = await game.join("pilot2", "straight")
+    second = await game.join_target(game.address, "straight")
     slot, generation = first.admission
 
     async def pickup(peer):
@@ -218,7 +283,7 @@ Certificate={certificate}
 
 
 async def run(binary, credentials):
-    for check in (check_training, check_beacons):
+    for check in (check_training, check_beacons, check_invites):
         await asyncio.wait_for(check(binary, credentials), 30)
 
 

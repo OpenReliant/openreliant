@@ -11,23 +11,28 @@ const timeout = 10 * std.time.us_per_s;
 const poll_ms = 4;
 const input_interval_us = 40 * std.time.us_per_ms;
 
-expected_host: []const u8,
+expected_host: ?[]const u8,
 conn: net.Connection = 0,
-state: enum { connecting, authenticated, closed } = .connecting,
+state: enum { connecting, connected, unverified, closed } = .connecting,
 
 pub fn status(client: *Client, conn: net.Connection, event: net.Status, name: ?[]const u8) void {
-    if (conn != client.conn or (event == .authenticated and (name == null or !std.mem.eql(u8, name.?, client.expected_host)))) {
+    if (conn != client.conn) {
         net.session_close(conn);
-        if (conn == client.conn) client.state = .closed;
         return;
     }
-    switch (event) {
-        .incoming => net.session_close(conn),
-        .authenticated => client.state = .authenticated,
-        .closed => {
-            net.session_close(conn);
-            client.state = .closed;
-        },
+    const accepted = switch (event) {
+        .authenticated => if (client.expected_host) |expected|
+            name != null and std.mem.eql(u8, name.?, expected)
+        else
+            true,
+        .unverified => client.expected_host == null,
+        .incoming, .closed => false,
+    };
+    if (accepted) {
+        client.state = .connected;
+    } else {
+        net.session_close(conn);
+        client.state = if (event == .closed) .closed else .unverified;
     }
 }
 
@@ -35,7 +40,7 @@ pub fn run(client: *Client, io: Io, address: [:0]const u8, controls: Controls, l
     const conn = net.session_open(address, false);
     if (conn == 0) return error.ConnectFailed;
     client.conn = conn;
-    defer if (client.state != .closed) net.session_close(conn);
+    defer if (client.state == .connecting or client.state == .connected) net.session_close(conn);
 
     var deadline = Io.Clock.awake.now(io).toMicroseconds() + timeout;
     var steering: wire.Steering = switch (controls) {
@@ -55,13 +60,14 @@ pub fn run(client: *Client, io: Io, address: [:0]const u8, controls: Controls, l
 
     while (true) {
         net.session_poll();
+        if (client.state == .unverified) return error.UnverifiedServer;
         if (client.state == .closed) {
             if (leaving) return;
             return error.Disconnected;
         }
         const now = Io.Clock.awake.now(io).toMicroseconds();
         if (now >= deadline) return error.SessionTimedOut;
-        if (client.state == .authenticated and !sent_join) {
+        if (client.state == .connected and !sent_join) {
             try net.send(conn, .{ .join = .local });
             sent_join = true;
         }

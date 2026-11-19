@@ -62,7 +62,8 @@ python3 scripts/check-direct-session.py zig-out/bin/openreliant "$work/session-i
 ```
 
 To try it by hand, start the host first. Choose a different certificate for each pilot.
-The client checks the host identity in the certificate. In keyboard mode, type A, S, D or Q
+These commands exercise the optional managed identities. A pilot can also join this host with
+`openreliant session join 127.0.0.1:27020`. In keyboard mode, type A, S, D or Q
 and press Enter to steer left, fly straight, steer right or leave.
 
 ```sh
@@ -72,7 +73,7 @@ zig-out/bin/openreliant session join 127.0.0.1:27020 "$ids/root.pub" "$ids/pilot
 zig-out/bin/openreliant session join 127.0.0.1:27020 "$ids/root.pub" "$ids/pilot2.cert" host keyboard
 ```
 
-The host limits accepted handshakes, buffers and messages per pilot. It checks the authenticated
+The host limits accepted handshakes, buffers and messages per pilot. It checks the encrypted
 connection and protocol revision before it allocates a ship, and accepts steering only for the
 current admission. A reconnect receives a fresh admission and ship. The app release can differ
 when the protocol revision matches. Each pilot confirms the final snapshot's tick. The host
@@ -91,9 +92,11 @@ throughput measurements are tracked in [#1405](https://github.com/OpenReliant/op
 
 Run `openreliant --headless path/to/server.ini` with the settings in the
 [headless server guide](../guide/configuration.md#headless-server-configuration-serverini).
-Each pilot uses the `session join` command above. The loopback check starts the host from its INI,
-then checks that the host drops a departing carrier's beacon. Both active pilots and the returning
-pilot see the same position.
+Pilots can join by IP, with an optional port. By default the host also prints an invite for
+`openreliant session join '<invite>'`, which checks the host identity on the game connection. The loopback check verifies that the same invite works
+after restart and that a pilot can leave and return during a round. A separate Six Beacons check
+starts the host with managed identity files and verifies that both active pilots and the returning
+pilot see the beacon in the same position after a carrier leaves.
 
 The training session is the first game-executable path under
 [#954](https://github.com/OpenReliant/openreliant/issues/954). The release build prepares the
