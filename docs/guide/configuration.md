@@ -105,6 +105,7 @@ For automated captures, add `--no-sound` to mute the run.
 | `openreliant joysticks` | List the joysticks and gamepads, and which one the game uses |
 | `openreliant missions` | List the game's missions, its own and those added to its `missions` folder, and check that each loads |
 | `openreliant debug` | Debug the script of the mission a game started with `--editor-link` plays ([Debugging mission scripts](debugging.md)) |
+| `openreliant --headless [<server.ini>]` | Start the headless arena host with the settings in [server.ini](#headless-server-configuration-serverini) |
 
 Each command's `--help` shows its options.
 
@@ -217,6 +218,49 @@ viper.hog=openreliant-mods
 In the example, the game has the original's look and sound, but with the bloom and eight samples a pixel. A setting you leave out keeps its default, or `Original`'s where it is 1.
 
 The settings screen keeps the graphics' settings like this: a preset chosen with VIDEO's GRAPHICS is written as `Original` alone, and a graphics option changed after it is written only where it differs from what `Original` gives, and taken out where it is the same. As `Original` plays the original's mixer, ORIGINAL writes `Hrtf`, `Reverb` and `Compressor` beside it while OpenAL Soft plays the sound, so that the sound stays as AUDIO has it. A screenshot taken with `--screenshot` leaves this section out, so that it comes out the same for everyone.
+
+## Headless server configuration (server.ini)
+
+Run `openreliant --headless` to start the host from the command line. It reads `server.ini` in
+the current folder. Pass a different file as `openreliant --headless path/to/server.ini`.
+The host starts before the game opens a window or initializes sound.
+
+The headless host currently runs the Six Beacons test arena. The example below uses the identity
+files from the [direct-IP session test](../port/transport-probe.md#run-a-direct-ip-session-in-openreliant).
+Save the INI beside those files. Section and key names can be written in any case.
+
+```ini
+[Server]
+BindAddress=127.0.0.1
+Port=27020
+Arena=six-beacons
+Players=3
+
+[Identity]
+RootPublicKey=root.pub
+Certificate=host.cert
+```
+
+### Server
+
+| Key | Default | Description |
+|---|---|---|
+| `BindAddress` | `127.0.0.1` | The IPv4 or IPv6 address the host listens on. The default accepts pilots from the host machine |
+| `Port` | `27020` | The UDP port to listen on, from 1 to 65535 |
+| `Arena` | `six-beacons` | `six-beacons` for the objective arena or `training` for the flight test |
+| `Players` | `3` | The maximum pilots. This build supports 2 or 3, and starts the round once two are admitted |
+| `RoundTicks` | Unset | Keep the host running until stopped. Set a positive tick count to end a test round at that tick |
+
+### Identity
+
+| Key | Default | Description |
+|---|---|---|
+| `RootPublicKey` | Required | The test issuer's OpenSSH public key. Each pilot uses the same public key to verify the host |
+| `Certificate` | Required | The host's signed transport identity. Keep this file private |
+
+Relative paths in `[Identity]` start at the folder containing the INI. The current headless test
+uses explicit identity files. Automatic setup and renewal for ordinary servers are tracked in
+[#364](https://github.com/OpenReliant/openreliant/issues/364).
 
 ## Newer releases
 

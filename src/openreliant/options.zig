@@ -159,10 +159,19 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
 
 /// `openreliant session --help`.
 pub const session_help =
-    \\Run the headless training session with test identity files.
+    \\Run a direct-IP session with test identity files.
     \\
     \\usage: openreliant session host <ip:port> <root-public-key> <certificate> [round-ticks]
     \\       openreliant session join <ip:port> <root-public-key> <certificate> <host-identity> <keyboard|left|straight|right> [views-before-leaving]
+    \\
+;
+
+pub const headless_help =
+    \\usage: openreliant --headless [<server.ini>]
+    \\
+    \\Start the headless arena host. The INI file defaults to server.ini in the current folder.
+    \\Set BindAddress, Port, Arena, Players and optional RoundTicks under [Server].
+    \\Set RootPublicKey and Certificate under [Identity]. Relative paths start at the INI file.
     \\
 ;
 /// `openreliant --help`.
@@ -175,6 +184,7 @@ pub const help_page = page: {
         \\       openreliant missions [<game-directory>] [--no-mods]
         \\       openreliant hooks [<hook>] [--definitions]
         \\       openreliant debug [--port <port>]
+        \\       openreliant --headless [<server.ini>]
         \\       openreliant session --help
         \\
         \\

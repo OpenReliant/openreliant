@@ -10,7 +10,7 @@ const Host = @This();
 const timeout = 5 * std.time.us_per_s;
 const packets_per_tick = 4;
 const max_identity = 32;
-const pilots_to_start = 2;
+pub const pilots_to_start = 2;
 
 const Peer = struct {
     conn: net.Connection,
@@ -23,6 +23,7 @@ const Peer = struct {
 
 io: Io,
 arena: Arena,
+player_limit: u8 = wire.slots,
 peers: [wire.slots]?Peer = @splat(null),
 budget: HandshakeBudget = .{},
 final_tick: ?u32 = null,
@@ -55,7 +56,7 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
         .incoming => {
             if (slot != null) return;
             if (host.final_tick == null) {
-                for (&host.peers) |*entry| {
+                for (host.peers[0..host.player_limit]) |*entry| {
                     if (entry.* != null) continue;
                     const time = host.now();
                     if (host.budget.take(time) and net.session_accept(conn)) {
@@ -179,7 +180,7 @@ fn broadcast(host: *Host, view: wire.Snapshot, final: bool) !void {
     }
 }
 
-pub fn run(host: *Host, address: [:0]const u8, ticks: u32) !void {
+pub fn run(host: *Host, address: [:0]const u8, ticks: ?u32) !void {
     const listener = net.session_open(address, true);
     if (listener == 0) return error.ListenFailed;
     defer net.session_listen_close(listener);
@@ -187,8 +188,9 @@ pub fn run(host: *Host, address: [:0]const u8, ticks: u32) !void {
     std.debug.print("listening {s}\n", .{address});
 
     var tick: u32 = 0;
+    const last_tick = ticks orelse std.math.maxInt(u32);
     var next_step = host.now();
-    while (tick < ticks) {
+    while (tick < last_tick) {
         net.session_poll();
         const time = host.now();
         if (time < next_step) {
@@ -200,8 +202,8 @@ pub fn run(host: *Host, address: [:0]const u8, ticks: u32) !void {
         if (tick == 0 and host.playingCount() < pilots_to_start) continue;
         tick += 1;
         const view = try host.arena.step(tick);
-        if (tick == ticks) host.final_tick = tick;
-        try host.broadcast(view, tick == ticks);
+        if (tick == last_tick) host.final_tick = tick;
+        try host.broadcast(view, tick == last_tick);
     }
 
     const expires = host.now() + timeout;
