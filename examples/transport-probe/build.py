@@ -61,7 +61,7 @@ def cross_tools(out, target, system, arch, sdk):
     return tools, toolchain
 
 
-def build(work, target, arena):
+def build(work, target, workload):
     os.environ.setdefault("SOURCE_DATE_EPOCH", "1")
     jobs = os.environ.setdefault("CMAKE_BUILD_PARALLEL_LEVEL", "4")
     gns = source(work, "ValveSoftware/GameNetworkingSockets", "d534c19aa760df3fb75fd20db13ba1932b8a5463")
@@ -69,11 +69,12 @@ def build(work, target, arena):
     pb_options = ["-DCMAKE_POLICY_VERSION_MINIMUM=3.5", "-Dprotobuf_BUILD_TESTS=OFF", "-Dprotobuf_WITH_ZLIB=OFF"]
     cmake(pb, work / "host", pb_options, "protoc")
     protoc = work / "host" / "protoc"
-    credentials = work / "identities"
+    beacons = workload == "six-beacons"
+    credentials = work / ("six-beacons-identities" if beacons else "identities")
     if not credentials.exists():
         from credentials import issue
 
-        issue(credentials, gns / "src/common/steamnetworkingsockets_messages_certs.proto", protoc)
+        issue(credentials, gns / "src/common/steamnetworkingsockets_messages_certs.proto", protoc, late_pilot=beacons)
 
     arch, platform = target.split("-", 1)
     system = "Darwin" if platform.startswith("macos") else "Windows" if platform == "windows-gnu" else "Linux"
@@ -102,16 +103,17 @@ def build(work, target, arena):
                   f'-DCMAKE_CXX_FLAGS=-I"{openssl}/include"', f'-DCMAKE_C_FLAGS=-I"{openssl}/include"']
         if sdk:
             crypto.append(f'-DCMAKE_EXE_LINKER_FLAGS=-F"{sdk}/System/Library/Frameworks" -L"{sdk}/usr/lib"')
-    workload = []
+    options = []
     directory = "probe"
-    if arena:
-        zig_prefix = out / "arena-zig"
-        subprocess.run(["zig", "build", "arena-loopback", f"-Dtarget={target}",
+    if workload:
+        name = workload + "-loopback"
+        zig_prefix = out / (workload + "-zig")
+        subprocess.run(["zig", "build", name, f"-Dtarget={target}",
                         "--prefix", zig_prefix], cwd=HERE.parent.parent, check=True)
-        library = "arena-loopback.lib" if system == "Windows" else "libarena-loopback.a"
-        workload = [f"-DPROBE_ARENA_LIBRARY={zig_prefix / 'lib' / library}"]
-        directory = "arena-probe"
-    cmake(HERE, out / directory, cross + crypto + workload + [
+        library = name + ".lib" if system == "Windows" else f"lib{name}.a"
+        options = [f"-DPROBE_WORKLOAD_LIBRARY={zig_prefix / 'lib' / library}"]
+        directory = workload + "-probe"
+    cmake(HERE, out / directory, cross + crypto + options + [
         f"-DGNS_SOURCE={gns}", f"-DPROBE_ROOT_KEY={credentials}/root.pub", f"-DPROBE_ZIG_TARGET={target}",
         f"-DProtobuf_DIR={prefix}/lib/cmake/protobuf", f"-DProtobuf_PROTOC_EXECUTABLE={protoc}"])
 
@@ -120,11 +122,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("work", type=Path, help="directory for sources, tools and throwaway identities")
     parser.add_argument("target", choices=TARGETS)
-    parser.add_argument("--arena", action="store_true", help="run the workload against the headless game simulation")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--arena", dest="workload", action="store_const", const="arena", help="run headless flight")
+    mode.add_argument("--six-beacons", dest="workload", action="store_const", const="six-beacons", help="run the headless late join and drop test")
     args = parser.parse_args()
     work = args.work.resolve()
     work.mkdir(parents=True, exist_ok=True)
     # All targets share the host compiler and identities. A second invocation can wait.
     with (work / "build.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        build(work, args.target, args.arena)
+        build(work, args.target, args.workload)

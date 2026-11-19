@@ -80,6 +80,32 @@ test. Arena setup from game files, new or replaced ship bindings and full sessio
 to [#954](https://github.com/OpenReliant/openreliant/issues/954). Six Beacons state and notices
 have their own check in [#1416](https://github.com/OpenReliant/openreliant/issues/1416).
 
+## Check a late join in Six Beacons
+
+Use the same scratch directory and target to run the headless objective test.
+
+```sh
+python3 "$probe/build.py" "$work" "$target" --six-beacons
+python3 "$probe/loopback.py" "$work/$target/six-beacons-probe/transport-probe" \
+    "$work/six-beacons-identities" --six-beacons
+```
+
+Two pilots enter a small test arena. Once the host simulation awards the first beacon, the
+runner tries a third client with an incompatible protocol revision. The host rejects it before
+admission and sends back the revision it requires. The runner then starts a client that reports
+a different OpenReliant release but uses the same protocol. Its first snapshot contains all six
+beacons, their positions, and the carrier's participant and ship identities. The host then runs the carrier's destruction
+order. All three clients must confirm that the same beacon is loose at its drop position.
+
+The protocol revision is separate from the OpenReliant version. Bump it when a change
+makes the wire format or the meaning of its messages incompatible. Matching the revision
+is one admission check. Game content compatibility has its own checks under
+[#956](https://github.com/OpenReliant/openreliant/issues/956).
+This workload uses its own short-lived test identities. It sends complete objective snapshots
+on the reliable lane at the pickup and drop. Live session delivery and client notices are
+tracked in [#954](https://github.com/OpenReliant/openreliant/issues/954) and
+[#1416](https://github.com/OpenReliant/openreliant/issues/1416).
+
 ## Try a routed connection
 
 To try a routed connection, run the host on its machine with `transport-probe host ADDRESS:PORT host.cert`.

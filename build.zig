@@ -316,29 +316,15 @@ pub fn build(b: *std.Build) void {
 
     runStep(b, "run", "Run sltool", sltool);
 
-    // The headless integration workload links into the transport probe, outside the release build.
-    const arena = b.addLibrary(.{
-        .name = "arena-loopback",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("examples/transport-probe/scenario.zig"),
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-            .pic = true,
-            .imports = &.{.{
-                .name = "host_simulation",
-                .module = b.createModule(.{
-                    .root_source_file = b.path("examples/transport-probe/arena.zig"),
-                    .target = target,
-                    .optimize = optimize,
-                    .imports = &.{.{ .name = "openreliant", .module = lib }},
-                }),
-            }},
-        }),
+    // These workloads link into the transport probe, outside the release build.
+    const arena = b.createModule(.{
+        .root_source_file = b.path("examples/transport-probe/arena.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "openreliant", .module = lib }},
     });
-    arena.bundle_compiler_rt = true;
-    b.step("arena-loopback", "Build the headless arena library for the transport probe")
-        .dependOn(&b.addInstallArtifact(arena, .{}).step);
+    addProbeWorkload(b, "arena-loopback", "scenario", target, optimize, &.{.{ .name = "host_simulation", .module = arena }});
+    addProbeWorkload(b, "six-beacons-loopback", "beacons", target, optimize, &.{ .{ .name = "openreliant", .module = lib }, .{ .name = "version", .module = version } });
 
     // Every module's tests, and `zig build check`, which compiles the programs and the tests
     // without linking them (the C libraries, translate-c and mission 0 build once first):
@@ -353,6 +339,23 @@ pub fn build(b: *std.Build) void {
     for ([_]*std.Build.Step.Compile{ openreliant, sltool, tablegen, ghidragen, build_resources }) |program| {
         check_step.dependOn(&b.addExecutable(.{ .name = program.name, .root_module = program.root_module }).step);
     }
+}
+
+fn addProbeWorkload(b: *std.Build, name: []const u8, source: []const u8, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, imports: []const std.Build.Module.Import) void {
+    const library = b.addLibrary(.{
+        .name = name,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path(b.fmt("examples/transport-probe/{s}.zig", .{source})),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .pic = true,
+            .imports = imports,
+        }),
+    });
+    library.bundle_compiler_rt = true;
+    b.step(name, "Build a headless workload library for the transport probe")
+        .dependOn(&b.addInstallArtifact(library, .{}).step);
 }
 
 /// A step `name` that installs everything, then runs `program` with the arguments given after
