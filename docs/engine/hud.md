@@ -483,10 +483,10 @@ line at the arrow's tip. `--original` starts it where the game does.
 Between the search under the reticle and its keys, while the radio's window is open,
 `hud_target_keys` runs the radio's menu ([The menu](radio.md#the-menu)).
 
-Not ported: the players' names over their ships in a multiplayer game; and what `hud_target_keys`
-does while a multiplayer game's chat line is typed (`chat_typing`, `0x00529FB8`), which leaves out
-every key after the radio's menu ([#55](https://github.com/OpenReliant/openreliant/issues/55)). The
-keys' sounds are in [The display's sounds](#the-displays-sounds).
+The target brackets show the [session pilot name](#the-target-display).
+While typing multiplayer chat, the original skips the targeting keys after the radio menu
+(`chat_typing`, 0x00529FB8). This is tracked in [#55](https://github.com/OpenReliant/openreliant/issues/55).
+See [the display's sounds](#the-displays-sounds) for the sounds the keys play.
 
 ### Six Beacons target count
 
@@ -603,7 +603,11 @@ Bandit, and a mission's ship record can name another (`mission_ship_create`). Th
 no pilot.
 
 The small window also shows the [Six Beacons target count](#six-beacons-target-count).
-Multiplayer pilot names are tracked in [#1421](https://github.com/OpenReliant/openreliant/issues/1421).
+For a bound player ship, the small window reads the session name and draws it in the HUD font
+55 pixels right and 55 pixels up from the window anchor (name lookup at 0x00487CCF, draw at 0x00487D1A). The same name appears in
+`newfont.fnt` 12 pixels left and 24 pixels above the top left target bracket (0x0048AD0C).
+Both names are left aligned. The closing window keeps the name it last showed.
+AI ships keep their mission pilot names. In multiplayer the comms relay, beacon and gate have no pilot label.
 
 ## The radar
 

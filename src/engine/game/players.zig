@@ -28,6 +28,10 @@ pub const ControlRef = struct {
 /// Indices into the original arena's four team scores (`mp_team_kills`, 0x005D76FC).
 pub const ArenaTeam = enum(u2) { first, second, third, fourth };
 
+/// The session name is in the game's code page. The original copies up to 32 bytes
+/// into the player row at mp_first_player_name (0x005DB654).
+pub const Name = @import("language.zig").Text(32);
+
 pub const Membership = union(enum) {
     local_rules,
     vacant,
@@ -35,6 +39,7 @@ pub const Membership = union(enum) {
 
     pub const Joined = struct {
         generation: u64,
+        name: Name = .{},
         ship: ?gameobj.ObjectRef = null,
         team: ?ArenaTeam = null,
         kills: Kills = .{},

@@ -143,30 +143,8 @@ const blink_ticks = 25;
 /// sign while it is typed, the list's call signs, and the label under the pointer.
 const white = canvas_module.white;
 
-/// A line of text of at most `room` bytes, as the game keeps one, with its terminator, in a buffer
-/// one longer.
-pub fn Text(comptime room: usize) type {
-    return struct {
-        bytes: [room]u8 = undefined,
-        len: usize = 0,
-
-        const Self = @This();
-
-        /// The line, without its terminator.
-        pub fn slice(text: *const Self) []const u8 {
-            return text.bytes[0..text.len];
-        }
-
-        /// Takes `from`, as much of it as fits.
-        ///
-        /// **Fix:** the game copies a line into its buffer whatever its length; OpenReliant keeps
-        /// what fits.
-        pub fn set(text: *Self, from: []const u8) void {
-            text.len = @min(from.len, room);
-            @memcpy(text.bytes[0..text.len], from[0..text.len]);
-        }
-    };
-}
+/// **Fix:** cap roster entries at the size of their buffers when copying names.
+pub const Text = @import("../language.zig").Text;
 
 /// The call sign (`call_sign`, `0x00562DCC`, 32 bytes) and each of the list's (50 bytes each).
 pub const CallSign = Text(31);

@@ -18,8 +18,7 @@
 //! with that.
 //!
 //! The small form also shows the targeted pilot's count in Six Beacons.
-//! Multiplayer pilot names are tracked in
-//! [#1421](https://github.com/OpenReliant/openreliant/issues/1421).
+//! Bound player ships show their session pilot name.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -28,6 +27,8 @@ const six_beacons = @import("../dmscenarios/six_beacons.zig");
 const shp = @import("../../../formats/shp.zig");
 const create = @import("../create.zig");
 const hud = @import("../hud.zig");
+const language = @import("../language.zig");
+const players = @import("../players.zig");
 const pilots = @import("../pilots.zig");
 const windows = @import("windows.zig");
 
@@ -54,6 +55,7 @@ pub const Scene = struct {
     drawing: *hud.Drawing,
     all: *const create.Objects,
     beacons: ?*const six_beacons.Snapshot = null,
+    multiplayer: bool = false,
 
     /// Draws `form`: what it shows now, and what it last showed as it shrinks away closing
     /// (`closing`).
@@ -79,7 +81,7 @@ pub const Scene = struct {
         return .{
             .status = status,
             .facts = .of(scene.all, index),
-            .pilot = pilotName(scene.all, slot),
+            .pilot = PilotName.of(scene.all, index, scene.multiplayer),
             .beacons = if (scene.beacons) |snapshot| snapshot.countAt(scene.all, index) else null,
         };
     }
@@ -144,14 +146,14 @@ pub const Lines = struct {
 pub const Small = struct {
     status: hud.ShipStatus.Shown,
     facts: Facts,
-    /// Language string for the target's pilot name, when available.
-    pilot: ?u16 = null,
+    /// Keep the displayed name while this window closes, even if the pilot leaves.
+    pilot: ?PilotName = null,
     beacons: ?u8 = null,
 
     /// Where the ship status stands from the window's place.
     pub const status_at: [2]i32 = .{ -4, -0x2C };
     pub const lines: Lines = .{ .name = .{ 0x37, -0x43 }, .range = .{ 0x37, -0x2B }, .speed = .{ 0x37, -0x1F }, .alignment = .left };
-    /// Where the pilot's name goes: under the type's name, at the same x (`0x00487D0F`).
+    /// Both the session name and the mission name draw below the ship type (0x00487D1A).
     pub const pilot_at: [2]i32 = .{ 0x37, -0x37 };
 
     /// hud_window_draw (0x00487D86) puts the scenario line below the speed.
@@ -161,7 +163,10 @@ pub const Small = struct {
         const canvas = context.canvas;
         try hud.ShipStatus.draw(small.status, .target, canvas.pen, canvas.place(status_at), canvas.clip);
         try context.name(small.facts, lines);
-        if (small.pilot) |id| try canvas.string(.target_display_pilot, id, pilot_at, lines.alignment);
+        if (small.pilot) |*pilot| {
+            if (pilot.text(canvas.pen.strings)) |name|
+                try canvas.text(.target_display_pilot, name, pilot_at, lines.alignment);
+        }
         try context.figures(small.facts, lines);
         if (small.beacons) |total| {
             var buffer: six_beacons.LabelBuffer = undefined;
@@ -171,15 +176,31 @@ pub const Small = struct {
     }
 };
 
-/// The name of the pilot flying the ship in `slot`, as the small form writes it (`0x00487C99` on):
-/// the string its pilot's face names it by (`pilots.Faces.nameOf`). The game reads the face through
-/// the object's `pilot_record`, which `create_object` sets for every ship but a stand-in. It gives
-/// a hostile ship pilot 66 and any other ship pilot 0 until a mission names another
-/// (`mission_ship_create`). Null for a stand-in, which has no combat stats.
-pub fn pilotName(all: *const create.Objects, slot: *const create.Slot) ?u16 {
-    if (slot.combat == null) return null;
-    return all.faces.nameOf(slot.object.pilot);
-}
+/// hud_window_draw (0x00487C99) shows a player's session name or an AI pilot's face name.
+pub const PilotName = union(enum) {
+    mission: u16,
+    session: players.Name,
+
+    pub fn of(all: *const create.Objects, index: u16, multiplayer: bool) ?PilotName {
+        const slot = &all.slots[index];
+        if (slot.combat == null) return null;
+        if (all.boundParticipant(index)) |pilot| {
+            return if (pilot.name.len == 0) null else .{ .session = pilot.name };
+        }
+        if (multiplayer) switch (slot.object.type.base()) {
+            .comms_relay, .dm_beacon_gate, .dm_beacon => return null,
+            else => {},
+        };
+        return .{ .mission = all.faces.nameOf(slot.object.pilot) orelse return null };
+    }
+
+    pub fn text(name: *const PilotName, strings: ?*const language.Language) ?[]const u8 {
+        return switch (name.*) {
+            .mission => |id| (strings orelse return null).string(id),
+            .session => |*held| held.slice(),
+        };
+    }
+};
 
 /// What the large form shows.
 pub const Large = struct {
@@ -397,9 +418,17 @@ test "the forms show the target" {
     try std.testing.expectEqual(3, facts.range);
     try std.testing.expectEqual(213, facts.speed);
     // Its pilot's name: the hostile default's, until a mission names another pilot.
-    try std.testing.expectEqual(pilots.faces[create.coalition_pilot].name, scene.small().?.pilot.?);
+    try std.testing.expectEqual(pilots.faces[create.coalition_pilot].name, scene.small().?.pilot.?.mission);
     pilots.setPilot(&slot.object, 1);
-    try std.testing.expectEqual(pilots.faces[1].name, scene.small().?.pilot.?);
+    try std.testing.expectEqual(pilots.faces[1].name, scene.small().?.pilot.?.mission);
+
+    const ship_type = slot.object.type;
+    for ([_]@TypeOf(ship_type){ .of(.comms_relay), .of(.dm_beacon), .of(.dm_beacon_gate) }) |objective| {
+        slot.object.type = objective;
+        try std.testing.expectEqual(null, PilotName.of(all, sabre, true));
+        try std.testing.expectEqual(pilots.faces[1].name, PilotName.of(all, sabre, false).?.mission);
+    }
+    slot.object.type = ship_type;
 
     // A cloaked hostile target shows nothing.
     slot.object.flags.cloaked = true;

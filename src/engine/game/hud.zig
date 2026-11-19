@@ -2881,7 +2881,7 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
         .damage = .{ .object = live },
         .missiles = .{ .ring = &frame.all.player_states[frame.all.player].weapons.ring },
         .power = .{ .ball = resources.ball, .object = live, .hit_shake = frame.hit_shake, .random = frame.random },
-        .target_display = .{ .state = state, .drawing = drawing, .all = frame.all, .beacons = frame.beacon_snapshot },
+        .target_display = .{ .state = state, .drawing = drawing, .all = frame.all, .beacons = frame.beacon_snapshot, .multiplayer = frame.multiplayer },
         .objectives = .{ .objectives = &state.objectives },
         .comms = .{ .menu = &frame.player.menu, .font = &resources.target_fonts.new },
         .wing_status = .{ .all = frame.all },
@@ -6192,9 +6192,13 @@ pub fn drawTarget(drawing: *Drawing, state: *const State, pen: Pen, fonts: *Targ
     // The brackets dim as a missile's lock builds, and go at a tenth.
     const brightness = @min(@as(f32, @floatFromInt(all.player_states[all.player].weapons.lock.count)) * lock_dimming, 1);
     if (brightness > least_bright) try drawCorners(pen.dimmed(brightness), brackets_shape.of(hostile), .{ low, high });
-    if (scene.beacons) |beacons| {
-        if (all.playerBinding(index)) |pilot| {
-            if (pixelOf(low)) |corner| try beacons.drawTarget(pen, &fonts.new, pilot, corner);
+    // hud_target (0x0048AD0C) draws the session name before the scenario badge.
+    if (all.playerBinding(index)) |pilot| {
+        if (pixelOf(low)) |corner| {
+            const name_offset: [2]i32 = .{ -12, -24 }; // 0x0048AD39, 0x0048AD70
+            const name = &all.player_states[index].membership.joined.name;
+            _ = try pen.textIn(&fonts.new, pen.moved(corner, name_offset), name.slice(), .left);
+            if (scene.beacons) |beacons| try beacons.drawTarget(pen, &fonts.new, pilot, corner);
         }
     }
     // The range goes by the box's far corner, which a box reaching behind the camera throws
@@ -6725,7 +6729,7 @@ test "a target out of sight gets an arrow and a marker" {
     try std.testing.expectEqual(0, drawing.lines());
 }
 
-test "Six Beacons shows the local count and follows the selected pilot in both target displays" {
+test "target displays follow the bound pilot and scenario counts" {
     var targeting: TargetingTest = undefined;
     try targeting.init();
     defer targeting.deinit();
@@ -6790,10 +6794,20 @@ test "Six Beacons shows the local count and follows the selected pilot in both t
     try std.testing.expectEqual(56, drawing.recorder.drawn(1)[0].y);
 
     var window: target_display.Scene = .{ .state = &targeting.state, .all = all, .drawing = &drawing.kept, .beacons = &snapshot };
+    try std.testing.expect(all.setParticipantName(pilot, "2"));
+    try std.testing.expect(all.setParticipantName(all.playerBinding(empty).?.participant, "Rival"));
     const previous = window.small().?;
+    var ordinary = scene;
+    ordinary.beacons = null;
+    drawing.recorder.clear();
+    _ = try drawing.draw(gpa, &targeting.state, ordinary);
+    try std.testing.expectEqual(1, drawing.recorder.draws.items.len);
+    try std.testing.expectEqual(x - 12, drawing.recorder.drawn(0)[0].x);
+    try std.testing.expectEqual(y - 24, drawing.recorder.drawn(0)[0].y);
     input.setPlayerTarget(&targeting.state, all, @intCast(empty), -1, false);
     try std.testing.expectEqual(0, window.small().?.beacons.?);
     try std.testing.expectEqual(1, previous.beacons.?);
+    try std.testing.expectEqualStrings("Rival", window.small().?.pilot.?.session.slice());
     _ = try drawing.draw(gpa, &targeting.state, scene);
     try std.testing.expect(drawing.fonts.new.images['0'] != null);
 
@@ -6806,6 +6820,13 @@ test "Six Beacons shows the local count and follows the selected pilot in both t
     _ = try drawing.draw(gpa, &targeting.state, scene);
     try std.testing.expectEqual(0, drawing.recorder.draws.items.len);
     try std.testing.expectEqual(null, window.small().?.beacons);
+    const next = all.joinParticipant(target).?;
+    _ = all.bindParticipant(next, .of(all, target)).?;
+    try std.testing.expect(!all.setParticipantName(pilot, "Late rename"));
+    try std.testing.expectEqual(null, window.small().?.pilot);
+    try std.testing.expect(all.setParticipantName(next, "Replacement"));
+    try std.testing.expectEqualStrings("Replacement", window.small().?.pilot.?.session.slice());
+    try std.testing.expectEqualStrings("2", previous.pilot.?.session.slice());
 }
 
 test "a hostile target ahead gets the lead cursor, whose point blind fire aims at" {

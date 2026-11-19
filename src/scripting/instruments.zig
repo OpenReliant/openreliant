@@ -484,6 +484,8 @@ pub const target_display = api.Field(?TargetDisplay, "What the target display sh
         const form = target_forms.Form.of(hud.targetWindow(slot)) orelse return null;
         if (form == .small and target_forms.hidden(slot)) return null;
         const facts: target_forms.Facts = .of(all, index);
+        const pilot = target_forms.PilotName.of(all, index, flight.multiplayer);
+        const pilot_text = if (pilot) |*name| name.text(flight.strings) else null;
         const rings = hud.ShipStatus.rings(slot);
         const part = if (target_forms.showsSubtarget(slot)) target_forms.subtarget(all) else null;
         const bar = target_forms.hull(slot);
@@ -493,7 +495,7 @@ pub const target_display = api.Field(?TargetDisplay, "What the target display sh
                 .large => .large,
             },
             .name = if (facts.name) |id| stringOf(flight.strings, id) else null,
-            .pilot = if (target_forms.pilotName(all, slot)) |id| stringOf(flight.strings, id) else null,
+            .pilot = if (pilot_text) |shown| textOf(shown) else null,
             .range = facts.range,
             .speed = facts.speed,
             .shields = if (rings) |found| .of(found.shields) else null,

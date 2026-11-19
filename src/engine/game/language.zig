@@ -15,6 +15,27 @@ pub const file_name = "LANGUAGE.DLL";
 /// for the terminator.
 pub const max_length = 998;
 
+/// A line of up to `room` bytes in the game's code page, stored by value.
+pub fn Text(comptime room: usize) type {
+    return struct {
+        bytes: [room]u8 = undefined,
+        len: usize = 0,
+
+        const Self = @This();
+
+        /// The line, without its terminator.
+        pub fn slice(text: *const Self) []const u8 {
+            return text.bytes[0..text.len];
+        }
+
+        /// Copies as much of the line as fits.
+        pub fn set(text: *Self, from: []const u8) void {
+            text.len = @min(from.len, room);
+            @memmove(text.bytes[0..text.len], from[0..text.len]);
+        }
+    };
+}
+
 pub const Language = struct {
     /// Each string, in the game's code page, by its id less one.
     strings: []const []const u8,

@@ -913,7 +913,7 @@ test "a display reads the radar's contacts and the target display" {
     fixture.mission.slot(0).orders[0].target = .at(all, sabre, 0);
     strings_table[hud.target_display.named(.engine).?.name - 1] = "Engine";
     // Its pilot, as the game gives a hostile ship until the mission names another.
-    strings_table[hud.target_display.pilotName(all, slot).? - 1] = "Ace";
+    strings_table[hud.target_display.PilotName.of(all, sabre, false).?.mission - 1] = "Ace";
     const strings: engine.game.language.Language = .{ .strings = &strings_table };
     var state: hud.State = .{};
     var hud_drawing: hud.Drawing = .{};
@@ -942,6 +942,12 @@ test "a display reads the radar's contacts and the target display" {
     });
     try std.testing.expectEqualStrings(text, fixture.shown.layers.get(.hud).text.items);
     try std.testing.expect(contact.at[1] < 0);
+    all.players = sabre + 1;
+    const pilot = all.joinParticipant(sabre).?;
+    try std.testing.expect(all.setParticipantName(pilot, "Ren\xe9"));
+    _ = all.bindParticipant(pilot, .of(all, sabre)).?;
+    fixture.shown.frame(host);
+    try std.testing.expect(std.mem.find(u8, fixture.shown.layers.get(.hud).text.items, "Sabre Ren\xe9") != null);
     fixture.shown.endGame();
 }
 

@@ -15,6 +15,12 @@ and reserves survive ship replacement. Starting a mission clears local reserves 
 throttle, speed matching and the afterburner toggle, following the original's local globals.
 Host-managed participants use the lifecycle below.
 
+The host stores each admitted pilot's session name in the game's code page. The original
+name-change handler (0x004B6A80) copies up to 32 bytes into the player row at 0x005DB654.
+A rename applies to the same admission across ship changes. A pilot taking over a vacant
+slot starts with a fresh name. The target HUD reads the name from the bound ship's admission.
+Session delivery is tracked in [#954](https://github.com/OpenReliant/openreliant/issues/954).
+
 ## Comparison with the original
 
 | State or operation | Original | OpenReliant |
