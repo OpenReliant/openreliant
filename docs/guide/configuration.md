@@ -247,6 +247,10 @@ Open **Multi Player** from the main menu. Under **Direct Connect**, type the ser
 For IPv6 with a port, use brackets, for example `[2001:db8::1]:27200`. The client opens
 one encrypted connection to the address. Pilots need no credential files.
 
+In Nuclear Threat, use your usual **Fire Lasers** control. The host advances the guns, applies
+hits and updates each pilot's shields, armour and kill count. When a carrier is destroyed, their
+beacons drop at the wreck. The pilot respawns in the fighter they chose and keeps their score.
+
 To share an invite that also verifies the server's identity, copy the value after `invite` in the host's output and share it with your pilots. They can paste it in the same address field. The invite contains the IP
 address, port and public server key. Pilots should get the invite from the host operator so they
 can verify the right server. Anyone with the invite can try to join.

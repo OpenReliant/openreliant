@@ -27,6 +27,7 @@ const Peer = struct {
     expires: i64,
     sequence: ?u32 = null,
     flight_command: flight.Command = .{},
+    fire_for: ?u32 = null,
     presses: flight_input.Presses = .{},
 };
 
@@ -197,7 +198,10 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                     if (!input.follows(peer.sequence)) return true;
                     peer.sequence = input.sequence;
                     peer.expires = time + timeout;
-                    if (host.start != .lobby) peer.flight_command = input.command;
+                    if (host.start != .lobby) {
+                        peer.flight_command = input.command;
+                        peer.fire_for = input.fire_for;
+                    }
                 },
                 .flight_press => |presses| if (host.start != .lobby) peer.presses.merge(presses),
                 .call_sign => |name| {
@@ -278,13 +282,11 @@ fn applyControls(host: *Host, time: i64) void {
     for (&host.peers, 0..) |*entry, slot| {
         const peer = if (entry.*) |*peer| peer else continue;
         if (peer.state != .playing or peer.sequence == null) continue;
-        var command = if (time - (peer.expires - timeout) >= held_input_timeout)
-            flight_input.release(peer.flight_command)
-        else
-            peer.flight_command;
+        const expired = time - (peer.expires - timeout) >= held_input_timeout;
+        var command = if (expired) flight_input.release(peer.flight_command) else peer.flight_command;
         peer.presses.apply(&command);
         peer.presses = .{};
-        if (!host.arena.input(@intCast(slot), command)) host.release(@intCast(slot));
+        if (!host.arena.input(@intCast(slot), command, if (expired) null else peer.fire_for)) host.release(@intCast(slot));
     }
 }
 
@@ -312,6 +314,21 @@ fn broadcastNotices(host: *Host) void {
             if (peer.state != .playing) continue;
             if (notice.kind == .waiting_for_players and slot != notice.pilot.slot) continue;
             net.send(peer.conn, message) catch host.release(@intCast(slot));
+        }
+    }
+}
+
+fn broadcastCombat(host: *Host) !void {
+    var remaining = host.arena.combat[0..host.arena.combat_count];
+    while (remaining.len > 0) {
+        var batch: wire.Combat = .{ .count = @min(remaining.len, wire.Combat.max) };
+        @memcpy(batch.entries[0..batch.count], remaining[0..batch.count]);
+        remaining = remaining[batch.count..];
+        var buffer: [wire.capacity]u8 = undefined;
+        const bytes = try (wire.Message{ .combat = batch }).encode(&buffer);
+        for (host.peers) |entry| {
+            const peer = entry orelse continue;
+            if (peer.state == .playing) net.sendBytes(peer.conn, bytes, false) catch continue;
         }
     }
 }
@@ -377,6 +394,7 @@ pub fn pump(host: *Host) !enum { running, finished } {
         host.drain_until = time + timeout;
     }
     try host.broadcast(view, final);
+    if (!final) try host.broadcastCombat();
     return .running;
 }
 

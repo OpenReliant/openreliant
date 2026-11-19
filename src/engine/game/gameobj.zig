@@ -2166,6 +2166,8 @@ pub const World = struct {
     cues: ?*@import("main/cues.zig").Cues = null,
     /// Optional host output for notifications addressed to a participant and their ship.
     hit_feedback: ?collision.HitFeedback.Sink = null,
+    /// Host output for primary weapon effects that other pilots can see.
+    gun_effects: ?@import("guns.zig").FlightEffect.Sink = null,
     /// Arena-wide Uber kill notices for the session to deliver to viewers.
     beacon_notices: ?@import("deathmatch.zig").six_beacons.Notice.Sink = null,
     uber_kills: ?@import("deathmatch.zig").UberKill.Sink = null,

@@ -11,6 +11,7 @@ const stock = @import("stock_arena.zig");
 const FlightFrame = @import("flight_frame.zig");
 const Graphical = @This();
 const Connection = game.interface.Connection;
+const messages_per_frame = 8;
 
 // net_handle_system_message (0x004B6A80) posts 0x3B7 on session loss in flight.
 const host_left: Connection.Label = .{ .english = "The host has left the game", .installed = 0x3B7 };
@@ -24,6 +25,8 @@ roster: wire.Lobby = @splat(null),
 flight: ?*FlightFrame = null,
 notices: [game.hud.Messages.capacity]wire.BeaconNotice = undefined,
 notice_count: usize = 0,
+combat: [messages_per_frame * wire.Combat.max]game.guns.FlightEffect = undefined,
+combat_count: usize = 0,
 stick: [2]i16 = @splat(0),
 
 pub fn start(pilot: *Graphical, io: std.Io, target: []const u8, screen: *Connection, name: *const wire.CallSign) void {
@@ -143,12 +146,14 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             player.balancing_shields = devices.active(.shield_balancing, false);
             player.power_held = devices.active(.powerball_window, false);
             client.setFlight(engine.input.sampleFlight(player, devices, &pilot.stick, player.viewing.view));
+            client.fire_primary = engine.input.primaryHeld(devices);
         } else {
             client.setFlight(flight_input.release(client.flight_command));
+            client.fire_primary = false;
         }
     }
     // Catch up after a slow render without letting a busy connection hold the frame.
-    for (0..8) |_| {
+    for (0..messages_per_frame) |_| {
         const event = client.poll(io) catch |err| {
             const message: Connection.Label = switch (err) {
                 error.IncompatibleProtocol => .{ .english = "Incompatible multiplayer protocol" },
@@ -184,6 +189,11 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 pilot.notices[pilot.notice_count] = notice;
                 pilot.notice_count += 1;
             },
+            .combat => |effects| {
+                const count = @min(pilot.combat.len - pilot.combat_count, effects.count);
+                @memcpy(pilot.combat[pilot.combat_count..][0..count], effects.items()[0..count]);
+                pilot.combat_count += count;
+            },
             .admitted => if (pilot.hosted == null) {
                 front.connection.message = .{ .english = "Waiting for another pilot" };
             },
@@ -196,17 +206,21 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
     }
 }
 
-pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Objects, tables: *const game.create.Stats, types: game.create.Types, files: stock.Files, strings: game.language.Language, presentation: ?*Presentation) !?*game.main.Drawn {
+pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Objects, tables: *const game.create.Stats, types: game.create.Types, files: stock.Files, strings: game.language.Language, presentation: ?*Presentation, combat_assets: FlightFrame.CombatAssets) !?*game.main.Drawn {
     if (!pilot.flying()) return null;
     const client = &pilot.client.?;
     if (pilot.flight) |flight| {
         try flight.apply(&client.latest.?, client.joined.?, local, types);
+        pilot.presentCombat(flight);
         pilot.presentNotices(flight, strings, client.joined.?);
         return &flight.drawn;
     }
     const flight = try FlightFrame.create(gpa, local, tables);
     errdefer flight.destroy();
-    if (client.joined.?.scenario) |scenario| try flight.loadArena(files, scenario, types);
+    if (client.joined.?.scenario) |scenario| {
+        try flight.loadArena(files, scenario, types);
+        try flight.enableCombat(combat_assets);
+    }
     try flight.apply(&client.latest.?, client.joined.?, local, types);
     if (presentation) |shown| {
         errdefer shown.endGame();
@@ -218,8 +232,14 @@ pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Obje
         }
     }
     pilot.flight = flight;
+    pilot.presentCombat(flight);
     pilot.presentNotices(flight, strings, client.joined.?);
     return &flight.drawn;
+}
+
+fn presentCombat(pilot: *Graphical, flight: *FlightFrame) void {
+    flight.presentCombat(pilot.combat[0..pilot.combat_count]);
+    pilot.combat_count = 0;
 }
 
 fn presentNotices(pilot: *Graphical, flight: *FlightFrame, strings: game.language.Language, admission: wire.Admission) void {

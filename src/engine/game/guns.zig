@@ -1311,6 +1311,44 @@ pub const Candidate = struct {
     part: ?u16 = null,
 };
 
+/// Primary weapon events emitted by the simulation and replayed by the flight renderer.
+pub const FlightEffect = union(enum(u8)) {
+    shot: Shot,
+    impact: Impact,
+    nova: Nova,
+
+    pub const Shot = struct {
+        index: u8,
+        owner: u16,
+        kind: GameGun,
+        fired_at: i32,
+        dies_at: i32,
+        origin: Vector,
+        velocity: Vector,
+    };
+
+    pub const Impact = struct {
+        shot: u8,
+        fired_at: i32,
+        target: gameobj.ObjectRef,
+        at: Vector,
+        kind: Surface,
+
+        pub const Surface = enum(u8) { shield, hull };
+    };
+
+    pub const Nova = struct { owner: gameobj.ObjectRef, charge: f32, fired_at: i32 };
+
+    pub const Sink = struct {
+        context: *anyopaque,
+        send: *const fn (*anyopaque, FlightEffect) void,
+    };
+
+    pub fn emit(effect: FlightEffect, world: gameobj.World) void {
+        if (world.gun_effects) |sink| sink.send(sink.context, effect);
+    }
+};
+
 /// One shot in flight, as the game keeps it in the `0xC4` bytes of a pool record.
 pub const Bullet = struct {
     /// Whether the record is in use.
@@ -1388,6 +1426,17 @@ pub const Bullets = struct {
         const held = ring.take(lights_kept);
         if (held.*) |old| bullets.pool[old].light = null;
         held.* = index;
+    }
+
+    fn lightShot(bullets: *Bullets, player: bool, index: u8) void {
+        if (bullets.shot_lights == .latest_two) bullets.light(player, index);
+        const bullet = &bullets.pool[index];
+        bullet.light = .{
+            .mask = 0,
+            .intensity = 1,
+            .colour = shotColour(player, bullet.side),
+            .kind = .{ .point = .{ .position = bullet.at, .range = shot_light_range } },
+        };
     }
 
     /// The first free record, as `bullet_fire` takes it, or null while every one is in flight.
@@ -1495,16 +1544,7 @@ pub fn shoot(world: gameobj.World, owner: u16, muzzle: Muzzle, gun_type: GunType
 
     // The light it casts, which the oldest shot of its ring gives up.
     const player = owner == all.player;
-    switch (all.bullets.shot_lights) {
-        .latest_two => all.bullets.light(player, index),
-        .every_shot => {},
-    }
-    bullet.light = .{
-        .mask = 0,
-        .intensity = 1,
-        .colour = shotColour(player, bullet.side),
-        .kind = .{ .point = .{ .position = at, .range = shot_light_range } },
-    };
+    all.bullets.lightShot(player, index);
 
     var lifetime = record.lifetime;
     if (kind.base() == .turret_flak) {
@@ -1523,6 +1563,15 @@ pub fn shoot(world: gameobj.World, owner: u16, muzzle: Muzzle, gun_type: GunType
     if (player) if (world.forces) |forces| forces.start(forceEffect(kind), clock.frame_start);
     candidates(world, bullet, record, lifetime);
     if (muzzle.flashOf()) |lit| lit.fire(kind, clock.frame_start, shotColour(player, bullet.side));
+    if (world.gun_effects != null) @as(FlightEffect, .{ .shot = .{
+        .index = index,
+        .owner = owner,
+        .kind = kind.base(),
+        .fired_at = bullet.fired_at,
+        .dies_at = bullet.dies_at,
+        .origin = at,
+        .velocity = bullet.velocity,
+    } }).emit(world);
 }
 
 /// `bullet_place`'s aim for a shot of type `kind` from the ship in slot `owner`, while the ship
@@ -1770,7 +1819,7 @@ pub fn bulletsFrame(world: gameobj.World, clock: *const Clock, fraction: f32) vo
         }
         if (bullet.trail) |*trail| trail.frame(world, .{ .position = bullet.place, .orientation = bullet.pieces[0].turn });
         if (clock.frame_start < bullet.dies_at) {
-            if (bullet.candidate_count > 0) bulletHit(world, bullet);
+            if (bullet.candidate_count > 0) bulletHit(world, bullet, @intCast(index));
             // A hit marks it spent, which frees it below rather than flying on.
             if (clock.frame_start < bullet.dies_at) {
                 bullet.last = bullet.at;
@@ -1797,7 +1846,7 @@ pub fn bulletsFrame(world: gameobj.World, clock: *const Clock, fraction: f32) vo
 /// flares where it struck (`shield.flare`), unless the ship is cloaked, when the shot shows its
 /// hull there instead (`cloak.reveal`). An object whose components are listed is struck part by
 /// part instead (`componentHit`).
-fn bulletHit(world: gameobj.World, bullet: *Bullet) void {
+fn bulletHit(world: gameobj.World, bullet: *Bullet, shot: u8) void {
     const all = world.objects;
     const segment: objects.Segment = .between(bullet.last, bullet.at);
     if (math.lengthSquared(segment.span) < 1) return;
@@ -1844,10 +1893,13 @@ fn bulletHit(world: gameobj.World, bullet: *Bullet) void {
         const struck = collision.quadrant(object, slot.drawn.inverse(point));
 
         if (!bullet.kind.base().huge() and (object.shields.get(struck) <= 0 or object.invulnerable == ._unknown_4 or object.invulnerable == ._unknown_5)) {
-            hullHit(world, bullet, target, struck);
+            if (hullHit(world, bullet, target, struck)) |at| {
+                noteImpact(world, bullet, shot, target, at, .hull);
+            }
             return;
         }
         cloak.reveal(world, target, point);
+        noteImpact(world, bullet, shot, target, point, .shield);
         defer if (!object.flags.cloaked) shield.flare(world, target, point);
         if (!object.flags.spectral_shields and record.damage.shield > 0) {
             const value = record.damage.shield;
@@ -1864,6 +1916,17 @@ fn bulletHit(world: gameobj.World, bullet: *Bullet) void {
         bullet.dies_at = spent;
         return;
     }
+}
+
+fn noteImpact(world: gameobj.World, bullet: *const Bullet, shot: u8, target: u16, at: Vector, kind: FlightEffect.Impact.Surface) void {
+    if (world.gun_effects == null) return;
+    @as(FlightEffect, .{ .impact = .{
+        .shot = shot,
+        .fired_at = bullet.fired_at,
+        .target = .of(world.objects, target),
+        .at = at,
+        .kind = kind,
+    } }).emit(world);
 }
 
 /// The sparks a shot striking a hull throws: from where it struck, out from the object's
@@ -1940,22 +2003,86 @@ fn componentHit(world: gameobj.World, bullet: *Bullet, index: u16, crossing: obj
 /// **Improvement:** the game takes where the shot struck in the part's own frame for where it
 /// stands in the world, so its sparks fly from near the world's origin, far from the hit; the
 /// port throws them from the hit.
-fn hullHit(world: gameobj.World, bullet: *Bullet, index: u16, struck: collision.Quadrant) void {
+fn hullHit(world: gameobj.World, bullet: *Bullet, index: u16, struck: collision.Quadrant) ?Vector {
     const all = world.objects;
     const slot = &all.slots[index];
-    const model = if (slot.model) |*live| live else return;
-    const along = objects.partEntry(model, bullet.last, bullet.at, .last_shown) orelse return;
+    const model = if (slot.model) |*live| live else return null;
+    const along = objects.partEntry(model, bullet.last, bullet.at, .last_shown) orelse return null;
     const record = bullet.stats(&world.objects.gun_stats);
     const impact = shieldfx.HullImpact.of(world, index);
     collision.armorDamageFrom(world, index, struck, dealt(all, index, bullet.kind, record.damage.hull), bullet.owner, .bullet);
     const at = math.lerp(bullet.last, bullet.at, along);
     impact.emit(world, at);
+    hullSparks(world, index, at);
+    bullet.dies_at = spent;
+    return at;
+}
+
+fn hullSparks(world: gameobj.World, index: u16, at: Vector) void {
+    const slot = &world.objects.slots[index];
     const inside = world.player.viewing.inside(world.objects, index);
     if (!inside) {
         const carried = slot.object.velocity.vector() * @as(Vector, @splat(hull_sparks_carry));
         sparks.spray(world, .hull, at, at - slot.drawn.position, carried, hull_sparks);
     }
-    bullet.dies_at = spent;
+}
+
+/// Start a drawn copy of a host shot. Replica bolts have no collision candidates.
+pub fn showShot(world: gameobj.World, shot: FlightEffect.Shot) void {
+    const all = world.objects;
+    const bullets = &all.bullets;
+    const looks = bullets.looks orelse return;
+    if (shot.dies_at <= world.clock.frame_start) return;
+    const bullet = &bullets.pool[shot.index];
+    if (bullet.live and bullet.fired_at >= shot.fired_at) return;
+    bullets.release(shot.index);
+    const player = shot.owner == all.player;
+    bullet.* = .{
+        .live = true,
+        .kind = .of(shot.kind),
+        .fired_at = shot.fired_at,
+        .dies_at = shot.dies_at,
+        .last = shot.origin,
+        .at = shot.origin,
+        .place = shot.origin,
+        .velocity = shot.velocity,
+        .side = if (player) .friendly else .hostile,
+    };
+    dress(bullet, looks, world.effectsRandom(), math.lookAt(shot.velocity));
+    bullets.lightShot(player, shot.index);
+    shotSound(world, shot.index, bullet.kind, bullet.stats(&all.gun_stats).sound, player);
+}
+
+/// End the matching visual bolt and show the impact on its original ship, if it still exists.
+pub fn showImpact(world: gameobj.World, impact: FlightEffect.Impact, target: ?u16) void {
+    const bullets = &world.objects.bullets;
+    const bullet = &bullets.pool[impact.shot];
+    if (bullet.live and bullet.fired_at == impact.fired_at) bullets.release(impact.shot);
+    if (target) |index| switch (impact.kind) {
+        .shield => shield.flare(world, index, impact.at),
+        .hull => {
+            shieldfx.HullImpact.of(world, index).emit(world, impact.at);
+            hullSparks(world, index, impact.at);
+        },
+    };
+}
+
+/// Move only the effects. The host owns hits, damage and the end of each bolt on impact.
+pub fn frameReplicas(world: gameobj.World) void {
+    const all = world.objects;
+    const now = world.clock.frame_start;
+    for (&all.bullets.pool, 0..) |*bullet, index| {
+        if (!bullet.live) continue;
+        if (now >= bullet.dies_at) {
+            all.bullets.release(@intCast(index));
+            continue;
+        }
+        const steps = @as(f32, @floatFromInt(@max(now - bullet.fired_at, 0))) / gameobj.ticks_per_step;
+        bullet.place = bullet.at + bullet.velocity * @as(Vector, @splat(steps));
+        animate(bullet, world.clock, bullet.stats(&all.gun_stats), world.effectsRandom());
+        placePieces(bullet);
+    }
+    all.bullets.beams.frame(all, now);
 }
 
 test clipEventMuzzles {

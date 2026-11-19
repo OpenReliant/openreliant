@@ -2011,8 +2011,7 @@ test nextNavPoint {
 /// message, which leaves them unread ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn playerWeapons(world: gameobj.World, devices: *Devices, index: u16) void {
     const mouse = if (devices.controlMode() == .mouse) devices.mouse.state.buttons else Mouse.Buttons{};
-    const fire = devices.active(.fire_lasers, false) or mouse.left;
-    fireGuns(world, index, fire, .local_devices);
+    fireGuns(world, index, primaryHeld(devices), .local_devices);
     if (devices.active(.launch_missile, true)) launchMissile(world, index);
     if (mouse.right) {
         if (!world.player.mouse_launched) {
@@ -2030,6 +2029,12 @@ pub fn playerWeapons(world: gameobj.World, devices: *Devices, index: u16) void {
     if (devices.active(.countermeasures, true) and world.player.ending == .playing) {
         spendCountermeasure(world, index, true);
     }
+}
+
+/// FIRE LASERS also reads the left button in mouse flight mode.
+pub fn primaryHeld(devices: *Devices) bool {
+    return devices.active(.fire_lasers, false) or
+        (devices.controlMode() == .mouse and devices.mouse.state.buttons.left);
 }
 
 const WeaponSource = enum {
