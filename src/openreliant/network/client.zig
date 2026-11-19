@@ -102,6 +102,8 @@ pub const Event = union(enum) {
     admitted,
     lobby: wire.Scenario,
     beacon_notice: wire.BeaconNotice,
+    pilot_notice: wire.PilotNotice,
+    wreck: wire.Wreck,
     combat: wire.Combat,
     projectiles,
     snapshot,
@@ -164,7 +166,7 @@ pub fn poll(client: *Client, io: Io) !Event {
         .joined => |admission| {
             if (!client.sent_join or client.joined != null) return error.UnexpectedAdmission;
             client.joined = admission;
-            if (client.call_sign) |name| try net.send(client.conn, .{ .call_sign = name });
+            try net.send(client.conn, .{ .call_sign = client.call_sign orelse .{} });
             client.deadline = now + timeout;
             return .admitted;
         },
@@ -182,6 +184,14 @@ pub fn poll(client: *Client, io: Io) !Event {
             return .idle;
         },
         .beacon_notice => |notice| return if (client.joined != null and !client.leaving) .{ .beacon_notice = notice } else error.UnexpectedMessage,
+        .pilot_notice => |notice| {
+            if (client.joined == null or client.leaving) return .idle;
+            const entry = &client.roster.pilots[notice.pilot.slot];
+            if (notice.kind == .left_lobby and entry.* != null and entry.*.?.generation == notice.pilot.generation)
+                entry.* = null;
+            return .{ .pilot_notice = notice };
+        },
+        .wreck => |wreck| return if (client.joined != null and !client.leaving) .{ .wreck = wreck } else .idle,
         .combat => |effects| return if (client.latest != null and !client.leaving) .{ .combat = effects } else .idle,
         .projectiles => |page| {
             const view = client.latest orelse return .idle;
@@ -239,6 +249,8 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
         switch (event) {
             .idle, .lobby, .combat, .projectiles => {},
             .beacon_notice => |notice| std.debug.print("notice {s} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot }),
+            .pilot_notice => |notice| std.debug.print("pilot-notice {s} {d} {d}\n", .{ @tagName(notice.kind), notice.pilot.slot, notice.pilot.generation }),
+            .wreck => |wreck| std.debug.print("wreck {d} {d} {d}\n", .{ wreck.pilot.participant.slot, wreck.pilot.ship.reuse, wreck.tick }),
             .closed => return,
             .admitted => {
                 const admission = client.joined.?;

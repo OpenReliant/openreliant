@@ -20,6 +20,7 @@ const Role = union(enum) { host: struct { can_launch: bool = false, port: u16 },
 
 role: Role,
 roster: []const ?CallSign,
+notices: ?*const hud.Messages = null,
 local_slot: usize,
 scenario: scenarios.Scenario = .nuclear_threat,
 ship: scenarios.Fighter = .predator,
@@ -213,6 +214,14 @@ fn drawPlayers(lobby: *const Lobby, canvas: ui.Canvas, panel: ui.Rect) !void {
         try widgets.fittedLabel(canvas, .{ left, y }, right - left - tags_width - inset, words, ui.white, .left);
         if (slot == 0 or slot == lobby.local_slot) try canvas.text(font, .{ right, y }, if (slot == 0) host else "YOU", ui.blue, .right);
         y += row_height;
+    }
+    const notices = lobby.notices orelse return;
+    if (notices.count == 0) return;
+    y = panel.y + panel.height - inset - line_height * hud.Messages.capacity;
+    canvas.line(.{ left, y - inset / 2 }, .{ right, y - inset / 2 }, hud.rgb(0x324A55));
+    for (0..notices.count) |index| {
+        try widgets.fittedLabel(canvas, .{ left, y }, right - left, notices.line(index), ui.blue, .left);
+        y += line_height;
     }
 }
 

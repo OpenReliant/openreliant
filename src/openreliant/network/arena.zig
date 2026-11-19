@@ -48,6 +48,7 @@ loaded: ?*game.mission.Loaded = null,
 rocks: stock.RockSlots = .{},
 notices: [notice_capacity]Notice = undefined,
 notice_count: usize = 0,
+wrecks: [wire.slots]?wire.Wreck = @splat(null),
 combat: [2 * game.guns.max_bullets + wire.slots]game.guns.FlightEffect = undefined,
 combat_count: usize = 0,
 decoys: ?game.cloak.Countermeasures = null,
@@ -70,6 +71,7 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
     arena.loaded = null;
     arena.rocks = .{};
     arena.notice_count = 0;
+    arena.wrecks = @splat(null);
     arena.combat_count = 0;
     arena.decoys = null;
     arena.waves = null;
@@ -150,8 +152,16 @@ fn world(arena: *Arena) game.gameobj.World {
     scene.beacon_notices = .{ .context = arena, .send = note };
     if (arena.decoys) |*decoys| scene.countermeasures = decoys;
     if (arena.waves) |*waves| scene.shockwaves = waves;
-    if (arena.assets != null) scene.gun_effects = .{ .context = arena, .send = noteCombat };
+    if (arena.assets != null) {
+        scene.gun_effects = .{ .context = arena, .send = noteCombat };
+        scene.arena_wrecks = .{ .context = arena, .send = noteWreck };
+    }
     return scene;
+}
+
+fn noteWreck(context: *anyopaque, wreck: wire.Wreck) void {
+    const arena: *Arena = @ptrCast(@alignCast(context));
+    arena.wrecks[wreck.pilot.participant.slot] = wreck;
 }
 
 fn noteCombat(context: *anyopaque, effect: game.guns.FlightEffect) void {
@@ -252,6 +262,7 @@ fn weaponTarget(all: *game.create.Objects, source: u16, ref: game.gameobj.Object
 
 pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
     arena.notice_count = 0;
+    arena.wrecks = @splat(null);
     arena.combat_count = 0;
     arena.mission.clock.advanceTimer(game.gameobj.ticks_per_step);
     if (game.main.gameFrames(&arena.mission.clock, &arena.devices, null, arena.world(), .in_turn, arena.loaded) != .played) return error.ArenaEnded;
@@ -292,6 +303,7 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
             .cloaked = if (all.slots[index].cloak) |cloak| !cloak.going else false,
             .respawn = game.deathmatch.respawn.remaining(&all.slots[index], arena.mission.clock.frame_start),
             .at_wall = if (all.arena_boundary) |*boundary| boundary.outside(object.nextPosition()) else false,
+            .dying = object.flags.exploding,
         };
         ship.*.?.face(object.root.next_orientation);
     }

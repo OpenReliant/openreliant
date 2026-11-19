@@ -1109,13 +1109,33 @@ const blast_shockwave_life_range = 50;
 pub fn blast(world: gameobj.World, index: u16) void {
     const slot = &world.objects.slots[index];
     cloak.drop(slot);
-    const at = slot.drawn.position;
-    const velocity = slot.object.velocity.vector();
     const small = slot.object.flags.ejected or switch (slot.object.type.base()) {
         .escape_pod, .other_escape_pod, .late_escape_pod, .other_late_escape_pod, .proximity_mine => true,
         else => false,
     };
-    breakup.breakUp(world, index, .blast);
+    shipBlast(world, .{
+        .motion = .{ .place = slot.drawn, .velocity = slot.object.velocity.vector() },
+        .radius = slot.object.radius,
+        .owner = .of(world.objects, index),
+        .small = small,
+        .model = if (slot.model) |*model| model else null,
+    });
+}
+
+/// The same native blast can use a detached model when the fighter slot has already respawned.
+pub const ShipBlast = struct {
+    motion: breakup.FlightSource,
+    radius: f32,
+    owner: gameobj.DamageSource,
+    small: bool = false,
+    model: ?*const objects.Model,
+};
+
+pub fn shipBlast(world: gameobj.World, ship: ShipBlast) void {
+    const at = ship.motion.place.position;
+    const velocity = ship.motion.velocity;
+    if (ship.model) |model| breakup.breakUpModel(world, model, ship.motion, .blast);
+    const small = ship.small;
     scatter(world, at, if (small) small_blast_bits else blast_bits);
     const emitted = flames(world, at, velocity, blast_flames);
     const random = world.random;
@@ -1124,14 +1144,14 @@ pub fn blast(world: gameobj.World, index: u16) void {
         const kind = random.pick(shockwave.Kind.blasts);
         if (emitted) |emitter| shockwave.setOff(world, emitter.place, .{
             .kind = kind,
-            .size = slot.object.radius * blast_shockwave_size,
+            .size = ship.radius * blast_shockwave_size,
             .life = life,
             .velocity = emitter.inherited,
-            .owner = .of(world.objects, index),
+            .owner = ship.owner,
         });
     }
     sparkles(world, at, velocity, blast_carried, .{});
-    fighterFireball(world, at, velocity, slot.object.radius);
+    fighterFireball(world, at, velocity, ship.radius);
     sound(world, at, soundClass(world, at) orelse return);
 }
 

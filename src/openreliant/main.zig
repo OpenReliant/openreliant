@@ -1147,7 +1147,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             front_context.window = size;
             front_context.elapsed = elapsed;
             // While the console is up, it takes the pass.
-            if (network_enabled) network_pilot.update(io, &front, &devices, presentation, app.active and !console_up);
+            if (network_enabled) network_pilot.update(io, &front, &devices, presentation, strings, app.active and !console_up);
             const in_arena = network_enabled and network_pilot.flying();
             if (!console_up and in_arena and devices.keyboard.pressed(engine.input.scan.escape, .none, true)) {
                 network_pilot.leave(&front.connection, presentation);
@@ -1465,6 +1465,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .ordnance_models = .{ .mounts = effects_models.mounts(), .glows = &glows },
                 .trails = trails.images,
                 .sounds = if (output != null) &online_sounds else null,
+                .explosions = explosions.settings,
+                .particles = particles.settings,
             }) catch |err| frame: {
                 std.log.warn("could not display the multiplayer arena: {s}", .{@errorName(err)});
                 network_pilot.returnToBrowser(&front.connection, presentation, .{ .english = "Could not load the multiplayer arena" });
@@ -1601,6 +1603,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .overlay = display.overlay(),
                     .sparks = if (flight.effects.sparks) |*effects| effects else null,
                     .explosions = if (flight.effects.explosions) |*effects| effects else null,
+                    .particles = if (flight.effects.particles) |*pool| pool else null,
                     .shockwaves = if (flight.effects.shockwaves) |*rings| rings else null,
                     .flash = if (flight.effects.flash) |*screen_flash| screen_flash else null,
                     .respawns = &online.respawns,

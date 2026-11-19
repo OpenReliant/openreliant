@@ -7,7 +7,7 @@ pub const ordnance = @import("ordnance.zig");
 const flight = engine.input.flight;
 pub const Fighter = engine.game.dmscenarios.Fighter;
 pub const Scenario = engine.game.dmscenarios.Scenario;
-pub const revision: u16 = 11;
+pub const revision: u16 = 12;
 pub const slots = 3;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
@@ -54,6 +54,17 @@ pub const Roster = struct {
     pub const Pilot = struct { generation: u64, name: CallSign = .{} };
 };
 pub const BeaconNotice = struct { event: engine.game.deathmatch.six_beacons.Notice, name: CallSign };
+pub const Wreck = engine.game.deathmatch.Wreck;
+/// A late effect is useful while original debris could still be present.
+pub const wreck_window = 500;
+pub const PilotNotice = struct {
+    pilot: Admission,
+    name: CallSign,
+    tick: i32,
+    kind: Kind,
+
+    pub const Kind = enum(u8) { joined_flight, left_flight, left_lobby };
+};
 
 fn validCallSignByte(byte: u8) bool {
     return byte >= ' ' and byte != 0x7f;
@@ -114,6 +125,7 @@ pub const Ship = struct {
     cloaked: bool = false,
     respawn: u16 = 0,
     at_wall: bool = false,
+    dying: bool = false,
     ping_ms: ?u16 = null,
 
     pub const unknown_ping = std.math.maxInt(u16);
@@ -431,6 +443,8 @@ pub const Message = union(enum(u8)) {
     combat: Combat,
     weapon_order: ordnance.Order,
     projectiles: ordnance.Page,
+    pilot_notice: PilotNotice,
+    wreck: Wreck,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -473,7 +487,9 @@ pub const Message = union(enum(u8)) {
                     try w.writeInt(u32, ship.deaths, .little);
                     if (view.scenario != null) {
                         try w.writeInt(u16, ship.respawn, .little);
-                        try w.writeByte(@intFromBool(ship.at_wall));
+                        const wall: u8 = @intFromBool(ship.at_wall);
+                        const dying: u8 = @intFromBool(ship.dying);
+                        try w.writeByte(wall | (dying << 1));
                         try w.writeInt(u16, ship.ping_ms orelse Ship.unknown_ping, .little);
                     }
                     if (view.scenario == .asteroid_field) try w.writeByte(@intFromBool(ship.cloaked));
@@ -524,6 +540,23 @@ pub const Message = union(enum(u8)) {
             .combat => |combat| try writeCombat(&w, &combat),
             .weapon_order => |order| try ordnance.writeOrder(&w, order),
             .projectiles => |page| try page.write(&w),
+            .pilot_notice => |notice| {
+                try w.writeByte(notice.pilot.slot);
+                try w.writeInt(u64, notice.pilot.generation, .little);
+                try w.writeInt(i32, notice.tick, .little);
+                try w.writeByte(@backingInt(notice.kind));
+                try writeCallSign(&w, &notice.name);
+            },
+            .wreck => |wreck| {
+                try w.writeByte(@intCast(wreck.pilot.participant.slot));
+                try w.writeInt(u64, wreck.pilot.participant.generation, .little);
+                try w.writeInt(u32, wreck.pilot.ship.reuse, .little);
+                try w.writeByte(@backingInt(wreck.fighter));
+                try w.writeInt(i32, wreck.tick, .little);
+                try writePosition(&w, wreck.motion.place.position);
+                for (packFacing(wreck.motion.place.orientation)) |angle| try w.writeInt(i16, angle, .little);
+                try writePosition(&w, wreck.motion.velocity);
+            },
         }
         return w.buffered();
     }
@@ -570,11 +603,10 @@ pub const Message = union(enum(u8)) {
                     if (view.scenario != null) {
                         ship.respawn = try r.takeInt(u16, .little);
                         if (ship.respawn > engine.game.deathmatch.respawn.duration) return error.InvalidSnapshot;
-                        ship.at_wall = switch (try r.takeByte()) {
-                            0 => false,
-                            1 => true,
-                            else => return error.InvalidSnapshot,
-                        };
+                        const flags = try r.takeByte();
+                        if (flags > 0b11) return error.InvalidSnapshot;
+                        ship.at_wall = flags & 1 != 0;
+                        ship.dying = flags & 2 != 0;
                         const ping = try r.takeInt(u16, .little);
                         ship.ping_ms = if (ping == Ship.unknown_ping) null else ping;
                     }
@@ -653,6 +685,36 @@ pub const Message = union(enum(u8)) {
             .combat => .{ .combat = try readCombat(&r) },
             .weapon_order => .{ .weapon_order = try ordnance.readOrder(&r, slots) },
             .projectiles => .{ .projectiles = try ordnance.Page.read(&r) },
+            .pilot_notice => notice: {
+                const slot = try r.takeByte();
+                const generation = try r.takeInt(u64, .little);
+                const tick = try r.takeInt(i32, .little);
+                if (slot >= slots or generation == 0 or tick < 0) return error.InvalidPilotNotice;
+                break :notice .{ .pilot_notice = .{
+                    .pilot = .{ .slot = slot, .generation = generation },
+                    .tick = tick,
+                    .kind = try r.takeEnum(PilotNotice.Kind, .little),
+                    .name = try readCallSign(&r),
+                } };
+            },
+            .wreck => wreck: {
+                const slot = try r.takeByte();
+                const generation = try r.takeInt(u64, .little);
+                const reuse = try r.takeInt(u32, .little);
+                const fighter = try r.takeEnum(Fighter, .little);
+                const tick = try r.takeInt(i32, .little);
+                const position = try readPosition(&r);
+                const orientation = unpackFacing(.{ try r.takeInt(i16, .little), try r.takeInt(i16, .little), try r.takeInt(i16, .little) });
+                const velocity = try readPosition(&r);
+                if (slot >= slots or generation == 0 or tick < 0 or !std.math.isFinite(math.lengthSquared(position)) or
+                    !std.math.isFinite(math.lengthSquared(velocity))) return error.InvalidWreck;
+                break :wreck .{ .wreck = .{
+                    .pilot = .{ .participant = .{ .slot = slot, .generation = generation }, .ship = .{ .slot = slot, .reuse = reuse } },
+                    .fighter = fighter,
+                    .tick = tick,
+                    .motion = .{ .place = .{ .position = position, .orientation = orientation }, .velocity = velocity },
+                } };
+            },
         };
         if (r.bufferedLen() != 0) return error.TrailingData;
         return message;
@@ -676,6 +738,32 @@ test "versions compare by protocol and snapshots retain slot identities" {
     const bytes = try view.encode(&buffer);
     try std.testing.expectEqualDeep(view, try Message.decode(bytes));
     try std.testing.expectError(error.EndOfStream, Message.decode(bytes[0 .. bytes.len - 1]));
+}
+
+test "a fighter breakup retains the destroyed ship even after a slot is reused" {
+    var buffer: [capacity]u8 = undefined;
+    const expected: Wreck = .{
+        .pilot = .{ .participant = .{ .slot = 1, .generation = 9 }, .ship = .{ .slot = 1, .reuse = 27 } },
+        .fighter = .shroud,
+        .tick = 320,
+        .motion = .{ .place = .{ .position = .{ 10, 20, 30 } }, .velocity = .{ 0, 0, 45 } },
+    };
+    const message: Message = .{ .wreck = expected };
+    const bytes = try message.encode(&buffer);
+    const decoded = (try Message.decode(bytes)).wreck;
+    try std.testing.expectEqualDeep(expected, decoded);
+    buffer[1] = slots;
+    try std.testing.expectError(error.InvalidWreck, Message.decode(bytes));
+}
+
+test "pilot notices retain the callsign of the admission that left" {
+    var buffer: [capacity]u8 = undefined;
+    const notice: PilotNotice = .{ .pilot = .{ .slot = 2, .generation = 17 }, .tick = 125, .kind = .left_flight, .name = lobbyName("Raven") };
+    const decoded = (try Message.decode(try (Message{ .pilot_notice = notice }).encode(&buffer))).pilot_notice;
+    try std.testing.expectEqual(notice.pilot, decoded.pilot);
+    try std.testing.expectEqual(notice.kind, decoded.kind);
+    try std.testing.expectEqual(notice.tick, decoded.tick);
+    try std.testing.expectEqualStrings(notice.name.slice(), decoded.name.slice());
 }
 
 test "input sequence accepts fresh commands across a wrap" {

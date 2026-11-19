@@ -25,6 +25,7 @@ const Peer = struct {
     identity: [max_identity]u8 = undefined,
     identity_len: u8 = 0,
     call_sign: ?wire.CallSign = null,
+    announce_join: bool = false,
     fighter: wire.Fighter = .predator,
     expires: i64,
     sequence: ?u32 = null,
@@ -63,14 +64,41 @@ fn now(host: *const Host) i64 {
 }
 
 fn release(host: *Host, slot: u8) void {
+    host.remove(slot, host.final_tick == null);
+}
+
+fn remove(host: *Host, slot: u8, announce: bool) void {
     const peer = host.peers[slot] orelse return;
     if (host.arena.pilots[slot]) |pilot| {
+        if (announce and peer.state == .playing) {
+            if (host.start == .lobby)
+                host.pilotNotice(slot, pilot.participant.generation, peer.call_sign, .left_lobby)
+            else if (host.tick != 0)
+                host.pilotNotice(slot, pilot.participant.generation, peer.call_sign, .left_flight);
+        }
         std.debug.print("left {d} {d}\n", .{ slot, pilot.participant.generation });
         host.arena.leave(slot);
         host.roster_dirty = true;
     }
     host.peers[slot] = null;
     net.session_close(peer.conn);
+}
+
+fn pilotNotice(host: *Host, slot: u8, generation: u64, name: ?wire.CallSign, kind: wire.PilotNotice.Kind) void {
+    const message: wire.Message = .{ .pilot_notice = .{
+        .pilot = .{ .slot = slot, .generation = generation },
+        .name = name orelse .{},
+        .tick = host.arena.mission.clock.frame_start,
+        .kind = kind,
+    } };
+    host.sendPlaying(message, slot);
+}
+
+fn sendPlaying(host: *const Host, message: wire.Message, except: ?u8) void {
+    for (host.peers, 0..) |entry, slot| {
+        const peer = entry orelse continue;
+        if (peer.state == .playing and except != @as(u8, @intCast(slot))) net.send(peer.conn, message) catch continue;
+    }
 }
 
 fn slotFor(host: *const Host, conn: net.Connection) ?u8 {
@@ -197,6 +225,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                 else => return err,
             };
             peer.state = .playing;
+            peer.announce_join = host.tick != 0;
             peer.expires = time + timeout;
             try net.send(peer.conn, .{ .joined = admitted });
             host.roster_dirty = true;
@@ -206,7 +235,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
         .playing => {
             if (host.final_tick) |tick| {
                 if (message == .received_final and message.received_final == tick) host.final_receipts += 1;
-                return message == .input or message == .flight_press or message == .weapon_order;
+                return message == .input or message == .flight_press or message == .weapon_order or message == .call_sign;
             }
             switch (message) {
                 .input => |input| {
@@ -228,6 +257,11 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                     if (peer.call_sign == null) {
                         peer.call_sign = name;
                         host.roster_dirty = true;
+                        if (peer.announce_join) {
+                            const pilot = host.arena.pilots[slot].?;
+                            host.pilotNotice(slot, pilot.participant.generation, name, .joined_flight);
+                            peer.announce_join = false;
+                        }
                     }
                 },
                 .pick_ship => |fighter| if (host.tick == 0 and host.start != .automatic) {
@@ -427,7 +461,7 @@ pub fn open(host: *Host, address: [:0]const u8, ticks: ?u32) !void {
 }
 
 pub fn close(host: *Host) void {
-    for (0..host.peers.len) |slot| host.release(@intCast(slot));
+    for (0..host.peers.len) |slot| host.remove(@intCast(slot), false);
     if (host.listener != 0) {
         net.session_listen_close(host.listener);
         host.listener = 0;
@@ -470,6 +504,7 @@ pub fn pump(host: *Host) !enum { running, finished } {
     host.tick += 1;
     const view = try host.arena.step(host.tick);
     host.broadcastNotices();
+    for (host.arena.wrecks) |entry| if (entry) |wreck| host.sendPlaying(.{ .wreck = wreck }, null);
     const final = host.tick == host.last_tick;
     if (final) {
         host.final_tick = host.tick;

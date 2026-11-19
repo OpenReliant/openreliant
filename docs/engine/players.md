@@ -109,6 +109,13 @@ A later occupant gets a different participant identity even if the game mode ass
 ship. Session authentication, ordering and disconnect detection belong to
 [#954](https://github.com/OpenReliant/openreliant/issues/954).
 
+Joining the lobby updates the roster. In flight, an arriving pilot adds the original HUD line
+(`net_receive_game_message`, 0x004B6F80, case 6). `mp_player_departed` (0x004B6890) uses
+installed string 0x562 in the lobby and 0x328 on the flight HUD. OpenReliant sends the name and
+admission from the host, so a departure still identifies the right pilot if the slot fills again.
+The lobby shows its system lines below the roster. Chat and the multiplayer pause screen are
+tracked in [#211](https://github.com/OpenReliant/openreliant/issues/211).
+
 ## Weapon commands
 
 **Improvement:** each participant's simulation state owns missile selection and lock progress.
@@ -215,6 +222,13 @@ collisions, damage, flight controls and pickups are blocked during the spawn. Th
 the original camera swing and the ship appears through the moving clipping plane. Other
 pilots see the same sweep at the same age, including when they join while a ship is appearing.
 
+Stock arena fighters use the original spin-out style (`explode_ship_init`, 0x004086F0).
+When the order reaches its last frame, the host sends the dying fighter's place and velocity
+before making its replacement (`explode_ship`, 0x00408A60). Clients use the shared blast,
+mesh cutting and debris effects, which can continue playing after the new ship appears.
+The original debris uses a scene mesh and its own flight record (`debris_add`, 0x00472700).
+The fragments are visual and have no collision or damage rules.
+
 ### Asteroid Field
 
 Asteroid Field is the first entry in `dm_scenarios` (0x0050C790). Mission 85 creates thirty
@@ -302,7 +316,6 @@ The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/95
   device notifications and the remaining local combat rules.
 - [#1401](https://github.com/OpenReliant/openreliant/issues/1401): the recalled pilot's cockpit return to the carrier.
 - [#1400](https://github.com/OpenReliant/openreliant/issues/1400): team rules, standings and badges.
-- [#1460](https://github.com/OpenReliant/openreliant/issues/1460): multiplayer fighter breakup and debris.
 
 This state split does not add a network session or change mission files. Single player remains
 one participant running the existing simulation and presentation paths.
