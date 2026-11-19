@@ -75,7 +75,7 @@ pub fn run(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !void
     const text = try directory.readFileAlloc(io, std.fs.path.basename(path), gpa, .limited(max_config_size));
     defer gpa.free(text);
     const config = try Config.parse(.{ .text = text });
-    var game_directory = if (config.mode == .@"nuclear-threat") try directory.openDir(io, config.game_directory, .{}) else null;
+    var game_directory = if (config.mode.scenario() != null) try directory.openDir(io, config.game_directory, .{}) else null;
     defer if (game_directory) |*opened| opened.close(io);
     var buffer: [128]u8 = undefined;
     const address = try std.fmt.bufPrintSentinel(&buffer, "{f}", .{config.bind}, 0);
@@ -102,6 +102,7 @@ test "headless settings share the game's INI syntax" {
     });
     try std.testing.expectEqual(27200, config.bind.getPort());
     try std.testing.expectEqual(Arena.Mode.@"nuclear-threat", config.mode);
+    try std.testing.expectEqual(.asteroid_field, (try Config.parse(.{ .text = "[Server]\nArena=asteroid-field" })).mode.scenario());
     try std.testing.expectEqual(2, config.players);
     try std.testing.expectEqual(175, config.ticks.?);
     try std.testing.expectEqualStrings("certs/session root.pub", config.identity.?.root_path);

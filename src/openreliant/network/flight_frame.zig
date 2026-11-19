@@ -15,6 +15,7 @@ deaths_at_spawn: [wire.slots]u32 = @splat(0),
 loaded: ?*game.mission.Loaded = null,
 environment: game.environfx.Environment = .{},
 beacon_slots: [wire.beacon_count]?u16 = @splat(null),
+rocks: stock.RockSlots = .{},
 shot_ended_at: [game.guns.max_bullets]i32 = @splat(-1),
 effect_tick: ?i32 = null,
 sounds: ?*game.hog_snd.commands.Commands = null,
@@ -78,6 +79,8 @@ pub fn loadArena(frame: *FlightFrame, files: stock.Files, scenario: wire.Scenari
         .spawn = .{ .tables = &frame.tables, .types = types },
         .environment = &frame.environment,
     });
+    if (scenario == .asteroid_field) frame.rocks = try .collect(drawn.objects);
+    if (scenario != .nuclear_threat) return;
     var count: usize = 0;
     for (drawn.objects.slots[0..drawn.objects.count], 0..) |*slot, index| {
         if (!slot.object.created or slot.object.type.base() != .dm_beacon) continue;
@@ -86,6 +89,15 @@ pub fn loadArena(frame: *FlightFrame, files: stock.Files, scenario: wire.Scenari
         count += 1;
     }
     if (count != frame.beacon_slots.len) return error.InvalidArenaBeacons;
+}
+
+pub fn applyRoster(frame: *FlightFrame, roster: wire.Roster) void {
+    for (roster.pilots, 0..) |entry, index| {
+        const membership = &frame.drawn.objects.player_states[index].membership;
+        if (membership.* != .joined) continue;
+        const peer = entry orelse continue;
+        if (peer.generation == membership.joined.generation) membership.joined.name.set(peer.name.slice());
+    }
 }
 
 fn world(frame: *FlightFrame) game.gameobj.World {
@@ -138,6 +150,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     frame.drawn.clock.frame_start = frame.drawn.clock.mission_ticks;
     if (scene.explosions) |effects| effects.frame(scene);
     if (scene.sparks) |sparks| sparks.frame(scene.clock);
+    try frame.rocks.apply(all, &snapshot.rocks);
     for (snapshot.ships, 0..) |entry, offset| {
         const index: u16 = @intCast(offset);
         const prior = all.playerBinding(index);
@@ -156,7 +169,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         if (!all.slots[index].object.created) {
             all.loadout_racks[index] = @splat(.of(.none));
             _ = try game.create.createObject(all, &frame.tables, types, index, ship.fighter.kind(), 0, ship.position, &frame.random);
-            if (admission.scenario != null) all.slots[index].object.countermeasures = 0;
+            if (snapshot.scenario != null) all.slots[index].object.countermeasures = 0;
             all.player_states[index] = .{ .membership = .{ .joined = .{
                 .generation = ship.generation,
                 .ship = .of(all, index),
@@ -252,6 +265,10 @@ test "the flight view follows host admissions and objective carriers" {
     try std.testing.expectEqual(snapshot.ships[1].?.shields, slot.object.shields);
     try std.testing.expectEqual(snapshot.ships[1].?.armor, slot.object.armor);
     try std.testing.expectEqual(2, game.hud.Readout.skull.value(all, &frame.drawn.player));
+    var roster: wire.Roster = .{};
+    roster.pilots[0] = .{ .generation = 1, .name = wire.lobbyName("Falcon") };
+    frame.applyRoster(roster);
+    try std.testing.expectEqualStrings("Falcon", all.player_states[0].membership.joined.name.slice());
     const earlier = all.playerBinding(0).?.ship;
     try std.testing.expect(!earlier.valid(local));
 
@@ -262,6 +279,8 @@ test "the flight view follows host admissions and objective carriers" {
     try frame.apply(&snapshot, admission, local, no_models);
     try std.testing.expect(!earlier.valid(all));
     try std.testing.expectEqual(3, all.playerBinding(0).?.participant.generation);
+    frame.applyRoster(roster);
+    try std.testing.expectEqualStrings("", all.player_states[0].membership.joined.name.slice());
     try std.testing.expectEqual(0, frame.drawn.beacon_snapshot.?.countAt(all, all.player));
     try std.testing.expectEqual(2, game.hud.Readout.skull.value(all, &frame.drawn.player));
 }

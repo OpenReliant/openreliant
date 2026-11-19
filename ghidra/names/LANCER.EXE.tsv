@@ -3178,3 +3178,13 @@ address	kind	name	type	comment
 004ae2d0	function	multiplayer_chat_panel		Draws chat history and edits the outgoing line in the multiplayer front end, including the session and loadout screens; Enter sends the text with the pilot call sign
 004ae270	function	multiplayer_chat_append		Scrolls the multiplayer front end chat history and appends a line
 004b9f60	function	net_send_chat		Sends a DirectPlay chat message to all players or to one selected pilot
+004b1760	function	mp_arena_prepare_pickups	void (void)	Prepares arena pickups and fills mp_powerup_weights from the cumulative weights of the original power-up records
+004b1e80	function	powerup_repair_ship	void __fastcall (int pilot)	Restores the fighter's shields and armour and clears its smoke
+004b1f30	function	powerup_give_missile	void __fastcall (int pilot)	Fits a single round of missile type 0 and updates the missile fit
+004b1fd0	function	powerup_add_countermeasures	void __fastcall (int pilot)	Adds three countermeasures
+004b1fe0	function	powerup_empty_shields	void __fastcall (int pilot)	Empties all four shields and stops them recharging during the power-up
+004b2070	function	powerup_cloak_begin	void __fastcall (int pilot)	Cloaks the fighter until the duration in its power-up record runs out
+004b20a0	function	powerup_cloak_end	void __fastcall (int pilot)	Uncloaks the fighter when its power-up expires
+004b20b0	function	powerup_refuel_afterburner	void __fastcall (int pilot)	Adds fuel to the afterburner and caps it at the fighter's full tank
+0050c510	data	mp_powerup_rules	byte[480]	Twelve records of 0x28 bytes with flags, lifetime, weight, effect callbacks and pickup type
+005db4c4	data	mp_powerup_weights	float[12]	Cumulative weights for selecting a random arena pickup effect

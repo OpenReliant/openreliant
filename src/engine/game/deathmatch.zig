@@ -19,9 +19,9 @@ pub fn resetToSpawnPositions(world: gameobj.World) !void {
     const all = world.objects;
     const scenarios = @import("dmscenarios.zig");
     if (!scenarios.isScenario(all.mission_number)) return;
+    // The original leaves scenery guns off unless the host enables AI turrets.
+    for (all.slots[@min(all.players, all.count)..all.count]) |*slot| slot.object.flags.guns_disabled = true;
     if (all.mission_number == scenarios.Scenario.nuclear_threat.mission() and all.arena_scenario != .six_beacons) {
-        // The original leaves scenery guns off unless the host enables AI turrets.
-        for (all.slots[@min(all.players, all.count)..all.count]) |*slot| slot.object.flags.guns_disabled = true;
         try six_beacons.Round.start(world, .free_for_all);
     }
     for (0..all.players) |at| {

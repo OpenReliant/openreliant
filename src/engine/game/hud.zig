@@ -2573,6 +2573,7 @@ pub const Frame = struct {
     ready: *const Readiness,
     edge_line: EdgeLine,
     multiplayer: bool = false,
+    show_standings: bool = false,
     beacon_snapshot: ?*const six_beacons.HudSnapshot = null,
     /// The sound the enemy lock's warning plays through (`Drawing.warnOfLock`); none where nothing
     /// is heard.
@@ -2888,8 +2889,11 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
         .wing_status = .{ .all = frame.all },
     };
     try state.windows.draw(pen, &placing, frame.last_view, contents, frame.all.kamovPart());
+    if (frame.show_standings) try standings.draw(pen, frame.all);
     drawing.aim.under_reticle = if (frame.sight) |sight| underReticle(frame.all, .{ .sight = sight, .scale = pen.scale }) else null;
 }
+
+pub const standings = @import("hud/standings.zig");
 
 /// The first gun of the group the ship has chosen (`GunMode.group`), which blind fire and the
 /// charge arc look at, or null for none.

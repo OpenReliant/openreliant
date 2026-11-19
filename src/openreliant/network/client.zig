@@ -34,6 +34,7 @@ joined: ?wire.Admission = null,
 call_sign: ?wire.CallSign = null,
 fighter: wire.Fighter = .predator,
 latest: ?wire.Snapshot = null,
+roster: wire.Roster = .{},
 sequence: u32 = 0,
 next_input: i64 = 0,
 leaving: bool = false,
@@ -96,7 +97,7 @@ pub fn leave(client: *Client, io: Io) !void {
 pub const Event = union(enum) {
     idle,
     admitted,
-    lobby: wire.Lobby,
+    lobby: wire.Scenario,
     beacon_notice: wire.BeaconNotice,
     combat: wire.Combat,
     snapshot,
@@ -156,11 +157,14 @@ pub fn poll(client: *Client, io: Io) !Event {
             std.debug.print("server requires multiplayer protocol {d} (OpenReliant {s})\n", .{ required.protocol, required.release });
             return error.IncompatibleProtocol;
         },
-        .lobby => |roster| {
+        .roster => |roster| {
             const admission = client.joined orelse return error.UnexpectedMessage;
-            if (client.latest != null or client.leaving) return .idle;
-            if (roster[admission.slot] == null) return error.UnexpectedMessage;
-            return .{ .lobby = roster };
+            if (client.leaving) return .idle;
+            if (roster.pilots[admission.slot] == null or roster.pilots[admission.slot].?.generation != admission.generation)
+                return error.UnexpectedMessage;
+            client.roster = roster;
+            if (client.latest == null) if (roster.lobby) |scenario| return .{ .lobby = scenario };
+            return .idle;
         },
         .beacon_notice => |notice| return if (client.joined != null and !client.leaving) .{ .beacon_notice = notice } else error.UnexpectedMessage,
         .combat => |effects| return if (client.latest != null and !client.leaving) .{ .combat = effects } else .idle,
@@ -172,6 +176,7 @@ pub fn poll(client: *Client, io: Io) !Event {
             if (client.leaving or view.tick <= if (client.latest) |last| last.tick else @as(u32, 0)) return .idle;
             const ship = view.ships[admission.slot] orelse return error.MissingShip;
             if (ship.generation != admission.generation) return error.WrongShip;
+            if (client.latest) |last| if (last.scenario != view.scenario) return error.UnexpectedMessage;
             client.latest = view;
             client.deadline = now + timeout;
             if (message == .finished) {
