@@ -96,12 +96,19 @@ candidates and blast victims keep checked references too, from the initial searc
 or blast completion. These lists keep their original limits and order; later spawns do not enter
 an existing shot's or blast's search.
 
+**Fix:** launch and landing attachments, rays, shields and other effects that hang from a model
+keep the parent object's reuse count. Replacing a slot can put the new model at the same address
+as the old one. The reuse count prevents an old attachment from following it, and lets a drawn
+copy still resolve the object and its parts as they stood in that frame. A retreat ends if
+its chosen ship leaves. The engine clears collision exemptions that name a departing object
+before its slot can be reused.
+
 Orders and camera subjects share `gameobj.ObjectSelection` when a mission can select a ship
 before it appears. It captures either the current object or the first creation expected in a
 stand-in slot. While waiting, it keeps the slot's meaning; after creation, only that object can
 resolve. Resetting the slot or starting a mission expires the selection.
 
-These changes are tracked under
+The implementation and its follow-ups are recorded in
 [#946](https://github.com/OpenReliant/openreliant/issues/946).
 
 ## Creating an object

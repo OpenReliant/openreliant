@@ -413,7 +413,9 @@ const back_to_sphere: Choice = .{ .maneuver = .out_of_action_sphere, .ticks = 50
 /// to the nearest friendly capital ship. A number past the maneuvers, or none, runs nothing, and
 /// Fight chooses again on its next update.
 fn choose(fighter: Fighter) void {
-    const data = &fighter.entry().data.fight;
+    const entry = fighter.entry();
+    const data = &entry.data.fight;
+    entry.retreat_destination = null;
     data.fresh = true;
     data.maneuver = FightData.none;
     const maneuver = chooseManeuver(fighter.ctx, fighter.index);
@@ -426,7 +428,10 @@ fn choose(fighter: Fighter) void {
     data.setNext(maneuver);
     data.ticks = drawTicks(fighter, maneuver);
     // With no such ship, it runs to where it is.
-    if (maneuver == .run_to_ship) data.ship = shipToRunTo(fighter) orelse fighter.index;
+    if (maneuver == .run_to_ship) {
+        data.ship = shipToRunTo(fighter) orelse fighter.index;
+        entry.retreat_destination = .of(fighter.objects(), data.ship);
+    }
 }
 
 /// `fight_choose_maneuver` (`0x0040A3A0`): the next maneuver of the ship in slot `index`, under
@@ -438,7 +443,8 @@ fn choose(fighter: Fighter) void {
 fn chooseManeuver(ctx: aigeneric.Context, index: u16) Maneuver {
     if (hooks.enter(.fight_choose_maneuver, chooseManeuver, .{ ctx, index })) |chosen| return chosen;
     const fighter = Fighter.unchecked(ctx, index) orelse return .none;
-    const data = &fighter.entry().data.fight;
+    const entry = fighter.entry();
+    const data = &entry.data.fight;
     const choice: Choice = if (fighter.enemy().object.flags.components)
         against_massive
     else if (fighter.ship().flags.components)
@@ -446,7 +452,10 @@ fn chooseManeuver(ctx: aigeneric.Context, index: u16) Maneuver {
     else
         outOfSphere(fighter) orelse byPosition(fighter);
     data.setNext(choice.maneuver);
-    if (choice.ship) |friend| data.ship = friend;
+    if (choice.ship) |friend| {
+        data.ship = friend;
+        entry.retreat_destination = .of(fighter.objects(), friend);
+    }
     data.ticks = choice.ticks orelse drawTicks(fighter, choice.maneuver);
     return choice.maneuver;
 }

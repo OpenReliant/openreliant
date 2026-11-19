@@ -1775,7 +1775,7 @@ test "a wreck that a mission places burns as it is made" {
     // nothing.
     const ray = rays.rays.slots[0].?;
     try std.testing.expect(ray.flags.flickers and !ray.flags.timed);
-    try std.testing.expectEqual(1, ray.owner);
+    try std.testing.expectEqual(1, ray.owner.?.resolve(on.world.objects).?);
     try std.testing.expectEqual(null, rays.rays.slots[1]);
 }
 

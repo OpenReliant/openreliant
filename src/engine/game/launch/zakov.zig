@@ -80,7 +80,7 @@ test init {
     // nose, which the point turns half a turn about Y.
     try std.testing.expectEqual(launch.Style.zakov, slot.state.launch.style);
     try std.testing.expect(slot.state.launch.attached);
-    try std.testing.expectEqual(carrier, slot.riding.?.object);
+    try std.testing.expectEqual(carrier, slot.riding.?.object.resolve(mission.objects).?);
     const point = carrier_model.attachments[1].position.vector();
     const expected = mission.slot(carrier).drawn.point(point + @as(@TypeOf(point), .{ 100, 0, 0 }));
     try std.testing.expectApproxEqAbs(expected[0], slot.drawn.position[0], 1e-3);

@@ -327,6 +327,7 @@ pub const OrderState = struct {
     // Inactive records retain the original zeroed target fields. Pushed orders capture an identity.
     target: Aim = .{ .other = std.mem.zeroes(Target) },
     sequence: i16 = 0,
+    retreat_destination: ?gameobj.ObjectRef = null,
     data: Entry.Data = .{ .words = @splat(0) },
 
     pub fn of(all: *const create.Objects, entry: Entry) OrderState {

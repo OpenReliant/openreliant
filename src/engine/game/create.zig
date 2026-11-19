@@ -1058,6 +1058,18 @@ pub const Objects = struct {
         return all.player_states[all.player].membership == .local_rules;
     }
 
+    /// These collision exclusions use slots in the fixed object layout. Clear them when an
+    /// object leaves, before any new object can inherit its exemptions.
+    fn clearCollisionReferences(all: *Objects, index: u16) void {
+        for (all.slots[0..all.count]) |*slot| {
+            const object = &slot.object;
+            for (&object.passes_through) |*through| {
+                if (through.index() == index) through.* = .none;
+            }
+            if (object.fighting.index() == index) object.fighting = .none;
+        }
+    }
+
     fn replaceSlotIdentity(all: *Objects, index: u16) void {
         all.reuses[index] +%= 1;
         if (all.playerState(index)) |state| state.unbindShip();
@@ -2231,6 +2243,7 @@ pub fn resetSlot(ctx: aigeneric.Context, index: u16) void {
     var object = gameobj.objectAlloc(.of(.stand_in), ctx.world.random);
     object.flags = .standing_in;
     slot.* = .{ .object = object };
+    all.clearCollisionReferences(index);
     all.replaceSlotIdentity(index);
 }
 
@@ -2249,6 +2262,7 @@ pub fn retire(ctx: aigeneric.Context, index: u16) void {
     object.flags.exploding = true;
     object.flags.targetable = false;
     aigeneric.popAll(ctx, index);
+    all.clearCollisionReferences(index);
     all.replaceSlotIdentity(index);
 }
 
@@ -2549,12 +2563,12 @@ test "Objects.copyInto" {
     armed.shield.?.struck = 10;
     var scripts: hooks.Scripts = undefined;
     mission.objects.scripts = &scripts;
-    defer mission.objects.scripts = null;
     const drawn = try gpa.create(Objects);
     defer gpa.destroy(drawn);
     var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
     try mission.objects.copyInto(drawn, arena.allocator());
+    mission.objects.scripts = null;
 
     // The copy's model is its own, its component among its own parts, and it runs no scripts.
     const copy = &drawn.slots[index];
@@ -2574,8 +2588,23 @@ test "Objects.copyInto" {
 
     // An effect that hangs from a part of the model finds the part in the objects, and its copy in
     // the copy of them.
-    const on: objects.PartOf = .{ .object = index, .part = .{ .model = &slot.model.?, .index = 0 } };
+    const on: objects.PartOf = .{ .object = .of(mission.objects, index), .part = .{ .model = &slot.model.?, .index = 0 } };
     try std.testing.expectEqual(&slot.model.?.parts[0], on.live(mission.objects).?);
+    try std.testing.expectEqual(&copy.model.?.parts[0], on.live(drawn).?);
+    const node: objects.NodeOf = .{ .object = on.object, .part = 0 };
+    try std.testing.expectEqual(on.live(drawn).?.drawn(), node.place(drawn).?);
+
+    armed.object.passes_through = .{ .of(index), .of(ship) };
+    armed.object.fighting = .of(index);
+    // A replacement can put its inline model at the very same address as the old model.
+    resetSlot(mission.orders(), index);
+    try std.testing.expectEqual(gameobj.Slot.none, armed.object.passes_through[0]);
+    try std.testing.expectEqual(gameobj.Slot.of(ship), armed.object.passes_through[1]);
+    try std.testing.expectEqual(gameobj.Slot.none, armed.object.fighting);
+    _ = try createObject(mission.objects, &mission.tables, model.types(), index, .of(.predator), 0, @splat(0), &mission.random);
+    try std.testing.expectEqual(on.part.model, &slot.model.?);
+    try std.testing.expectEqual(null, on.live(mission.objects));
+    try std.testing.expectEqual(null, node.place(mission.objects));
     try std.testing.expectEqual(&copy.model.?.parts[0], on.live(drawn).?);
 }
 

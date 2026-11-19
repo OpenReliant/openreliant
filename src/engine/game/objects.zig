@@ -391,9 +391,9 @@ pub const PartRef = struct {
 
 /// A node of the model tree of the object in slot `object`: its root, or one of its model's parts,
 /// as the root's child list holds them. The game keeps the node's address where something rides
-/// it (`launch.State.node`).
+/// it (`launch.State.node`). **Fix:** an attachment cannot move to a replacement in the same slot.
 pub const NodeOf = struct {
-    object: u16,
+    object: gameobj.ObjectRef,
     /// The part, or null for the root.
     part: ?usize = null,
 
@@ -402,8 +402,8 @@ pub const NodeOf = struct {
     /// part's as its model places it (`Model.frameAt`). Null for a part the object's model does not
     /// have.
     pub fn place(node: NodeOf, all: *const create.Objects) ?math.Place {
-        if (node.object >= all.slots.len) return null;
-        const slot = &all.slots[node.object];
+        const index = node.object.resolve(all) orelse return null;
+        const slot = &all.slots[index];
         const part = node.part orelse return slot.drawn;
         const model = if (slot.model) |*held| held else return null;
         if (part >= model.parts.len) return null;
@@ -414,13 +414,14 @@ pub const NodeOf = struct {
 /// A part of the model of the object in slot `object`, or of a model that model carries: what an
 /// effect hangs from.
 pub const PartOf = struct {
-    object: u16,
+    object: gameobj.ObjectRef,
     part: PartRef,
 
     /// The part, while it still belongs to its object (`PartRef.partIn`): in the object's model in
     /// `all`, or its copy where `all` is the copy of the objects that drawing works on.
     pub fn live(on: PartOf, all: *const create.Objects) ?*Model.Part {
-        return on.part.partIn(&all.slots[on.object]);
+        const index = on.object.resolve(all) orelse return null;
+        return on.part.partIn(&all.slots[index]);
     }
 };
 

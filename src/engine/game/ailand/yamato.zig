@@ -172,7 +172,7 @@ pub fn update(ctx: Context, index: u16) void {
             const on_pad = standing.relativeTo(model.frameAt(landing_pad, bay.drawn));
             state.on_pad = on_pad.position;
             state.pad_orientation = on_pad.orientation;
-            slot.riding = .{ .object = create.cutaway_slot, .part = landing_pad };
+            slot.riding = .{ .object = .of(all, create.cutaway_slot), .part = landing_pad };
         },
         .settling => {
             // No turns and no throttle while it waits on the pad (`0x0040F4A9`).
@@ -346,7 +346,7 @@ test "the player's ship lands on a pad of the Yamato's landing bay, and the miss
     aigeneric.objectOrders(ctx, player);
     try std.testing.expectEqual(Step.settling, state.step.as(Step));
     try std.testing.expectEqual(3000 + pad_settle, state.pad_due);
-    try std.testing.expectEqual(objects.NodeOf{ .object = create.cutaway_slot, .part = landing_pad }, slot.riding.?);
+    try std.testing.expectEqual(objects.NodeOf{ .object = .of(mission.objects, create.cutaway_slot), .part = landing_pad }, slot.riding.?);
     objects.setPosition(&slot.object, &slot.drawn, @splat(0));
     try std.testing.expect(hold(mission.objects, player));
     try std.testing.expectEqual(middle + Vector{ 0, 0, pad_ahead }, slot.object.nextPosition());

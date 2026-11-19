@@ -342,7 +342,8 @@ fn start(fighter: Fighter, instruction: script.Instruction) bool {
             return true;
         },
         .run_to_ship => {
-            flyTo(fighter, friend(fighter).nextPosition());
+            const to = friend(fighter) orelse return false;
+            flyTo(fighter, to.nextPosition());
             return true;
         },
         .end_script => return true,
@@ -592,7 +593,7 @@ fn attackRun(fighter: Fighter, far: bool) bool {
 /// By a ship with components it is done within `run_to_reach` of the ship's edge; by one without,
 /// it matches the ship's speed along its own nose and closes by the distance past `run_to_reach`.
 fn runToShip(fighter: Fighter) bool {
-    const to = friend(fighter);
+    const to = friend(fighter) orelse return false;
     fighter.state.point = to.root.next_position;
     steerToPoint(fighter);
     const apart = math.distance(to.nextPosition(), fighter.position());
@@ -603,9 +604,12 @@ fn runToShip(fighter: Fighter) bool {
     return true;
 }
 
-/// The friendly ship `RunToShip` flies to.
-fn friend(fighter: Fighter) *gameobj.GameObject {
-    return &fighter.objects().slots[fighter.state.ship].object;
+/// **Fix:** the manoeuvre ends if the friendly ship it chose has left its slot.
+fn friend(fighter: Fighter) ?*gameobj.GameObject {
+    const all = fighter.objects();
+    const ref = fighter.entry().retreat_destination orelse return null;
+    const index = ref.resolve(all) orelse return null;
+    return &all.slots[index].object;
 }
 
 /// `If Goingtocrash` (`maneuver_if_start`, `0x00406170`): against a target without components, on
@@ -900,7 +904,7 @@ test runToShip {
     const ship = fighter.ship();
     const other = try mission.add(.of(.sabre), .{ 0, 0, 25000 });
     const to = mission.slot(other);
-    fighter.state.ship = other;
+    fighter.entry().retreat_destination = .of(mission.objects, other);
 
     // Far from a ship without components, it closes by how far it is past `run_to_reach`, the
     // ship standing still.
@@ -912,6 +916,10 @@ test runToShip {
     try std.testing.expectEqual(least_throttle, ship.throttle);
     // By a ship with components, it is done within `run_to_reach` of its edge.
     to.object.flags.components = true;
+    try std.testing.expect(!runToShip(fighter));
+
+    create.resetSlot(mission.orders(), other);
+    _ = try create.createObject(mission.objects, &mission.tables, create.testing.no_models, other, .of(.sabre), 0, .{ 0, 0, 25000 }, &mission.random);
     try std.testing.expect(!runToShip(fighter));
 }
 

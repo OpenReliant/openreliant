@@ -159,7 +159,7 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     const world = ctx.world;
     const all = world.objects;
     const slot = &all.slots[index];
-    slot.riding = .{ .object = carrier };
+    slot.riding = .{ .object = .of(all, carrier) };
     const object = &slot.object;
     object.letGo();
     const gate = slot.orders[0].target.resolve(all).component;
@@ -456,7 +456,7 @@ test "a ship drops out of the Reliant's tube, step by step" {
     _ = try aigeneric.pushShip(ctx, ship, .launch, reliant, 2);
     aigeneric.objectOrders(ctx, ship);
     try std.testing.expectEqual(math.Vector{ 2400, -250, 10000 }, slot.drawn.position);
-    try std.testing.expectEqual(objects.NodeOf{ .object = reliant }, slot.riding.?);
+    try std.testing.expectEqual(objects.NodeOf{ .object = .of(mission.objects, reliant) }, slot.riding.?);
     try std.testing.expectEqual(0, slot.object.throttle);
     // Through gate 3, 400 to the left.
     try std.testing.expectEqual(math.Vector{ 2600, -250, 10000 }, tube(mission.slot(reliant), 3).?);

@@ -956,7 +956,7 @@ pub const Capital = struct {
         const at = capital.find(ref) orelse made: {
             const at = capital.next;
             capital.free(all, at);
-            capital.slots[at] = .create(index, ref, at, capital.made, now);
+            capital.slots[at] = .create(.of(all, index), ref, at, capital.made, now);
             capital.made +%= 1;
             capital.next = if (at == capital_slots - 1) 0 else at + 1;
             break :made at;
@@ -1006,7 +1006,7 @@ pub const CapitalShield = struct {
     /// The game's part of `capshield_create` (`0x0049F790`): a capital shield on part `ref` of the
     /// object in slot `owner`, in slot `at`, numbered `serial`, made at tick `now`. Its part shows
     /// it.
-    fn create(owner: u16, ref: objects.PartRef, at: CapitalSlot, serial: u32, now: i32) CapitalShield {
+    fn create(owner: gameobj.ObjectRef, ref: objects.PartRef, at: CapitalSlot, serial: u32, now: i32) CapitalShield {
         const part = ref.part();
         part.capshield = at;
         return .{
