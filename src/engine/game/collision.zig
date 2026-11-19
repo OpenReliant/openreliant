@@ -445,8 +445,13 @@ fn scaledBlow(world: gameobj.World, index: u16, struck: Quadrant, value: f32, at
 /// collision; null otherwise.
 fn smartTargeting(world: gameobj.World, attacker: gameobj.DamageSource, kind: Kind) ?*hud.State {
     const display = world.display orelse return null;
-    if (attacker.resolve(world.objects) != world.objects.player or !display.smart_targeting or kind == .collision) return null;
-    return display;
+    if (!display.smart_targeting or kind == .collision) return null;
+    const all = world.objects;
+    const pilot = if (world.damage_rules == .campaign and all.readsLocalPlayerInput())
+        attacker.resolve(all)
+    else
+        (all.playerBindingFor(attacker.object, attacker.participant_generation) orelse return null).participant.slot;
+    return if (pilot == all.player) display else null;
 }
 
 /// `object_armor_damage` (`0x004641F0`): applies damage to an object's armour after its shields
@@ -1306,6 +1311,19 @@ test "smart targeting takes what the player's ship hits" {
     all.slots[player].object.armor = .all(100);
     armorDamage(world, player, .aft, 1, index, .bullet);
     try std.testing.expectEqual(1, display.events.ship_hits.get(.aft).count);
+
+    // A delayed shot from the previous pilot cannot select a target for their replacement.
+    world.damage_rules = .{ .arena = null };
+    const first = all.joinParticipant(player).?;
+    const binding = all.bindParticipant(first, .of(all, player)).?;
+    const shot: gameobj.DamageSource = .of(all, player);
+    try std.testing.expect(create.Objects.leaveParticipant(world, first));
+    const replacement = all.joinParticipant(player).?;
+    _ = all.bindParticipant(replacement, binding.ship).?;
+    damageFrom(world, index, .fore, 1, 1, shot, .bullet);
+    try std.testing.expectEqual(null, target.slotIn(all));
+    damage(world, index, .fore, 1, 1, player, .bullet);
+    try std.testing.expectEqual(index, target.slotIn(all));
 }
 
 test knockDamage {

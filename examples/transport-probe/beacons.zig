@@ -2,6 +2,7 @@
 const std = @import("std");
 const engine = @import("openreliant").engine;
 const game = engine.game;
+const simulation = @import("arena_simulation.zig");
 const socket = @import("socket.zig");
 const wire = @import("beacon_snapshot.zig");
 const version = @import("version").string;
@@ -52,24 +53,12 @@ const Arena = struct {
     }
 
     fn world(arena: *Arena) game.gameobj.World {
-        var simulation = arena.mission.world();
-        simulation.damage_rules = .{ .arena = null };
-        simulation.explosions = &arena.explosions;
-        return simulation;
-    }
-
-    fn admit(arena: *Arena, slot: u16) !game.players.ControlRef {
-        const all = arena.mission.objects;
-        const pilot = all.joinParticipant(slot) orelse return error.JoinFailed;
-        return all.bindParticipant(pilot, .of(all, slot)) orelse error.BindFailed;
+        return simulation.world(&arena.mission, &arena.explosions);
     }
 
     fn frame(arena: *Arena) !wire.View {
-        const clock = &arena.mission.clock;
-        clock.advanceTimer(game.gameobj.ticks_per_step);
-        if (game.main.gameFrames(clock, &arena.devices, null, arena.world(), .in_turn, null) != .played)
-            return error.ArenaEnded;
-        return wire.View.capture(arena.mission.objects, clock.frame_start);
+        if (simulation.step(&arena.mission, &arena.devices, &arena.explosions) != .played) return error.ArenaEnded;
+        return wire.View.capture(arena.mission.objects, arena.mission.clock.frame_start);
     }
 };
 
@@ -221,7 +210,7 @@ fn host() !void {
     var clients: [pilot_count]socket.Connection = undefined;
     for (0..starting_pilots) |i| {
         clients[i] = try compatiblePeer(i);
-        _ = try arena.admit(@intCast(i));
+        _ = try simulation.admit(arena.world(), @intCast(i));
     }
     const pickup = try arena.frame();
     const carrier = try checkPickup(pickup);
@@ -231,7 +220,7 @@ fn host() !void {
     // The runner only starts the third process after the first two pilots confirm the pickup.
     try signalReady("beacon carried");
     clients[starting_pilots] = try compatiblePeer(starting_pilots);
-    const late = try arena.admit(starting_pilots);
+    const late = try simulation.admit(arena.world(), starting_pilots);
     const joined = try arena.frame();
     if (!std.meta.eql(carrier, try checkPickup(joined)) or joined.state.countFor(late) != 0)
         return error.WrongJoinState;
