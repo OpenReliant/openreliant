@@ -85,6 +85,7 @@ const close_mission_nearest: f32 = 110000;
 
 /// How long the cannon searches for its lock, in ticks, before it gives up (`0x0040D866`).
 const longest_search = 2500;
+const arena_search = 2000; // dark_reign cancel, 0x0040D866
 
 /// The targeting laser (`Ioncannon Mesh1`): a star of `laser_blades` over `laser2`, lit by colours
 /// of its own, `laser_width` wide either side, or `victorious_laser_width` at the Victorious
@@ -528,6 +529,31 @@ pub const Record = struct {
         record.rings = try Rings.create(cannons.gpa, cannons.ring);
     }
 
+    fn showGlow(record: *Record, cannon: objects.PartRef, t: f32, now: i32) void {
+        const glow = if (record.glow) |*held| held else return;
+        if (t < glow_widening) glow.widen(ease.in(glow_narrow, glow_width, t * ease_pace));
+        glow.scroll(now);
+        if (record.rings) |*rings| if (pair(pointsOf(cannon, .ion_barrel), 0)) |ends| {
+            rings.run(ends, t);
+            record.shown.rings = true;
+        };
+        record.shown.glow = true;
+    }
+
+    fn showFire(record: *Record, world: gameobj.World, focus: math.Place, target: *const create.Slot, t: f32, now: i32) void {
+        if (record.glow) |*glow| {
+            if (t > glow_collapse) glow.widen(ease.linear(glow_flare, glow_narrow, (t - glow_collapse) * ease_pace));
+            glow.scroll(now);
+            if (world.rays) |rays| for (record.rays) |held| {
+                if (held) |kept| if (rays.kept(kept)) |ray| ray.colour(0, .{ 0, 0, 1 - t });
+            };
+        }
+        if (record.beam) |kept| if (world.rays) |rays| if (rays.kept(kept)) |ray| {
+            ray.to = focus.inverse(target.drawn.position + beam_lift);
+        };
+        record.shown.glow = record.glow != null;
+    }
+
     /// The beam, from where it leaves the focus of the cannon of the object in slot `index`,
     /// `focus`, standing at `focus_at`, to `target`'s ship, coloured as `kind` has it; and the
     /// fireballs it sets off about the ship.
@@ -683,6 +709,99 @@ fn pair(points: []const shp.Point, n: usize) ?[2]Vector {
     return .{ points[2 * n].position.vector(), points[2 * n + 1].position.vector() };
 }
 
+fn parts(slot: *create.Slot, kind: Kind) ?struct { cannon: objects.PartRef, focus: objects.PartRef } {
+    const model = if (slot.model) |*live| live else return null;
+    const cannon = model.partNamed(kind.cannon) orelse return null;
+    const focus = if (kind.focus) |name| model.partNamed(name) orelse return null else cannon;
+    return .{ .cannon = cannon, .focus = focus };
+}
+
+/// A host's active cannon phase. Clients use it to draw effects without running orders.
+pub const Shot = struct {
+    target: u16,
+    step: Step,
+    elapsed: u16,
+};
+
+pub fn capture(world: gameobj.World, index: u16) ?Shot {
+    const all = world.objects;
+    const slot = &all.slots[index];
+    const order = slot.running(.fire_ion_cannon) orelse return null;
+    const cannons = world.ion_cannons orelse return null;
+    if (slot.object.order_starting or cannons.of(index) == null) return null;
+    const target = order.target.slotIn(all) orelse return null;
+    if (!all.hasBoundPlayerShip(target)) return null;
+    const state = &slot.state.ion_cannon;
+    return .{ .target = target, .step = state.step, .elapsed = @intCast(std.math.clamp(world.clock.frame_start -| state.step_began, 0, std.math.maxInt(u16))) };
+}
+
+pub fn yaw(all: *create.Objects, index: u16) f32 {
+    const slot = &all.slots[index];
+    const cannon = (parts(slot, .of(slot.object.type)) orelse return 0).cannon;
+    return cannon.part().animation.turret[1];
+}
+
+/// Presents the current state even when the viewer first sees a shot already in progress.
+pub const View = struct {
+    target: ?gameobj.ObjectRef = null,
+    phase: ?Shot = null,
+
+    pub fn show(view: *View, world: gameobj.World, index: u16, facing: f32, shot: ?Shot) !void {
+        const all = world.objects;
+        const cannons = world.ion_cannons orelse return;
+        cannons.beginFrame();
+        const slot = &all.slots[index];
+        const kind: Kind = .of(slot.object.type);
+        const cannon_parts = parts(slot, kind) orelse return;
+        const cannon = cannon_parts.cannon;
+        const focus = cannon_parts.focus;
+        const delta = facing - cannon.part().animation.turret[1];
+        if (delta != 0) {
+            cannon.model.swivel(cannon.index, .{ 0, delta, 0 });
+            cannon.model.pose(cannon.index);
+        }
+        const phase = shot orelse {
+            cannons.free(world.rays, index);
+            view.* = .{};
+            return;
+        };
+        const target = &all.slots[phase.target];
+        const identity: gameobj.ObjectRef = .of(all, phase.target);
+        const previous = view.phase;
+        const restarted = !std.meta.eql(view.target, @as(?gameobj.ObjectRef, identity)) or
+            if (previous) |last| phase.step.before(last.step) or (phase.step == last.step and phase.elapsed < last.elapsed) else true;
+        if (restarted) {
+            cannons.free(world.rays, index);
+            try cannons.make(index, kind, .{ .object = .of(all, index), .part = cannon }, .{ .object = .of(all, index), .part = focus });
+        }
+        view.* = .{ .target = identity, .phase = phase };
+        const record = cannons.of(index) orelse return;
+        const cannon_at = slot.partPlace(cannon.part()) orelse return;
+        const focus_at = slot.partPlace(focus.part()) orelse return;
+        const now = world.clock.frame_start;
+        const t = std.math.clamp(phase.step.through(0, phase.elapsed), 0, 1);
+        if (!phase.step.before(.charge)) {
+            if (record.laser == null) try record.raiseLaser(cannons, focus, target);
+            record.aimLaser(focus_at, target, if (phase.step == .charge) t else 1);
+        }
+        if (phase.step == .power) record.lightUp(world, cannon_at, t);
+        if (!phase.step.before(.ready)) record.showLights();
+        if (phase.step == .ready and (restarted or previous.?.step.before(.ready))) {
+            if (!restarted) sound3d.playIn(world, null, null, index, .icharge, 1, .guaranteed);
+            record.crackle(world, index, cannon, kind);
+        }
+        if (!phase.step.before(.glow) and record.glow == null) try record.raiseGlow(cannons, cannon);
+        if (phase.step == .glow) record.showGlow(cannon, t, now);
+        if (phase.step == .fire) {
+            if (restarted or previous.?.step.before(.fire)) {
+                if (!restarted) sound3d.playIn(world, null, null, index, .ilaser, 1, .guaranteed);
+                record.fire(world, cannons, index, kind, focus, focus_at, target);
+            }
+            record.showFire(world, focus_at, target, t, now);
+        }
+    }
+};
+
 /// `order_fire_ion_cannon_init` (`0x0040D020`): the init of Dark reign shoot (110). Where the
 /// object's model has its kind's parts (`Kind`), the order starts at its first step, keeping its
 /// ship and the tick, and the cannon takes a record (`Cannons.make`); a record left from an object
@@ -693,9 +812,9 @@ pub fn init(ctx: Context, index: u16) void {
     const cannons = world.ion_cannons orelse return;
     cannons.free(world.rays, index);
     const kind: Kind = .of(slot.object.type);
-    const model = if (slot.model) |*live| live else return;
-    const cannon = model.partNamed(kind.cannon) orelse return;
-    const focus = if (kind.focus) |name| (model.partNamed(name) orelse return) else cannon;
+    const cannon_parts = parts(slot, kind) orelse return;
+    const cannon = cannon_parts.cannon;
+    const focus = cannon_parts.focus;
     slot.state.ion_cannon = .{
         .record = 0,
         .step = .start,
@@ -756,9 +875,9 @@ pub fn update(ctx: Context, index: u16) void {
     if (object.type.base() == .boridin) ai.stop(object);
     const cannons = world.ion_cannons orelse return aigeneric.end(ctx, index);
     const record = cannons.of(index) orelse return aigeneric.end(ctx, index);
-    const model = if (slot.model) |*live| live else return aigeneric.end(ctx, index);
-    const cannon = model.partNamed(kind.cannon) orelse return aigeneric.end(ctx, index);
-    const focus = if (kind.focus) |name| (model.partNamed(name) orelse return aigeneric.end(ctx, index)) else cannon;
+    const cannon_parts = parts(slot, kind) orelse return aigeneric.end(ctx, index);
+    const cannon = cannon_parts.cannon;
+    const focus = cannon_parts.focus;
     const cannon_at = slot.partPlace(cannon.part()) orelse return aigeneric.end(ctx, index);
     const focus_at = slot.partPlace(focus.part()) orelse return aigeneric.end(ctx, index);
     const target_index = slot.orders[0].target.slotIn(all) orelse return stop(ctx, index, cannons);
@@ -784,13 +903,15 @@ pub fn update(ctx: Context, index: u16) void {
         const held = if (world.variables) |variables| variables.ion_cannons_hold_lock != 0 else false;
         if (!held) {
             stop(ctx, index, cannons);
-            _ = aigeneric.giveShip(ctx, index, .fire_ion_cannon, target_index, null);
+            // The arena picks a fresh target after a broken lock (0x0040D7F8).
+            if (!arenaTower(world, index)) _ = aigeneric.giveShip(ctx, index, .fire_ion_cannon, target_index, null);
             return;
         }
     }
 
     record.searching +%= ticks;
-    if (step.before(.glow) and record.searching > longest_search) return stop(ctx, index, cannons);
+    const timeout: i32 = if (arenaTower(world, index)) arena_search else longest_search;
+    if (step.before(.glow) and record.searching > timeout) return stop(ctx, index, cannons);
 
     switch (step) {
         .start => advance(state, now),
@@ -833,15 +954,7 @@ pub fn update(ctx: Context, index: u16) void {
                 record.fire(world, cannons, index, kind, focus, focus_at, target);
                 return;
             }
-            if (!kind.effects) return;
-            const glow = if (record.glow) |*held| held else return;
-            if (t < glow_widening) glow.widen(ease.in(glow_narrow, glow_width, t * ease_pace));
-            glow.scroll(now);
-            if (record.rings) |*rings| if (pair(pointsOf(cannon, .ion_barrel), 0)) |ends| {
-                rings.run(ends, t);
-                record.shown.rings = true;
-            };
-            record.shown.glow = true;
+            if (kind.effects) record.showGlow(cannon, t, now);
         },
         .fire => {
             if (kind.effects) {
@@ -849,26 +962,31 @@ pub fn update(ctx: Context, index: u16) void {
                 record.shown.glow = record.glow != null;
             }
             if (t >= 1) return advance(state, now);
-            if (kind.effects) if (record.glow) |*glow| {
-                if (t > glow_collapse) glow.widen(ease.linear(glow_flare, glow_narrow, (t - glow_collapse) * ease_pace));
-                glow.scroll(now);
-                if (world.rays) |rays| for (record.rays) |held| {
-                    if (held) |kept| if (rays.kept(kept)) |ray| ray.colour(0, .{ 0, 0, 1 - t });
-                };
-            };
-            if (record.beam) |kept| if (world.rays) |rays| if (rays.kept(kept)) |ray| {
-                ray.to = focus_at.inverse(target.drawn.position + beam_lift);
-            };
+            record.showFire(world, focus_at, target, t, now);
             if (kind.effects) record.aimLaser(focus_at, target, 1);
         },
         .destroy => {
             if (world.view() == .director and target_index == all.player) return;
             cannons.free(world.rays, index);
+            if (arenaTower(world, index)) {
+                // The original writes the current carrier as the last attacker (0x0040E717).
+                const carrier = all.arena_scenario.dark_reign.relay.carrier;
+                if (carrier != null and carrier.?.participant.slot == target_index) return aigeneric.end(ctx, index);
+                if (target.object.invulnerable != .full) {
+                    target.setAttacker(if (carrier) |pilot| .of(all, pilot.participant.slot) else null);
+                }
+            }
             destroyShip(ctx, target_index);
             aigeneric.end(ctx, index);
         },
         _ => {},
     }
+}
+
+fn arenaTower(world: gameobj.World, index: u16) bool {
+    const all = world.objects;
+    return world.damage_rules == .arena and all.arena_scenario == .dark_reign and
+        all.arena_scenario.dark_reign.relay.tower.resolve(all) == index;
 }
 
 /// The order on to its next step at tick `now` (`ai_sequence_sync`, which waits for every player

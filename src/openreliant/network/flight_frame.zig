@@ -9,6 +9,7 @@ const FlightFrame = @This();
 const powerups = game.deathmatch.powerups;
 
 drawn: game.main.Drawn,
+rays_drawing: game.erayfx.Drawing,
 tables: game.create.Stats,
 random: engine.random.Random = .{},
 tick: ?u32 = null,
@@ -19,6 +20,11 @@ wall_mesh: ?engine.surrender.surrenderlib.srapiext.Mesh = null,
 loaded: ?*game.mission.Loaded = null,
 environment: game.environfx.Environment = .{},
 beacon_slots: [wire.beacon_count]?u16 = @splat(null),
+dark_reign: ?struct {
+    relay: game.gameobj.ObjectRef,
+    tower: game.gameobj.ObjectRef,
+    cannon: game.aiioncan.View = .{},
+} = null,
 rocks: stock.RockSlots = .{},
 pickups: powerups.Pickups = .{},
 mine_start: ?u16 = null,
@@ -56,6 +62,7 @@ pub fn create(gpa: std.mem.Allocator, local: *const game.create.Objects, tables:
             .arena = .init(gpa),
             .player = .{ .viewing = .{ .cockpit_mode = .chase } },
         },
+        .rays_drawing = .{ .gpa = gpa },
         .tables = tables.*,
         .random = random,
     };
@@ -82,6 +89,14 @@ pub fn enableCombat(frame: *FlightFrame, assets: CombatAssets, types: game.creat
     frame.drawn.effects.sparks = try .create(gpa, assets.textures);
     frame.drawn.effects.shockwaves = try .create(gpa, assets.textures, .round);
     frame.drawn.effects.flash = .{};
+    if (frame.dark_reign != null) {
+        frame.drawn.effects.rays = try .init(gpa, assets.textures);
+        frame.drawn.effects.ion_cannons = try .init(gpa, assets.textures);
+        const images: game.create.extra.Images = try .load(assets.textures);
+        var scene = frame.world();
+        scene.extras = &images;
+        if (frame.dark_reign.?.tower.resolve(scene.objects)) |tower| game.create.extra.hatMade(scene, tower);
+    }
     try frame.respawns.load(gpa, assets.textures);
     frame.wall_mesh = try game.deathmatch.Boundary.Flashes.mesh(gpa, assets.textures);
     frame.projectiles = .init(gpa, assets.ordnance_models, assets.trails);
@@ -97,6 +112,9 @@ pub fn destroy(frame: *FlightFrame) void {
     if (frame.drawn.effects.particles) |*particles| particles.deinit();
     if (frame.drawn.effects.sparks) |*sparks| sparks.deinit();
     if (frame.drawn.effects.shockwaves) |*rings| rings.deinit(gpa);
+    if (frame.drawn.effects.ion_cannons) |*cannons| cannons.deinit();
+    frame.rays_drawing.deinit();
+    if (frame.drawn.effects.rays) |*rays| rays.deinit();
     frame.respawns.deinit(gpa);
     if (frame.wall_mesh) |*mesh| mesh.deinit(gpa);
     frame.drawn.objects.destroy();
@@ -120,10 +138,17 @@ pub fn loadArena(frame: *FlightFrame, files: stock.Files, scenario: wire.Scenari
         .spawn = .{ .tables = &frame.tables, .types = types },
         .environment = &frame.environment,
     });
-    if (scenario == .asteroid_field) {
+    if (scenario.hasPowerUps()) {
         frame.rocks = try .collect(drawn.objects);
         frame.pickups = try .collect(drawn.objects);
         frame.mine_start = try powerups.reserveMines(drawn.objects);
+    }
+    if (scenario == .dark_reign) {
+        const Round = game.deathmatch.dark_reign.Round;
+        frame.dark_reign = .{
+            .relay = Round.find(drawn.objects, .comms_relay) orelse return error.MissingCommsRelay,
+            .tower = Round.find(drawn.objects, .darkreign) orelse return error.MissingDarkReign,
+        };
     }
     if (scenario != .nuclear_threat) return;
     var count: usize = 0;
@@ -231,6 +256,8 @@ fn world(frame: *FlightFrame) game.gameobj.World {
         .shockwaves = if (frame.drawn.effects.shockwaves) |*rings| rings else null,
         .flash = if (frame.drawn.effects.flash) |*flash| flash else null,
         .sparks = if (frame.drawn.effects.sparks) |*sparks| sparks else null,
+        .rays = if (frame.drawn.effects.rays) |*rays| rays else null,
+        .ion_cannons = if (frame.drawn.effects.ion_cannons) |*cannons| cannons else null,
         .display = &frame.drawn.display,
     };
 }
@@ -295,6 +322,36 @@ pub fn presentCombat(frame: *FlightFrame, effects: []const game.guns.FlightEffec
     game.guns.frameReplicas(scene);
 }
 
+fn presentPickup(all: *game.create.Objects, index: u16, value: wire.Beacon) void {
+    const slot = &all.slots[index];
+    slot.object.flags.disabled = value != .loose;
+    if (value == .loose) {
+        game.objects.setPosition(&slot.object, &slot.drawn, value.loose);
+        if (slot.model) |*model| model.place(slot.drawn.position, slot.drawn.orientation);
+    }
+}
+
+fn presentDarkReign(frame: *FlightFrame, scene: game.gameobj.World, view: wire.DarkReign) !void {
+    const map = if (frame.dark_reign) |*found| found else return error.UnexpectedArena;
+    const all = scene.objects;
+    const relay = map.relay.resolve(all) orelse return error.MissingCommsRelay;
+    const tower = map.tower.resolve(all) orelse return error.MissingDarkReign;
+    const before = frame.drawn.relay_carrier;
+    presentPickup(all, relay, view.relay);
+    const carrier = if (view.relay == .carried) all.playerBinding(view.relay.carried) else null;
+    frame.drawn.relay_carrier = carrier;
+    if (carrier) |binding| {
+        if (frame.tick != null and !std.meta.eql(before, carrier)) {
+            game.sound3d.playIn(scene, null, null, binding.participant.slot, .dmpickup, 1, .not_reserved);
+            const target = game.ai.controlEntry(all, all.player);
+            if (target != null and target.?.target.slotIn(all) == relay)
+                _ = engine.input.cycleTargetFor(scene.display, all, all.player, .next, .hostile, true);
+        }
+    }
+    try map.cannon.show(scene, tower, wire.unpackAngle(view.yaw), view.shot);
+    if (scene.rays) |rays| rays.frame(all, scene.clock.frame_start, scene.effectsRandom());
+}
+
 pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wire.Admission, local: *game.create.Objects, types: game.create.Types) !void {
     if (frame.tick == snapshot.tick) return;
     const all = frame.drawn.objects;
@@ -316,7 +373,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     frame.drawn.display.messages.expire(scene.clock.frame_start);
     if (scene.sparks) |sparks| sparks.frame(scene.clock);
     try frame.rocks.apply(all, &snapshot.rocks);
-    if (snapshot.scenario == .asteroid_field) {
+    if (snapshot.scenario != null and snapshot.scenario.?.hasPowerUps()) {
         try frame.presentPickups(snapshot.pickups);
         try frame.presentMines(snapshot, types);
     }
@@ -403,24 +460,20 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     if (scene.particles) |particles| particles.frame(scene.clock);
     if (scene.shockwaves) |rings| rings.frame(scene);
     if (snapshot.scenario != null) frame.presentWeapons(snapshot.weapons);
-    if (snapshot.scenario == .asteroid_field) frame.presentPower(snapshot.power);
+    if (snapshot.scenario != null and snapshot.scenario.?.hasPowerUps()) frame.presentPower(snapshot.power);
     // Reserve the identities used during the session in the local mission's slot counters.
     for (local.reuses[0..wire.slots], all.reuses[0..wire.slots]) |*reuse, received| reuse.* = received +% 1;
     frame.drawn.beacon_snapshot = switch (snapshot.objectives) {
         .none => null,
+        .dark_reign => |mode| view: {
+            try frame.presentDarkReign(scene, mode);
+            break :view null;
+        },
         .six_beacons => |beacons| view: {
             var captured: game.deathmatch.six_beacons.HudSnapshot = .{};
             for (&captured.carriers, beacons, frame.beacon_slots) |*carrier, value, marker| {
                 if (value == .carried) carrier.* = all.playerBinding(value.carried);
-                if (marker) |index| {
-                    const slot = &all.slots[index];
-                    slot.object.flags.disabled = value != .loose;
-                    if (value == .loose) {
-                        const orientation = slot.object.root.orientation;
-                        game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = value.loose, .orientation = orientation });
-                        if (slot.model) |*model| model.place(slot.drawn.position, orientation);
-                    }
-                }
+                if (marker) |index| presentPickup(all, index, value);
             }
             break :view captured;
         },

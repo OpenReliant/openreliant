@@ -2483,6 +2483,17 @@ pub const Pen = struct {
         return drawText(font, pen.gpa, pen.device, at, words, pen.colour, alignment, pen.scale);
     }
 
+    /// Draws a sprite through a part's placement and records its bounds.
+    pub fn partShape(pen: Pen, part: parts.Part, index: usize, at: [2]i32) Error!void {
+        const all = pen.parts orelse return pen.shape(index, at);
+        const asked = all.placements.getPtrConst(part).place;
+        var placing: Placing = .of(pen.device, pen.gpa, asked, pen.scale);
+        defer all.note(part, placing.drawn);
+        var drawn = pen.sized(pen.scale * asked.scale);
+        drawn.device = placing.interface();
+        try drawn.shape(index, at);
+    }
+
     /// `words` in `font` at `at`, lined up by `alignment`, as the part `part` of its instrument:
     /// moved, scaled from `at`, aligned, given other words or hidden as the mods' displays place
     /// it, with where it draws noted (`parts`). Where the line ends, as it would be drawn at `at`.
@@ -2596,6 +2607,7 @@ pub const Frame = struct {
     multiplayer: bool = false,
     standings_first: ?usize = null,
     chat_line: ?[]const u8 = null,
+    relay_carrier: ?players.ControlRef = null,
     beacon_snapshot: ?*const six_beacons.HudSnapshot = null,
     /// The sound the enemy lock's warning plays through (`Drawing.warnOfLock`); none where nothing
     /// is heard.
@@ -2802,6 +2814,8 @@ pub const Instrument = enum {
     arena_power_up,
     /// The arena scoreboard.
     standings,
+    /// The local comms relay badge in Dark Reign.
+    dark_reign_relay,
 
     /// The instrument a window is; null for the frames alone, which show nothing.
     pub fn ofWindow(window: windows.Window) ?Instrument {
@@ -2869,6 +2883,13 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
     else
         null;
     if (beacons) |view| try view.drawLocal(placing.pen(pen, .beacon_counter), frame.all);
+    if (frame.relay_carrier) |carrier| {
+        if (carrier.participant.slot == frame.all.player) {
+            const relay = placing.pen(pen, .dark_reign_relay);
+            if (resources.arenaIcons(frame.gpa)) |art|
+                try relay.drawing(.{ .art = art, .gpa = frame.gpa }).shape(0x0C, relay.placed(.{ -25, 0 }, 0.5, 0));
+        }
+    }
     try state.caption.draw(&drawing.caption, placing.pen(pen, .caption), frame.all.mission_number, frame.clock.game_ticks);
     try state.key_prompt.draw(placing.pen(pen, .key_prompt), frame.devices);
     // Where the lead cursor stands, which the reticle closes on, and whether the enemy lock's
@@ -2885,6 +2906,7 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
                 .mode = frame.mode,
                 .speaker = speaker,
                 .beacons = beacons,
+                .relay = if (frame.relay_carrier) |carrier| .{ .pilot = carrier, .icons = resources.arenaIcons(frame.gpa) } else null,
             };
             lead = try drawTarget(drawing, state, placing.pen(pen, .target_markers), &resources.target_fonts, scene, frame.edge_line);
         }
@@ -2915,7 +2937,7 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
         .damage = .{ .object = live },
         .missiles = .{ .ring = &frame.all.player_states[frame.all.player].weapons.ring },
         .power = .{ .ball = resources.ball, .object = live, .hit_shake = frame.hit_shake, .random = frame.random },
-        .target_display = .{ .state = state, .drawing = drawing, .all = frame.all, .beacons = frame.beacon_snapshot, .multiplayer = frame.multiplayer },
+        .target_display = .{ .state = state, .drawing = drawing, .all = frame.all, .beacons = frame.beacon_snapshot, .relay = frame.relay_carrier, .multiplayer = frame.multiplayer },
         .objectives = .{ .objectives = &state.objectives },
         .comms = .{ .menu = &frame.player.menu, .font = &resources.target_fonts.new },
         .wing_status = .{ .all = frame.all },
@@ -6104,6 +6126,7 @@ pub const TargetFonts = struct {
 pub const TargetScene = struct {
     sight: Sight,
     beacons: ?six_beacons.Hud = null,
+    relay: ?struct { pilot: players.ControlRef, icons: ?*Art } = null,
     all: *const create.Objects,
     mode: camera.CockpitMode,
     /// The ship whose line the radio's window names, where it shows
@@ -6290,6 +6313,13 @@ pub fn drawTarget(drawing: *Drawing, state: *const State, pen: Pen, fonts: *Targ
             const name = &all.player_states[index].membership.joined.name;
             _ = try pen.textIn(&fonts.new, pen.moved(corner, name_offset), name.slice(), .left);
             if (scene.beacons) |beacons| try beacons.drawTarget(pen, &fonts.new, pilot, corner);
+            if (scene.relay) |relay| {
+                if (std.meta.eql(relay.pilot, pilot)) {
+                    if (relay.icons) |art| {
+                        try pen.drawing(.{ .art = art, .gpa = pen.gpa }).partShape(.target_markers_relay, 0x11, pen.moved(corner, .{ -33, 2 }));
+                    }
+                }
+            }
         }
     }
     // The range goes by the box's far corner, which a box reaching behind the camera throws

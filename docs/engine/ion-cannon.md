@@ -73,6 +73,11 @@ where the cannon's part or its focus is gone. Then:
 4. Before the glow step, the cannon gives up once it has searched for 2500 ticks, and the order
    pops; the ready step starts the count again.
 
+In Dark Reign, the scenario queues the cannon against a random eligible pilot after a 1000-tick
+delay (0x004B3CF0). The relay carrier is immune, as is their team in a team game. A broken
+lock ends the shot so the tower can choose again (0x0040D7F8). A search before the glow step
+ends after 2000 ticks (0x0040D866), and a cannon kill credits the current carrier (0x0040E717).
+
 ## The steps
 
 Each step lasts its ticks (`0x004E1C04`), and the next begins once they are up:

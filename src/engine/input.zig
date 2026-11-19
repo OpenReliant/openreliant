@@ -2175,8 +2175,8 @@ fn launchSelected(world: gameobj.World, index: u16, weapons: *players.Weapons, s
     const slot = &all.slots[index];
     const ship = &slot.object;
     if (ship.flags.missiles_disabled or ship.flags.jumping) return;
-    const powerups = if (world.damage_rules == .arena and all.arena_scenario == .asteroid_field)
-        &all.arena_scenario.asteroid_field
+    const powerups = if (world.damage_rules == .arena)
+        all.arena_scenario.powerUps()
     else
         null;
     if (powerups) |round| {

@@ -13,12 +13,14 @@ pub const Mode = enum {
     @"six-beacons",
     @"nuclear-threat",
     @"asteroid-field",
+    @"dark-reign",
 
     pub fn scenario(mode: Mode) ?wire.Scenario {
         return switch (mode) {
             .training, .@"six-beacons" => null,
             .@"nuclear-threat" => .nuclear_threat,
             .@"asteroid-field" => .asteroid_field,
+            .@"dark-reign" => .dark_reign,
         };
     }
 
@@ -26,6 +28,7 @@ pub const Mode = enum {
         return switch (chosen) {
             .nuclear_threat => .@"nuclear-threat",
             .asteroid_field => .@"asteroid-field",
+            .dark_reign => .@"dark-reign",
             else => error.UnsupportedArena,
         };
     }
@@ -53,6 +56,7 @@ combat: [2 * game.guns.max_bullets + wire.slots]game.guns.FlightEffect = undefin
 combat_count: usize = 0,
 decoys: ?game.cloak.Countermeasures = null,
 waves: ?game.shockwave.Shockwaves = null,
+cannons: ?game.aiioncan.Cannons = null,
 
 pub fn create(gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory: std.Io.Dir) !*Arena {
     const arena = try gpa.create(Arena);
@@ -75,6 +79,7 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
     arena.combat_count = 0;
     arena.decoys = null;
     arena.waves = null;
+    arena.cannons = null;
     errdefer arena.deinit();
     switch (mode) {
         .training => {
@@ -86,7 +91,7 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
             arena.explosions = try .init(gpa, null);
             try simulation.prepareSixBeacons(&arena.mission, &arena.explosions.?);
         },
-        .@"nuclear-threat", .@"asteroid-field" => {
+        .@"nuclear-threat", .@"asteroid-field", .@"dark-reign" => {
             // mission_start seeds the game's random stream afresh (0x004936AE).
             var seed: u64 = undefined;
             io.random(std.mem.asBytes(&seed));
@@ -97,13 +102,16 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
             arena.decoys = .init(gpa, assets.mounts.mounts());
             arena.waves = try .create(gpa, &assets.images, .round);
             const scenario = mode.scenario().?;
+            if (scenario == .dark_reign) arena.cannons = try .init(gpa, &assets.images);
             arena.loaded = try assets.files.load(gpa, scenario, arena.world());
-            if ((scenario == .nuclear_threat) != (arena.mission.objects.arena_scenario == .six_beacons))
-                return error.ArenaScriptDidNotStart;
-            if (scenario == .asteroid_field) {
-                if (arena.mission.objects.arena_scenario != .asteroid_field) return error.ArenaScriptDidNotStart;
-                arena.rocks = try .collect(arena.mission.objects);
-            }
+            const started = switch (scenario) {
+                .nuclear_threat => arena.mission.objects.arena_scenario == .six_beacons,
+                .asteroid_field => arena.mission.objects.arena_scenario == .asteroid_field,
+                .dark_reign => arena.mission.objects.arena_scenario == .dark_reign,
+                else => unreachable,
+            };
+            if (!started) return error.ArenaScriptDidNotStart;
+            if (scenario.hasPowerUps()) arena.rocks = try .collect(arena.mission.objects);
         },
     }
 }
@@ -136,6 +144,7 @@ fn deinit(arena: *Arena) void {
     if (arena.loaded) |loaded| loaded.destroy();
     if (arena.decoys) |*decoys| decoys.reset();
     if (arena.waves) |*waves| waves.deinit(gpa);
+    if (arena.cannons) |*cannons| cannons.deinit();
     if (arena.explosions) |*explosions| explosions.deinit();
     arena.mission.deinit();
     if (arena.assets) |assets| assets.close(gpa);
@@ -152,6 +161,7 @@ fn world(arena: *Arena) game.gameobj.World {
     scene.beacon_notices = .{ .context = arena, .send = note };
     if (arena.decoys) |*decoys| scene.countermeasures = decoys;
     if (arena.waves) |*waves| scene.shockwaves = waves;
+    if (arena.cannons) |*cannons| scene.ion_cannons = cannons;
     if (arena.assets != null) {
         scene.gun_effects = .{ .context = arena, .send = noteCombat };
         scene.arena_wrecks = .{ .context = arena, .send = noteWreck };
@@ -274,8 +284,7 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
     const all = arena.mission.objects;
     var view: wire.Snapshot = .{ .tick = tick, .scenario = arena.mode.scenario(), .ships = @splat(null) };
     view.rocks = arena.rocks.capture(all);
-    if (all.arena_scenario == .asteroid_field) {
-        const round = &all.arena_scenario.asteroid_field;
+    if (all.arena_scenario.powerUps()) |round| {
         view.pickups = round.pickups.visible(all);
         for (&view.mines, 0..) |*entry, i| {
             const index = round.mine_start + @as(u16, @intCast(i));
@@ -331,6 +340,16 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
                 .angles = wire.packFacing(blast.place.orientation),
             };
         };
+    }
+    if (all.arena_scenario == .dark_reign) {
+        const round = &all.arena_scenario.dark_reign.relay;
+        const object = &all.slots[round.relay.resolve(all) orelse return error.MissingCommsRelay].object;
+        const tower = round.tower.resolve(all) orelse return error.MissingDarkReign;
+        view.objectives = .{ .dark_reign = .{
+            .relay = if (round.carrier) |carrier| .{ .carried = @intCast(carrier.participant.slot) } else .{ .loose = object.position() },
+            .yaw = wire.packAngle(game.aiioncan.yaw(all, tower)),
+            .shot = game.aiioncan.capture(arena.world(), tower),
+        } };
     }
     return view;
 }

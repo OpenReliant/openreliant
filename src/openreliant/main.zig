@@ -1631,6 +1631,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .sparks = if (flight.effects.sparks) |*effects| effects else null,
                     .explosions = if (flight.effects.explosions) |*effects| effects else null,
                     .particles = if (flight.effects.particles) |*pool| pool else null,
+                    .rays = if (flight.effects.rays) |*effects| effects else null,
+                    .rays_drawing = &online.rays_drawing,
+                    .ion_cannons = if (flight.effects.ion_cannons) |*effects| effects else null,
                     .shockwaves = if (flight.effects.shockwaves) |*rings| rings else null,
                     .flash = if (flight.effects.flash) |*screen_flash| screen_flash else null,
                     .respawns = &online.respawns,
@@ -1641,7 +1644,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .lock = &flight.objects.player_states[flight.objects.player].weapons.lock,
                     .lock_rings = lock_rings,
                     .pickup_rings = &pickup_rings,
-                    .attachments = .{ .camera = place.position, .frame_start = flight.clock.frame_start },
+                    .attachments = .{ .camera = place.position, .frame_start = flight.clock.frame_start, .random = &drawn_random },
                 }, driver.interface());
             } else {
                 scene.clear();
@@ -2818,6 +2821,7 @@ const Display = struct {
             .ui_scale = display.ui_scale,
             .sight = display.sight,
             .all = drawn.objects,
+            .relay_carrier = drawn.relay_carrier,
             .beacon_snapshot = if (drawn.beacon_snapshot) |*snapshot| snapshot else null,
             .player = &drawn.player,
             .clock = &drawn.clock,

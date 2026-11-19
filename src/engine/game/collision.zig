@@ -75,8 +75,8 @@ pub fn collide(world: gameobj.World, first: u16, second: u16, pass: u8) bool {
     if (classes[0] == .mine or classes[1] == .mine) {
         if (classes[0] != .fighter and classes[1] != .fighter) return false;
         const mine, const fighter = if (classes[0] == .mine) .{ near, far } else .{ far, near };
-        const owner = if (world.damage_rules == .arena and all.arena_scenario == .asteroid_field)
-            all.arena_scenario.asteroid_field.owner(mine)
+        const owner = if (world.damage_rules == .arena)
+            if (all.arena_scenario.powerUps()) |round| round.owner(mine) else null
         else
             null;
         if (owner) |source| {

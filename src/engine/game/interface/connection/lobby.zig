@@ -175,7 +175,7 @@ fn description(mode: scenarios.Scenario) Label {
     return .{ .english = switch (mode) {
         .asteroid_field => "Fight for the most kills in an asteroid field.",
         .nuclear_threat => "Collect six beacons and take them to the gate. Losing your ship drops the beacons you carry.",
-        .dark_reign => "Collect the relay to control the tower's targeting.",
+        .dark_reign => "Recover the comms relay to keep the Dark Reign from targeting you and earn credit for its kills.",
         .tag_bomb => "Pass the ticking bomb to another pilot before it goes off.",
         .hunt_the_shadow => "Hunt the cloaked pilot to become the Shadow.",
         .vampires => "Survive as a human or infect the remaining pilots as a vampire.",

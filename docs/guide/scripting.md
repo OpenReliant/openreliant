@@ -1985,9 +1985,10 @@ hud.register_display("comms", {
 | `comms_title`, `comms_numbers`, `comms_items` | The radio's menu, in either window that shows it: its title, the items' numbers, and the items |
 | `wing_status_title`, `wing_status_numbers` | The wing status window's title, and the wingmen's numbers |
 
-In multiplayer, `chat_input`, `beacon_counter`, `arena_power_up` and `standings` are HUD
-instruments. They work with the same layout, replacement and bounds functions as other HUD
-instruments.
+In multiplayer, `chat_input`, `beacon_counter`, `arena_power_up`, `dark_reign_relay` and
+`standings` are HUD instruments. They work with the same layout, replacement and bounds
+functions as other HUD instruments. The targeted carrier's icon is the `target_markers_relay`
+part of `target_markers`. Their relay label in `target_display` is `target_display_relay`.
 
 ### Screens
 
