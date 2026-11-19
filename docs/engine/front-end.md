@@ -61,10 +61,15 @@ The co-op screen has a ready check and needs at least two pilots before launch (
 opens the original mode list with the descriptions and team-play notes from the installed
 language file. Nuclear Threat is available to host. The ship selector shows the installed
 ITAC fighter pictures, class, armament and special abilities. Pilots joining a dedicated
-server or a match already in progress can open the same selector from the browser. Co-op
-setup and lobby chat are tracked in
-[#404](https://github.com/OpenReliant/openreliant/issues/404), and the other arena rules in
+server or a match already in progress can open the same selector from the browser. Co-op setup is
+tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404), and the other arena rules in
 [#1400](https://github.com/OpenReliant/openreliant/issues/1400).
+
+The lobby keeps the last six chat and system lines above its text field, as the deathmatch layout
+of `multiplayer_chat_panel` (0x004AE2D0) does. Click the field or press Enter to start typing,
+then press Enter to send. Escape leaves the field. The host supplies the sender's callsign and
+the lobby shows the original `%s: %s` format (0x00503184). The CHAT label comes from installed
+string 0x140.
 
 The browser reads matching labels from the installed language table, with English fallbacks.
 A pilot returns to the browser with the host-departure message (string `0x3B7` from the

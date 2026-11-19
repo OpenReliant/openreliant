@@ -83,6 +83,9 @@ pub const Part = enum {
     wing_status_numbers,
     /// The selected pilot's beacon count in the small target window.
     target_display_beacons,
+    /// The text and caret of the editable flight chat line.
+    chat_input_text,
+    chat_input_caret,
 
     /// Whether it's a picture rather than text, which takes no alignment or words.
     pub fn picture(part: Part) bool {

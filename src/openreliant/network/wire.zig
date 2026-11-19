@@ -7,7 +7,7 @@ pub const ordnance = @import("ordnance.zig");
 const flight = engine.input.flight;
 pub const Fighter = engine.game.dmscenarios.Fighter;
 pub const Scenario = engine.game.dmscenarios.Scenario;
-pub const revision: u16 = 12;
+pub const revision: u16 = 13;
 pub const slots = 3;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
@@ -46,6 +46,35 @@ pub const Input = struct {
     }
 };
 pub const Admission = struct { slot: u8, generation: u64 };
+pub const chat = engine.game.chat;
+pub const ChatScope = enum(u8) { lobby, flight, private };
+pub const ChatRequest = struct {
+    to: union(ChatScope) { lobby, flight, private: Admission },
+    text: chat.Line,
+};
+pub const ChatLine = struct {
+    scope: ChatScope,
+    sender: u8,
+    name: CallSign,
+    text: chat.Line,
+};
+
+fn readChat(reader: *std.Io.Reader) !chat.Line {
+    const len = try reader.takeByte();
+    if (len == 0 or len > chat.capacity) return error.InvalidChat;
+    const bytes = try reader.take(len);
+    for (bytes) |byte| if (!chat.printable(byte)) return error.InvalidChat;
+    if (chat.trim(bytes).len == 0) return error.InvalidChat;
+    var text: chat.Line = .{};
+    text.set(chat.trim(bytes));
+    return text;
+}
+
+fn writeChat(writer: *std.Io.Writer, text: *const chat.Line) !void {
+    try writer.writeByte(@intCast(text.len));
+    try writer.writeAll(text.slice());
+}
+
 pub const CallSign = engine.game.interface.pilot_roster.CallSign;
 pub const Roster = struct {
     lobby: ?Scenario = null,
@@ -67,7 +96,7 @@ pub const PilotNotice = struct {
 };
 
 fn validCallSignByte(byte: u8) bool {
-    return byte >= ' ' and byte != 0x7f;
+    return chat.printable(byte) and byte != ':';
 }
 
 pub fn lobbyName(profile: []const u8) CallSign {
@@ -77,7 +106,7 @@ pub fn lobbyName(profile: []const u8) CallSign {
         name.bytes[name.len] = byte;
         name.len += 1;
     }
-    name.set(std.mem.trim(u8, name.slice(), " "));
+    name.set(chat.trim(name.slice()));
     return name;
 }
 
@@ -445,6 +474,8 @@ pub const Message = union(enum(u8)) {
     projectiles: ordnance.Page,
     pilot_notice: PilotNotice,
     wreck: Wreck,
+    chat_request: ChatRequest,
+    chat_line: ChatLine,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -546,6 +577,20 @@ pub const Message = union(enum(u8)) {
                 try w.writeInt(i32, notice.tick, .little);
                 try w.writeByte(@backingInt(notice.kind));
                 try writeCallSign(&w, &notice.name);
+            },
+            .chat_request => |request| {
+                try w.writeByte(@backingInt(std.meta.activeTag(request.to)));
+                if (request.to == .private) {
+                    try w.writeByte(request.to.private.slot);
+                    try w.writeInt(u64, request.to.private.generation, .little);
+                }
+                try writeChat(&w, &request.text);
+            },
+            .chat_line => |line| {
+                try w.writeByte(@backingInt(line.scope));
+                try w.writeByte(line.sender);
+                try writeCallSign(&w, &line.name);
+                try writeChat(&w, &line.text);
             },
             .wreck => |wreck| {
                 try w.writeByte(@intCast(wreck.pilot.participant.slot));
@@ -695,6 +740,31 @@ pub const Message = union(enum(u8)) {
                     .tick = tick,
                     .kind = try r.takeEnum(PilotNotice.Kind, .little),
                     .name = try readCallSign(&r),
+                } };
+            },
+            .chat_request => request: {
+                const scope = try r.takeEnum(ChatScope, .little);
+                const to: @FieldType(ChatRequest, "to") = switch (scope) {
+                    .lobby => .lobby,
+                    .flight => .flight,
+                    .private => private: {
+                        const slot = try r.takeByte();
+                        const generation = try r.takeInt(u64, .little);
+                        if (slot >= slots or generation == 0) return error.InvalidChat;
+                        break :private .{ .private = .{ .slot = slot, .generation = generation } };
+                    },
+                };
+                break :request .{ .chat_request = .{ .to = to, .text = try readChat(&r) } };
+            },
+            .chat_line => line: {
+                const scope = try r.takeEnum(ChatScope, .little);
+                const sender = try r.takeByte();
+                if (sender >= slots) return error.InvalidChat;
+                break :line .{ .chat_line = .{
+                    .scope = scope,
+                    .sender = sender,
+                    .name = try readCallSign(&r),
+                    .text = try readChat(&r),
                 } };
             },
             .wreck => wreck: {
@@ -944,4 +1014,33 @@ test "projectile pages preserve slot reuse and reject entries past the end of th
     try std.testing.expectEqualDeep(page, (try Message.decode(try (Message{ .projectiles = page }).encode(&buffer))).projectiles);
     page.entries[Page.width - 1] = page.entries[0];
     try std.testing.expectError(error.InvalidProjectilePage, Message.decode(try (Message{ .projectiles = page }).encode(&buffer)));
+}
+
+test "chat requests carry a destination and bounded text without a sender field" {
+    var buffer: [capacity]u8 = undefined;
+    var words: chat.Line = .{};
+    words.set("  caf\xe9 ");
+    const request: Message = .{ .chat_request = .{ .to = .{ .private = .{ .slot = 2, .generation = 51 } }, .text = words } };
+    const encoded = try request.encode(&buffer);
+    const decoded = (try Message.decode(encoded)).chat_request;
+    try std.testing.expectEqual(request.chat_request.to.private, decoded.to.private);
+    try std.testing.expectEqualStrings("caf\xe9", decoded.text.slice());
+    try std.testing.expectError(error.TrailingData, Message.decode(buffer[0 .. encoded.len + 1]));
+    buffer[2] = slots;
+    try std.testing.expectError(error.InvalidChat, Message.decode(encoded));
+
+    const tag = @backingInt(std.meta.Tag(Message).chat_request);
+    const lobby = @backingInt(ChatScope.lobby);
+    try std.testing.expectError(error.InvalidChat, Message.decode(&.{ tag, lobby, 0 }));
+    try std.testing.expectError(error.InvalidChat, Message.decode(&.{ tag, lobby, chat.capacity + 1 }));
+    try std.testing.expectError(error.InvalidChat, Message.decode(&.{ tag, lobby, 2, ' ', 0xa0 }));
+    for ([_]u8{ 0, '\r', '\n', 0x7f, 0x81, 0xad }) |control|
+        try std.testing.expectError(error.InvalidChat, Message.decode(&.{ tag, lobby, 2, 'a', control }));
+
+    const line: Message = .{ .chat_line = .{ .scope = .flight, .sender = 1, .name = lobbyName("Viper"), .text = decoded.text } };
+    const delivered = (try Message.decode(try line.encode(&buffer))).chat_line;
+    try std.testing.expectEqual(.flight, delivered.scope);
+    try std.testing.expectEqual(1, delivered.sender);
+    try std.testing.expectEqualStrings("Viper", delivered.name.slice());
+    try std.testing.expectEqualStrings("caf\xe9", delivered.text.slice());
 }

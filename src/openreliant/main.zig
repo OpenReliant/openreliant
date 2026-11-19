@@ -1147,9 +1147,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             front_context.window = size;
             front_context.elapsed = elapsed;
             // While the console is up, it takes the pass.
-            if (network_enabled) network_pilot.update(io, &front, &devices, presentation, strings, app.active and !console_up);
+            if (network_enabled) network_pilot.update(io, &front, &devices, &typed, presentation, strings, &display.resources.font, app.active and !console_up);
             const in_arena = network_enabled and network_pilot.flying();
-            if (!console_up and in_arena and devices.keyboard.pressed(engine.input.scan.escape, .none, true)) {
+            if (!console_up and in_arena and network_pilot.chat.target == null and devices.keyboard.pressed(engine.input.scan.escape, .none, true)) {
                 network_pilot.leave(&front.connection, presentation);
             }
             const front_outcome = if (console_up or in_arena) null else front.frame(front_context);
@@ -1173,7 +1173,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         through.mode_saved = .unchosen;
                         try game_scripts.start();
                     },
-                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .choose_ship => {},
+                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .choose_ship, .send_chat => {},
                 }
                 flow.next = switch (outcome) {
                     .host_lan => {
@@ -1186,6 +1186,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     },
                     .launch_session => {
                         if (network_enabled) network_pilot.launch(&front.connection);
+                        continue;
+                    },
+                    .send_chat => |line| {
+                        if (network_enabled) network_pilot.sendLobbyChat(line);
                         continue;
                     },
                     .choose_ship => |ship| {
@@ -1325,8 +1329,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             front.movie = null;
             _ = try movies.play(name, .over_screen) orelse return;
         }
-        // The window takes text while the front end has a line to type into.
-        window.takeText(console_up or (flow.in_front_end and front.takesText()));
+        // Take text while a front-end field or the flight chat line is open.
+        window.takeText(console_up or (flow.in_front_end and (front.takesText() or (network_enabled and network_pilot.chat.target != null))));
         const orders: game.aigeneric.Context = .{ .world = world, .devices = &game_devices };
         const slot = &objects.slots[objects.player];
         // Whether the drawn frame's view frame runs this pass, with the step the launch is at.
@@ -1488,6 +1492,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         }
         display.multiplayer = network_frame != null;
         display.show_standings = display.multiplayer and network_pilot.show_standings;
+        display.chat_line = if (display.multiplayer and network_pilot.chat.target != null) network_pilot.chat.line.slice() else null;
         display.drawn = network_frame orelse &drawn;
         display.drawing.takeUp(if (network_frame) |flight| &flight.display else &game_display);
         // The frame draws a copy of the game: of the objects, which with smooth motion has what
@@ -2682,6 +2687,7 @@ const Display = struct {
     drawn: *const game.main.Drawn,
     multiplayer: bool = false,
     show_standings: bool = false,
+    chat_line: ?[]const u8 = null,
     /// What drawing hands the game (`game.main.Handed`), here what the player aimed at as the
     /// display was drawn.
     handed: *game.main.Handed,
@@ -2779,6 +2785,7 @@ const Display = struct {
             .hit_shake = if (display.multiplayer) 0 else display.view.shake_left,
             .multiplayer = display.multiplayer,
             .show_standings = display.show_standings,
+            .chat_line = display.chat_line,
             .sound = display.settings.sound,
             .radio = if (drawn.radio) |*on_air| on_air else null,
             .film = &display.film,
@@ -2796,6 +2803,8 @@ const Display = struct {
 
 test {
     _ = @import("network/wire.zig");
+    _ = @import("network/chat_budget.zig");
+    _ = @import("network/flight_chat.zig");
     _ = @import("network/dedicated.zig");
     std.testing.refAllDecls(@This());
 }

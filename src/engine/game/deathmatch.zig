@@ -231,7 +231,7 @@ pub const UberKill = struct {
 };
 
 /// Fills the original HUD string's %s fields and clips the result to one message line.
-pub fn addMessage(messages: *@import("hud.zig").Messages, tick: i32, format: []const u8, values: []const []const u8) void {
+pub fn addMessage(messages: anytype, tick: i32, format: []const u8, values: []const []const u8) void {
     var buffer: [@import("hud.zig").Messages.line_size]u8 = undefined;
     var line: std.Io.Writer = .fixed(&buffer);
     var parts = std.mem.splitSequence(u8, format, "%s");

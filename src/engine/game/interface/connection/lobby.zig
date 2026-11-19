@@ -3,6 +3,8 @@
 const std = @import("std");
 const ui = @import("../canvas.zig");
 const hud = @import("../../hud.zig");
+const chat = @import("../../chat.zig");
+const Typed = @import("../../winmain.zig").Typed;
 const input = @import("../../../input.zig");
 const scenarios = @import("../../dmscenarios.zig");
 const CallSign = @import("../pilot_roster.zig").CallSign;
@@ -12,15 +14,18 @@ const choices = @import("choice_list.zig");
 const ShipPicker = @import("ship_picker.zig");
 const Label = widgets.Label;
 const Lobby = @This();
+pub const History = hud.MessageList(6); // session loadout variant, 0x004AE365
 
 const Control = enum { leave, launch };
 const Field = enum { scenario, ship };
-pub const Action = enum { leave, launch, choose_ship };
+pub const Action = union(enum) { leave, launch, choose_ship, send_chat: chat.Line };
 const Role = union(enum) { host: struct { can_launch: bool = false, port: u16 }, guest };
 
 role: Role,
 roster: []const ?CallSign,
-notices: ?*const hud.Messages = null,
+notices: ?*const History = null,
+chat_line: chat.Line = .{},
+chat_focused: bool = false,
 local_slot: usize,
 scenario: scenarios.Scenario = .nuclear_threat,
 ship: scenarios.Fighter = .predator,
@@ -30,7 +35,10 @@ option_under: ?usize = null,
 preview: scenarios.Scenario = .nuclear_threat,
 
 const panel_top = 153;
-const panel_bottom = 389;
+const panel_bottom = 291;
+const chat_top = 297;
+const chat_bottom = 408;
+const chat_spacing = 11;
 const left_edge = 48;
 const divider = 343;
 const right_edge = 592;
@@ -44,6 +52,7 @@ const control_width = 180;
 
 const host_title: Label = .{ .english = "DEATHMATCH HOST", .installed = 0x2C1 };
 const guest_title: Label = .{ .english = "DEATHMATCH JOIN", .installed = 0x2D3 };
+const chat_label: Label = .{ .english = "CHAT", .installed = 0x140 };
 const players_label: Label = .{ .english = "PLAYERS", .installed = 0x141 };
 const fallback_player: Label = .{ .english = "PILOT", .installed = 0xBF };
 const host_label: Label = .{ .english = "HOST", .installed = 0x13C };
@@ -110,12 +119,32 @@ fn canLaunch(lobby: *const Lobby) bool {
     return lobby.role == .host and lobby.role.host.can_launch;
 }
 
-pub fn frame(lobby: *Lobby, pointer: ui.Pointer, keys: *input.Keyboard, window: [2]u32) ?Action {
+pub fn frame(lobby: *Lobby, pointer: ui.Pointer, keys: *input.Keyboard, typed: *Typed, window: [2]u32) ?Action {
     const layout = Layout.init(window);
     const at = layout.point(pointer.at);
     const escape = keys.pressed(input.scan.escape, .none, true);
     if (lobby.mode_open) {
+        typed.clear();
         lobby.modeFrame(pointer, escape);
+        return null;
+    }
+    if (pointer.down) lobby.chat_focused = chatField(chatPanel(layout)).holds(at);
+    if (lobby.chat_focused) {
+        chat.edit(&lobby.chat_line, typed, null);
+        if (escape) {
+            lobby.chat_focused = false;
+            return null;
+        }
+        if (chat.submitted(keys)) {
+            const line = lobby.chat_line;
+            lobby.chat_line.len = 0;
+            if (chat.trim(line.slice()).len != 0) return .{ .send_chat = line };
+        }
+        return null;
+    }
+    typed.clear();
+    if (chat.submitted(keys)) {
+        lobby.chat_focused = true;
         return null;
     }
     lobby.hover = if (control(layout, .leave).holds(at)) .leave else if (lobby.canLaunch() and control(layout, .launch).holds(at)) .launch else null;
@@ -145,6 +174,7 @@ pub fn draw(lobby: *const Lobby, original: ui.Canvas, art: *hud.Art) !void {
     widgets.panel(canvas, game_box);
     try lobby.drawPlayers(canvas, players_box);
     try lobby.drawGame(canvas, game_box, layout, art);
+    try lobby.drawChat(canvas, chatPanel(layout));
     const leave: Label = .{ .english = if (lobby.role == .host) "STOP HOSTING" else "LEAVE GAME" };
     try widgets.button(canvas, art, control(layout, .leave), leave, true, lobby.hover == .leave);
     if (lobby.role == .host) try widgets.button(canvas, art, control(layout, .launch), launch_label, lobby.canLaunch(), lobby.hover == .launch);
@@ -215,14 +245,43 @@ fn drawPlayers(lobby: *const Lobby, canvas: ui.Canvas, panel: ui.Rect) !void {
         if (slot == 0 or slot == lobby.local_slot) try canvas.text(font, .{ right, y }, if (slot == 0) host else "YOU", ui.blue, .right);
         y += row_height;
     }
-    const notices = lobby.notices orelse return;
-    if (notices.count == 0) return;
-    y = panel.y + panel.height - inset - line_height * hud.Messages.capacity;
-    canvas.line(.{ left, y - inset / 2 }, .{ right, y - inset / 2 }, hud.rgb(0x324A55));
-    for (0..notices.count) |index| {
-        try widgets.fittedLabel(canvas, .{ left, y }, right - left, notices.line(index), ui.blue, .left);
-        y += line_height;
+}
+
+fn chatPanel(layout: Layout) ui.Rect {
+    const left, const top = layout.point(.{ left_edge, chat_top });
+    const right, const bottom = layout.point(.{ right_edge, chat_bottom });
+    return .{ .x = @intCast(left), .y = @intCast(top), .width = @intCast(right - left), .height = @intCast(bottom - top) };
+}
+
+fn chatField(panel: ui.Rect) ui.Rect {
+    const inset = Layout.footer_inset;
+    return .{ .x = panel.x + inset, .y = panel.y + panel.height - inset - control_height, .width = panel.width - 2 * inset, .height = control_height };
+}
+
+/// `multiplayer_chat_panel` (0x004AE2D0) places a scrolling log above the line
+/// the pilot types. OpenReliant fits the same controls into its shared lobby.
+fn drawChat(lobby: *const Lobby, canvas: ui.Canvas, panel: ui.Rect) !void {
+    widgets.panel(canvas, panel);
+    const field = chatField(panel);
+    const font = canvas.fonts.small;
+    const top = panel.y + heading_y;
+    try canvas.text(font, .{ field.x, top }, chat_label.text(canvas.strings.*), ui.white, .left);
+    if (lobby.notices) |notices| {
+        for (0..notices.count) |index| {
+            const y = top + chat_spacing * @as(i16, @intCast(index + 1));
+            try canvas.within(panel).text(font, .{ field.x, y }, notices.line(index), ui.blue, .left);
+        }
     }
+    widgets.panel(canvas, field);
+    const padding = 5;
+    var buffer: [chat.capacity + 1]u8 = undefined;
+    var line = lobby.chat_line.slice();
+    while (line.len != 0 and font.textWidth(line) + font.textWidth("_") > field.width - 2 * padding)
+        line = line[1..];
+    @memcpy(buffer[0..line.len], line);
+    buffer[line.len] = '_';
+    const colour = if (lobby.chat_focused) ui.white else ui.blue;
+    try canvas.within(field).text(font, .{ field.x + padding, field.y + 3 }, buffer[0 .. line.len + @intFromBool(lobby.chat_focused)], colour, .left);
 }
 
 fn drawGame(lobby: *const Lobby, canvas: ui.Canvas, panel: ui.Rect, layout: Layout, art: *hud.Art) !void {
@@ -243,7 +302,7 @@ fn drawGame(lobby: *const Lobby, canvas: ui.Canvas, panel: ui.Rect, layout: Layo
         .host => |host| std.fmt.bufPrint(&buffer, "Join by LAN IP (UDP {d})", .{host.port}) catch unreachable,
         .guest => std.fmt.bufPrint(&buffer, "{s} {s}", .{ waiting_label.text(strings), for_host_label.text(strings) }) catch "Waiting for host",
     };
-    try canvas.wrapped(font, .{ x, panel.y + panel.height - inset - 2 * line_height }, status, ui.blue, .left, .{ .width = width, .height = line_height, .most = 2 });
+    try canvas.wrapped(font, .{ x, panel.y + panel.height - inset - line_height }, status, ui.blue, .left, .{ .width = width, .height = line_height, .most = 2 });
 }
 
 test "the launch control belongs to a host that has joined its lobby" {
@@ -251,13 +310,14 @@ test "the launch control belongs to a host that has joined its lobby" {
     const layout = Layout.init(window);
     const click: ui.Pointer = .{ .at = control(layout, .launch).centre(), .down = true };
     var keys: input.Keyboard = .{};
+    var typed: Typed = .{};
     var lobby: Lobby = .{ .role = .guest, .roster = &.{}, .local_slot = 1 };
-    try std.testing.expectEqual(null, lobby.frame(click, &keys, window));
+    try std.testing.expectEqual(null, lobby.frame(click, &keys, &typed, window));
     lobby.role = .{ .host = .{ .port = 27020 } };
-    try std.testing.expectEqual(null, lobby.frame(click, &keys, window));
+    try std.testing.expectEqual(null, lobby.frame(click, &keys, &typed, window));
     lobby.role.host.can_launch = true;
-    try std.testing.expect(lobby.frame(click, &keys, window).? == .launch);
-    try std.testing.expect(lobby.frame(.{ .at = control(layout, .leave).centre(), .down = true }, &keys, window).? == .leave);
+    try std.testing.expect(lobby.frame(click, &keys, &typed, window).? == .launch);
+    try std.testing.expect(lobby.frame(.{ .at = control(layout, .leave).centre(), .down = true }, &keys, &typed, window).? == .leave);
 }
 
 test "guests can choose a ship, while only the host can open the scenario selector" {
@@ -265,9 +325,10 @@ test "guests can choose a ship, while only the host can open the scenario select
     const layout = Layout.init(window);
     var lobby: Lobby = .{ .role = .guest, .roster = &.{}, .local_slot = 1 };
     var keys: input.Keyboard = .{};
+    var typed: Typed = .{};
     const mode = modeButton(layout);
-    try std.testing.expectEqual(null, lobby.frame(.{ .at = mode.centre(), .down = true }, &keys, window));
+    try std.testing.expectEqual(null, lobby.frame(.{ .at = mode.centre(), .down = true }, &keys, &typed, window));
     try std.testing.expect(!lobby.mode_open);
     const ship = fieldBox(layout, .ship);
-    try std.testing.expectEqual(.choose_ship, lobby.frame(.{ .at = ship.centre(), .down = true }, &keys, window).?);
+    try std.testing.expectEqual(.choose_ship, lobby.frame(.{ .at = ship.centre(), .down = true }, &keys, &typed, window).?);
 }

@@ -159,7 +159,7 @@ views, 1 to 3, do not. In its order:
 | the reticle (`0xD7`) at the middle, and the blind fire sight (`0xD8`) that closes on a target | view 0, but not in the chase mode |
 | in a multiplayer game, a shape of `dmicons.spr` for the player's power-up at the middle | view 0 |
 | the panels the element state machine opens, sliding in and out | view 0 while they slide, every view once open |
-| a line of text at the foot while a chat line is being typed (`chat_typing`, `0x00529FB8`) | every view |
+| the chat draft and its underscore caret, centred 106 pixels above the lower HUD anchor while `chat_typing` (0x00529FB8) is set | every view |
 
 The view's name is one of the strings `language_init` (`0x00490DC0`) reads out of `language.dll`
 ([`engine/game/language.zig`](../../src/engine/game/language.zig)): Cockpit View, Left View, Target
@@ -484,8 +484,10 @@ Between the search under the reticle and its keys, while the radio's window is o
 `hud_target_keys` runs the radio's menu ([The menu](radio.md#the-menu)).
 
 The target brackets show the [session pilot name](#the-target-display).
-While typing multiplayer chat, the original skips the targeting keys after the radio menu
-(`chat_typing`, 0x00529FB8). This is tracked in [#55](https://github.com/OpenReliant/openreliant/issues/55).
+While the pilot types multiplayer chat, the game skips targeting and flight controls
+(`chat_typing`, 0x00529FB8). Received chat uses the same message lines as join notices and
+arena messages. Mods can place or hide `chat_input` and its `chat_input_text` and
+`chat_input_caret` parts. Received lines use the existing `messages` and `messages_text`.
 See [the display's sounds](#the-displays-sounds) for the sounds the keys play.
 
 ### Six Beacons target count

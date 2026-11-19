@@ -12,6 +12,7 @@ const ProjectilePage = wire.ordnance.Page;
 const identity = @import("identity.zig");
 const HandshakeBudget = @import("handshake_budget");
 const Host = @This();
+const ChatBudget = @import("chat_budget.zig");
 
 const timeout = 5 * std.time.us_per_s;
 const held_input_timeout = 250 * std.time.us_per_ms;
@@ -34,6 +35,7 @@ const Peer = struct {
     presses: flight_input.Presses = .{},
     weapons: ?wire.ordnance.Order = null,
     ping_ms: ?u16 = null,
+    chat_budget: ChatBudget = .{},
 };
 
 io: Io,
@@ -51,6 +53,7 @@ peers: [wire.slots]?Peer = @splat(null),
 roster_dirty: bool = false,
 projectile_pages: [ProjectilePage.pages]bool = @splat(false),
 budget: HandshakeBudget = .{},
+chat_budget: ChatBudget = .{},
 tick: u32 = 0,
 last_tick: u32 = std.math.maxInt(u32),
 next_step: i64 = 0,
@@ -101,6 +104,26 @@ fn sendPlaying(host: *const Host, message: wire.Message, except: ?u8) void {
     }
 }
 
+// Requests carry only text and a destination. The connection supplies the sender.
+fn relayChat(host: *Host, slot: u8, peer: *Peer, request: wire.ChatRequest, time: i64) void {
+    const name = peer.call_sign orelse return;
+    const scope = std.meta.activeTag(request.to);
+    const in_lobby = host.start == .lobby;
+    if ((scope == .lobby) != in_lobby or (!in_lobby and host.tick == 0)) return;
+    if (!peer.chat_budget.take(time, ChatBudget.pilot) or !host.chat_budget.take(time, ChatBudget.session)) return;
+    const message: wire.Message = .{ .chat_line = .{ .scope = scope, .sender = slot, .name = name, .text = request.text } };
+    switch (request.to) {
+        .lobby, .flight => host.sendPlaying(message, null),
+        .private => |to| {
+            const recipient = host.peers[to.slot] orelse return;
+            const pilot = host.arena.pilots[to.slot] orelse return;
+            if (to.slot == slot or recipient.state != .playing or pilot.participant.generation != to.generation) return;
+            net.send(recipient.conn, message) catch return;
+            net.send(peer.conn, message) catch return;
+        },
+    }
+}
+
 fn slotFor(host: *const Host, conn: net.Connection) ?u8 {
     for (host.peers, 0..) |entry, slot| {
         if (entry) |peer| if (peer.conn == conn) return @intCast(slot);
@@ -126,7 +149,11 @@ fn acceptsRemote(host: *const Host, conn: net.Connection) bool {
 
 pub fn takeLocalPilot(host: *Host, server_end: net.Connection, name: wire.CallSign) void {
     std.debug.assert(host.peers[0] == null);
-    host.peers[0] = .{ .conn = server_end, .state = .joining, .call_sign = name, .expires = host.now() + timeout };
+    host.peers[0] = .{ .conn = server_end, .state = .joining, .call_sign = host.chatCallSign(name), .expires = host.now() + timeout };
+}
+
+pub fn localCallSign(host: *const Host) wire.CallSign {
+    return host.peers[0].?.call_sign.?;
 }
 
 pub fn canLaunch(host: *const Host) bool {
@@ -203,6 +230,19 @@ fn hasName(host: *const Host, name: []const u8) bool {
     return false;
 }
 
+// A peer cannot claim a callsign that is already shown for another admission,
+// or use the English system notice name.
+fn chatCallSign(host: *const Host, claimed: wire.CallSign) wire.CallSign {
+    const name = wire.lobbyName(claimed.slice());
+    if (name.len == 0 or std.ascii.eqlIgnoreCase(name.slice(), "SYSTEM")) return .{};
+    for (host.peers) |entry| {
+        const peer = entry orelse continue;
+        const used = peer.call_sign orelse continue;
+        if (std.ascii.eqlIgnoreCase(name.slice(), used.slice())) return .{};
+    }
+    return name;
+}
+
 fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64) !bool {
     if (message == .leave) return false;
     switch (peer.state) {
@@ -235,7 +275,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
         .playing => {
             if (host.final_tick) |tick| {
                 if (message == .received_final and message.received_final == tick) host.final_receipts += 1;
-                return message == .input or message == .flight_press or message == .weapon_order or message == .call_sign;
+                return message == .input or message == .flight_press or message == .weapon_order or message == .call_sign or message == .chat_request;
             }
             switch (message) {
                 .input => |input| {
@@ -251,15 +291,17 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                 .weapon_order => |order| if (host.start != .lobby) {
                     if (peer.weapons) |*pending| pending.merge(order) else peer.weapons = order;
                 },
+                .chat_request => |request| host.relayChat(slot, peer, request, time),
                 .call_sign => |name| {
                     // A callsign is a display name. It never identifies or controls a pilot.
                     // Accept it once to keep updates bounded, including during launch.
                     if (peer.call_sign == null) {
-                        peer.call_sign = name;
+                        const accepted = host.chatCallSign(name);
+                        peer.call_sign = accepted;
                         host.roster_dirty = true;
                         if (peer.announce_join) {
                             const pilot = host.arena.pilots[slot].?;
-                            host.pilotNotice(slot, pilot.participant.generation, name, .joined_flight);
+                            host.pilotNotice(slot, pilot.participant.generation, accepted, .joined_flight);
                             peer.announce_join = false;
                         }
                     }
@@ -558,4 +600,12 @@ test "only an admitted local pilot can launch a player-hosted match" {
     host.peers[0].?.state = .playing;
     host.launch();
     try std.testing.expect(host.start == .launched);
+}
+
+test "chat display names cannot take a name already on the host roster" {
+    var host: Host = .{ .io = std.testing.io, .arena = undefined };
+    host.peers[0] = .{ .conn = 1, .expires = 0, .call_sign = wire.lobbyName("Rook") };
+    try std.testing.expectEqual(0, host.chatCallSign(wire.lobbyName(" rook ")).len);
+    try std.testing.expectEqual(0, host.chatCallSign(wire.lobbyName("System")).len);
+    try std.testing.expectEqualStrings("Falcon", host.chatCallSign(wire.lobbyName("Falcon")).slice());
 }

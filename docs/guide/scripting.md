@@ -1967,7 +1967,8 @@ hud.register_display("comms", {
 | `key_prompt_press`, `key_prompt_action`, `key_prompt_key`, `key_prompt_modifier`, `key_prompt_plus` | `WaitForKey`'s prompt: PRESS, the action's name, the key's name on its cap or the joystick's button, and the modifier's name on its cap with the plus after it |
 | `view_name_text` | The view's name at the top of the screen |
 | `subtitle_text` | The line `DisplaySubTitle` shows |
-| `messages_text` | The message lines |
+| `messages_text` | The message lines, including received multiplayer chat |
+| `chat_input_text`, `chat_input_caret` | The draft and caret shown while a pilot types in flight |
 | `fuel_figure`, `kills_figure`, `countermeasures_figure` | The readouts' figures |
 | `gauges_speed`, `gauges_throttle` | The targeting cluster's figures: the speed the ship makes, and the speed the throttle asks |
 | `target_markers_range` | The target's range by its brackets, and by the arrow toward a target off the screen |
@@ -1983,6 +1984,10 @@ hud.register_display("comms", {
 | `objectives_title`, `objectives_heading`, `objectives_name` | The objectives window's title, the objective's heading, and its name |
 | `comms_title`, `comms_numbers`, `comms_items` | The radio's menu, in either window that shows it: its title, the items' numbers, and the items |
 | `wing_status_title`, `wing_status_numbers` | The wing status window's title, and the wingmen's numbers |
+
+In multiplayer, `chat_input`, `beacon_counter`, `arena_power_up` and `standings` are HUD
+instruments. They work with the same layout, replacement and bounds functions as other HUD
+instruments.
 
 ### Screens
 

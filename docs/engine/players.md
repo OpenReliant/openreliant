@@ -113,8 +113,22 @@ Joining the lobby updates the roster. In flight, an arriving pilot adds the orig
 (`net_receive_game_message`, 0x004B6F80, case 6). `mp_player_departed` (0x004B6890) uses
 installed string 0x562 in the lobby and 0x328 on the flight HUD. OpenReliant sends the name and
 admission from the host, so a departure still identifies the right pilot if the slot fills again.
-The lobby shows its system lines below the roster. Chat and the multiplayer pause screen are
-tracked in [#211](https://github.com/OpenReliant/openreliant/issues/211).
+The lobby shows system lines in its chat log. The multiplayer pause screen, including its
+message log, is tracked in [#211](https://github.com/OpenReliant/openreliant/issues/211).
+
+### Text chat
+
+**Improvement:** the host relays lobby and flight chat for admitted pilots. Requests carry text
+and a destination. The host takes the sender's callsign from the admission, reserves SYSTEM,
+and uses the pilot's slot as a fallback if the callsign is blank or already in use. A direct
+message goes to the sender and the selected admission. If that pilot leaves, a later occupant
+of the slot cannot receive the message.
+
+The host accepts at most 63 bytes of printable Windows-1252 text. It trims outer spaces and
+rejects blank lines and control bytes. Each pilot can send a burst of two lines and earns
+one more line every two seconds. The session can relay a burst of four and earns one more line
+every 750 ms. Its limit persists when pilots reconnect. Excess lines are dropped. Chat does
+not extend the connection timeout or write messages to the server log.
 
 ## Weapon commands
 

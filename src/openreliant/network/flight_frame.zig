@@ -312,6 +312,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         frame.drawn.shake = 1;
     };
     if (scene.flash) |flash| flash.countDown(scene.clock.frame_duration);
+    frame.drawn.display.windows.step(.comms, scene.clock.frame_duration);
     frame.drawn.display.messages.expire(scene.clock.frame_start);
     if (scene.sparks) |sparks| sparks.frame(scene.clock);
     try frame.rocks.apply(all, &snapshot.rocks);

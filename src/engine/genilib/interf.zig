@@ -86,6 +86,7 @@ pub const Outcome = union(enum) {
     leave_session,
     launch_session,
     choose_ship: game.dmscenarios.Fighter,
+    send_chat: game.chat.Line,
     /// QUIT, answered YES: 3.
     quit,
     /// START GAME: 1, a single-player campaign, which `WinMain` takes into the Reliant's rooms
@@ -443,6 +444,7 @@ pub const Interface = struct {
                     .host_lan => return .host_lan,
                     .leave_session => return .leave_session,
                     .launch_session => return .launch_session,
+                    .send_chat => |line| return .{ .send_chat = line },
                     .choose_ship => |ship| return .{ .choose_ship = ship },
                     .back => {
                         front.screen = .main_menu;
@@ -754,7 +756,7 @@ pub const Interface = struct {
     pub fn takesText(front: *const Interface) bool {
         return switch (front.screen) {
             .pilot_roster => front.pilot_roster.typing,
-            .connection => front.connection.editing and !front.connection.busy,
+            .connection => front.connection.takesText(),
             .saved_games => front.saved_games.takesText(),
             .mod_options => front.mod_options.takesText(),
             else => false,
