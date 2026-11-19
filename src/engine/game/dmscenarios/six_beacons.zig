@@ -53,10 +53,10 @@ pub const Notice = struct {
 
 const Beacon = struct { object: gameobj.ObjectRef, carrier: ?players.ControlRef = null };
 
-fn count(beacons: *const [required]Beacon, pilot: players.ParticipantRef, ship: ?gameobj.ObjectRef) u8 {
+fn count(carriers: *const [required]?players.ControlRef, pilot: players.ParticipantRef, ship: ?gameobj.ObjectRef) u8 {
     var total: u8 = 0;
-    for (beacons) |beacon| {
-        const carrier = beacon.carrier orelse continue;
+    for (carriers) |entry| {
+        const carrier = entry orelse continue;
         if (!std.meta.eql(carrier.participant, pilot)) continue;
         if (ship) |object| if (!std.meta.eql(carrier.ship, object)) continue;
         total += 1;
@@ -64,24 +64,38 @@ fn count(beacons: *const [required]Beacon, pilot: players.ParticipantRef, ship: 
     return total;
 }
 
-/// The host captures the six objective identities and their owners together. A viewer joining
-/// mid-round can read the current count without replaying pickups or drops.
+/// The host captures the objective identities and carriers together.
 pub const Snapshot = struct {
     beacons: [required]Beacon,
 
     pub fn countFor(view: *const Snapshot, binding: players.ControlRef) u8 {
-        return count(&view.beacons, binding.participant, binding.ship);
+        return view.hudSnapshot().countFor(binding);
+    }
+
+    pub fn hudSnapshot(view: *const Snapshot) HudSnapshot {
+        var shown: HudSnapshot = .{};
+        for (&shown.carriers, view.beacons) |*carrier, beacon| carrier.* = beacon.carrier;
+        return shown;
+    }
+};
+
+/// The display needs the carriers, including for a pilot joining mid-round.
+pub const HudSnapshot = struct {
+    carriers: [required]?players.ControlRef = @splat(null),
+
+    pub fn countFor(view: *const HudSnapshot, binding: players.ControlRef) u8 {
+        return count(&view.carriers, binding.participant, binding.ship);
     }
 
     /// **Fix:** six_beacons_target_text accepts slot eight, just past the original pilot slots.
     /// Only a ship bound to a pilot has a count.
-    pub fn countAt(view: *const Snapshot, all: *const create.Objects, slot: u16) ?u8 {
+    pub fn countAt(view: *const HudSnapshot, all: *const create.Objects, slot: u16) ?u8 {
         return view.countFor(all.playerBinding(slot) orelse return null);
     }
 };
 
 pub const Hud = struct {
-    snapshot: *const Snapshot,
+    snapshot: *const HudSnapshot,
     icons: ?*hud.Art,
 
     const Counter = struct {
@@ -171,7 +185,7 @@ pub const Round = struct {
     }
 
     pub fn carried(round: *const Round, pilot: players.ParticipantRef) usize {
-        return count(&round.beacons, pilot, null);
+        return count(&round.snapshot().hudSnapshot().carriers, pilot, null);
     }
 
     /// pickup_place_at_marker (0x004B27F0) uses the first marker at least two beacon radii

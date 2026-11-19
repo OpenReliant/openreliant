@@ -3,13 +3,14 @@ const std = @import("std");
 const engine = @import("openreliant").engine;
 const game = engine.game;
 const math = engine.surrender.math;
-const lib = engine.surrender.surrenderlib;
+const Presentation = @import("scripting").Presentation;
 const session = @import("session.zig");
 const wire = @import("wire.zig");
+const FlightFrame = @import("flight_frame.zig");
 const Graphical = @This();
 
 client: ?session.Client = null,
-models: [wire.slots]?game.objects.Model = @splat(null),
+flight: ?*FlightFrame = null,
 
 pub fn start(pilot: *Graphical, io: std.Io, target: []const u8, screen: *game.interface.Connection) void {
     if (pilot.client != null) return;
@@ -26,9 +27,18 @@ pub fn start(pilot: *Graphical, io: std.Io, target: []const u8, screen: *game.in
     screen.message = "Connecting...";
 }
 
-pub fn stop(pilot: *Graphical, gpa: std.mem.Allocator) void {
+pub fn stop(pilot: *Graphical, presentation: ?*Presentation) void {
     if (pilot.client) |*client| session.disconnect(client);
-    for (&pilot.models) |*model| if (model.*) |loaded| loaded.deinit(gpa);
+    if (pilot.flight) |flight| {
+        if (presentation) |shown| {
+            shown.endGame();
+            if (shown.host) |*host| {
+                host.flight = null;
+                host.flying = false;
+            }
+        }
+        flight.destroy();
+    }
     pilot.* = .{};
 }
 
@@ -36,10 +46,10 @@ pub fn flying(pilot: *const Graphical) bool {
     return if (pilot.client) |*client| client.latest != null and !client.leaving else false;
 }
 
-pub fn update(pilot: *Graphical, gpa: std.mem.Allocator, io: std.Io, front: *engine.genilib.interf.Interface, devices: *engine.input.Devices) void {
+pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Interface, devices: *engine.input.Devices, presentation: ?*Presentation) void {
     const client = if (pilot.client) |*active| active else return;
     if (front.screen != .connection) {
-        pilot.stop(gpa);
+        pilot.stop(presentation);
         front.connection.busy = false;
         return;
     }
@@ -53,7 +63,7 @@ pub fn update(pilot: *Graphical, gpa: std.mem.Allocator, io: std.Io, front: *eng
                 error.SessionTimedOut => "Connection timed out",
                 else => "Lost connection to server",
             };
-            pilot.stop(gpa);
+            pilot.stop(presentation);
             front.connection.busy = false;
             return;
         };
@@ -63,7 +73,7 @@ pub fn update(pilot: *Graphical, gpa: std.mem.Allocator, io: std.Io, front: *eng
             .admitted => front.connection.message = "Waiting for another pilot",
             .finished => front.connection.message = "Round finished",
             .closed => {
-                pilot.stop(gpa);
+                pilot.stop(presentation);
                 front.connection.busy = false;
                 return;
             },
@@ -71,22 +81,29 @@ pub fn update(pilot: *Graphical, gpa: std.mem.Allocator, io: std.Io, front: *eng
     }
 }
 
-pub fn draw(pilot: *Graphical, gpa: std.mem.Allocator, scene_allocator: std.mem.Allocator, types: game.create.Types, scene: *lib.srcore.Scene, context: *lib.srapi.Context, size: [2]u32, fov: f32) !void {
+pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Objects, tables: *const game.create.Stats, types: game.create.Types, presentation: ?*Presentation) !?*game.main.Drawn {
+    if (!pilot.flying()) return null;
     const client = &pilot.client.?;
-    const view = &client.latest.?;
-    const local = view.ships[client.joined.?.slot].?;
-    const facing = local.orientationMatrix();
-    const offset = game.camera.Chase.offset(wire.arena_ship);
-    context.camera = .{ .position = @as(math.Vector, local.position) + math.transform(facing, .{ 0, offset.height, -offset.distance - game.camera.Chase.throttle_distance }), .orientation = facing };
-    context.projection = (game.camera.Camera{}).projection(.chase, size[0], size[1], fov);
-    for (view.ships, &pilot.models) |entry, *saved| {
-        const ship = entry orelse continue;
-        if (saved.* == null) {
-            const data = types.load(types.context, @intCast(wire.arena_ship.number())) orelse continue;
-            saved.* = try game.objects.Model.create(gpa, data.model, data.loaded, data.effects);
-        }
-        const model = &saved.*.?;
-        model.place(ship.position, ship.orientationMatrix());
-        try model.draw(scene_allocator, scene, .world, .{ .camera = context.camera.position });
+    if (pilot.flight) |flight| {
+        try flight.apply(&client.latest.?, client.joined.?, local, types);
+        return &flight.drawn;
     }
+    const flight = try FlightFrame.create(gpa, local, tables);
+    errdefer flight.destroy();
+    try flight.apply(&client.latest.?, client.joined.?, local, types);
+    if (presentation) |shown| {
+        errdefer shown.endGame();
+        try shown.startGame(null, flight.drawn.objects, false);
+    }
+    pilot.flight = flight;
+    return &flight.drawn;
+}
+
+pub fn chase(drawn: *const game.main.Drawn) game.camera.Place {
+    const slot = &drawn.objects.slots[drawn.objects.player];
+    const offset = game.camera.Chase.offset(slot.object.type);
+    return .{
+        .position = slot.drawn.position + math.transform(slot.drawn.orientation, .{ 0, offset.height, -offset.distance - game.camera.Chase.throttle_distance }),
+        .orientation = slot.drawn.orientation,
+    };
 }

@@ -34,7 +34,9 @@ The two panels share their top and bottom edges. The selected server's descripti
 above Join Game. More rows fit at higher resolutions inside the same 4:3 frame.
 
 Enter a server IP or paste an invite under Direct Connect. Enter or Connect opens the
-game connection. The arena shows the host's ships in chase view. Escape leaves the server.
+game connection. The arena shows the host's ships in chase view. It uses the flight HUD
+and runs the installed mods' player scripts through the same display layer as a local
+mission. The HUD reads objective counts from the host's snapshots. Escape leaves the server.
 Public discovery, LAN discovery and player hosting still need their runtime providers.
 See [public discovery](https://github.com/OpenReliant/openreliant/issues/957) and
 [player hosting](https://github.com/OpenReliant/openreliant/issues/363).

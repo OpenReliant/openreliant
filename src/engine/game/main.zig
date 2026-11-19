@@ -1240,7 +1240,7 @@ pub const Drawn = struct {
     clock: Clock = .{},
     shake: f32 = 0,
     forces: ?input.force.Forces = null,
-    beacon_snapshot: ?@import("dmscenarios/six_beacons.zig").Snapshot = null,
+    beacon_snapshot: ?@import("dmscenarios/six_beacons.zig").HudSnapshot = null,
     /// Copies of the game's effects, which drawing draws.
     effects: Effects = .{},
     /// What the copies are made in, emptied as each drawn frame takes them (`take`).
@@ -1322,7 +1322,7 @@ pub const Drawn = struct {
     pub fn take(drawn: *Drawn, game: gameobj.World, timing: objects.Timing) Allocator.Error!*create.Objects {
         _ = drawn.arena.reset(.retain_capacity);
         drawn.beacon_snapshot = if (game.damage_rules == .arena and game.objects.arena_scenario == .six_beacons)
-            game.objects.arena_scenario.six_beacons.snapshot()
+            game.objects.arena_scenario.six_beacons.snapshot().hudSnapshot()
         else
             null;
         drawn.player = game.player.*;
