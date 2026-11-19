@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const ai = @import("../ai.zig");
+const hud = @import("../hud.zig");
 const input = @import("../../input.zig");
 const math = @import("../../surrender/math.zig");
 const gameobj = @import("../gameobj.zig");
@@ -38,7 +39,7 @@ pub const Notice = struct {
         send: *const fn (*anyopaque, Notice) void,
     };
 
-    pub fn present(notice: Notice, messages: *@import("../hud.zig").Messages, strings: @import("../language.zig").Language, viewer: players.ParticipantRef, pilot_name: []const u8) void {
+    pub fn present(notice: Notice, messages: *hud.Messages, strings: @import("../language.zig").Language, viewer: players.ParticipantRef, pilot_name: []const u8) void {
         if (notice.kind == .waiting_for_players and !std.meta.eql(viewer, notice.pilot)) return;
         const format = strings.string(@backingInt(notice.kind)) orelse return;
         deathmatch.addMessage(messages, notice.tick, format, &.{pilot_name});
@@ -50,6 +51,45 @@ pub const Notice = struct {
 };
 
 const Beacon = struct { object: gameobj.ObjectRef, carrier: ?players.ControlRef = null };
+
+fn count(beacons: *const [required]Beacon, pilot: players.ParticipantRef, ship: ?gameobj.ObjectRef) u8 {
+    var total: u8 = 0;
+    for (beacons) |beacon| {
+        const carrier = beacon.carrier orelse continue;
+        if (!std.meta.eql(carrier.participant, pilot)) continue;
+        if (ship) |object| if (!std.meta.eql(carrier.ship, object)) continue;
+        total += 1;
+    }
+    return total;
+}
+
+/// The host captures the six objective identities and their owners together. A viewer joining
+/// mid-round can read the current count without replaying pickups or drops.
+pub const Snapshot = struct {
+    beacons: [required]Beacon,
+
+    pub fn countFor(view: *const Snapshot, binding: players.ControlRef) u8 {
+        return count(&view.beacons, binding.participant, binding.ship);
+    }
+};
+
+/// six_beacons_draw_pilot_count (0x004B3840), called by hud_target through
+/// mp_draw_target_badge (0x0048AD97). Both offsets start at the top left of the target box.
+pub const TargetHud = struct {
+    snapshot: *const Snapshot,
+    icons: ?*hud.Art,
+
+    const icon = 0x10;
+    const icon_offset: [2]i32 = .{ -33, 2 };
+    const count_offset: [2]i32 = .{ -24, 18 };
+
+    pub fn draw(view: TargetHud, pen: hud.Pen, font: *hud.Opened, pilot: players.ControlRef, corner: [2]i32) hud.Error!void {
+        if (view.icons) |art| try pen.drawing(.{ .art = art, .gpa = pen.gpa }).shape(icon, pen.moved(corner, icon_offset));
+        var buffer: [3]u8 = undefined;
+        const digits = std.fmt.bufPrint(&buffer, "{d}", .{view.snapshot.countFor(pilot)}) catch unreachable;
+        _ = try pen.textIn(font, pen.moved(corner, count_offset), digits, .centre);
+    }
+};
 
 pub const Round = struct {
     beacons: [required]Beacon,
@@ -82,13 +122,12 @@ pub const Round = struct {
         round.repair(world);
     }
 
+    pub fn snapshot(round: *const Round) Snapshot {
+        return .{ .beacons = round.beacons };
+    }
+
     pub fn carried(round: *const Round, pilot: players.ParticipantRef) usize {
-        var n: usize = 0;
-        for (round.beacons) |beacon| {
-            const carrier = beacon.carrier orelse continue;
-            if (std.meta.eql(carrier.participant, pilot)) n += 1;
-        }
-        return n;
+        return count(&round.beacons, pilot, null);
     }
 
     /// pickup_place_at_marker (0x004B27F0) uses the first marker at least two beacon radii
@@ -461,4 +500,47 @@ test "beacon maintenance restores map pickups and ignores reused slots of anothe
     try std.testing.expect(all.arena_scenario == .deathmatch);
     try std.testing.expectError(error.NotArena, Round.start(arena.stage.world(), .free_for_all));
     try std.testing.expect(all.arena_scores == .teams);
+}
+
+test "a new viewer sees all carriers on its first frame and follows loss and delivery" {
+    var arena: Arena = undefined;
+    try arena.init();
+    defer arena.deinit();
+    const all = arena.host.objects;
+    const round = &all.arena_scenario.six_beacons;
+    _ = arena.admitSecond();
+    const first = all.playerBinding(0).?;
+    const second = all.playerBinding(1).?;
+    arena.move(0, all.slots[round.beacons[0].object.slot].drawn.position);
+    arena.move(1, all.slots[round.beacons[1].object.slot].drawn.position);
+    round.frame(arena.host);
+
+    var viewer = try @import("../main.zig").Drawn.init(std.testing.allocator);
+    defer viewer.deinit();
+    _ = try viewer.take(arena.host, .{});
+    const initial = viewer.beacon_snapshot.?;
+    try std.testing.expectEqual(1, initial.countFor(first));
+    try std.testing.expectEqual(1, initial.countFor(second));
+    try std.testing.expect(create.Objects.leaveParticipant(arena.host, second.participant));
+    _ = arena.admitSecond();
+    try std.testing.expectEqual(0, initial.countFor(all.playerBinding(1).?));
+    var respawned = first;
+    respawned.ship.reuse +%= 1;
+    try std.testing.expectEqual(0, initial.countFor(respawned));
+
+    arena.move(1, .{ -500, 0, 0 });
+    for (round.beacons[1..]) |beacon| {
+        arena.move(0, all.slots[beacon.object.slot].drawn.position);
+        round.frame(arena.host);
+    }
+    _ = try viewer.take(arena.host, .{});
+    try std.testing.expectEqual(6, viewer.beacon_snapshot.?.countFor(first));
+    try std.testing.expectEqual(0, viewer.beacon_snapshot.?.countFor(second));
+    try std.testing.expectEqual(1, initial.countFor(first));
+    arena.move(0, @splat(0));
+    round.frame(arena.host);
+    _ = try viewer.take(arena.host, .{});
+    try std.testing.expectEqual(0, viewer.beacon_snapshot.?.countFor(first));
+    _ = try viewer.take(arena.stage.mission.world(), .{});
+    try std.testing.expectEqual(null, viewer.beacon_snapshot);
 }
