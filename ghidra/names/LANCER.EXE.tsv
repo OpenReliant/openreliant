@@ -987,7 +987,7 @@ address	kind	name	type	comment
 00579988	data	enemy_lock	int	Set by mission_frame when a ship whose order is Fight against the player has byte 0x2F of its fight state set; lights the display's lock warning. Unverified: that the byte is a missile lock
 00579990	data	blind_fire	int	Blind fire, which TOGGLE BLINDFIRE flips on a ship that carries it; hud_init and the mission's start turn it on
 0057bc34	data	hud_scanner_frame	int	The frame of five hud_scanner draws
-0057bc3c	data	dm_icons	void *	dmicons.spr, or soft_dmicons.spr under the software renderer, which hud_init loads. Unknown: what draws it
+0057bc3c	data	dm_icons	void *	dmicons.spr, or soft_dmicons.spr under the software renderer, which hud_init loads for multiplayer counts, team badges, power-ups and score panels
 0057bc44	data	hud_warning_ticks	int	The count the lock and missile warnings flash by, which the two share
 0057bf20	data	spectral_shields_state	int	-1 when the player's ship has no spectral shields, else 0 off and 1 on. The mission's start sets 0 for the Nagi, the Crusader, the Tempest and the Shroud
 0057bf4c	data	ecm_state	int	0 when the ECM is off and 1 when on; the mission's start sets 0, so every ship carries one. -1 would be none
@@ -3128,7 +3128,7 @@ address	kind	name	type	comment
 004b3140	function	six_beacons_sync_counts	void (void)	Sends the host's beacon counts to the other admitted pilots
 004b3300	function	six_beacons_frame	void (void)	Returns loose beacons near the arena boundary and repairs the total in play
 004b3510	function	six_beacons_total	int (void)	Counts enabled beacons and the beacons carried by admitted pilots
-004b3840	function	six_beacons_draw_pilot_count	void __fastcall (int pilot, int x, int y)	Draws the beacon icon and the pilot's count in the scoreboard
+004b3840	function	six_beacons_draw_pilot_count	void __fastcall (int pilot, int x, int y)	Draws shape 0x10 and the targeted pilot's count beside the top left of the target brackets
 0050c4ac	data	pickup_drop_directions	Vec3[6]	The six world axes in the order used to drop pickups
 005db318	data	pickup_drop_direction	int	The next axis used when a pilot drops a pickup
 005db3e0	data	mp_pickup_after	int[8]	The first tick when each respawned pilot may collect a pickup
@@ -3137,3 +3137,11 @@ address	kind	name	type	comment
 0050c4f8	data	gate_trigger_scenario	int	The scenario that enables gate contact checks
 0050c4fc	data	gate_trigger_type	ObjectType	The type of object that triggers the scenario's gate check
 0050c504	data	gate_trigger_callback	void *	The callback for a pilot within the scenario's gate distance
+004b1650	function	mp_draw_target_badge	void __fastcall (int pilot, int x, int y)	Draws the team badge in a team game, restores the HUD palette and calls the scenario's target badge
+004b2da0	function	scenario_draw_target_badge	void __fastcall (int pilot, int x, int y)	Calls the selected scenario's target badge callback at offset 0x30
+004af650	function	mp_draw_scoreboard	void (void)	Draws the team and pilot score panels, sorts pilots by kills then deaths and records each pilot row for the pause menu
+004b2d50	function	scenario_draw_hud	void (void)	Calls the selected scenario's HUD callback at offset 0x28
+004b32e0	function	six_beacons_hud_position	void __fastcall (int *x, int *y)	Places the local beacon counter at the top of the HUD, 25 pixels left of centre
+004b3570	function	six_beacons_draw_hud	void (void)	Draws the local beacon count using shape 0x0B and hud_font, followed by diagnostics when enabled
+004b2d70	function	scenario_target_text	bool __fastcall (GameObject *target, char *text)	Asks the selected scenario for the extra text in the target window
+004b37b0	function	six_beacons_target_text	bool __fastcall (GameObject *target, char *text)	Formats the targeted pilot's beacon count with singular or plural language text

@@ -488,6 +488,17 @@ does while a multiplayer game's chat line is typed (`chat_typing`, `0x00529FB8`)
 every key after the radio's menu ([#55](https://github.com/OpenReliant/openreliant/issues/55)). The
 keys' sounds are in [The display's sounds](#the-displays-sounds).
 
+### Six Beacons target count
+
+When an admitted pilot is targeted on screen, the original calls the arena's target badge
+from `hud_target` at 0x0048AD97. Six Beacons draws shape 0x10 from `dmicons.spr` 33 pixels
+left and 2 pixels below the box's top left. It centres the count in `newfont.fnt` 24 pixels
+left and 18 pixels below that corner (0x004B3840). An empty-handed pilot shows zero.
+
+The full scoreboard (0x004AF650) ranks pilots by kills and then by deaths. The local pilot's
+own HUD counter is a separate display using shape 0x0B (0x004B3570). The remaining arena
+displays are tracked in [#1416](https://github.com/OpenReliant/openreliant/issues/1416).
+
 ### The flyback markers
 
 A mission's script marks objects for the player to fly back to with `SetFlybackMarker` (command

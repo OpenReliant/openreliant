@@ -209,9 +209,13 @@ host checks for loose beacons less than 500 units inside the arena boundary or b
 them again. Every 25 ticks it checks that six objectives are accounted for.
 
 **Improvement:** the host determines pickup, loss and gate contact from its simulated ships.
-Each beacon has a single carrier identified by admission and ship. Clients can display the
-counts and localized notices from the host. The client HUD, scoreboard and pickup rings are
-tracked in [#1416](https://github.com/OpenReliant/openreliant/issues/1416).
+Each drawn arena frame captures the six pickups and their carriers. A viewer joining mid-round
+can read each pilot's count from its first snapshot. The count belongs to the original ship
+and admission, so a replacement in the same slot starts with its own count. See
+[Six Beacons target count](hud.md#six-beacons-target-count).
+
+The local counter, target window text, pickup rings and network delivery are tracked in
+[#1416](https://github.com/OpenReliant/openreliant/issues/1416).
 
 ## Remaining work
 

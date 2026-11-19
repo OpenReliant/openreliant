@@ -42,6 +42,7 @@ const srd3d = @import("../surrender/srd3d/srd3d.zig");
 const device = @import("../surrender/srd3d/device.zig");
 const srapi = @import("../surrender/surrenderlib/srapi.zig");
 const ai = @import("ai.zig");
+const six_beacons = @import("dmscenarios/six_beacons.zig");
 const aigeneric = @import("aigeneric.zig");
 const create = @import("create.zig");
 const xtrabits = @import("xtrabits.zig");
@@ -2253,6 +2254,9 @@ test "the instruments' parts as a mod's display places them" {
 /// the allocator the resources were loaded in. `deinit` frees the images with the rest.
 pub const Resources = struct {
     art: Art,
+    /// Read the arena sprites on the first Six Beacons frame. The resource archive outlives the HUD.
+    arena_archive: ?bigfile.Hog = null,
+    arena_shapes: ?@import("interface/canvas.zig").Shapes = null,
     /// `blufont.fnt` (`0x00595490`), which every line of the display's own text is written in: the
     /// readouts, the clock, the cluster's figures, the view's name and the windows. `0x004A2AF0`
     /// opens it for the hardware renderers, and `soft_blufont.fnt`, the same letters, for the
@@ -2290,11 +2294,12 @@ pub const Resources = struct {
         defer picture.deinit(gpa);
         const ball: *power.Ball = try .create(gpa, picture);
         errdefer ball.destroy(gpa);
-        return .{ .art = art, .font = font, .target_fonts = .{ .small = small, .new = new }, .ball = ball, .scripts_ball = try .create(gpa, picture) };
+        return .{ .art = art, .arena_archive = archive, .font = font, .target_fonts = .{ .small = small, .new = new }, .ball = ball, .scripts_ball = try .create(gpa, picture) };
     }
 
     /// Frees what `load` made in `gpa`, and the images made of its shapes and its fonts' glyphs.
     pub fn deinit(resources: *Resources, gpa: Allocator) void {
+        if (resources.arena_shapes) |*shapes| shapes.deinit(gpa);
         resources.art.deinit(gpa);
         closeFont(&resources.font, gpa);
         closeFont(&resources.target_fonts.small, gpa);
@@ -2302,6 +2307,16 @@ pub const Resources = struct {
         resources.ball.destroy(gpa);
         resources.scripts_ball.destroy(gpa);
         resources.* = undefined;
+    }
+
+    fn arenaIcons(resources: *Resources, gpa: Allocator) ?*Art {
+        if (resources.arena_archive) |archive| {
+            resources.arena_archive = null;
+            resources.arena_shapes = @import("interface/canvas.zig").Shapes.read(gpa, &archive, "DMICONS.SPR");
+            // mp_draw_target_badge restores the HUD palette before calling the scenario.
+            if (resources.arena_shapes) |*shapes| shapes.art.global = resources.art.global;
+        }
+        return if (resources.arena_shapes) |*shapes| &shapes.art else null;
     }
 
     fn openFont(gpa: Allocator, archive: bigfile.Hog, name: []const u8, global: ?*const [spr.palette_size]u8, outlines: ?*outline.Outlines) !Opened {
@@ -2325,7 +2340,10 @@ test Resources {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     const font = comptime fnt.testing.font(true);
+    const set = try spr.testing.paletteAndShape(gpa);
+    defer gpa.free(set);
     try bigfile.testing.write(gpa, io, tmp.dir, bigfile.resource_name, &.{
+        .{ .name = "DMICONS.SPR", .data = set },
         .{ .name = Resources.font_name, .data = font },
         .{ .name = TargetFonts.small_name, .data = font },
         .{ .name = TargetFonts.new_name, .data = font },
@@ -2333,13 +2351,15 @@ test Resources {
     });
     var archive: bigfile.Hog = try .open(gpa, io, tmp.dir, bigfile.resource_name);
     defer archive.close(gpa);
-    const set = try spr.testing.paletteAndShape(gpa);
-    defer gpa.free(set);
     var recorder: device.testing.Recorder = .{ .gpa = gpa, .textures = .{} };
     defer recorder.deinit();
     {
         var resources: Resources = try .load(gpa, archive, try .parse(set), null);
         defer resources.deinit(gpa);
+        try std.testing.expectEqual(null, resources.arena_shapes);
+        const icons = resources.arenaIcons(gpa).?;
+        try std.testing.expectEqual(icons, resources.arenaIcons(gpa).?);
+        try std.testing.expectEqual(resources.art.global, icons.global);
         // The images made of the shapes and glyphs drawn, as the pause menu draws them, are freed
         // with the rest.
         try drawShape(&resources.art, gpa, recorder.interface(), 1, .{ 0, 0 }, .{ 1, 1, 1, 1 }, 1);
@@ -2552,6 +2572,7 @@ pub const Frame = struct {
     ready: *const Readiness,
     edge_line: EdgeLine,
     multiplayer: bool = false,
+    beacon_snapshot: ?*const six_beacons.Snapshot = null,
     /// The sound the enemy lock's warning plays through (`Drawing.warnOfLock`); none where nothing
     /// is heard.
     sound: ?*hog_snd.Sound = null,
@@ -2821,7 +2842,16 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
     if (ahead) {
         try drawing.drawJumpPrompt(state, frame.ready, placing.pen(pen, .jump_prompt), frame_duration);
         if (frame.sight) |sight| {
-            const scene: TargetScene = .{ .sight = sight, .all = frame.all, .mode = frame.mode, .speaker = speaker };
+            const scene: TargetScene = .{
+                .sight = sight,
+                .all = frame.all,
+                .mode = frame.mode,
+                .speaker = speaker,
+                .beacons = if (frame.beacon_snapshot) |snapshot|
+                    .{ .snapshot = snapshot, .icons = resources.arenaIcons(frame.gpa) }
+                else
+                    null,
+            };
             lead = try drawTarget(drawing, state, placing.pen(pen, .target_markers), &resources.target_fonts, scene, frame.edge_line);
         }
         try drawing.drawEjectMarker(state, placing.pen(pen, .eject_marker), frame_duration);
@@ -5978,6 +6008,7 @@ pub const TargetFonts = struct {
 /// the cockpit's mode.
 pub const TargetScene = struct {
     sight: Sight,
+    beacons: ?six_beacons.TargetHud = null,
     all: *const create.Objects,
     mode: camera.CockpitMode,
     /// The ship whose line the radio's window names, where it shows
@@ -6157,6 +6188,11 @@ pub fn drawTarget(drawing: *Drawing, state: *const State, pen: Pen, fonts: *Targ
     // The brackets dim as a missile's lock builds, and go at a tenth.
     const brightness = @min(@as(f32, @floatFromInt(all.player_states[all.player].weapons.lock.count)) * lock_dimming, 1);
     if (brightness > least_bright) try drawCorners(pen.dimmed(brightness), brackets_shape.of(hostile), .{ low, high });
+    if (scene.beacons) |beacons| {
+        if (all.playerBinding(index)) |pilot| {
+            if (pixelOf(low)) |corner| try beacons.draw(pen, &fonts.new, pilot, corner);
+        }
+    }
     // The range goes by the box's far corner, which a box reaching behind the camera throws
     // beyond the screen's reach, and the range with it.
     const offset = pointOf(range_offset) * @as(Point, @splat(pen.scale));
@@ -6683,6 +6719,58 @@ test "a target out of sight gets an arrow and a marker" {
     from_behind.mode = .chase;
     _ = try drawing.draw(gpa, &t.state, from_behind);
     try std.testing.expectEqual(0, drawing.lines());
+}
+
+test "a bound arena pilot has a beacon icon and a centred count by the target box" {
+    var targeting: TargetingTest = undefined;
+    try targeting.init();
+    defer targeting.deinit();
+    const all = targeting.mission.objects;
+    const target = try targeting.add(.of(.sabre), .{ 0, 0, 5000 });
+    all.players = 2;
+    const pilot = all.joinParticipant(target).?;
+    const binding = all.bindParticipant(pilot, .of(all, target)).?;
+    input.setPlayerTarget(&targeting.state, all, @intCast(target), -1, false);
+    const gpa = std.testing.allocator;
+    var drawing: TargetDrawing = undefined;
+    try drawing.init(gpa);
+    defer drawing.deinit(gpa);
+    const sprites = try spr.testing.paletteAndShapes(gpa, 17);
+    defer gpa.free(sprites);
+    var icons: Art = try .init(gpa, try .parse(sprites), null, null);
+    defer icons.deinit(gpa);
+
+    // Give the test font a glyph for the single digit we expect.
+    var font = drawing.fonts.new.font;
+    var header = font.header.*;
+    var offsets: ['1' + 1]u32 = @splat(0);
+    offsets['1'] = font.offsets[1];
+    header.count = offsets.len;
+    font.header = &header;
+    font.offsets = &offsets;
+    drawing.fonts.new = .open(font, null);
+
+    var snapshot: six_beacons.Snapshot = .{ .beacons = @splat(.{ .object = .of(all, target) }) };
+    snapshot.beacons[0].carrier = binding;
+    const scene: TargetScene = .{ .all = all, .sight = testSight(), .mode = .cockpit, .beacons = .{ .snapshot = &snapshot, .icons = &icons } };
+    _ = try drawing.draw(gpa, &targeting.state, scene);
+    try std.testing.expect(icons.images[0x10] != null);
+    try std.testing.expect(drawing.fonts.new.images['1'] != null);
+    try std.testing.expectEqual(2, drawing.recorder.draws.items.len);
+    const slot = &all.slots[target];
+    const low, _ = screenBox(scene.sight, slot.drawn, objectBox(&slot.object), 1);
+    const corner = pixelOf(low).?;
+    // The fixture's shape hangs one pixel left of its anchor. Its digit is two pixels wide.
+    const x: f32 = @floatFromInt(corner[0]);
+    const y: f32 = @floatFromInt(corner[1]);
+    try std.testing.expectEqual(x - 34, drawing.recorder.drawn(0)[0].x);
+    try std.testing.expectEqual(y + 2, drawing.recorder.drawn(0)[0].y);
+    try std.testing.expectEqual(x - 25, drawing.recorder.drawn(1)[0].x);
+    try std.testing.expectEqual(y + 18, drawing.recorder.drawn(1)[0].y);
+    try std.testing.expect(create.Objects.leaveParticipant(targeting.mission.world(), pilot));
+    drawing.recorder.clear();
+    _ = try drawing.draw(gpa, &targeting.state, scene);
+    try std.testing.expectEqual(0, drawing.recorder.draws.items.len);
 }
 
 test "a hostile target ahead gets the lead cursor, whose point blind fire aims at" {
