@@ -15,7 +15,7 @@ pub const pilots_to_start = 2;
 
 const Peer = struct {
     conn: net.Connection,
-    state: enum { connecting, enrolling, certified, joining, playing, closing } = .connecting,
+    state: enum { connecting, joining, playing, closing } = .connecting,
     identity: [max_identity]u8 = undefined,
     identity_len: u8 = 0,
     expires: i64,
@@ -83,12 +83,10 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
         },
         .unverified => if (slot) |index| {
             const peer = &host.peers[index].?;
-            if (host.signer != null and peer.state == .connecting) {
-                // An encrypted guest can request one certificate. Only a new, authenticated
-                // connection can join the simulation with it.
-                peer.state = .enrolling;
-                return;
-            }
+            if (peer.state != .connecting) return;
+            // The transport requires encryption. This pilot owns only its new admission.
+            peer.state = .joining;
+            return;
         },
         .closed => {},
     }
@@ -106,15 +104,6 @@ fn hasName(host: *const Host, name: []const u8) bool {
 fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64) !bool {
     if (message == .leave) return false;
     switch (peer.state) {
-        .enrolling => {
-            if (host.final_tick != null or message != .request_identity) return false;
-            const signer = host.signer orelse return false;
-            const key = identity.PublicKey.fromBytes(message.request_identity) catch return false;
-            const certificate = identity.issue(host.io, &signer.issuer, key, &identity.pilotName(key)) catch return false;
-            try net.send(peer.conn, .{ .issued_identity = certificate.slice() });
-            peer.state = .certified;
-            return true;
-        },
         .joining => {
             if (host.final_tick != null or message != .join) return false;
             if (!message.join.compatible()) {
@@ -143,7 +132,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
             peer.expires = time + timeout;
             return true;
         },
-        .connecting, .certified, .closing => return false,
+        .connecting, .closing => return false,
     }
 }
 

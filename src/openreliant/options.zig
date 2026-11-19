@@ -159,10 +159,10 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
 
 /// `openreliant session --help`.
 pub const session_help =
-    \\Run a direct-IP session using an invite or managed identities.
+    \\Join by IP or invite. The default UDP port is 27020.
     \\
     \\usage: openreliant session host <ip:port> <root-public-key> <certificate> [round-ticks]
-    \\       openreliant session join <invite> [keyboard|left|straight|right] [views-before-leaving]
+    \\       openreliant session join <ip-address|invite> [keyboard|left|straight|right] [views-before-leaving]
     \\       openreliant session join <ip:port> <root-public-key> <certificate> <host-identity> <keyboard|left|straight|right> [views-before-leaving]
     \\
 ;

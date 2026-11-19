@@ -8,7 +8,6 @@ const Invite = @import("identity.zig").Invite;
 const wire = @import("wire.zig");
 
 const default_config = "server.ini";
-const default_port = 27020;
 const max_config_size = 16 * 1024;
 
 const Config = struct {
@@ -23,7 +22,7 @@ const Config = struct {
         const port = if (profile.value("Server", "Port")) |value|
             std.fmt.parseInt(u16, value, 10) catch return error.InvalidPort
         else
-            default_port;
+            session.default_port;
         if (port == 0) return error.InvalidPort;
         const address = profile.value("Server", "BindAddress") orelse "127.0.0.1";
         const bind = std.Io.net.IpAddress.parse(address, port) catch return error.InvalidBindAddress;

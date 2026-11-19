@@ -52,7 +52,7 @@ extern "C" bool session_init(const char *root, size_t root_size,
     if (!GameNetworkingSockets_Init(nullptr, error)) return false;
     auto *utils = SteamNetworkingUtils();
     const bool configured =
-        OpenReliant_SetTransportRoot(root, root_size) &&
+        (root ? OpenReliant_SetTransportRoot(root, root_size) : !certificate) &&
         openreliant::gns::require_encryption(utils) &&
         openreliant::gns::receive_limits(max_message, queued_messages, queued_bytes) &&
         utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_SendBufferSize, queued_bytes) &&

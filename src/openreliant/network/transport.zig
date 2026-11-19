@@ -3,7 +3,7 @@ const wire = @import("wire.zig");
 
 pub const Connection = u32;
 pub const Status = enum(c_int) { incoming, authenticated, closed, unverified };
-pub extern fn session_init(root: [*]const u8, root_size: usize, certificate: ?[*]const u8, size: c_int, max_message: c_int) bool;
+pub extern fn session_init(root: ?[*]const u8, root_size: usize, certificate: ?[*]const u8, size: c_int, max_message: c_int) bool;
 pub extern fn session_set_certificate(certificate: [*]const u8, size: c_int) bool;
 pub extern fn session_deinit() void;
 pub extern fn session_open(address: [*:0]const u8, host: bool) u32;

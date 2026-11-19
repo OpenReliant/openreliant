@@ -7,6 +7,7 @@ const credential = @import("identity.zig");
 const Host = @import("server.zig");
 const Client = @import("client.zig");
 
+pub const default_port = 27020;
 const default_round_ticks = 250;
 const max_certificate = 4096;
 const max_root_key = 512;
@@ -55,8 +56,8 @@ pub const HostOptions = struct {
     invite_address: ?std.Io.net.IpAddress = null,
 };
 
-fn initTransport(root: []const u8, certificate: ?[]const u8) !void {
-    if (!net.session_init(root.ptr, root.len, if (certificate) |cert| cert.ptr else null, @intCast(if (certificate) |cert| cert.len else 0), wire.capacity))
+fn initTransport(root: ?[]const u8, certificate: ?[]const u8) !void {
+    if (!net.session_init(if (root) |r| r.ptr else null, if (root) |r| r.len else 0, if (certificate) |cert| cert.ptr else null, @intCast(if (certificate) |cert| cert.len else 0), wire.capacity))
         return error.InvalidTransportIdentity;
 }
 
@@ -80,8 +81,6 @@ pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity
         .arena = undefined,
         .player_limit = options.players,
         .signer = if (server) |*automatic| automatic else null,
-        // Each invited pilot opens a certificate request and a game connection.
-        .budget = .{ .limit = if (server != null) .automatic_identity else .standard },
     };
     try host.arena.init(gpa, options.mode);
     defer host.arena.deinit();
@@ -99,37 +98,45 @@ fn controls(value: []const u8) !Client.Controls {
     return .{ .fixed = std.meta.stringToEnum(wire.Steering, value) orelse return error.InvalidSteering };
 }
 
-fn joinInvite(io: std.Io, args: []const [:0]const u8) !void {
-    if (args.len > 3) return error.InvalidSessionArguments;
-    const invite = try credential.Invite.parse(args[0]);
+fn directAddress(text: []const u8) !std.Io.net.IpAddress {
+    const IpAddress = std.Io.net.IpAddress;
+    // An IPv6 address with an explicit port must be in brackets.
+    const address = IpAddress.parse(text, default_port) catch literal: {
+        var address = try IpAddress.parseLiteral(text);
+        if (std.mem.endsWith(u8, text, "]")) address.setPort(default_port);
+        break :literal address;
+    };
+    if (address.getPort() == 0 or !credential.Invite.hasAddress(address)) return error.InvalidAddress;
+    return address;
+}
+
+fn join(io: std.Io, args: []const [:0]const u8) !void {
+    const invite = if (std.mem.startsWith(u8, args[0], credential.Invite.prefix))
+        try credential.Invite.parse(args[0])
+    else
+        null;
+    const endpoint = if (invite) |value| value.address else try directAddress(args[0]);
+    var buffer: [credential.Invite.max_address]u8 = undefined;
+    const address = try std.fmt.bufPrintSentinel(&buffer, "{f}", .{endpoint}, 0);
     const steering = if (args.len > 1) try controls(args[1]) else .keyboard;
     const limit = if (args.len > 2) try number(args[2]) else null;
-    var address_buffer: [credential.Invite.max_address]u8 = undefined;
-    const address = try std.fmt.bufPrintSentinel(&address_buffer, "{f}", .{invite.address}, 0);
-    const root = credential.openSshKey(invite.key);
-    var client: Client = .{ .expected_host = credential.host_name };
+    try initTransport(if (invite) |value| &credential.openSshKey(value.key) else null, null);
+    defer net.session_deinit();
+    try play(io, address, if (invite != null) credential.host_name else null, steering, limit);
+}
+
+fn play(io: std.Io, address: [:0]const u8, expected_host: ?[]const u8, steering: Client.Controls, limit: ?u32) !void {
+    var client: Client = .{ .expected_host = expected_host };
     current = .{ .client = &client };
     defer current = null;
-    {
-        var key = try credential.newKey(io);
-        defer std.crypto.secureZero(u8, std.mem.asBytes(&key));
-        var certificate = request: {
-            try initTransport(&root, null);
-            defer net.session_deinit();
-            break :request try client.requestIdentity(io, address, &key);
-        };
-        defer certificate.wipe();
-        try initTransport(&root, certificate.slice());
-    }
-    defer net.session_deinit();
     try client.run(io, address, steering, limit);
 }
 
 pub fn run(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !u8 {
     if (args.len == 0) return error.InvalidSessionArguments;
     const role = std.meta.stringToEnum(Role, args[0]) orelse return error.InvalidSessionRole;
-    if (role == .join and args.len > 1 and std.mem.startsWith(u8, args[1], credential.Invite.prefix)) {
-        try joinInvite(io, args[1..]);
+    if (role == .join and args.len >= 2 and args.len <= 4) {
+        try join(io, args[1..]);
         return 0;
     }
     const min_args: usize = if (role == .host) 4 else 6;
@@ -142,13 +149,18 @@ pub fn run(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !u8 {
         .join => {
             try identity.load(io, gpa, .cwd());
             defer net.session_deinit();
-            var client: Client = .{ .expected_host = args[4] };
-            current = .{ .client = &client };
-            defer current = null;
-            try client.run(io, args[1], try controls(args[5]), limit);
+            try play(io, args[1], args[4], try controls(args[5]), limit);
         },
     }
     return 0;
+}
+
+test "direct addresses accept an optional port" {
+    for ([_][]const u8{ "127.0.0.1", "::1", "[::1]" }) |text|
+        try std.testing.expectEqual(default_port, (try directAddress(text)).getPort());
+    for ([_][]const u8{ "127.0.0.1:27200", "[::1]:27200" }) |text|
+        try std.testing.expectEqual(27200, (try directAddress(text)).getPort());
+    try std.testing.expectError(error.InvalidAddress, directAddress("127.0.0.1:0"));
 }
 
 test {

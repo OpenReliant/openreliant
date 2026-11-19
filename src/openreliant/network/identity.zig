@@ -7,7 +7,7 @@ const Sha256 = std.crypto.hash.sha2.Sha256;
 const Writer = Io.Writer;
 
 pub const PublicKey = Ed25519.PublicKey;
-pub const KeyPair = Ed25519.KeyPair;
+const KeyPair = Ed25519.KeyPair;
 pub const host_name = "host";
 pub const seed_file = "server.key";
 const Seed = [KeyPair.seed_length]u8;
@@ -15,7 +15,7 @@ const lease_seconds = 24 * std.time.s_per_hour;
 pub const renew_after_us = lease_seconds * std.time.us_per_s / 2;
 const clock_skew = std.time.s_per_min;
 
-pub fn newKey(io: Io) !KeyPair {
+fn newKey(io: Io) !KeyPair {
     var seed: Seed = undefined;
     defer std.crypto.secureZero(u8, &seed);
     try io.randomSecure(&seed);
@@ -33,7 +33,7 @@ fn readSeed(io: Io, directory: Io.Dir, seed: *Seed) !void {
 }
 
 /// Publish a complete seed once. Two launchers starting together both use the published key.
-pub fn serverKey(io: Io, directory: Io.Dir) !KeyPair {
+fn serverKey(io: Io, directory: Io.Dir) !KeyPair {
     var seed: Seed = undefined;
     defer std.crypto.secureZero(u8, &seed);
     readSeed(io, directory, &seed) catch |err| switch (err) {
@@ -59,15 +59,6 @@ fn fingerprint(key: PublicKey) [Sha256.digest_length]u8 {
     var hash: [Sha256.digest_length]u8 = undefined;
     Sha256.hash(&key.toBytes(), &hash, .{});
     return hash;
-}
-
-const name_chars = 22; // Unpadded base64 for 128 fingerprint bits.
-pub fn pilotName(key: PublicKey) ["pilot-".len + name_chars]u8 {
-    const prefix = "pilot-";
-    var name: [prefix.len + name_chars]u8 = undefined;
-    name[0..prefix.len].* = prefix.*;
-    _ = std.base64.url_safe_no_pad.Encoder.encode(name[prefix.len..], fingerprint(key)[0..16]);
-    return name;
 }
 
 const ssh_header = "\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20";
@@ -131,64 +122,17 @@ fn bytesField(out: *Writer, tag: anytype, data: []const u8) Writer.Error!void {
 }
 
 pub const Certificate = struct {
-    pub const max_public_size = 176;
-    const private_field_size = 2 + KeyPair.seed_length;
-    bytes: [max_public_size + private_field_size]u8 = undefined,
+    bytes: [216]u8 = undefined,
     len: usize,
 
     pub fn slice(cert: *const Certificate) []const u8 {
         return cert.bytes[0..cert.len];
     }
 
-    /// The transport loads the signed public certificate alongside a key that stays on this peer.
-    pub fn withPrivateKey(signed: []const u8, key: *const KeyPair) !Certificate {
-        if (signed.len == 0 or signed.len > max_public_size) return error.InvalidIdentityCertificate;
-        var cert: Certificate = .{ .len = signed.len };
-        @memcpy(cert.bytes[0..signed.len], signed);
-        var out = Writer.fixed(cert.bytes[signed.len..]);
-        var seed = key.secret_key.seed();
-        defer std.crypto.secureZero(u8, &seed);
-        try bytesField(&out, SignedField.private_key_data, &seed);
-        cert.len += out.buffered().len;
-        return cert;
-    }
-
     pub fn wipe(cert: *Certificate) void {
         std.crypto.secureZero(u8, &cert.bytes);
     }
 };
-
-pub fn issue(io: Io, issuer: *const KeyPair, public: PublicKey, name: []const u8) !Certificate {
-    const now = Io.Clock.real.now(io).toSeconds();
-    if (now < clock_skew or now > std.math.maxInt(u32) - lease_seconds) return error.InvalidCertificateTime;
-
-    var certificate: [96]u8 = undefined;
-    var out = Writer.fixed(&certificate);
-    try field(&out, CertField.key_type, .varint);
-    try out.writeByte(1); // ED25519
-    try bytesField(&out, CertField.key_data, &public.toBytes());
-    try field(&out, CertField.time_created, .fixed32);
-    try out.writeInt(u32, @intCast(now - clock_skew), .little);
-    try field(&out, CertField.time_expiry, .fixed32);
-    try out.writeInt(u32, @intCast(now + lease_seconds), .little);
-    try field(&out, CertField.app_ids, .varint);
-    try out.writeByte(0); // The standalone transport uses app ID zero.
-    try field(&out, CertField.identity_string, .bytes);
-    try out.writeLeb128("str:".len + name.len);
-    try out.writeAll("str:");
-    try out.writeAll(name);
-    const inner = out.buffered();
-
-    var signed: Certificate = .{ .len = 0 };
-    var envelope = Writer.fixed(signed.bytes[0..Certificate.max_public_size]);
-    try bytesField(&envelope, SignedField.cert, inner);
-    try field(&envelope, SignedField.ca_key_id, .fixed64);
-    const key_id = fingerprint(issuer.public_key)[0..@sizeOf(u64)].*;
-    try envelope.writeAll(&key_id);
-    try bytesField(&envelope, SignedField.ca_signature, &(try issuer.sign(inner, null)).toBytes());
-    signed.len = envelope.buffered().len;
-    return signed;
-}
 
 pub const Server = struct {
     issuer: KeyPair,
@@ -201,8 +145,35 @@ pub const Server = struct {
     }
 
     pub fn hostCertificate(server: *const Server, io: Io) !Certificate {
-        const signed = try issue(io, &server.issuer, server.leaf.public_key, host_name);
-        return Certificate.withPrivateKey(signed.slice(), &server.leaf);
+        const now = Io.Clock.real.now(io).toSeconds();
+        if (now < clock_skew or now > std.math.maxInt(u32) - lease_seconds) return error.InvalidCertificateTime;
+
+        var certificate: [96]u8 = undefined;
+        var out = Writer.fixed(&certificate);
+        try field(&out, CertField.key_type, .varint);
+        try out.writeByte(1); // ED25519
+        try bytesField(&out, CertField.key_data, &server.leaf.public_key.toBytes());
+        try field(&out, CertField.time_created, .fixed32);
+        try out.writeInt(u32, @intCast(now - clock_skew), .little);
+        try field(&out, CertField.time_expiry, .fixed32);
+        try out.writeInt(u32, @intCast(now + lease_seconds), .little);
+        try field(&out, CertField.app_ids, .varint);
+        try out.writeByte(0); // The standalone transport uses app ID zero.
+        try bytesField(&out, CertField.identity_string, "str:" ++ host_name);
+        const inner = out.buffered();
+
+        var signed: Certificate = .{ .len = 0 };
+        var envelope = Writer.fixed(&signed.bytes);
+        try bytesField(&envelope, SignedField.cert, inner);
+        try field(&envelope, SignedField.ca_key_id, .fixed64);
+        const key_id = fingerprint(server.issuer.public_key)[0..@sizeOf(u64)].*;
+        try envelope.writeAll(&key_id);
+        try bytesField(&envelope, SignedField.ca_signature, &(try server.issuer.sign(inner, null)).toBytes());
+        var seed = server.leaf.secret_key.seed();
+        defer std.crypto.secureZero(u8, &seed);
+        try bytesField(&envelope, SignedField.private_key_data, &seed);
+        signed.len = envelope.buffered().len;
+        return signed;
     }
 
     pub fn wipe(server: *Server) void {

@@ -6,8 +6,7 @@
 
 namespace openreliant::gns {
 inline bool require_encryption(ISteamNetworkingUtils *utils) {
-    // Standalone GNS needs this setting for direct IP. Check the authenticated
-    // identity before admitting a connection.
+    // Direct IP allows peers without a trusted certificate and always requires encryption.
     return utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 1) &&
            utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_Unencrypted, 0);
 }
