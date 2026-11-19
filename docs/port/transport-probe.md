@@ -101,8 +101,11 @@ runner connects a third pilot who leaves before sending a join request. It then 
 identity with an incompatible protocol revision. The host replies with the required revision
 and closes the connection. Both attempts leave the pilot slot free. The runner then starts a client that reports
 a different OpenReliant release but uses the same protocol. Its first snapshot contains all six
-beacons, their positions, and the carrier's participant and ship identities. The host then runs the carrier's destruction
-order. All three clients must confirm that the same beacon is loose at its drop position.
+beacons, their positions and the carrier's participant and ship identities. The host then runs
+the carrier's destruction order. All three clients must confirm that the
+same beacon is loose at its drop position. The test pauses between simulation frames to make
+the join repeatable. A public server must keep ticking while a pilot negotiates admission
+([#1432](https://github.com/OpenReliant/openreliant/issues/1432)).
 
 The protocol revision is separate from the OpenReliant version. Bump it when a change
 makes the wire format or the meaning of its messages incompatible. Matching the revision
