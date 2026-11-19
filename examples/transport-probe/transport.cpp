@@ -2,6 +2,7 @@
 #include <steam/steamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
 
+#include "ice.h"
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -10,6 +11,8 @@
 extern "C" bool probe_connected(uint32_t connection, const char *identity, bool incoming);
 extern "C" void probe_closed(uint32_t connection);
 extern "C" int probe_run(const char *role, const char *address, bool shared_clock);
+
+static bool direct_ice;
 
 static void status_changed(SteamNetConnectionStatusChangedCallback_t *event) {
     auto *net = SteamNetworkingSockets();
@@ -24,10 +27,14 @@ static void status_changed(SteamNetConnectionStatusChangedCallback_t *event) {
             constexpr int unsafe = k_nSteamNetworkConnectionInfoFlags_Unauthenticated |
                                    k_nSteamNetworkConnectionInfoFlags_Unencrypted;
             constexpr int priorities[] = {0, 0, 1}; // Flight, mission events, background.
+            if (direct_ice && (info.m_nFlags & k_nSteamNetworkConnectionInfoFlags_Relayed)) break;
             const char *identity = info.m_identityRemote.GetGenericString();
             if (!(info.m_nFlags & unsafe) && identity &&
                 net->ConfigureConnectionLanes(conn, 3, priorities, nullptr) == k_EResultOK &&
-                probe_connected(conn, identity, incoming)) return;
+                probe_connected(conn, identity, incoming)) {
+                if (direct_ice) std::fprintf(stderr, "ICE direct UDP connected to %s\n", identity);
+                return;
+            }
             break;
         }
         case k_ESteamNetworkingConnectionState_ClosedByPeer:
@@ -41,6 +48,7 @@ static void status_changed(SteamNetConnectionStatusChangedCallback_t *event) {
 }
 
 extern "C" bool probe_open(const char *address, bool host) {
+    if (direct_ice) return ice::open(address + 4, host);
     SteamNetworkingIPAddr endpoint;
     if (!endpoint.ParseString(address)) return false;
     auto *net = SteamNetworkingSockets();
@@ -90,9 +98,11 @@ extern "C" int64_t probe_now() {
     return std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
-extern "C" void probe_poll() {
+extern "C" bool probe_poll() {
+    if (direct_ice && !ice::poll()) return false;
     SteamNetworkingSockets()->RunCallbacks();
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    return true;
 }
 
 static bool set_certificate(const char *path, SteamNetworkingErrMsg &error) {
@@ -109,17 +119,21 @@ static bool set_certificate(const char *path, SteamNetworkingErrMsg &error) {
 int main(int argc, char **argv) {
     const bool shared_clock = argc == 5 && std::strcmp(argv[4], "--shared-clock") == 0;
     if (argc != 4 && !shared_clock) {
-        std::fprintf(stderr, "usage: transport-probe host|pilot1|pilot2|reject ADDRESS:PORT CERT [--shared-clock]\n");
+        std::fprintf(stderr, "usage: transport-probe host|pilot1|pilot2|reject ADDRESS:PORT|ice:STUN_SERVER CERT [--shared-clock]\n");
         return 2;
     }
+    direct_ice = std::strncmp(argv[2], "ice:", 4) == 0;
     SteamNetworkingErrMsg error = {};
     if (!GameNetworkingSockets_Init(nullptr, error)) {
         std::fprintf(stderr, "initialisation failed: %s\n", error);
         return 1;
     }
     auto *utils = SteamNetworkingUtils();
-    utils->SetDebugOutputFunction(k_ESteamNetworkingSocketsDebugOutputType_Warning,
-        [](ESteamNetworkingSocketsDebugOutputType, const char *message) { std::fprintf(stderr, "%s\n", message); });
+    utils->SetDebugOutputFunction(direct_ice ? k_ESteamNetworkingSocketsDebugOutputType_Msg : k_ESteamNetworkingSocketsDebugOutputType_Warning,
+        [](ESteamNetworkingSocketsDebugOutputType, const char *message) {
+            if (!direct_ice || std::strncmp(message, "probe ICE ", 10) == 0)
+                std::fprintf(stderr, "%s\n", message);
+        });
     // Standalone GNS requires this to open a listener. The connected callback
     // checks both encryption and the authenticated identity before admitting a peer.
     int result = 1;

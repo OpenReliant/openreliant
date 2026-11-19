@@ -1,0 +1,26 @@
+--- steamnetworkingsockets_ice_client.cpp
++++ steamnetworkingsockets_ice_client.cpp
+@@ -935,4 +935,6 @@
+         if ( m_pInterface->SendPacketGather( 1, &temp, m_cbPacketSize, m_remoteAddr, m_addrRelay ) )
+         {
++            if ( m_nMessageType == k_nSTUN_BindingRequest && m_pInterface->m_pPendingSTUNRequest == this && !m_pInterface->m_addrSTUNServer.IsValid() )
++                SpewMsg( "probe ICE discovery request sent\n" );
+             m_usecLastSentTime = usecNow;
+             if ( m_nRetryCount > 1 )
+@@ -2290,4 +2292,5 @@
+     if ( ReadAnyMappedAddress( info.m_pAttributes, info.m_nAttributes, info.m_pHeader, &bindResult ) )
+     {
++        SpewMsg( bindResult == pIntf->m_boundAddr ? "probe ICE mapping matches interface\n" : "probe ICE mapped address accepted\n" );
+         // Got a response.  If mapped address == local address we're not behind a NAT:
+         // record the STUN server so discovery is marked done, but don't advertise.
+@@ -2304,2 +2307,10 @@
++    const STUNAttribute *error = FindAttributeOfType( info.m_pAttributes, info.m_nAttributes, k_nSTUN_Attr_ErrorCode );
++    if ( error && error->m_nLength >= 4 )
++    {
++        const uint8 *code = reinterpret_cast<const uint8 *>( error->m_pData );
++        SpewMsg( "probe ICE discovery error %u\n", unsigned( ( code[2] & 7 ) * 100 + code[3] ) );
++    }
++    else
++        SpewMsg( info.m_pHeader ? "probe ICE response without mapping\n" : "probe ICE discovery timed out\n" );
+     // Timed out to this STUN server -- try the next one if available.
+     const int nSTUNServerIdx = index_of( m_vecSTUNServers, info.m_pRequest->m_remoteAddr );

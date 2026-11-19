@@ -28,7 +28,7 @@ the time it applied the update.
 
 ## Run it
 
-On a Unix build machine, install Zig 0.17, Git, CMake, Ninja, Make, Perl, a native C++ compiler
+On a Unix build machine, install Zig 0.17, Git, patch, CMake, Ninja, Make, Perl, a native C++ compiler
 and Python 3.9 or newer with the `cryptography` package (version 40 or newer). Apple targets need
 the macOS SDK. From the repository root, pick a target and a scratch directory outside the checkout.
 For example, on an Apple silicon Mac:
@@ -64,8 +64,39 @@ Run `transport-probe pilot1 HOST:PORT pilot1.cert` and `transport-probe pilot2 H
 on the clients with their own credentials from the same set. Start both clients within 30 seconds.
 The probe opens UDP sockets, runs without a window or audio device, and exits after the exchange.
 
-The same workload also ran in a test adapter using Valve's native ICE across two networks. Direct
-punchthrough timed out on that pair, although both machines received STUN binding responses.
-With TURN forced, both sides reported a relayed connection and all three processes completed.
-SSH carried only signalling in that test. The executable above uses direct IP. Repeatable ICE
-route tests are tracked in [#1404](https://github.com/OpenReliant/openreliant/issues/1404).
+## Trace direct ICE
+
+Run the same workload over native ICE with a STUN server of your choice. Use an explicit port
+for each server. The probe accepts a comma-separated server list. It enables local and public
+candidates and disables relay candidates. To run a same-machine control, set `STUN` to the
+server's hostname and port and run:
+
+```sh
+python3 "$probe/direct.py" "$work" "$target" "$STUN"
+```
+
+For a two-site test, place the host binary and its own certificate from the same build set on
+the second machine. Start the host through a command that pipes standard input and output. For
+example, with those two files in the remote working directory:
+
+```sh
+python3 "$probe/direct.py" "$work" "$target" "$STUN" \
+    ssh -T "$REMOTE" "./transport-probe host ice:$STUN host.cert"
+```
+
+The runner checks each signal with the pinned Protobuf schema. It refuses application messages
+and counts the candidate types it forwards. The transport reports when it sends a discovery
+request, reads a mapped address, or gets a STUN error or timeout. Request counts include
+retries and packets subject to simulated loss. A mapping that matches the interface already
+has a host candidate. A different mapping can appear in a signal as `srflx`. Each authenticated
+peer reports when it connects directly. The runner exits unsuccessfully if a peer fails and
+prints the candidate counts even when no route connects.
+
+On two independent networks, the tested STUN service returned error 420 (unknown attribute)
+to native ICE. All three peers advertised only host candidates and the workload timed out.
+A separate binding request to the same service received a mapped address. Adding only the
+`MAPPED-ADDRESS` attribute to that request reproduced error 420, and the reply named that
+attribute. With a controlled responder on one machine, all three peers accepted and advertised
+a mapping and the workload completed. Cross-network TURN and automatic relay fallback completed
+in the earlier relay test. Direct punchthrough remains open in
+[#1404](https://github.com/OpenReliant/openreliant/issues/1404).
