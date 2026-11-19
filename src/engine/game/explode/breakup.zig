@@ -426,34 +426,41 @@ fn trailFrom(kind: Kind, born: i32) particles.Emitter {
 /// `explode_break_up` (`0x0046C550`): cuts each of the ship's parts in four and sends the pieces
 /// flying (`cutTree`). Its pieces show as the part does, lit as the debris setting says.
 pub fn breakUp(world: gameobj.World, index: u16, kind: Kind) void {
-    const explosions = explode.drawnIn(world) orelse return;
     const slot = &world.objects.slots[index];
     const model = &(slot.model orelse return);
-    for (0..model.parts.len) |at| cutTree(explosions, world, slot, model, at, .{ .ship = kind });
+    breakUpModel(world, model, .{ .place = slot.drawn, .velocity = slot.object.velocity.vector() }, kind);
+}
+
+/// The ship pose and movement the debris inherits. The model need only live while it is cut.
+pub const FlightSource = struct { place: math.Place, velocity: Vector };
+
+pub fn breakUpModel(world: gameobj.World, model: *const objects.Model, motion: FlightSource, kind: Kind) void {
+    const explosions = explode.drawnIn(world) orelse return;
+    for (0..model.parts.len) |at| cutTree(explosions, world, model, at, .{ .ship = .{ .kind = kind, .motion = motion } });
 }
 
 /// How a part is cut up: as its ship breaks up, in a blast or a burst; or as a destroyed
 /// component's assembly goes up, the assembly's parts measuring so much across together.
 const Cutting = union(enum) {
-    ship: Kind,
-    component: f32,
+    ship: struct { kind: Kind, motion: FlightSource },
+    component: struct { slot: *const create.Slot, reach: f32 },
 };
 
 /// Part `index` of `model` cut up as `how` says, then each part of each model it carries, and
 /// theirs in turn: the game walks the root's child list, every part in order whatever it is linked
 /// to, and each part's own children, the roots of what it carries, shown or not. A part taken out
 /// is passed over with all it carries.
-fn cutTree(explosions: *explode.Explosions, world: gameobj.World, slot: *const create.Slot, model: *const objects.Model, index: usize, how: Cutting) void {
+fn cutTree(explosions: *explode.Explosions, world: gameobj.World, model: *const objects.Model, index: usize, how: Cutting) void {
     const part = &model.parts[index];
     if (part.removed) return;
     const source = sourceOf(explosions, part);
     switch (how) {
-        .ship => |kind| if (source) |whole| breakUpPart(explosions, world, slot, whole, kind),
-        .component => |reach| burstPart(explosions, world, slot, part, source, reach),
+        .ship => |ship| if (source) |whole| breakUpPart(explosions, world, ship.motion, whole, ship.kind),
+        .component => |component| burstPart(explosions, world, component.slot, part, source, component.reach),
     }
     var each = model.carriedBy(index);
     while (each.next()) |mount| {
-        for (0..mount.model.parts.len) |at| cutTree(explosions, world, slot, &mount.model, at, how);
+        for (0..mount.model.parts.len) |at| cutTree(explosions, world, &mount.model, at, how);
     }
 }
 
@@ -471,13 +478,13 @@ fn sourceOf(explosions: *const explode.Explosions, part: *const objects.Model.Pa
 
 /// A part broken up with its ship: cut in four through the ship's centre, each piece flying off
 /// whole or cut again as its place among them says.
-fn breakUpPart(explosions: *explode.Explosions, world: gameobj.World, slot: *const create.Slot, source: Source, kind: Kind) void {
+fn breakUpPart(explosions: *explode.Explosions, world: gameobj.World, motion: FlightSource, source: Source, kind: Kind) void {
     const gpa = explosions.pieces.gpa;
     const random = world.effectsRandom();
     const now = world.clock.frame_start;
-    const centre = slot.drawn.position;
-    const carried = slot.object.velocity.vector();
-    var pieces = cut(gpa, slot.drawn, source, .two, random) catch return;
+    const centre = motion.place.position;
+    const carried = motion.velocity;
+    var pieces = cut(gpa, motion.place, source, .two, random) catch return;
     for (&pieces, 0..) |*maybe, at| {
         var piece = maybe.* orelse continue;
         const again: ?Cuts = switch (at % 3) {
@@ -537,7 +544,7 @@ const part_flight_range = 20;
 /// (`cutTree`): each goes up (`burstPart`), the assembly's parts measuring `reach` across together.
 pub fn burstTree(world: gameobj.World, slot: *const create.Slot, model: *const objects.Model, index: usize, reach: f32) void {
     const explosions = explode.drawnIn(world) orelse return;
-    cutTree(explosions, world, slot, model, index, .{ .component = reach });
+    cutTree(explosions, world, model, index, .{ .component = .{ .slot = slot, .reach = reach } });
 }
 
 /// A part of a destroyed component's assembly going up: a lit fireball its size where it stands,

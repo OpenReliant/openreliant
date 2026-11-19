@@ -124,8 +124,8 @@ pub const Data = extern struct {
 /// `order_explode_init` (`0x00408610`) picks the mode by what the object is (`Mode.of`) and runs
 /// that mode's init (`explode_modes`).
 ///
-/// Not ported: in a multiplayer game, a player's power-up is ended first (`0x004AF120`,
-/// [#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In an arena, the scenario releases the ship's power-up or drops its carried objectives first
+/// (`mp_pilot_release_powerup`, 0x004AF120).
 pub fn init(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     if (ctx.world.damage_rules == .arena) all.arena_scenario.releaseShip(all, index);
@@ -308,14 +308,15 @@ fn limpetCarUpdate(ctx: Context, index: u16) void {
 const slow: f32 = 100;
 
 /// `explode_ship_init` (0x004086F0) starts the ship's explosion and plays its sound if the
-/// camera is close. Torpedoes and the player's ejection pod halt. Other ships take a random
-/// explosion style. The arena host records the pilot's death before checking kill credit.
+/// camera is close. In a stock arena, a fighter spins out and the dying pilot is protected
+/// from further damage. Elsewhere torpedoes and the player's ejection pod halt, and other
+/// ships take a random style. The arena host records the death before checking kill credit.
 /// The simulation then marks a lost wingman and posts the ship's Destroyed event.
 /// In the campaign, the camera follows the player's dying ship and the mission ends.
 /// Destroying the pod during the ejection cutaway leaves the camera and mission running.
 ///
-/// The original arena also protects the dying pilot, announces the kill, retires proximity
-/// mines and makes other ships spin out ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// The original arena also announces the kill and immediately retires proximity mines
+/// ([#1368](https://github.com/OpenReliant/openreliant/issues/1368)).
 fn shipInit(ctx: Context, index: u16) void {
     const world = ctx.world;
     const slot = &world.objects.slots[index];
@@ -326,7 +327,11 @@ fn shipInit(ctx: Context, index: u16) void {
     const state = &slot.state.explode;
     const players = index == world.objects.player;
     const cutaway = world.player.showing != .everything;
-    state.style = if (object.type.base().isTorpedo() or (players and cutaway))
+    const stock_fighter = world.damage_rules == .arena and world.objects.arena_boundary != null and world.objects.playerBinding(index) != null;
+    if (stock_fighter) object.invulnerable = ._unknown_4;
+    state.style = if (stock_fighter)
+        .spin_out
+    else if (object.type.base().isTorpedo() or (players and cutaway))
         .halt
     else
         @fromBackingInt(@intCast(xtrabits.objectRandom15(object) % std.enums.values(Style).len));
@@ -384,7 +389,7 @@ fn credited(slot: *const create.Slot) bool {
 
 /// Whether the ship in `slot` was flying slower than `slow` as its end began: its cruise speed
 /// (`ai.slotCruise`) times its throttle. A ship without flight stats counts as slow.
-fn movingSlowly(slot: *const create.Slot, view: camera.View) bool {
+pub fn movingSlowly(slot: *const create.Slot, view: camera.View) bool {
     const cruise = ai.slotCruise(slot, view) orelse return true;
     return cruise * slot.object.throttle < slow;
 }
@@ -392,8 +397,8 @@ fn movingSlowly(slot: *const create.Slot, view: camera.View) bool {
 /// `explode_ship` (`0x00408A60`): until its end the ship goes on in its style; then it blows up, a
 /// burst in its own way and a torpedo not at all, having gone up as it stopped, and is retired.
 ///
-/// Not ported: a multiplayer game, in which the order pops and a player's ship is readied to fly
-/// again rather than retired ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// The arena host captures the breakup before retiring the fighter, then spawns a replacement
+/// under the same admission.
 fn shipUpdate(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.explode;
@@ -404,6 +409,7 @@ fn shipUpdate(ctx: Context, index: u16) void {
         }
         return;
     }
+    if (ctx.world.damage_rules == .arena) deathmatch.Wreck.emit(ctx.world, index);
     switch (state.style) {
         .burst => explode.burst(ctx.world, index),
         .spin_out, .halt => if (!slot.object.type.base().isTorpedo()) explode.blast(ctx.world, index),

@@ -13,6 +13,7 @@ const Graphical = @This();
 const Connection = game.interface.Connection;
 const combat_messages_per_frame = 8;
 const messages_per_frame = combat_messages_per_frame + wire.ordnance.Page.pages;
+const FlightNotice = union(enum) { beacon: wire.BeaconNotice, pilot: wire.PilotNotice };
 
 // net_handle_system_message (0x004B6A80) posts 0x3B7 on session loss in flight.
 const host_left: Connection.Label = .{ .english = "The host has left the game", .installed = 0x3B7 };
@@ -25,8 +26,11 @@ client: ?session.Client = null,
 hosted: ?*session.LocalGame = null,
 roster: [wire.slots]?wire.CallSign = @splat(null),
 flight: ?*FlightFrame = null,
-notices: [game.hud.Messages.capacity]wire.BeaconNotice = undefined,
+notices: [game.hud.Messages.capacity]FlightNotice = undefined,
 notice_count: usize = 0,
+lobby_notices: game.hud.Messages = .{},
+wrecks: [2 * wire.slots]wire.Wreck = undefined,
+wreck_count: usize = 0,
 combat: [combat_messages_per_frame * wire.Combat.max]game.guns.FlightEffect = undefined,
 combat_count: usize = 0,
 stick: [2]i16 = @splat(0),
@@ -71,6 +75,7 @@ pub fn hostLan(pilot: *Graphical, io: std.Io, gpa: std.mem.Allocator, directory:
     screen.lobby = .{
         .role = .{ .host = .{ .port = session.default_port } },
         .roster = &pilot.roster,
+        .notices = &pilot.lobby_notices,
         .local_slot = 0,
         .ship = screen.fighter,
     };
@@ -128,7 +133,7 @@ pub fn flying(pilot: *const Graphical) bool {
     return if (pilot.client) |*client| client.latest != null and !client.leaving else false;
 }
 
-pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Interface, devices: *engine.input.Devices, presentation: ?*Presentation, reads_controls: bool) void {
+pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Interface, devices: *engine.input.Devices, presentation: ?*Presentation, strings: game.language.Language, reads_controls: bool) void {
     const client = if (pilot.client) |*active| active else return;
     if (front.screen != .connection) {
         pilot.returnToBrowser(&front.connection, presentation, .{});
@@ -195,19 +200,28 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 if (front.connection.lobby == null) front.connection.lobby = .{
                     .role = .guest,
                     .roster = &pilot.roster,
+                    .notices = &pilot.lobby_notices,
                     .local_slot = client.joined.?.slot,
                     .scenario = scenario,
                     .ship = client.fighter,
                 };
                 if (front.connection.lobby.?.role == .guest) front.connection.lobby.?.scenario = scenario;
             },
-            .beacon_notice => |notice| {
-                if (pilot.notice_count == pilot.notices.len) {
-                    @memmove(pilot.notices[0 .. pilot.notices.len - 1], pilot.notices[1..]);
-                    pilot.notice_count -= 1;
+            .beacon_notice => |notice| pilot.queueNotice(.{ .beacon = notice }),
+            .pilot_notice => |notice| {
+                if (notice.kind == .left_lobby) {
+                    const listed = client.roster.pilots[notice.pilot.slot];
+                    pilot.roster[notice.pilot.slot] = if (listed) |entry| entry.name else null;
+                    presentPilotNotice(&pilot.lobby_notices, strings, notice);
+                } else {
+                    pilot.queueNotice(.{ .pilot = notice });
                 }
-                pilot.notices[pilot.notice_count] = notice;
-                pilot.notice_count += 1;
+            },
+            .wreck => |wreck| {
+                if (pilot.wreck_count < pilot.wrecks.len) {
+                    pilot.wrecks[pilot.wreck_count] = wreck;
+                    pilot.wreck_count += 1;
+                }
             },
             .combat => |effects| {
                 const count = @min(pilot.combat.len - pilot.combat_count, effects.count);
@@ -235,7 +249,7 @@ pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Obje
         try flight.apply(&client.latest.?, client.joined.?, local, types);
         try flight.presentProjectiles(&client.projectiles);
         flight.applyRoster(client.roster);
-        pilot.presentCombat(flight);
+        try pilot.presentCombat(flight, types);
         pilot.presentNotices(flight, strings, client.joined.?);
         return &flight.drawn;
     }
@@ -243,11 +257,13 @@ pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Obje
     errdefer flight.destroy();
     if (client.latest.?.scenario) |scenario| {
         try flight.loadArena(files, scenario, types);
-        try flight.enableCombat(combat_assets);
+        try flight.enableCombat(combat_assets, types);
     }
     try flight.apply(&client.latest.?, client.joined.?, local, types);
     try flight.presentProjectiles(&client.projectiles);
     flight.applyRoster(client.roster);
+    try pilot.presentCombat(flight, types);
+    pilot.presentNotices(flight, strings, client.joined.?);
     if (presentation) |shown| {
         errdefer shown.endGame();
         try shown.startGame(null, flight.drawn.objects, false);
@@ -258,23 +274,61 @@ pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Obje
         }
     }
     pilot.flight = flight;
-    pilot.presentCombat(flight);
-    pilot.presentNotices(flight, strings, client.joined.?);
     return &flight.drawn;
 }
 
-fn presentCombat(pilot: *Graphical, flight: *FlightFrame) void {
+fn presentCombat(pilot: *Graphical, flight: *FlightFrame, types: game.create.Types) !void {
     flight.presentCombat(pilot.combat[0..pilot.combat_count]);
     pilot.combat_count = 0;
+    var kept: usize = 0;
+    for (pilot.wrecks[0..pilot.wreck_count]) |wreck| {
+        if (wreck.tick > flight.drawn.clock.frame_start) {
+            pilot.wrecks[kept] = wreck;
+            kept += 1;
+        } else {
+            try flight.presentWreck(wreck, types);
+        }
+    }
+    pilot.wreck_count = kept;
+}
+
+fn queueNotice(pilot: *Graphical, notice: FlightNotice) void {
+    if (pilot.notice_count == pilot.notices.len) {
+        @memmove(pilot.notices[0 .. pilot.notices.len - 1], pilot.notices[1..]);
+        pilot.notice_count -= 1;
+    }
+    pilot.notices[pilot.notice_count] = notice;
+    pilot.notice_count += 1;
+}
+
+fn pilotName(fallback: *[64]u8, strings: game.language.Language, name: *const wire.CallSign, slot: u16) []const u8 {
+    if (name.len != 0) return name.slice();
+    const label = strings.string(0xBF) orelse "Pilot";
+    return std.fmt.bufPrint(fallback, "{s} {d}", .{ label, slot + 1 }) catch label;
+}
+
+/// The in-flight join text is literal in the original (0x0050DE30). Departures use the
+/// installed lobby (0x562) or HUD (0x328) format from `mp_player_departed` (0x004B6890).
+fn presentPilotNotice(messages: *game.hud.Messages, strings: game.language.Language, notice: wire.PilotNotice) void {
+    const format = switch (notice.kind) {
+        .joined_flight => "%s has joined the game",
+        .left_flight => strings.string(0x328) orelse "%s has left the game",
+        .left_lobby => strings.string(0x562) orelse "SYSTEM : %s HAS LEFT THE SESSION",
+    };
+    var fallback: [64]u8 = undefined;
+    game.deathmatch.addMessage(messages, notice.tick, format, &.{pilotName(&fallback, strings, &notice.name, notice.pilot.slot)});
 }
 
 fn presentNotices(pilot: *Graphical, flight: *FlightFrame, strings: game.language.Language, admission: wire.Admission) void {
     const viewer: game.players.ParticipantRef = .{ .slot = admission.slot, .generation = admission.generation };
-    for (pilot.notices[0..pilot.notice_count]) |*notice| {
-        var fallback: [24]u8 = undefined;
-        const who = if (notice.name.len == 0) std.fmt.bufPrint(&fallback, "{s} {d}", .{ strings.string(0xBF) orelse "Pilot", notice.event.pilot.slot + 1 }) catch "Pilot" else notice.name.slice();
-        notice.event.present(&flight.drawn.display.messages, strings, viewer, who);
-    }
+    const messages = &flight.drawn.display.messages;
+    for (pilot.notices[0..pilot.notice_count]) |*entry| switch (entry.*) {
+        .beacon => |*notice| {
+            var fallback: [64]u8 = undefined;
+            notice.event.present(messages, strings, viewer, pilotName(&fallback, strings, &notice.name, notice.event.pilot.slot));
+        },
+        .pilot => |notice| presentPilotNotice(messages, strings, notice),
+    };
     pilot.notice_count = 0;
 }
 
@@ -283,6 +337,11 @@ pub fn cameraPlace(pilot: *Graphical, drawn: *const game.main.Drawn) game.camera
     const flight = pilot.flight.?;
     const left = flight.respawns.left[drawn.objects.player];
     if (left != 0) return game.deathmatch.respawn.camera(slot.drawn, left);
+    if (flight.death_view) |death| {
+        if (death.watching_from) |at| return .{ .position = at, .orientation = math.lookAt(slot.drawn.position - at) };
+        const since: f32 = @floatFromInt(drawn.clock.frame_start -| death.started);
+        return game.camera.pullBack(slot.drawn.position, slot.drawn.orientation, since);
+    }
     const offset = game.camera.Chase.offset(slot.object.type);
     const throttle = if (slot.object.afterburner) game.camera.Chase.afterburner_throttle else slot.object.throttle;
     const shake = drawn.shake * game.camera.Cockpit.shake_share * game.camera.Cockpit.camera_shake;

@@ -3223,4 +3223,11 @@ address	kind	name	type	comment
 005dad30	data	arena_scoreboard_font_remap	byte[256]	Scoreboard header and rank remap, each index itself except 1, which is transparent (0xFF)
 005dae54	data	mp_respawn_effects	void *[8]	The eight records holding a respawning fighter's sweep, beam and clipping plane
 005dae51	data	arena_bounds_ready	bool	Whether arena_frame has sized the arena sphere
+004b5600	function	mp_add_lobby_player	void __fastcall (int network_id, char *name)	Appends the new player's name and ID to the lobby and starts their ping timers
+004b5740	function	mp_bind_lobby_player	void __fastcall (int slot, int lobby_index)	Copies a lobby admission into a vacant flight slot and zeros the arena scores
+004b5900	function	mp_remove_lobby_player	void __fastcall (int network_id)	Removes a player's lobby and flight entries and frees the flight entry's message buffers
+004b6f80	function	net_receive_game_message	void (void)	Dispatches gameplay messages, including case 6, which binds a joining pilot and adds the flight HUD line
+004b9df0	function	mp_send_join_request	void (void)	Queues and sends the join request when a new player appears during an arena mission
+004ba610	function	mp_send_player_slot	void __fastcall (int network_id, int slot)	Sends the player slot to the joining pilot and includes the slot count in a co-op mission
+0050de30	data	mp_joined_flight_format	char[23]	Format string for the HUD notice when a pilot joins a mission already in flight
 005db100	data	arena_wall_bands	int	Number of animated bands in a wall flash, set to eight

@@ -16,7 +16,6 @@ host_ship_reuse: [wire.slots]u32 = @splat(0),
 respawns: game.deathmatch.respawn.View = .{},
 wall: game.deathmatch.Boundary.Flashes = .{},
 wall_mesh: ?engine.surrender.surrenderlib.srapiext.Mesh = null,
-deaths_at_spawn: [wire.slots]u32 = @splat(0),
 loaded: ?*game.mission.Loaded = null,
 environment: game.environfx.Environment = .{},
 beacon_slots: [wire.beacon_count]?u16 = @splat(null),
@@ -25,11 +24,18 @@ pickups: powerups.Pickups = .{},
 mine_start: ?u16 = null,
 host_mines: [powerups.mine_count]?u32 = @splat(null),
 shot_ended_at: [game.guns.max_bullets]i32 = @splat(-1),
+wreck_seen_at: [wire.slots]i32 = @splat(-1),
+death_view: ?DeathView = null,
 effect_tick: ?i32 = null,
 blast_started: ?i32 = null,
 sounds: ?*game.hog_snd.commands.Commands = null,
 lock_tone: game.main.lock.Tone = .{},
 projectiles: ?Projectiles = null,
+
+pub const DeathView = struct {
+    started: i32,
+    watching_from: ?engine.surrender.math.Vector,
+};
 
 pub fn create(gpa: std.mem.Allocator, local: *const game.create.Objects, tables: *const game.create.Stats) !*FlightFrame {
     const frame = try gpa.create(FlightFrame);
@@ -62,11 +68,17 @@ pub const CombatAssets = struct {
     ordnance_models: game.objects.Effects,
     trails: game.missiles.trail.Trails.Images,
     sounds: ?*game.hog_snd.commands.Commands = null,
+    explosions: game.explode.Settings,
+    particles: game.particles.Pool.Settings,
 };
 
-pub fn enableCombat(frame: *FlightFrame, assets: CombatAssets) !void {
+pub fn enableCombat(frame: *FlightFrame, assets: CombatAssets, types: game.create.Types) !void {
     const gpa = frame.drawn.gpa;
     frame.drawn.effects.explosions = try .init(gpa, assets.images);
+    frame.drawn.effects.explosions.?.settings = assets.explosions;
+    var kept: game.create.TypeSet = .empty;
+    frame.drawn.effects.explosions.?.debris = .load(types, &kept);
+    frame.drawn.effects.particles = try .load(gpa, assets.textures, .standard, assets.particles);
     frame.drawn.effects.sparks = try .create(gpa, assets.textures);
     frame.drawn.effects.shockwaves = try .create(gpa, assets.textures, .round);
     frame.drawn.effects.flash = .{};
@@ -82,6 +94,7 @@ pub fn destroy(frame: *FlightFrame) void {
     if (frame.projectiles) |*shown| shown.deinit();
     if (frame.sounds) |asked| frame.lock_tone.sound(false, asked, frame.drawn.player.viewing.last);
     if (frame.drawn.effects.explosions) |*effects| effects.deinit();
+    if (frame.drawn.effects.particles) |*particles| particles.deinit();
     if (frame.drawn.effects.sparks) |*sparks| sparks.deinit();
     if (frame.drawn.effects.shockwaves) |*rings| rings.deinit(gpa);
     frame.respawns.deinit(gpa);
@@ -214,11 +227,20 @@ fn world(frame: *FlightFrame) game.gameobj.World {
         .shake = &frame.drawn.shake,
         .sounds = frame.sounds,
         .explosions = if (frame.drawn.effects.explosions) |*effects| effects else null,
+        .particles = if (frame.drawn.effects.particles) |*particles| particles else null,
         .shockwaves = if (frame.drawn.effects.shockwaves) |*rings| rings else null,
         .flash = if (frame.drawn.effects.flash) |*flash| flash else null,
         .sparks = if (frame.drawn.effects.sparks) |*sparks| sparks else null,
         .display = &frame.drawn.display,
     };
+}
+
+pub fn presentWreck(frame: *FlightFrame, wreck: wire.Wreck, types: game.create.Types) !void {
+    const scene = frame.world();
+    const seen = &frame.wreck_seen_at[wreck.pilot.participant.slot];
+    if (wreck.tick <= seen.* or scene.clock.frame_start -| wreck.tick > wire.wreck_window) return;
+    seen.* = wreck.tick;
+    try wreck.present(scene, types);
 }
 
 fn presentBlast(frame: *FlightFrame, scene: game.gameobj.World, blast: wire.Blast) void {
@@ -290,6 +312,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         frame.drawn.shake = 1;
     };
     if (scene.flash) |flash| flash.countDown(scene.clock.frame_duration);
+    frame.drawn.display.messages.expire(scene.clock.frame_start);
     if (scene.sparks) |sparks| sparks.frame(scene.clock);
     try frame.rocks.apply(all, &snapshot.rocks);
     if (snapshot.scenario == .asteroid_field) {
@@ -302,13 +325,6 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         const index: u16 = @intCast(offset);
         const prior = all.playerBinding(index);
         const before = frame.respawns.left[index];
-        if (prior != null and entry != null and prior.?.participant.generation == entry.?.generation and
-            frame.host_ship_reuse[index] != entry.?.reuse and entry.?.deaths > frame.deaths_at_spawn[index])
-        {
-            const slot = &all.slots[index];
-            const velocity = engine.surrender.math.transform(slot.drawn.orientation, .{ 0, 0, slot.object.speed });
-            game.explode.fighterFireball(scene, slot.drawn.position, velocity, slot.object.radius);
-        }
         if (prior != null and (entry == null or prior.?.participant.generation != entry.?.generation or frame.host_ship_reuse[index] != entry.?.reuse or all.slots[index].object.type != entry.?.fighter.kind())) {
             game.create.resetSlot(.of(scene), index);
             all.player_states[index] = .{ .membership = .vacant };
@@ -326,7 +342,6 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
                 .ship = .of(all, index),
             } } };
             frame.host_ship_reuse[index] = ship.reuse;
-            frame.deaths_at_spawn[index] = ship.deaths;
             if (index == admission.slot) {
                 _ = try game.aigeneric.push(.of(scene), index, .player_control, .none);
                 game.main.fitDevices(&all.player_states[index].charges, &frame.drawn.display, game.main.playerShip(ship.fighter.kind()), false);
@@ -344,6 +359,23 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         slot.object.afterburner_fuel = ship.fuel;
         slot.object.shields = ship.shields;
         slot.object.armor = ship.armor;
+        if (ship.dying and !slot.object.flags.exploding) {
+            if (prior != null and prior.?.participant.generation == ship.generation) {
+                game.explode.fireballAt(scene, slot.drawn.position, .{ .size = slot.object.radius });
+                if (game.explode.soundClass(scene, slot.drawn.position) == .guaranteed)
+                    game.explode.sound(scene, slot.drawn.position, .guaranteed);
+            }
+            if (index == admission.slot) {
+                const viewing = &frame.drawn.player.viewing;
+                const slow = game.aiexplode.movingSlowly(slot, viewing.view);
+                frame.death_view = .{
+                    .started = scene.clock.frame_start,
+                    .watching_from = if (!slow and viewing.seen_from != null) viewing.seen_from.?.position else null,
+                };
+            }
+        }
+        slot.object.flags.exploding = ship.dying;
+        if (!ship.dying and index == admission.slot) frame.death_view = null;
         all.player_states[index].membership.joined.kills.count = ship.kills;
         all.player_states[index].membership.joined.deaths = ship.deaths;
         all.player_states[index].membership.joined.ping_ms = ship.ping_ms;
@@ -359,9 +391,15 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     }
     const viewing = &frame.drawn.player.viewing;
     viewing.last = viewing.view;
-    viewing.view = if (frame.respawns.left[admission.slot] != 0) game.camera.deathmatch_respawn_view else .cockpit;
+    viewing.view = if (frame.respawns.left[admission.slot] != 0)
+        game.camera.deathmatch_respawn_view
+    else if (frame.death_view) |death|
+        (if (death.watching_from == null) .pull_back else .watch)
+    else
+        .cockpit;
     if (snapshot.blast) |blast| frame.presentBlast(scene, blast);
     if (scene.explosions) |effects| effects.frame(scene);
+    if (scene.particles) |particles| particles.frame(scene.clock);
     if (scene.shockwaves) |rings| rings.frame(scene);
     if (snapshot.scenario != null) frame.presentWeapons(snapshot.weapons);
     if (snapshot.scenario == .asteroid_field) frame.presentPower(snapshot.power);

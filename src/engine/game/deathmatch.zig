@@ -10,6 +10,7 @@ const players = @import("players.zig");
 pub const pickup_rings = @import("deathmatch/pickup_rings.zig");
 pub const powerups = @import("deathmatch/powerups.zig");
 pub const respawn = @import("deathmatch/respawn.zig");
+pub const Wreck = @import("deathmatch/wreck.zig");
 pub const spawn = @import("deathmatch/spawn.zig");
 pub const six_beacons = @import("dmscenarios/six_beacons.zig");
 const math = @import("../surrender/math.zig");

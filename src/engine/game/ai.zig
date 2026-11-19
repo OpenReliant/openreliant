@@ -429,8 +429,7 @@ pub fn hullLost(ctx: aigeneric.Context, index: u16) void {
 /// doing: the stack is overwritten whether or not its order gives way, and the order's state is
 /// left for Explode's `init` to fill in. `may_spin` goes into the order's data.
 ///
-/// Not ported: multiplayer, where the player's ship explodes at once
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a stock arena the player ship goes straight to Explode.
 pub fn objectDestroyed(ctx: aigeneric.Context, index: u16, may_spin: bool, no_eject: bool) void {
     if (hooks.enter(.object_destroyed, objectDestroyed, .{ ctx, index, may_spin, no_eject })) |done| return done;
     const all = ctx.world.objects;
@@ -442,7 +441,8 @@ pub fn objectDestroyed(ctx: aigeneric.Context, index: u16, may_spin: bool, no_ej
         return;
     }
     if (slot.orders[0].order == .explode) return;
-    if (index == all.player and !object.flags.ejected and !no_eject and object.type.base() != .kamov) {
+    const stock_arena = ctx.world.damage_rules == .arena and all.arena_boundary != null;
+    if (!stock_arena and index == all.player and !object.flags.ejected and !no_eject and object.type.base() != .kamov) {
         if (slot.orders[0].order != .eject_player) {
             _ = aigeneric.give(ctx, index, .eject_player, slot.orders[0].target.asShip(all));
             object.flags.ejected = true;

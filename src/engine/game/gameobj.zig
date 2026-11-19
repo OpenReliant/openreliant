@@ -2170,6 +2170,8 @@ pub const World = struct {
     /// Arena-wide Uber kill notices for the session to deliver to viewers.
     beacon_notices: ?@import("deathmatch.zig").six_beacons.Notice.Sink = null,
     uber_kills: ?@import("deathmatch.zig").UberKill.Sink = null,
+    /// The host sends a fighter's final breakup to the arena's viewers.
+    arena_wrecks: ?@import("deathmatch.zig").Wreck.Sink = null,
     /// The countermeasures in flight (`cloak.cpp`); null where none are dropped.
     countermeasures: ?*@import("cloak.zig").Countermeasures = null,
     /// The capital ships' shields showing (`shield.cpp`); null where none show.
