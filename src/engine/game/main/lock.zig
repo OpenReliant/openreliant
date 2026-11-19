@@ -89,8 +89,6 @@ pub const Lock = struct {
     /// the sound never plays and the game ends the first voice every frame instead, cutting what
     /// plays there. OpenReliant leaves the first voice alone, and the sound unplayed.
     ///
-    /// Not ported: in a multiplayer game, the power-up a lock needs
-    /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
     pub fn frame(lock: *Lock, world: gameobj.World, ring: *const missile_display.Ring) void {
         lock.advance(world, world.objects.player, ring);
     }
@@ -103,6 +101,8 @@ pub const Lock = struct {
         const aimed: ai.ValidTarget = switch (lock.phase) {
             .idle => held: {
                 lock.count = idle_count;
+                if (world.damage_rules == .arena and world.objects.arena_scenario == .asteroid_field and
+                    world.objects.slots[index].object.power_up != .missile) return;
                 const valid = possibleFor(world, index, ring, entry.target.resolve(world.objects)) orelse return;
                 lock.phase = .closing;
                 lock.target = entry.target;

@@ -1816,6 +1816,18 @@ pub fn makeWhole(object: *GameObject, combat: *const ShipCombat) void {
     main.armorConditions(object, combat);
 }
 
+/// powerup_give_missile (0x004B1F30) fits one Screamer and leaves the other supplies alone.
+pub fn fitArenaMissile(all: *Objects, index: u16) Allocator.Error!void {
+    const slot = &all.slots[index];
+    const model = if (slot.model) |*built| built else return;
+    const object = &slot.object;
+    object.racks = @splat(.{ .type = .none });
+    object.racks[0].type = .of(.screamer);
+    try fitRacks(all.gpa, object, model, if (slot.type) |loaded| loaded.effects else .{});
+    if (object.rack_count != 0) object.racks[0].count = 1;
+    all.fitPlayerWeapons(index);
+}
+
 /// The last ship type the campaign's tier fits: the player's twelve fighters, the Predator to the
 /// Phoenix.
 pub const last_fighter: gameobj.GameType = .phoenix;

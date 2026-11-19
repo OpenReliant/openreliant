@@ -305,20 +305,19 @@ test "Invulnerability.protects" {
     try std.testing.expect(!Invulnerability.none.protects(false));
 }
 
-/// A deathmatch power-up (`GameObject.power_up`): its record of 0x28 bytes in the table at
-/// `0x0050C510`, which gives how long it lasts and the routines that start and end it. `0x004B1C00`
-/// hands one out, by the weights at `0x005DB4C4` where none is named, and `0x004B18E0` ends it
-/// once it runs out. **Unknown:** what most of them do.
+/// An effect held by a fighter. The original arena table at 0x0050C508 supplies its odds,
+/// duration, icon and callbacks.
 pub const PowerUp = enum(i32) {
     none = -1,
-    /// **Unknown.** In a multiplayer game, `0x00412820` and `0x00491520` act differently while the
-    /// player holds it.
-    _unknown_5 = 5,
-    /// The player's throttle goes no higher than half (`player_controls`).
+    invulnerable = 0,
+    cloak = 1,
+    mine = 2,
+    fuel = 3,
+    repair = 4,
+    missile = 5,
+    countermeasures = 6,
     half_throttle = 7,
-    /// Its shields don't recharge (`rechargeShields`).
     no_shield_recharge = 8,
-    /// The player's controls steer the other way round (`player_controls`).
     reversed_controls = 9,
     _,
 };

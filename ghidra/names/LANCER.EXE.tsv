@@ -3186,6 +3186,20 @@ address	kind	name	type	comment
 004b2070	function	powerup_cloak_begin	void __fastcall (int pilot)	Cloaks the fighter until the duration in its power-up record runs out
 004b20a0	function	powerup_cloak_end	void __fastcall (int pilot)	Uncloaks the fighter when its power-up expires
 004b20b0	function	powerup_refuel_afterburner	void __fastcall (int pilot)	Adds fuel to the afterburner and caps it at the fighter's full tank
-0050c510	data	mp_powerup_rules	byte[480]	Twelve records of 0x28 bytes with flags, lifetime, weight, effect callbacks and pickup type
+0050c508	data	mp_powerup_rules	byte[480]	Twelve records with an icon, pickup type, flags, duration, weight, timer offset and four callbacks
 005db4c4	data	mp_powerup_weights	float[12]	Cumulative weights for selecting a random arena pickup effect
-004b1b20	function	powerup_use	void __fastcall (int pilot, bool report)	Uses the held arena power-up, runs its use callback, updates its timer and can report consumption. Launch Missile dispatches here during arena play
+004b1b20	function	powerup_use	void __fastcall (int pilot, int power_up, bool report)	Starts the named power-up timer, enables the source for manually used effects and calls the use routine
+004af120	function	mp_pilot_release_powerup	void __fastcall (int pilot)	Ends the held effect and enables its source when the pilot loses the ship
+004b1bc0	function	pickup_disable	void __fastcall (int pickup)	Disables a collected arena pickup and plays the pickup sound
+004b1fb0	function	powerup_consume_missile	void __fastcall (int pilot)	Clears the held effect before Launch Missile fires the fitted round
+004b2030	function	powerup_invulnerability_begin	void __fastcall (int pilot)	Sets invulnerability mode 4 and starts its timer
+004b2060	function	powerup_invulnerability_end	void __fastcall (int pilot)	Clears the temporary invulnerability
+004b2110	function	powerup_use_mine	void __fastcall (int pilot)	Places the held mine in the next mine slot on the host
+004b2130	function	powerup_place_mine	void __fastcall (int pilot, int slot, bool report)	Builds a proximity mine behind the pilot, records its owner and advances the twenty-slot pool
+005db30c	data	mp_first_mine_slot	int	First of the twenty reserved mine slots
+005db3dc	data	mp_next_mine_slot	int	Mine slot to use next
+004b2e50	function	mp_scenario_after_respawn	void __fastcall (int pilot)	Calls the current scenario's callback after the Deathmatch Respawn Effect finishes
+004b38c0	function	six_beacons_write_join_state	void (void)	Writes beacon positions and availability and each pilot's carried count into the join packet
+004b3990	function	six_beacons_read_join_state	void (void)	Reads loose beacon positions and carried counts and marks the received scenario state ready
+004b3a60	function	six_beacons_apply_join_state	void (void)	Resets beacons on the host and restores known beacon positions on a joining client
+004b6840	function	mp_player_ping	int __fastcall (int network_id)	Returns the saved round-trip time for a remote player whose lobby entry reports a valid sample

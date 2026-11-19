@@ -8,6 +8,7 @@ const Objects = @import("create.zig").Objects;
 const players = @import("players.zig");
 
 pub const pickup_rings = @import("deathmatch/pickup_rings.zig");
+pub const powerups = @import("deathmatch/powerups.zig");
 pub const spawn = @import("deathmatch/spawn.zig");
 pub const six_beacons = @import("dmscenarios/six_beacons.zig");
 const math = @import("../surrender/math.zig");
@@ -21,8 +22,11 @@ pub fn resetToSpawnPositions(world: gameobj.World) !void {
     if (!scenarios.isScenario(all.mission_number)) return;
     // The original leaves scenery guns off unless the host enables AI turrets.
     for (all.slots[@min(all.players, all.count)..all.count]) |*slot| slot.object.flags.guns_disabled = true;
-    if (all.mission_number == scenarios.Scenario.nuclear_threat.mission() and all.arena_scenario != .six_beacons) {
-        try six_beacons.Round.start(world, .free_for_all);
+    if (all.arena_scenario == .deathmatch) {
+        if (all.mission_number == scenarios.Scenario.nuclear_threat.mission())
+            try six_beacons.Round.start(world, .free_for_all);
+        if (all.mission_number == scenarios.Scenario.asteroid_field.mission())
+            all.arena_scenario = .{ .asteroid_field = try powerups.Round.start(all) };
     }
     for (0..all.players) |at| {
         const index: u16 = @intCast(at);
@@ -73,11 +77,13 @@ pub const Bounds = struct {
 /// Rules selected by the host after loading an arena. Ordinary deathmatch has no objectives.
 pub const Scenario = union(enum) {
     deathmatch,
+    asteroid_field: powerups.Round,
     six_beacons: six_beacons.Round,
 
     pub fn frame(scenario: *Scenario, world: gameobj.World) void {
         switch (scenario.*) {
             .deathmatch => {},
+            .asteroid_field => |*round| round.frame(world),
             .six_beacons => |*round| round.frame(world),
         }
     }
@@ -85,6 +91,7 @@ pub const Scenario = union(enum) {
     pub fn releaseShip(scenario: *Scenario, all: *Objects, index: u16) void {
         switch (scenario.*) {
             .deathmatch => {},
+            .asteroid_field => |*round| round.release(all, index),
             .six_beacons => |*round| round.drop(all, index),
         }
     }

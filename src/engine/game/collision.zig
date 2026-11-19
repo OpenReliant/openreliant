@@ -44,9 +44,6 @@ pub const push_apart: f32 = 1.1;
 /// two, each to `push_apart` of its radius from the point between them, after both have moved
 /// again.
 ///
-/// Not ported: what a mine does in a multiplayer game, 5000 and the kill to its owner, and what the
-/// destruction tells the other players, which are multiplayer's
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn collide(world: gameobj.World, first: u16, second: u16, pass: u8) bool {
     const all = world.objects;
     var near = first;
@@ -78,7 +75,18 @@ pub fn collide(world: gameobj.World, first: u16, second: u16, pass: u8) bool {
     if (classes[0] == .mine or classes[1] == .mine) {
         if (classes[0] != .fighter and classes[1] != .fighter) return false;
         const mine, const fighter = if (classes[0] == .mine) .{ near, far } else .{ far, near };
-        goOff(world, mine, fighter, mine_blow, .collision, false);
+        const owner = if (world.damage_rules == .arena and all.arena_scenario == .asteroid_field)
+            all.arena_scenario.asteroid_field.owner(mine)
+        else
+            null;
+        if (owner) |source| {
+            if (all.slots[mine].object.flags.exploding) return false;
+            // The arena mine hits for 5000 and credits its owner (0x00466379, 0x00466441).
+            damageFrom(world, fighter, .fore, 5000, 1, source, .collision);
+            ai.objectDestroyed(.of(world), mine, false, false);
+        } else {
+            goOff(world, mine, fighter, mine_blow, .collision, false);
+        }
         return false;
     }
     if (classes[0] == .torpedo) {

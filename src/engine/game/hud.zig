@@ -2255,7 +2255,7 @@ test "the instruments' parts as a mod's display places them" {
 /// the allocator the resources were loaded in. `deinit` frees the images with the rest.
 pub const Resources = struct {
     art: Art,
-    /// Read the arena sprites on the first Six Beacons frame. The resource archive outlives the HUD.
+    /// Read the arena sprites when the HUD first needs them.
     arena_archive: ?bigfile.Hog = null,
     arena_shapes: ?@import("interface/canvas.zig").Shapes = null,
     /// `blufont.fnt` (`0x00595490`), which every line of the display's own text is written in: the
@@ -2872,6 +2872,7 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
     try state.subtitle.draw(placing.pen(pen, .subtitle), frame.last_view);
     try state.messages.draw(placing.pen(pen, .messages), &resources.target_fonts.new);
     if (ahead) try state.drawInstruments(drawing, pen, &placing, frame, lead, speaker);
+    if (frame.multiplayer) try drawArenaPowerUp(pen, resources, live, frame.clock.frame_start);
     const contents: windows.Contents = .{
         .radio = if (frame.radio) |on_air| .{
             .radio = on_air,
@@ -2894,6 +2895,24 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
 }
 
 pub const standings = @import("hud/standings.zig");
+
+/// hud_draw (0x00486286) places the held pickup icon above the reticle. It flashes for
+/// the first second. Timed effects with flag 4 count down on a small bar beside the icon.
+fn drawArenaPowerUp(pen: Pen, resources: *Resources, ship: *const gameobj.GameObject, now: i32) Error!void {
+    const rule = @import("deathmatch/powerups.zig").rule(ship.power_up) orelse return;
+    if (ship.power_up_until != -1 and now >= ship.power_up_until) return;
+    if (now -| ship.power_up_since <= 100 and @mod(now +| ship.power_up_since, 50) >= 25) return;
+    const icons = resources.arenaIcons(pen.gpa) orelse return;
+    const at = pen.placed(.{ -22, -95 }, 0.5, 0.5);
+    try pen.drawing(.{ .art = icons, .gpa = pen.gpa }).shape(rule.icon, at);
+    if (rule.timer_offset) |offset| {
+        const remaining: f32 = @floatFromInt(ship.power_up_until -| now);
+        const share = std.math.clamp(remaining / @as(f32, @floatFromInt(rule.ticks.?)), 0, 1);
+        const start = pen.moved(at, .{ 6, offset + 37 });
+        const end = pen.moved(start, .{ @intFromFloat(31 * share), 0 });
+        pen.line(pointOf(start), pointOf(end), pen.art.paletteColour(3));
+    }
+}
 
 /// The first gun of the group the ship has chosen (`GunMode.group`), which blind fire and the
 /// charge arc look at, or null for none.

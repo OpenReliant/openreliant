@@ -7,11 +7,12 @@ pub const ordnance = @import("ordnance.zig");
 const flight = engine.input.flight;
 pub const Fighter = engine.game.dmscenarios.Fighter;
 pub const Scenario = engine.game.dmscenarios.Scenario;
-pub const revision: u16 = 9;
+pub const revision: u16 = 10;
 pub const slots = 3;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
 const guns = engine.game.guns;
+const powerups = engine.game.deathmatch.powerups;
 pub const Combat = struct {
     pub const max = 8;
     const largest_effect = 1 + 1 + @sizeOf(u16) + 1 + 2 * @sizeOf(i32) + 6 * @sizeOf(f32);
@@ -26,7 +27,9 @@ pub const Combat = struct {
 // A tag, scenario, tick, three ships, and the largest scenario payload.
 const snapshot_header = 2 + @sizeOf(u32) + slots * Ship.encoded_size + 1 + 1;
 const beacon_snapshot_capacity = snapshot_header + beacon_count * (1 + 3 * @sizeOf(f32));
-const snapshot_capacity = @max(beacon_snapshot_capacity, snapshot_header + 1 + Rocks.max * (1 + @sizeOf(Facing)));
+const asteroid_capacity = snapshot_header + slots + 1 + Rocks.max * (1 + @sizeOf(Facing)) +
+    @sizeOf(powerups.Pickups.Mask) + @sizeOf(u32) + powerups.mine_count * Mine.encoded_size + 1 + @sizeOf(i32);
+const snapshot_capacity = @max(beacon_snapshot_capacity, asteroid_capacity);
 pub const capacity = @max(snapshot_capacity + ordnance.Status.capacity, Combat.capacity, ordnance.Page.capacity);
 const max_release = 96;
 
@@ -108,6 +111,7 @@ pub const Ship = struct {
     armor: engine.game.gameobj.Quadrants = .all(0),
     kills: i32 = 0,
     deaths: u32 = 0,
+    cloaked: bool = false,
 
     const encoded_size = @sizeOf(u64) + @sizeOf(u32) + 1 + 13 * @sizeOf(f32) + 3 * @sizeOf(i16) + 3 * @sizeOf(i32);
 
@@ -151,7 +155,68 @@ pub const Snapshot = struct {
     objectives: Objectives = .none,
     rocks: Rocks = .{},
     weapons: ?ordnance.Status = null,
+    pickups: powerups.Pickups.Mask = 0,
+    mines: [powerups.mine_count]?Mine = @splat(null),
+    power: ?Power = null,
 };
+
+pub const Power = struct {
+    kind: engine.game.gameobj.PowerUp,
+    since: i32,
+
+    pub fn capture(object: *const engine.game.gameobj.GameObject) ?Power {
+        _ = powerups.rule(object.power_up) orelse return null;
+        return .{ .kind = object.power_up, .since = object.power_up_since };
+    }
+};
+
+pub const Mine = struct {
+    position: [3]f32,
+    angles: Facing,
+    reuse: u32,
+
+    const encoded_size = 3 * @sizeOf(f32) + @sizeOf(Facing) + @sizeOf(u32);
+};
+
+fn writeArena(w: *std.Io.Writer, view: *const Snapshot) !void {
+    try w.writeInt(powerups.Pickups.Mask, view.pickups, .little);
+    var mask: u32 = 0;
+    for (view.mines, 0..) |entry, at| {
+        if (entry != null) mask |= @as(u32, 1) << @as(u5, @intCast(at));
+    }
+    try w.writeInt(u32, mask, .little);
+    for (view.mines) |entry| if (entry) |mine| {
+        try writePosition(w, mine.position);
+        for (mine.angles) |axis| try w.writeInt(i16, axis, .little);
+        try w.writeInt(u32, mine.reuse, .little);
+    };
+    if (view.power) |held| {
+        _ = powerups.rule(held.kind) orelse return error.InvalidPowerUp;
+        try w.writeByte(@intCast(@backingInt(held.kind) + 1));
+        try w.writeInt(i32, held.since, .little);
+    } else try w.writeByte(0);
+}
+
+fn readArena(r: *std.Io.Reader, view: *Snapshot) !void {
+    view.pickups = try r.takeInt(powerups.Pickups.Mask, .little);
+    const mask = try r.takeInt(u32, .little);
+    if (mask >> powerups.mine_count != 0) return error.InvalidArenaMines;
+    for (&view.mines, 0..) |*entry, at| {
+        if (mask & (@as(u32, 1) << @as(u5, @intCast(at))) == 0) continue;
+        entry.* = .{
+            .position = try readPosition(r),
+            .angles = .{ try r.takeInt(i16, .little), try r.takeInt(i16, .little), try r.takeInt(i16, .little) },
+            .reuse = try r.takeInt(u32, .little),
+        };
+    }
+    const id = try r.takeByte();
+    if (id == 0) return;
+    const kind: engine.game.gameobj.PowerUp = @fromBackingInt(id - 1);
+    _ = powerups.rule(kind) orelse return error.InvalidPowerUp;
+    const since = try r.takeInt(i32, .little);
+    if (since < 0 or since > view.tick *| engine.game.gameobj.ticks_per_step) return error.InvalidPowerUp;
+    view.power = .{ .kind = kind, .since = since };
+}
 
 fn writeScenario(w: *std.Io.Writer, scenario: ?Scenario) !void {
     try w.writeByte(if (scenario) |value| @backingInt(value) + 1 else 0);
@@ -330,6 +395,7 @@ pub const Message = union(enum(u8)) {
                     for (ship.armor.values()) |value| try writeFloat(&w, value);
                     try w.writeInt(i32, ship.kills, .little);
                     try w.writeInt(u32, ship.deaths, .little);
+                    if (view.scenario == .asteroid_field) try w.writeByte(@intFromBool(ship.cloaked));
                 }
                 try w.writeByte(@backingInt(std.meta.activeTag(view.objectives)));
                 switch (view.objectives) {
@@ -349,6 +415,7 @@ pub const Message = union(enum(u8)) {
                         try w.writeByte(@intFromBool(entry != null));
                         if (entry) |facing| for (facing) |axis| try w.writeInt(i16, axis, .little);
                     }
+                    try writeArena(&w, &view);
                 }
                 try w.writeByte(@intFromBool(view.weapons != null));
                 if (view.weapons) |*status| try status.write(&w);
@@ -418,6 +485,11 @@ pub const Message = union(enum(u8)) {
                     for (std.enums.values(engine.game.collision.Quadrant)) |quadrant| ship.armor.at(quadrant).* = try readFloat(&r);
                     ship.kills = try r.takeInt(i32, .little);
                     ship.deaths = try r.takeInt(u32, .little);
+                    if (view.scenario == .asteroid_field) ship.cloaked = switch (try r.takeByte()) {
+                        0 => false,
+                        1 => true,
+                        else => return error.InvalidSnapshot,
+                    };
                     const motion = engine.game.motion;
                     if (ship.throttle < motion.reverse_throttle or ship.throttle > motion.afterburner_throttle or ship.fuel < 0)
                         return error.InvalidSnapshot;
@@ -450,6 +522,7 @@ pub const Message = union(enum(u8)) {
                             else => return error.InvalidSnapshot,
                         };
                     }
+                    try readArena(&r, &view);
                 }
                 view.weapons = switch (try r.takeByte()) {
                     0 => null,
@@ -641,6 +714,9 @@ test "asteroid views include the stock mode and keep absent rock slots" {
     view.rocks.count = Rocks.max;
     view.rocks.angles = @splat(.{ 123, 456, -789 });
     view.rocks.angles[1] = null;
+    view.pickups = 0b1011;
+    view.mines[powerups.mine_count - 1] = .{ .position = .{ 100, 200, -300 }, .angles = .{ 10, -15, 20 }, .reuse = 19 };
+    view.power = .{ .kind = .missile, .since = 1 };
     const bytes = try (Message{ .view = view }).encode(&buffer);
     try std.testing.expectEqualDeep(view, (try Message.decode(bytes)).view);
     try std.testing.expectError(error.EndOfStream, Message.decode(bytes[0 .. bytes.len - 1]));

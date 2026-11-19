@@ -145,17 +145,19 @@ pub fn applyThrottle(state: *State, object: *gameobj.GameObject, throttle: Throt
 /// The simulation half of `player_controls` (`0x00413410`). Bindings and devices stay in
 /// `input.sampleFlight`. **Improvement:** the same rules apply to each participant's commands.
 pub fn apply(state: *State, reserves: *gameobj.ShieldReserves, object: *gameobj.GameObject, combat: *const create.ShipCombat, command: Command, frame_duration: i32) void {
+    // player_controls (0x0041345D) reverses steering and strafe during the arena penalty.
+    const handed: f32 = if (object.power_up == .reversed_controls) -1 else 1;
     switch (command.steering) {
         .axes => |axes| {
-            object.yaw_input = axes[0];
-            object.pitch_input = axes[1];
-            object.roll_input = axes[2];
+            object.yaw_input = handed * axes[0];
+            object.pitch_input = handed * axes[1];
+            object.roll_input = handed * axes[2];
             object.roll_input += object.yaw_input * bank_share;
         },
         .keys => |keys| {
-            object.yaw_input = stepped(object.yaw_input, keys.yaw);
-            object.pitch_input = stepped(object.pitch_input, keys.pitch);
-            object.roll_input = keys.roll;
+            object.yaw_input = handed * stepped(handed * object.yaw_input, keys.yaw);
+            object.pitch_input = handed * stepped(handed * object.pitch_input, keys.pitch);
+            object.roll_input = handed * keys.roll;
             object.roll_input += object.yaw_input * bank_share;
         },
         .power => |stick| {
@@ -168,11 +170,11 @@ pub fn apply(state: *State, reserves: *gameobj.ShieldReserves, object: *gameobj.
         },
     }
     applyThrottle(state, object, command.throttle);
-    object.lateral_input = switch (command.strafe) {
+    object.lateral_input = handed * @as(f32, switch (command.strafe) {
         .negative => -1,
         .neutral => 0,
         .positive => 1,
-    };
+    });
     object.throttle = std.math.clamp(object.throttle, 0, 1);
     if (command.toggle_afterburner) state.afterburner_toggled = !state.afterburner_toggled;
     object.afterburner = command.afterburner or state.afterburner_toggled;
@@ -181,6 +183,11 @@ pub fn apply(state: *State, reserves: *gameobj.ShieldReserves, object: *gameobj.
         object.afterburner = false;
         object.reverse_thrust = false;
     }
+}
+
+/// player_controls applies the power-up cap after speed matching (0x00413ADA).
+pub fn limitArenaThrottle(object: *gameobj.GameObject) void {
+    if (object.power_up == .half_throttle) object.throttle = @min(object.throttle, 0.5);
 }
 
 test "flight commands reject invalid axes and consume only presses" {
@@ -201,6 +208,32 @@ test "flight commands reject invalid axes and consume only presses" {
     try std.testing.expect(command.valid());
     command.throttle = .{ .axis = std.math.inf(f32) };
     try std.testing.expect(!command.valid());
+}
+
+test "arena penalties apply to normalised flight commands" {
+    var object = gameobj.testing.object();
+    const combat: *const create.ShipCombat = &create.testing.tables().combat[0];
+    var state: State = .{};
+    var reserves: gameobj.ShieldReserves = .{};
+    const command: Command = .{
+        .steering = .{ .axes = .{ 0.4, 0.25, 0.1 } },
+        .throttle = .{ .axis = 1 },
+        .strafe = .positive,
+    };
+    object.power_up = .reversed_controls;
+    apply(&state, &reserves, &object, combat, command, gameobj.ticks_per_step);
+    try std.testing.expectEqual(-0.4, object.yaw_input);
+    try std.testing.expectEqual(-0.25, object.pitch_input);
+    try std.testing.expectApproxEqAbs(-0.3, object.roll_input, 0.001);
+    try std.testing.expectEqual(-1, object.lateral_input);
+    object.power_up = .half_throttle;
+    apply(&state, &reserves, &object, combat, command, gameobj.ticks_per_step);
+    limitArenaThrottle(&object);
+    try std.testing.expectEqual(0.5, object.throttle);
+    object.power_up = .none;
+    apply(&state, &reserves, &object, combat, command, gameobj.ticks_per_step);
+    limitArenaThrottle(&object);
+    try std.testing.expectEqual(1, object.throttle);
 }
 
 test {
