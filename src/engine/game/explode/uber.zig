@@ -236,6 +236,7 @@ pub const Blast = struct {
     radius: f32 = 0,
     caught: [max_caught]Caught = undefined,
     caught_count: usize = 0,
+    replica: bool = false,
     /// How it shows, where it is drawn.
     shown: ?Shown = null,
 
@@ -532,14 +533,49 @@ pub const Uber = struct {
             blast.caught_count += 1;
         }
 
-        if (world.flash) |flash| flash.start();
-        for (waves) |wave| shockwave.setOff(world, place, .{
-            .kind = .uber,
-            .size = size * wave.size,
-            .life = @intFromFloat(@as(f32, @floatFromInt(duration)) * wave.life),
-            .owner = blast.owner,
-        });
-        sound3d.playIn(world, null, null, owner, .uberexp, 1, .guaranteed);
+        launchEffects(blast, world);
+    }
+
+    /// Starts the same visuals at the host's blast age. Ships and kill credit stay on the host.
+    pub fn replay(uber: *Uber, world: gameobj.World, cue: Replay, style: Style) void {
+        const now = world.clock.frame_start;
+        if (uber.blast) |*blast| if (blast.started == cue.started) return;
+        if (now - cue.started > cue.duration) return;
+        uber.blast = .{
+            .owner = .of(world.objects, cue.owner),
+            .place = cue.place,
+            .size = cue.size,
+            .started = cue.started,
+            .duration = cue.duration,
+            .replica = true,
+        };
+        const blast = &uber.blast.?;
+        if (uber.look) |*look| blast.show(look, style, now);
+        launchEffects(blast, world);
+    }
+
+    pub const Replay = struct { owner: u16, place: math.Place, size: f32, started: i32, duration: i32 };
+
+    fn launchEffects(blast: *const Blast, world: gameobj.World) void {
+        const age: i32 = @max(0, world.clock.frame_start - blast.started);
+        const flash_ticks = @import("../main/flash.zig").flash_ticks;
+        if (world.flash) |flash| flash.left = if (age < flash_ticks) flash_ticks - age else 0;
+        var clock = world.clock.*;
+        clock.frame_start = blast.started;
+        if (world.shockwaves) |rings| for (waves) |wave| {
+            const life: i32 = @intFromFloat(@as(f32, @floatFromInt(blast.duration)) * wave.life);
+            if (age >= life) continue;
+            rings.add(blast.place, .{
+                .kind = .uber,
+                .size = blast.size * wave.size,
+                .life = life,
+                .owner = blast.owner,
+            }, &clock);
+        };
+        if (age < flash_ticks) {
+            const owner = blast.owner.resolve(world.objects);
+            sound3d.playIn(world, if (owner == null) blast.place.position else null, null, owner, .uberexp, 1, .guaranteed);
+        }
     }
 
     /// Whether a blast of `size` at `at` lists the object in `slot`.
@@ -588,6 +624,7 @@ pub const Uber = struct {
         defer uber.blast = null;
         const owner = blast.owner.resolve(world.objects);
         sound3d.playIn(world, if (owner == null) blast.place.position else null, null, owner, .capexp, 1, .player_fx);
+        if (blast.replica) return;
         const ctx: aigeneric.Context = .of(world);
         for (blast.listed()) |caught| {
             if (!caught.reached) continue;
@@ -966,6 +1003,34 @@ test "a blast cannot reach or destroy a replacement victim" {
         try std.testing.expectEqual(.fly_aimlessly, all.slots[later].current().?.order);
         try std.testing.expectEqual(.explode, all.slots[live].current().?.order);
     }
+}
+
+test "a pilot joining after the launch flash sees the blast without applying its damage" {
+    var stage: explode.testing.Stage = undefined;
+    try stage.init();
+    defer stage.deinit();
+    var flash: @import("../main/flash.zig").Flash = .{};
+    var world = stage.world();
+    world.flash = &flash;
+    const mission = &stage.mission;
+    const owner = try mission.add(.of(.predator), @splat(0));
+    const victim = try mission.add(.of(.sabre), .{ 0, 0, 200 });
+    _ = try aigeneric.push(.of(world), victim, .fly_aimlessly, .none);
+
+    const uber = stage.explosions.uber;
+    const start = 1000;
+    const duration = @import("../deathmatch.zig").six_beacons.blast_ticks;
+    mission.clock.frame_start = start + 300;
+    uber.replay(world, .{ .owner = owner, .place = .{}, .size = 1000, .started = start, .duration = duration }, .original);
+    uber.frame(world);
+    try std.testing.expectEqual(0, flash.left);
+    try std.testing.expectEqual(0, uber.blast.?.caught_count);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.3), uber.blast.?.done, 1e-6);
+
+    mission.clock.frame_start = start + duration + 1;
+    uber.frame(world);
+    try std.testing.expectEqual(null, uber.blast);
+    try std.testing.expectEqual(.fly_aimlessly, mission.objects.slots[victim].current().?.order);
 }
 
 test "the host settles each arena blast victim once for the original pilot admissions" {

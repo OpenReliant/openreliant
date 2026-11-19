@@ -85,6 +85,14 @@ extern "C" bool session_peer_ip(uint32_t conn, uint8_t *address) {
     return true;
 }
 
+extern "C" int session_ping_ms(uint32_t conn) {
+    SteamNetConnectionRealTimeStatus_t status{};
+    return SteamNetworkingSockets()->GetConnectionRealTimeStatus(conn, &status, 0, nullptr) ==
+                   k_EResultOK
+               ? status.m_nPing
+               : -1;
+}
+
 extern "C" void session_listen_close(uint32_t listener) {
     SteamNetworkingSockets()->CloseListenSocket(listener);
 }

@@ -749,6 +749,7 @@ pub const Objects = struct {
     /// belong to participants, independently of which player this machine displays (`player`).
     player_states: [gameobj.max_objects]players.State = @splat(.{}),
     arena_scenario: @import("deathmatch.zig").Scenario = .deathmatch,
+    arena_boundary: ?@import("deathmatch.zig").Boundary = null,
     arena_scores: @import("deathmatch.zig").ArenaScores = .free_for_all,
     /// Advances on each admission and survives mission resets within the same session.
     participant_generation: u64 = 0,
@@ -886,6 +887,7 @@ pub const Objects = struct {
         all.types = @splat(.{});
         all.count = 0;
         all.arena_scenario = .deathmatch;
+        all.arena_boundary = null;
         for (&all.player_states) |*state| state.resetMission();
         all.camera_marker = null;
         all.bombarded = null;

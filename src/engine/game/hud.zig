@@ -314,6 +314,8 @@ pub const Opened = struct {
     global: ?*const [spr.palette_size]u8,
     /// How the glyphs' bytes become colours.
     paint: Paint = .palette,
+    /// The pixel the original remap leaves clear in a paletted font.
+    transparent_index: u8 = 0,
     /// What the GPU draws each code with, made as each is first drawn.
     images: [cached_codes]?srtexture.Image = @splat(null),
     /// **Improvement:** the outline font that stands in for it, drawn at the window's resolution
@@ -429,10 +431,9 @@ pub const Opened = struct {
         };
     }
 
-    /// Whether byte `index` of a glyph draws a pixel: any but 0 through a palette, and any that
-    /// covers some of a pixel in one colour.
+    /// Whether byte `index` of a glyph draws a pixel according to its palette or coverage.
     fn draws(opened: Opened, index: u8) bool {
-        return if (opened.paint == .palette) index != 0 else opened.level(index) != 0;
+        return if (opened.paint == .palette) index != opened.transparent_index else opened.level(index) != 0;
     }
 
     /// The pixels of character `code`'s bitmap glyph that are drawn, in the glyph's own pixels:
@@ -1015,8 +1016,8 @@ fn drawPart(into: device.Device, image: *srtexture.Image, edges: Clip, u_in: [2]
 }
 
 /// A glyph as the GPU draws it: the font's palette, or the global one, looked up for each of its
-/// bytes, or for a font drawn in one colour, its levels in grey, with index 0 left clear. Made the
-/// first time the glyph is drawn and kept for the rest of the run.
+/// bytes, or for a font drawn in one colour, its levels in grey. Made the first time the glyph
+/// is drawn and kept for the rest of the run.
 fn glyphImage(opened: *Opened, gpa: Allocator, code: u8) Allocator.Error!?*srtexture.Image {
     if (opened.images[code]) |*made| return made;
     const glyph = opened.font.glyph(code) orelse return null;
@@ -2258,6 +2259,8 @@ pub const Resources = struct {
     /// Read the arena sprites when the HUD first needs them.
     arena_archive: ?bigfile.Hog = null,
     arena_shapes: ?@import("interface/canvas.zig").Shapes = null,
+    standings_art: ?Art = null,
+    standings_font: ?Opened = null,
     /// `blufont.fnt` (`0x00595490`), which every line of the display's own text is written in: the
     /// readouts, the clock, the cluster's figures, the view's name and the windows. `0x004A2AF0`
     /// opens it for the hardware renderers, and `soft_blufont.fnt`, the same letters, for the
@@ -2300,6 +2303,8 @@ pub const Resources = struct {
 
     /// Frees what `load` made in `gpa`, and the images made of its shapes and its fonts' glyphs.
     pub fn deinit(resources: *Resources, gpa: Allocator) void {
+        if (resources.standings_art) |*art| art.deinit(gpa);
+        if (resources.standings_font) |*font| closeFont(font, gpa);
         if (resources.arena_shapes) |*shapes| shapes.deinit(gpa);
         resources.art.deinit(gpa);
         closeFont(&resources.font, gpa);
@@ -2316,8 +2321,21 @@ pub const Resources = struct {
             resources.arena_shapes = @import("interface/canvas.zig").Shapes.read(gpa, &archive, "DMICONS.SPR");
             // mp_draw_target_badge restores the HUD palette before calling the scenario.
             if (resources.arena_shapes) |*shapes| shapes.art.global = resources.art.global;
+            if (archive.has(standings.font_name)) {
+                resources.standings_font = openFont(gpa, archive, standings.font_name, resources.art.global, null) catch null;
+                if (resources.standings_font) |*font| font.transparent_index = standings.font_transparent_index;
+            }
         }
         return if (resources.arena_shapes) |*shapes| &shapes.art else null;
+    }
+
+    fn standingsArt(resources: *Resources, gpa: Allocator) !?*Art {
+        if (resources.standings_art == null) {
+            const icons = resources.arenaIcons(gpa) orelse return null;
+            const palette = icons.set.paletteAt(standings.palette_block);
+            resources.standings_art = try .init(gpa, icons.set, palette, null);
+        }
+        return &resources.standings_art.?;
     }
 
     fn openFont(gpa: Allocator, archive: bigfile.Hog, name: []const u8, global: ?*const [spr.palette_size]u8, outlines: ?*outline.Outlines) !Opened {
@@ -2890,7 +2908,11 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
         .wing_status = .{ .all = frame.all },
     };
     try state.windows.draw(pen, &placing, frame.last_view, contents, frame.all.kamovPart());
-    if (frame.show_standings) try standings.draw(pen, frame.all);
+    if (frame.show_standings) {
+        const art = try resources.standingsArt(pen.gpa);
+        const labels = if (resources.standings_font) |*font| font else pen.font;
+        try standings.draw(pen, frame.all, art, labels);
+    }
     drawing.aim.under_reticle = if (frame.sight) |sight| underReticle(frame.all, .{ .sight = sight, .scale = pen.scale }) else null;
 }
 

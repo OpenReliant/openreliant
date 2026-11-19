@@ -3203,3 +3203,24 @@ address	kind	name	type	comment
 004b3990	function	six_beacons_read_join_state	void (void)	Reads loose beacon positions and carried counts and marks the received scenario state ready
 004b3a60	function	six_beacons_apply_join_state	void (void)	Resets beacons on the host and restores known beacon positions on a joining client
 004b6840	function	mp_player_ping	int __fastcall (int network_id)	Returns the saved round-trip time for a remote player whose lobby entry reports a valid sample
+004aff30	function	arena_wall_flash_create	void * __fastcall (float span)	Builds the twelve-spoke, eight-band wall ripple mesh with the dmsphere2 texture
+004b0530	function	arena_wall_flash_clear	void __fastcall (void *flash)	Frees a wall flash's mesh and clears the slot and its expiry
+004b0550	function	arena_wall_flash_frame	void __fastcall (void *flash)	Moves and colours the radial bands, adds the mesh to the scene and frees it after expiry
+004b0c10	function	arena_wall_flash_colour	void __thiscall (Vec3 *colour, float phase)	Cosine blends the dark blue and violet colours of the wall flash over a band's phase
+004b0d40	function	arena_wall_flash_sample	void __thiscall (Vec3 *colour, float phase)	Looks up the hardware or software ripple colour in the table filled at arena start
+004b1170	function	mp_respawn_effect_create	int __fastcall (int slot)	Builds the fighter's dmspawn sweep, clipping plane and beam and returns the next respawn effect slot
+004b1380	function	mp_respawn_effect_free	void __fastcall (int slot)	Frees the sweep, beam and plane and clears the respawn effect slot
+0050c2f0	data	mp_respawn_targetable	bool	Whether a fighter can be targeted during the spawn effect, enabled by default
+005d76d8	data	arena_next_wall_flash	int	The next slot in the wall flash ring
+005d770c	data	arena_wall_texture	void *	The dmsphere2 texture that shades the arena wall ripple
+005d7710	data	arena_wall_flashes	byte[1408]	Thirty-two 0x2C-byte wall flashes, each with a mesh, eight band phases, a frame tick and an expiry tick
+005d7c90	data	arena_wall_spokes	int	Number of spokes in a wall flash, set to twelve
+005d7c98	data	mp_respawn_texture	void *	The dmspawn texture that shades the fighter as it appears
+005d7d20	data	arena_wall_flash_colours	Vec3[1024]	The wall band's colour by ripple phase
+005dad20	data	arena_crossed_wall	byte[8]	One flag per pilot, set on crossing the wall and cleared back inside
+005dad28	data	mp_next_respawn_effect	int	The next slot in the respawn effect ring
+00594754	data	scoreboard_font	void *	The converted blk2orng.fnt used for scoreboard headers and ranks
+005dad30	data	arena_scoreboard_font_remap	byte[256]	Scoreboard header and rank remap, each index itself except 1, which is transparent (0xFF)
+005dae54	data	mp_respawn_effects	void *[8]	The eight records holding a respawning fighter's sweep, beam and clipping plane
+005dae51	data	arena_bounds_ready	bool	Whether arena_frame has sized the arena sphere
+005db100	data	arena_wall_bands	int	Number of animated bands in a wall flash, set to eight

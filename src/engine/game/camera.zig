@@ -225,6 +225,9 @@ pub const View = enum(u8) {
     }
 };
 
+/// Looks back at a fighter as it appears in a deathmatch arena.
+pub const deathmatch_respawn_view: View = @fromBackingInt(0x28);
+
 /// Whether a view puts the camera in its ship's cockpit: one of the views from the cockpit, save
 /// the view ahead in the chase mode.
 pub fn inCockpit(view: View, mode: CockpitMode) bool {

@@ -199,8 +199,21 @@ notice carries the owner and victim admissions and the scoring tick. Session del
 are tracked in [#954](https://github.com/OpenReliant/openreliant/issues/954).
 
 Hold **Display Kills** to see the flight standings. The rows follow `mp_draw_scoreboard`
-(0x004AF650), which sorts by kills and then by fewest deaths. The host supplies both counts
-and the pilot's name. The client checks that the name belongs to the same admission as the score.
+(0x004AF650), which sorts by kills and then by fewest deaths. Exact ties stay in pilot slot
+order. The panel uses the installed arena sprites and shows rank, pilot, kills, deaths and
+ping. OpenReliant reports each pilot's measured round trip to the host. The client checks
+that each name belongs to the same admission as the score.
+
+The original sizes the arena wall around the map's scenery and spawn markers
+(`arena_frame`, 0x004AEB50). The host applies the inward push and damping to ships that
+cross the wall. It places ships that stray beyond 1.2 times the radius at 1.01 times the
+radius, where the push can bring them back in. Gun bolts end at the wall except for turret
+flak, which has its own burst. Clients show the wall ripple, blue sparks and the impact sound.
+
+Order 121 protects a spawning fighter for 300 ticks. The fighter remains targetable, but
+collisions, damage, flight controls and pickups are blocked during the spawn. The pilot sees
+the original camera swing and the ship appears through the moving clipping plane. Other
+pilots see the same sweep at the same age, including when they join while a ship is appearing.
 
 ### Asteroid Field
 
@@ -238,6 +251,9 @@ The sixth pickup announces the carrier (0x2EB). The blast fires when that pilot 
 2,500 units of a gate, including the boundary (0x004B19D2, 0x004B32C0). It starts at the
 first gate's position and orientation, lasts 1,000 ticks and uses 22 percent of the arena
 radius. The launch announces the pilot (0x300) and puts all six beacons back into play.
+Clients draw the native Uber blast and shockwaves from the blast's start tick, centre and
+size. Pilots joining during the blast see it at its current age. The host applies its
+damage and awards the kills.
 
 A pilot who dies or leaves drops their cargo beside their ship. The host keeps running the
 round when the pilot's death camera finishes. Drops cycle through the six
@@ -245,6 +261,9 @@ world axes at 0.8 times the ship's radius. At reset, each beacon takes the first
 of the other beacons. If every marker is occupied, it stays where it is. Every 50 ticks the
 host checks for loose beacons less than 500 units inside the arena boundary or beyond it and places
 them again. Every 25 ticks it checks that six objectives are accounted for.
+Both checks run before collection and gate contact. The host keeps one record per beacon
+for loose and carried states, so it can repair the map without reconciling separate clients'
+carried counts.
 
 **Improvement:** the host determines pickup, loss and gate contact from its simulated ships.
 Each drawn arena frame captures the six pickups and their carriers. A viewer joining mid-round
@@ -282,8 +301,8 @@ The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/95
 - [#1368](https://github.com/OpenReliant/openreliant/issues/1368): wingman loss, target feedback,
   device notifications and the remaining local combat rules.
 - [#1401](https://github.com/OpenReliant/openreliant/issues/1401): the recalled pilot's cockpit return to the carrier.
-- [#1461](https://github.com/OpenReliant/openreliant/issues/1461): stock arena boundary, respawn,
-  standings and the Nuclear Threat blast presentation.
+- [#1400](https://github.com/OpenReliant/openreliant/issues/1400): team rules, standings and badges.
+- [#1460](https://github.com/OpenReliant/openreliant/issues/1460): multiplayer fighter breakup and debris.
 
 This state split does not add a network session or change mission files. Single player remains
 one participant running the existing simulation and presentation paths.

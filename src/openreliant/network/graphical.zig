@@ -278,12 +278,17 @@ fn presentNotices(pilot: *Graphical, flight: *FlightFrame, strings: game.languag
     pilot.notice_count = 0;
 }
 
-pub fn chase(drawn: *const game.main.Drawn) game.camera.Place {
+pub fn cameraPlace(pilot: *Graphical, drawn: *const game.main.Drawn) game.camera.Place {
     const slot = &drawn.objects.slots[drawn.objects.player];
+    const flight = pilot.flight.?;
+    const left = flight.respawns.left[drawn.objects.player];
+    if (left != 0) return game.deathmatch.respawn.camera(slot.drawn, left);
     const offset = game.camera.Chase.offset(slot.object.type);
     const throttle = if (slot.object.afterburner) game.camera.Chase.afterburner_throttle else slot.object.throttle;
+    const shake = drawn.shake * game.camera.Cockpit.shake_share * game.camera.Cockpit.camera_shake;
+    const jitter = flight.random.centredVector(@splat(shake));
     return .{
         .position = slot.drawn.position + math.transform(slot.drawn.orientation, .{ 0, offset.height, -offset.distance - game.camera.Chase.throttle_distance * throttle }),
-        .orientation = slot.drawn.orientation,
+        .orientation = math.product(math.fromAngleVector(jitter), slot.drawn.orientation),
     };
 }

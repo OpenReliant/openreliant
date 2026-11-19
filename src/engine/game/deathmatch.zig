@@ -9,6 +9,7 @@ const players = @import("players.zig");
 
 pub const pickup_rings = @import("deathmatch/pickup_rings.zig");
 pub const powerups = @import("deathmatch/powerups.zig");
+pub const respawn = @import("deathmatch/respawn.zig");
 pub const spawn = @import("deathmatch/spawn.zig");
 pub const six_beacons = @import("dmscenarios/six_beacons.zig");
 const math = @import("../surrender/math.zig");
@@ -27,6 +28,10 @@ pub fn resetToSpawnPositions(world: gameobj.World) !void {
             try six_beacons.Round.start(world, .free_for_all);
         if (all.mission_number == scenarios.Scenario.asteroid_field.mission())
             all.arena_scenario = .{ .asteroid_field = try powerups.Round.start(all) };
+        all.arena_boundary = .{ .bounds = switch (all.arena_scenario) {
+            .six_beacons => |*round| round.bounds,
+            else => .of(all),
+        } };
     }
     for (0..all.players) |at| {
         const index: u16 = @intCast(at);
@@ -45,7 +50,7 @@ pub const Bounds = struct {
         var low: math.Vector = @splat(std.math.inf(f32));
         var high = -low;
         for (scenery) |*slot| {
-            if (!includes(slot.object.type.base())) continue;
+            if (!slot.object.created or !includes(slot.object.type.base())) continue;
             const extent: math.Vector = @splat(slot.object.radius);
             low = @min(low, slot.object.position() - extent);
             high = @max(high, slot.object.position() + extent);
@@ -54,7 +59,7 @@ pub const Bounds = struct {
         const centre = (low + high) * @as(math.Vector, @splat(0.5));
         var radius: f32 = 0;
         for (scenery) |*slot| {
-            if (includes(slot.object.type.base())) radius = @max(radius, math.distance(centre, slot.object.position()) + slot.object.radius);
+            if (slot.object.created and includes(slot.object.type.base())) radius = @max(radius, math.distance(centre, slot.object.position()) + slot.object.radius);
         }
         return .{ .centre = centre, .radius = radius };
     }
@@ -73,6 +78,8 @@ pub const Bounds = struct {
         };
     }
 };
+
+pub const Boundary = @import("deathmatch/boundary.zig");
 
 /// Rules selected by the host after loading an arena. Ordinary deathmatch has no objectives.
 pub const Scenario = union(enum) {
@@ -131,6 +138,7 @@ pub const ArenaScores = union(enum) {
 /// `mp_arena_init` (0x004AE860) clears both the player and team scores.
 pub fn startRound(all: *Objects, mode: std.meta.Tag(ArenaScores)) void {
     all.arena_scenario = .deathmatch;
+    all.arena_boundary = null;
     all.arena_scores = switch (mode) {
         .free_for_all => .free_for_all,
         .teams => .{ .teams = .initFill(.{}) },

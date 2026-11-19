@@ -454,6 +454,11 @@ pub const Frame = struct {
     ticks: i32 = 0,
     /// The screen's flash, which goes into the overlay's layer.
     flash: ?*const flash.Flash = null,
+    respawns: ?*const @import("deathmatch.zig").respawn.View = null,
+    wall: ?struct {
+        flashes: *const @import("deathmatch.zig").Boundary.Flashes,
+        mesh: *const srapiext.Mesh,
+    } = null,
     /// The display's interference as drawing keeps it, which the flash shows red in the view ahead
     /// and then fades.
     interference: ?*hud.Interference.Shown = null,
@@ -790,6 +795,7 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     smoke.frame(orders.world);
     objectsPass(orders);
     if (orders.world.damage_rules == .arena) {
+        if (orders.world.objects.arena_boundary) |*boundary| boundary.frame(orders.world);
         orders.world.objects.arena_scenario.frame(orders.world);
     }
     keepPlayerTarget(orders.world);
@@ -1436,6 +1442,8 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     };
     if (frame.gates) |gates| try gates.draw(gpa, arena, scene, frame.objects);
     try frame.portals.draw(gpa, scene);
+    if (frame.respawns) |respawns| try respawns.draw(gpa, arena, scene, frame.objects);
+    if (frame.wall) |wall| try wall.flashes.draw(wall.mesh, gpa, arena, scene, attachments.frame_start);
     if (frame.shields) |bubbles| try bubbles.draw(gpa, arena, scene, frame.objects, frame.capital_shields, .{
         .camera = attachments.camera,
         .inside = camera.inCockpit(frame.view, frame.cockpit_mode),

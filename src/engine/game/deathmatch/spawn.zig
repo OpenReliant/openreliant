@@ -55,6 +55,7 @@ pub fn reset(world: gameobj.World, pilot: players.ParticipantRef, fighter: gameo
     if (slot.combat) |stats| slot.object.afterburner_fuel = @divTrunc(stats.afterburner_fuel, 2) * main.ticks_per_second;
     slot.object.countermeasures = 0;
     if (!try aigeneric.push(.of(world), index, .multiplayer_control, .none)) return error.OrderFailed;
+    if (!try aigeneric.push(.of(world), index, .deathmatch_respawn_effect, .none)) return error.OrderFailed;
     _ = all.bindParticipant(pilot, .of(all, index)) orelse return error.BindFailed;
 }
 
@@ -79,4 +80,16 @@ test "a second admitted fighter spawns clear of the first" {
     try std.testing.expectEqual(second_place, all.slots[1].drawn.position);
     try std.testing.expectEqual(gameobj.Type.of(.shroud), all.slots[1].object.type);
     try std.testing.expectEqual(second, all.playerBinding(1).?.participant);
+    const ctx: aigeneric.Context = .of(world);
+    aigeneric.objectOrders(ctx, 1);
+    try std.testing.expect(all.slots[1].object.flags.no_collisions);
+    try std.testing.expectEqual(gameobj.Invulnerability._unknown_4, all.slots[1].object.invulnerable);
+    mission.clock.frame_start = @import("respawn.zig").duration - 1;
+    aigeneric.objectOrders(ctx, 1);
+    try std.testing.expect(all.slots[1].running(.deathmatch_respawn_effect) != null);
+    mission.clock.frame_start += 1;
+    aigeneric.objectOrders(ctx, 1);
+    try std.testing.expect(all.slots[1].running(.multiplayer_control) != null);
+    try std.testing.expect(!all.slots[1].object.flags.no_collisions);
+    try std.testing.expect(all.slots[1].object.invulnerable == .none);
 }
