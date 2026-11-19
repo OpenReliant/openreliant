@@ -225,14 +225,16 @@ Run `openreliant --headless` to start the host from the command line. It reads `
 the current folder. Pass a different file as `openreliant --headless path/to/server.ini`.
 The host starts before the game opens a window or initializes sound.
 
-The headless host currently runs the Six Beacons test arena. Save this example as `server.ini`.
-Section and key names can be written in any case.
+The headless host runs Nuclear Threat from an installed copy of StarLancer. Save this example
+as `server.ini` beside the installation, or set `GameDirectory` to its path. Section and key
+names can be written in any case.
 
 ```ini
 [Server]
 BindAddress=127.0.0.1
 Port=27020
-Arena=six-beacons
+Arena=nuclear-threat
+GameDirectory=.
 Players=3
 ```
 
@@ -260,7 +262,8 @@ your pilots can reach. Allow incoming UDP on `Port` and use the same port if you
 | `BindAddress` | `127.0.0.1` | The IPv4 or IPv6 address the host listens on. The default accepts pilots from the host machine |
 | `InviteAddress` | `BindAddress` | The IPv4 or IPv6 address to put in the invite. Set this to a specific address when listening on all interfaces |
 | `Port` | `27020` | The UDP port to listen on, from 1 to 65535 |
-| `Arena` | `six-beacons` | `six-beacons` for the objective arena or `training` for the flight test |
+| `Arena` | `nuclear-threat` | `nuclear-threat` for the stock mission. `six-beacons` and `training` are small transport test arenas |
+| `GameDirectory` | `.` | Installed game folder, relative to `server.ini` or an absolute path. Used by stock missions |
 | `Players` | `3` | The maximum pilots. This build supports 2 or 3, and starts the round once two are admitted |
 | `RoundTicks` | Unset | Keep the host running until stopped. Set a positive tick count to end a test round at that tick |
 

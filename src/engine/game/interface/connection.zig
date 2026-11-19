@@ -8,6 +8,8 @@ const winmain = @import("../winmain.zig");
 const input = @import("../../input.zig");
 const Layout = @import("connection/layout.zig");
 const widgets = @import("connection/widgets.zig");
+pub const ShipPicker = @import("connection/ship_picker.zig");
+const scenarios = @import("../dmscenarios.zig");
 pub const HostChoice = @import("connection/host_choice.zig");
 pub const Lobby = @import("connection/lobby.zig");
 const Connection = @This();
@@ -24,7 +26,7 @@ pub const Server = struct {
     ping_ms: ?u16 = null,
     target: []const u8,
 };
-pub const Action = union(enum) { back, host_lan, leave_session, launch_session, join: []const u8 };
+pub const Action = union(enum) { back, host_lan, leave_session, launch_session, choose_ship: scenarios.Fighter, join: []const u8 };
 pub const Label = widgets.Label;
 
 address: language.Text(128) = .{},
@@ -33,6 +35,8 @@ busy: bool = false,
 host_available: bool = false,
 host_choice: ?HostChoice = null,
 lobby: ?Lobby = null,
+fighter: scenarios.Fighter = .predator,
+ship_picker: ?ShipPicker = null,
 source: Source = .internet,
 // The discovery source owns the strings while its list is displayed.
 listings: std.EnumArray(Source, []const Server) = .initFill(&.{}),
@@ -57,6 +61,11 @@ fn enabled(screen: *const Connection, control: Layout.Control) bool {
     };
 }
 
+fn fighterField(layout: Layout) ui.Rect {
+    const bottom = layout.control(.back);
+    return .{ .x = bottom.x + 218, .y = bottom.y, .width = 140, .height = 20 };
+}
+
 pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, typed: *winmain.Typed, window: [2]u32) ?Action {
     if (screen.host_choice) |*choice| {
         typed.clear();
@@ -67,19 +76,45 @@ pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, type
             .deathmatch => .host_lan,
         };
     }
+    if (screen.ship_picker) |*picker| {
+        typed.clear();
+        const action = picker.frame(mouse, keys.pressed(input.scan.escape, .none, true)) orelse return null;
+        screen.ship_picker = null;
+        switch (action) {
+            .cancel => return null,
+            .select => |ship| {
+                if (screen.lobby) |*lobby| {
+                    lobby.ship = ship;
+                    return .{ .choose_ship = ship };
+                }
+                screen.fighter = ship;
+                return null;
+            },
+        }
+    }
     if (screen.lobby) |*lobby| return switch (lobby.frame(mouse, keys, window) orelse return null) {
         .leave => .leave_session,
         .launch => .launch_session,
+        .choose_ship => open: {
+            screen.ship_picker = .{ .preview = lobby.ship };
+            break :open null;
+        },
     };
     const layout = Layout.init(window);
     const at = layout.point(mouse.at);
+    const escape = keys.pressed(input.scan.escape, .none, true);
     screen.hover = for (std.enums.values(Layout.Control)) |control| {
         if (screen.enabled(control) and layout.control(control).holds(at)) break control;
     } else null;
-    if (keys.pressed(input.scan.escape, .none, true) or (mouse.down and screen.hover == .back))
+    if (escape or (mouse.down and screen.hover == .back))
         return .back;
     if (screen.busy) return null;
     if (mouse.down) {
+        if (fighterField(layout).holds(at)) {
+            screen.ship_picker = .{ .preview = screen.fighter };
+            screen.editing = false;
+            return null;
+        }
         if (screen.hover) |control| switch (control) {
             .internet, .lan => {
                 screen.source = if (control == .internet) .internet else .lan;
@@ -166,13 +201,22 @@ fn cells(canvas: ui.Canvas, layout: Layout, y: i16, words: [4][]const u8, colour
     }
 }
 
-pub fn draw(screen: *const Connection, original: ui.Canvas, art: *hud.Art, dialog_art: *hud.Art, ticks: u32) !void {
+pub fn draw(screen: *const Connection, original: ui.Canvas, art: *hud.Art, dialog_art: *hud.Art, fighters: ShipPicker.Art, ticks: u32) !void {
     const layout = Layout.init(original.window);
     var canvas = original;
     canvas.share = layout.share;
     art.global = art.set.paletteAt(0x12);
     defer art.global = art.set.paletteAt(0);
-    if (screen.lobby) |*lobby| return lobby.draw(original, art);
+    if (screen.lobby) |*lobby| {
+        try lobby.draw(original, art);
+    } else {
+        try screen.drawBrowser(canvas, art, layout, ticks);
+        if (screen.host_choice) |choice| try choice.draw(original, art, dialog_art);
+    }
+    if (screen.ship_picker) |picker| try picker.draw(original, art, fighters);
+}
+
+fn drawBrowser(screen: *const Connection, canvas: ui.Canvas, art: *hud.Art, layout: Layout, ticks: u32) !void {
     try widgets.title(canvas, layout.title(), title);
     widgets.panel(canvas, layout.list);
     widgets.panel(canvas, layout.details);
@@ -190,7 +234,10 @@ pub fn draw(screen: *const Connection, original: ui.Canvas, art: *hud.Art, dialo
         };
         try widgets.button(canvas, art, box, labels.get(control), screen.enabled(control), lit);
     }
-    if (screen.host_choice) |choice| try choice.draw(original, art, dialog_art);
+    const choose = fighterField(layout);
+    const choose_label: Label = .{ .english = "SHIP", .installed = 0x2C3 };
+    try canvas.text(canvas.fonts.small, .{ choose.x - 9, choose.y + 3 }, choose_label.text(canvas.strings.*), ui.blue, .right);
+    try widgets.button(canvas, art, choose, ShipPicker.label(screen.fighter), !screen.busy, screen.ship_picker != null);
 }
 
 fn drawList(screen: *const Connection, canvas: ui.Canvas, layout: Layout) !void {

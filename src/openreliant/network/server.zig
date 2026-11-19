@@ -19,10 +19,11 @@ pub const pilots_to_start = 2;
 
 const Peer = struct {
     conn: net.Connection,
-    state: enum { connecting, joining, playing, closing } = .connecting,
+    state: enum { connecting, joining, choosing, playing, closing } = .connecting,
     identity: [max_identity]u8 = undefined,
     identity_len: u8 = 0,
     call_sign: ?wire.CallSign = null,
+    fighter: wire.Fighter = .predator,
     expires: i64,
     sequence: ?u32 = null,
     flight_command: flight.Command = .{},
@@ -169,7 +170,16 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                 peer.expires = time + timeout;
                 return true;
             }
-            const admitted = try host.arena.join(slot);
+            peer.state = .choosing;
+            return true;
+        },
+        .choosing => {
+            if (host.final_tick != null or message != .pick_ship) return false;
+            peer.fighter = message.pick_ship;
+            const admitted = host.arena.join(slot, peer.fighter) catch |err| switch (err) {
+                error.NoFreeSpawn, error.JoinFailed, error.BindFailed => return false,
+                else => return err,
+            };
             peer.state = .playing;
             peer.expires = time + timeout;
             try net.send(peer.conn, .{ .joined = admitted });
@@ -197,6 +207,9 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                         peer.call_sign = name;
                         host.lobbyChanged();
                     }
+                },
+                .pick_ship => |fighter| if (host.tick == 0 and host.start != .automatic) {
+                    peer.fighter = fighter;
                 },
                 else => return false,
             }
@@ -290,6 +303,19 @@ fn broadcast(host: *Host, view: wire.Snapshot, final: bool) !void {
     }
 }
 
+fn broadcastNotices(host: *Host) void {
+    for (host.arena.notices[0..host.arena.notice_count]) |notice| {
+        const speaker = host.peers[notice.pilot.slot] orelse continue;
+        const message: wire.Message = .{ .beacon_notice = .{ .event = notice, .name = speaker.call_sign orelse .{} } };
+        for (host.peers, 0..) |entry, slot| {
+            const peer = entry orelse continue;
+            if (peer.state != .playing) continue;
+            if (notice.kind == .waiting_for_players and slot != notice.pilot.slot) continue;
+            net.send(peer.conn, message) catch host.release(@intCast(slot));
+        }
+    }
+}
+
 pub fn open(host: *Host, address: [:0]const u8, ticks: ?u32) !void {
     const listener = net.session_open(address, true);
     if (listener == 0) return error.ListenFailed;
@@ -335,9 +361,16 @@ pub fn pump(host: *Host) !enum { running, finished } {
         .automatic => if (host.tick == 0 and host.playingCount() < pilots_to_start) return .running,
         .launched => {},
     }
+    if (host.tick == 0 and host.start == .launched) {
+        for (host.peers, 0..) |entry, slot| {
+            const peer = entry orelse continue;
+            if (peer.state == .playing) try host.arena.selectShip(@intCast(slot), peer.fighter);
+        }
+    }
     host.applyControls(time);
     host.tick += 1;
     const view = try host.arena.step(host.tick);
+    host.broadcastNotices();
     const final = host.tick == host.last_tick;
     if (final) {
         host.final_tick = host.tick;

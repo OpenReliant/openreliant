@@ -4,8 +4,9 @@ const version = @import("version");
 const flight_input = @import("flight_input.zig");
 const engine = @import("openreliant").engine;
 const flight = engine.input.flight;
-pub const arena_ship: engine.game.gameobj.Type = .of(.predator);
-pub const revision: u16 = 5;
+pub const Fighter = engine.game.dmscenarios.Fighter;
+pub const Scenario = engine.game.dmscenarios.Scenario;
+pub const revision: u16 = 6;
 pub const slots = 3;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
@@ -23,9 +24,10 @@ pub const Input = struct {
         return @as(i32, @bitCast(input.sequence -% accepted)) > 0;
     }
 };
-pub const Admission = struct { slot: u8, generation: u64 };
+pub const Admission = struct { slot: u8, generation: u64, scenario: ?Scenario = null };
 pub const CallSign = engine.game.interface.pilot_roster.CallSign;
 pub const Lobby = [slots]?CallSign;
+pub const BeaconNotice = struct { event: engine.game.deathmatch.six_beacons.Notice, name: CallSign };
 
 fn validCallSignByte(byte: u8) bool {
     return byte >= ' ' and byte != 0x7f;
@@ -71,6 +73,8 @@ pub const Version = struct {
 };
 pub const Ship = struct {
     generation: u64,
+    reuse: u32 = 0,
+    fighter: Fighter = .predator,
     position: [3]f32,
     // Signed half-turns keep the three angles to six bytes per ship.
     angles: [3]i16 = @splat(0),
@@ -78,7 +82,7 @@ pub const Ship = struct {
     throttle: f32 = 0,
     fuel: i32 = 0,
 
-    const encoded_size = @sizeOf(u64) + 5 * @sizeOf(f32) + 3 * @sizeOf(i16) + @sizeOf(i32);
+    const encoded_size = @sizeOf(u64) + @sizeOf(u32) + 1 + 5 * @sizeOf(f32) + 3 * @sizeOf(i16) + @sizeOf(i32);
 
     pub fn face(ship: *Ship, orientation: engine.surrender.math.Matrix) void {
         const radians = engine.surrender.math.angles(orientation);
@@ -129,6 +133,8 @@ pub const Message = union(enum(u8)) {
     flight_press: flight_input.Presses,
     lobby: Lobby,
     call_sign: CallSign,
+    pick_ship: Fighter,
+    beacon_notice: BeaconNotice,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -143,6 +149,7 @@ pub const Message = union(enum(u8)) {
             .joined => |id| {
                 try w.writeByte(id.slot);
                 try w.writeInt(u64, id.generation, .little);
+                try w.writeByte(if (id.scenario) |scenario| @backingInt(scenario) + 1 else 0);
             },
             .input => |input| {
                 try w.writeInt(u32, input.sequence, .little);
@@ -156,6 +163,8 @@ pub const Message = union(enum(u8)) {
                         continue;
                     };
                     try w.writeInt(u64, ship.generation, .little);
+                    try w.writeInt(u32, ship.reuse, .little);
+                    try w.writeByte(@backingInt(ship.fighter));
                     try writePosition(&w, ship.position);
                     for (ship.angles) |angle| try w.writeInt(i16, angle, .little);
                     try writeFloat(&w, ship.speed);
@@ -182,6 +191,14 @@ pub const Message = union(enum(u8)) {
                 if (name) |present| try writeCallSign(&w, &present);
             },
             .call_sign => |name| try writeCallSign(&w, &name),
+            .pick_ship => |fighter| try w.writeByte(@backingInt(fighter)),
+            .beacon_notice => |notice| {
+                try w.writeByte(@intCast(notice.event.pilot.slot));
+                try w.writeInt(u64, notice.event.pilot.generation, .little);
+                try w.writeInt(i32, notice.event.tick, .little);
+                try w.writeInt(u16, @backingInt(notice.event.kind), .little);
+                try writeCallSign(&w, &notice.name);
+            },
         }
         return w.buffered();
     }
@@ -203,8 +220,10 @@ pub const Message = union(enum(u8)) {
             .joined => admitted: {
                 const slot = try r.takeByte();
                 const generation = try r.takeInt(u64, .little);
+                const code = try r.takeByte();
+                const scenario = if (code == 0) null else std.enums.fromInt(Scenario, code - 1) orelse return error.InvalidAdmission;
                 if (slot >= slots or generation == 0) return error.InvalidAdmission;
-                break :admitted .{ .joined = .{ .slot = slot, .generation = generation } };
+                break :admitted .{ .joined = .{ .slot = slot, .generation = generation, .scenario = scenario } };
             },
             .input => .{ .input = .{
                 .sequence = try r.takeInt(u32, .little),
@@ -215,7 +234,7 @@ pub const Message = union(enum(u8)) {
                 for (&view.ships) |*entry| {
                     const generation = try r.takeInt(u64, .little);
                     if (generation == 0) continue;
-                    var ship: Ship = .{ .generation = generation, .position = try readPosition(&r) };
+                    var ship: Ship = .{ .generation = generation, .reuse = try r.takeInt(u32, .little), .fighter = try r.takeEnum(Fighter, .little), .position = try readPosition(&r) };
                     for (&ship.angles) |*angle| angle.* = try r.takeInt(i16, .little);
                     ship.speed = try readFloat(&r);
                     ship.throttle = try readFloat(&r);
@@ -262,6 +281,15 @@ pub const Message = union(enum(u8)) {
                 break :roster .{ .lobby = roster };
             },
             .call_sign => .{ .call_sign = try readCallSign(&r) },
+            .pick_ship => .{ .pick_ship = try r.takeEnum(Fighter, .little) },
+            .beacon_notice => notice: {
+                const slot = try r.takeByte();
+                const generation = try r.takeInt(u64, .little);
+                const tick = try r.takeInt(i32, .little);
+                const kind = try r.takeEnum(engine.game.deathmatch.six_beacons.Notice.Kind, .little);
+                if (slot >= slots or generation == 0 or tick < 0) return error.InvalidBeaconNotice;
+                break :notice .{ .beacon_notice = .{ .event = .{ .pilot = .{ .slot = slot, .generation = generation }, .tick = tick, .kind = kind }, .name = try readCallSign(&r) } };
+            },
         };
         if (r.bufferedLen() != 0) return error.TrailingData;
         return message;
@@ -310,6 +338,20 @@ test "a lobby preserves occupied slots and treats callsigns as bounded display t
     try std.testing.expectError(error.InvalidLobby, Message.decode(&.{ @backingInt(std.meta.Tag(Message).lobby), 0, 0, 0 }));
 }
 
+test "fighter choices and reliable beacon notices have bounded wire fields" {
+    var buffer: [capacity]u8 = undefined;
+    const select: Message = .{ .pick_ship = .shroud };
+    try std.testing.expectEqual(.shroud, (try Message.decode(try select.encode(&buffer))).pick_ship);
+    try std.testing.expectError(error.InvalidEnumTag, Message.decode(&.{ @backingInt(std.meta.Tag(Message).pick_ship), 255 }));
+    const sent: Message = .{ .beacon_notice = .{
+        .event = .{ .pilot = .{ .slot = 1, .generation = 3 }, .tick = 120, .kind = .triggered },
+        .name = lobbyName("Viper"),
+    } };
+    const received = (try Message.decode(try sent.encode(&buffer))).beacon_notice;
+    try std.testing.expectEqual(sent.beacon_notice.event, received.event);
+    try std.testing.expectEqualStrings("Viper", received.name.slice());
+}
+
 test "a final receipt names the applied tick" {
     var buffer: [capacity]u8 = undefined;
     const receipt: Message = .{ .received_final = 175 };
@@ -318,7 +360,9 @@ test "a final receipt names the applied tick" {
 
 test "flight updates fit the direct-IP payload budget" {
     const input_bytes = 25;
-    const full_snapshot_bytes = 120;
+    // A fighter byte and a ship reuse count distinguish a respawn from a new admission.
+    const full_snapshot_bytes = 135;
+    const objective_snapshot_budget = 256;
     var buffer: [capacity]u8 = undefined;
     const input: Message = .{ .input = .{ .sequence = 1, .command = .{
         .steering = .{ .axes = .{ 0.2, -0.5, 0.8 } },
@@ -334,6 +378,9 @@ test "flight updates fit the direct-IP payload budget" {
     try std.testing.expectEqual(input_bytes, encoded.len);
     try std.testing.expectEqualDeep(input, try Message.decode(encoded));
     try std.testing.expectEqual(full_snapshot_bytes, (try view.encode(&buffer)).len);
+    var with_objectives = view;
+    with_objectives.view.objectives = .{ .six_beacons = @splat(.{ .loose = .{ 1, 2, 3 } }) };
+    try std.testing.expect((try with_objectives.encode(&buffer)).len <= objective_snapshot_budget);
 }
 
 test "the objective view fits one packet and a carrier needs a current ship" {

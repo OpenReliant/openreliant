@@ -228,8 +228,16 @@ can read each pilot's count from its first snapshot. The count belongs to the or
 and admission, so a replacement in the same slot starts with its own count. See
 [Six Beacons target count](hud.md#six-beacons-target-count).
 
-The headless loopback test delivers the counts across a late join and a drop. Delivery in the playable client is tracked in
-[#1416](https://github.com/OpenReliant/openreliant/issues/1416).
+Both host paths bind mission 82 from the installed game and run its script on the host. Its
+`ResetToSpawnPositions` command (`0x004591B0`) selects the arena rules. The host builds each
+admitted pilot's fighter and chooses a free spawn marker (`0x004AF1D0`). The first host pilot
+starts at the first marker. Later spawns use the original collision margin of 1.2 times the
+sum of the radii. The ship starts with half its afterburner fuel and empty missile racks.
+
+The client loads the arena scenery and reads beacon positions and carriers from the host.
+It uses the shared HUD for counts and reads the installed strings for the collection and
+launch notices. A late join receives the current beacon state in its first snapshot. Ongoing
+scenery and combat effects are tracked in [#954](https://github.com/OpenReliant/openreliant/issues/954).
 
 ### Random arena power-ups
 

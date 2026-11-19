@@ -5,6 +5,69 @@
 //! Ported so far: whether a mission is one of the scenarios' maps (`isScenario`).
 
 const std = @import("std");
+const gameobj = @import("gameobj.zig");
+
+/// The stock scenarios and their display strings, in `dm_scenarios` table order.
+pub const Scenario = enum(u8) {
+    asteroid_field,
+    nuclear_threat,
+    dark_reign,
+    tag_bomb,
+    hunt_the_shadow,
+    vampires,
+
+    pub fn mission(scenario: Scenario) u16 {
+        return missions[@backingInt(scenario)];
+    }
+
+    pub fn nameString(scenario: Scenario) u16 {
+        return 0x2AF + @as(u16, @backingInt(scenario));
+    }
+
+    pub fn descriptionString(scenario: Scenario) u16 {
+        return 0x2B5 + @as(u16, @backingInt(scenario));
+    }
+
+    pub fn teamPlayString(scenario: Scenario) u16 {
+        return 0x2BB + @as(u16, @backingInt(scenario));
+    }
+
+    pub fn available(scenario: Scenario) bool {
+        return scenario == .nuclear_threat;
+    }
+};
+
+/// The fighters offered by `session_loadout_screen` (0x0044B950), in ship type order.
+pub const Fighter = enum(u8) {
+    predator,
+    naginata,
+    grendel,
+    crusader,
+    coyote,
+    mirage,
+    tempest,
+    patriot,
+    wolverine,
+    reaper,
+    shroud,
+    phoenix,
+
+    pub fn kind(fighter: Fighter) gameobj.Type {
+        return @fromBackingInt(@intCast(@backingInt(fighter)));
+    }
+
+    pub fn nameString(fighter: Fighter) u16 {
+        return 0x2C7 + @as(u16, @backingInt(fighter));
+    }
+};
+
+comptime {
+    for (std.enums.values(Fighter)) |fighter| {
+        const original: gameobj.GameType = @fromBackingInt(@intCast(@backingInt(fighter)));
+        std.debug.assert(std.mem.eql(u8, @tagName(fighter), @tagName(original)));
+    }
+    std.debug.assert(std.enums.values(Scenario).len == missions.len);
+}
 
 /// The mission each scenario is played in (`dm_scenarios`, `0x0050C790`: six `0x40`-byte records,
 /// each with the mission at offset 8, `0x0050C798` for the first).

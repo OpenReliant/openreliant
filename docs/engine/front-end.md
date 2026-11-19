@@ -57,9 +57,14 @@ for the host (`directplay_create_session`, `0x004BC550`). The deathmatch screen 
 and the waiting roster. Its Start Game action returns to `WinMain` to launch (`0x0044CAC2`).
 The co-op screen has a ready check and needs at least two pilots before launch (`0x0043D680`).
 
-**Improvement:** the LAN lobby uses OpenReliant's multiplayer layout and hosts the current
-Six Beacons arena fixture, with the Predator as its ship. Co-op, scenario and ship selection,
-and lobby chat are tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404).
+**Improvement:** the LAN lobby uses OpenReliant's multiplayer layout. **Change Game Mode**
+opens the original mode list with the descriptions and team-play notes from the installed
+language file. Nuclear Threat is available to host. The ship selector shows the installed
+ITAC fighter pictures, class, armament and special abilities. Pilots joining a dedicated
+server or a match already in progress can open the same selector from the browser. Co-op
+setup and lobby chat are tracked in
+[#404](https://github.com/OpenReliant/openreliant/issues/404), and the other arena rules in
+[#1400](https://github.com/OpenReliant/openreliant/issues/1400).
 
 The browser reads matching labels from the installed language table, with English fallbacks.
 A pilot returns to the browser with the host-departure message (string `0x3B7` from the

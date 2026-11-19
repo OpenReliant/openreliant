@@ -1016,7 +1016,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         while (window.poll()) |event| switch (event) {
             .quit => return,
             .key => |key| if (options.screenshot == null) {
-                if (key.paste and flow.in_front_end and front.screen == .connection and front.connection.host_choice == null and !front.connection.busy and !(if (console) |*shown| shown.isUp() else false)) {
+                if (key.paste and flow.in_front_end and front.screen == .connection and front.connection.host_choice == null and front.connection.ship_picker == null and !front.connection.busy and !(if (console) |*shown| shown.isUp() else false)) {
                     var buffer: [128]u8 = undefined;
                     if (platform.window.clipboard(&buffer)) |text| {
                         front.connection.address.set(text);
@@ -1102,6 +1102,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         if (flow.in_front_end) {
             if (front_resources == null) {
                 front_resources = try .open(gpa, resources, &outlines);
+                front_resources.?.itac_strings = itac_strings;
                 rooms = .{
                     .movies = &movies,
                     .sound = sound,
@@ -1170,7 +1171,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         through.mode_saved = .unchosen;
                         try game_scripts.start();
                     },
-                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session => {},
+                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .choose_ship => {},
                 }
                 flow.next = switch (outcome) {
                     .host_lan => {
@@ -1183,6 +1184,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     },
                     .launch_session => {
                         if (network_enabled) network_pilot.launch();
+                        continue;
+                    },
+                    .choose_ship => |ship| {
+                        if (network_enabled) network_pilot.chooseShip(ship, &front.connection);
                         continue;
                     },
                     .join_server => |target| {
@@ -1452,10 +1457,21 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         // display takes up what they started for it, before the scripts and the frame read it.
         view.notice(&player.viewing);
         const network_frame = if (network_enabled and flow.in_front_end)
-            try network_pilot.frame(gpa, objects, tables, types.types(), presentation)
+            network_pilot.frame(gpa, objects, tables, types.types(), .{ .io = io, .directory = directory, .archive = &resources }, strings, presentation) catch |err| frame: {
+                std.log.warn("could not display the multiplayer arena: {s}", .{@errorName(err)});
+                network_pilot.returnToBrowser(&front.connection, presentation, .{ .english = "Could not load the multiplayer arena" });
+                break :frame null;
+            }
         else
             null;
-        if (display.multiplayer != (network_frame != null)) display.drawing = .{};
+        if (display.multiplayer != (network_frame != null)) {
+            display.drawing = .{};
+            const mission_nebula = if (network_frame != null) network_pilot.flight.?.environment.requested else environment.requested;
+            if (sky.nebula != mission_nebula) sky.select(&textures, mission_nebula, &space.lights) catch |err| {
+                std.log.warn("could not select the mission's nebula: {s}", .{@errorName(err)});
+            };
+            if (network_frame) |flight| space.place(sky, flight.objects, flight.objects.count);
+        }
         display.multiplayer = network_frame != null;
         display.drawn = network_frame orelse &drawn;
         display.drawing.takeUp(if (network_frame) |flight| &flight.display else &game_display);
@@ -1559,12 +1575,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .portals = &flight.portals,
                     .space = space,
                     .sky = sky,
+                    .environment = &network_pilot.flight.?.environment,
                     .view = viewing.view,
                     .last_view = viewing.last,
                     .cockpit_mode = viewing.cockpit_mode,
                     .chase = chase_objects,
                     .display = &display.drawing,
                     .overlay = display.overlay(),
+                    .pickup_rings = &pickup_rings,
                     .attachments = .{ .camera = place.position },
                 }, driver.interface());
             } else {

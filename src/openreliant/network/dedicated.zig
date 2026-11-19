@@ -14,6 +14,7 @@ const Config = struct {
     bind: std.Io.net.IpAddress,
     invite_address: ?std.Io.net.IpAddress,
     mode: Arena.Mode,
+    game_directory: []const u8,
     players: u8,
     ticks: ?u32,
     identity: ?session.Identity,
@@ -33,7 +34,7 @@ const Config = struct {
         const mode = if (profile.value("Server", "Arena")) |value|
             std.meta.stringToEnum(Arena.Mode, value) orelse return error.InvalidArena
         else
-            .@"six-beacons";
+            .@"nuclear-threat";
         const players = if (profile.value("Server", "Players")) |value|
             std.fmt.parseInt(u8, value, 10) catch return error.InvalidPlayerLimit
         else
@@ -57,6 +58,7 @@ const Config = struct {
             .bind = bind,
             .invite_address = if (Invite.hasAddress(advertised)) advertised else null,
             .mode = mode,
+            .game_directory = profile.value("Server", "GameDirectory") orelse ".",
             .players = players,
             .ticks = ticks,
             .identity = managed,
@@ -73,11 +75,14 @@ pub fn run(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !void
     const text = try directory.readFileAlloc(io, std.fs.path.basename(path), gpa, .limited(max_config_size));
     defer gpa.free(text);
     const config = try Config.parse(.{ .text = text });
+    var game_directory = if (config.mode == .@"nuclear-threat") try directory.openDir(io, config.game_directory, .{}) else null;
+    defer if (game_directory) |*opened| opened.close(io);
     var buffer: [128]u8 = undefined;
     const address = try std.fmt.bufPrintSentinel(&buffer, "{f}", .{config.bind}, 0);
     try session.serve(io, gpa, directory, config.identity, .{
         .address = address,
         .mode = config.mode,
+        .game_directory = game_directory,
         .players = config.players,
         .ticks = config.ticks,
         .invite_address = config.invite_address,
@@ -96,7 +101,7 @@ test "headless settings share the game's INI syntax" {
         \\Certificate=certs/host.cert
     });
     try std.testing.expectEqual(27200, config.bind.getPort());
-    try std.testing.expectEqual(Arena.Mode.@"six-beacons", config.mode);
+    try std.testing.expectEqual(Arena.Mode.@"nuclear-threat", config.mode);
     try std.testing.expectEqual(2, config.players);
     try std.testing.expectEqual(175, config.ticks.?);
     try std.testing.expectEqualStrings("certs/session root.pub", config.identity.?.root_path);

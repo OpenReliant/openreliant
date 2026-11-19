@@ -303,7 +303,7 @@ the script go on. Its description is the developers' own, from the catalogue.
 | `0x34` | `DisableEngines` | Each ship the first argument names has its engines off while the second is set | Yes |
 | `0x35` | `DisableEject` | The pilot of each ship the first argument names cannot eject while the second is set | Yes |
 | `0x36` | `SetHostile` | Each ship the first argument names turns hostile while the second is set, or friendly, a neutral one too | Yes |
-| `0x37` | `ResetToSpawnPositions` | In a deathmatch, puts the player at a spawn place at random | No |
+| `0x37` | `ResetToSpawnPositions` | In a host-owned deathmatch, selects the mode and rebuilds admitted pilots' ships at free spawn markers | Yes |
 | `0x38` | `UpdateEnvironmentFXState` | Applies what the script asks of its space at once rather than at the next jump (`environment_update`), and aims the sun, the lights and the nebula again from the markers (`backdrop_place`) ([Backdrop](backdrop.md)) | Yes |
 | `0x39` | `SetPrimaryTarget` | The ship the argument names, or its component, becomes the mission's primary target, which PRIMARY TARGET makes the player's ([Display](hud.md#picking-a-target)) | Yes |
 | `0x3A` | `WaitForJumpOrLaunch` | The thread waits while any ship the argument names is jumping, going through a gate or launching | Yes |
