@@ -50,6 +50,8 @@ notices: [notice_capacity]Notice = undefined,
 notice_count: usize = 0,
 combat: [2 * game.guns.max_bullets + wire.slots]game.guns.FlightEffect = undefined,
 combat_count: usize = 0,
+decoys: ?game.cloak.Countermeasures = null,
+waves: ?game.shockwave.Shockwaves = null,
 
 pub fn create(gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory: std.Io.Dir) !*Arena {
     const arena = try gpa.create(Arena);
@@ -69,6 +71,8 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
     arena.rocks = .{};
     arena.notice_count = 0;
     arena.combat_count = 0;
+    arena.decoys = null;
+    arena.waves = null;
     errdefer arena.deinit();
     switch (mode) {
         .training => {
@@ -84,6 +88,8 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
             const assets = try stock.Assets.open(gpa, io, directory, &arena.mission.tables, arena.mission.objects);
             arena.assets = assets;
             arena.explosions = try .init(gpa, null);
+            arena.decoys = .init(gpa, assets.mounts.mounts());
+            arena.waves = try .create(gpa, &assets.images, .round);
             const scenario = mode.scenario().?;
             arena.loaded = try assets.files.load(gpa, scenario, arena.world());
             if ((scenario == .nuclear_threat) != (arena.mission.objects.arena_scenario == .six_beacons))
@@ -119,6 +125,8 @@ pub fn destroy(arena: *Arena) void {
 fn deinit(arena: *Arena) void {
     const gpa = arena.mission.objects.gpa;
     if (arena.loaded) |loaded| loaded.destroy();
+    if (arena.decoys) |*decoys| decoys.reset();
+    if (arena.waves) |*waves| waves.deinit(gpa);
     if (arena.explosions) |*explosions| explosions.deinit();
     arena.mission.deinit();
     if (arena.assets) |assets| assets.close(gpa);
@@ -133,6 +141,8 @@ fn world(arena: *Arena) game.gameobj.World {
     if (arena.assets) |assets| scene.spawn = .{ .tables = &arena.mission.tables, .types = assets.library.types() };
     if (arena.loaded) |loaded| scene = stock.withMission(scene, loaded);
     scene.beacon_notices = .{ .context = arena, .send = note };
+    if (arena.decoys) |*decoys| scene.countermeasures = decoys;
+    if (arena.waves) |*waves| scene.shockwaves = waves;
     if (arena.assets != null) scene.gun_effects = .{ .context = arena, .send = noteCombat };
     return scene;
 }
@@ -199,16 +209,37 @@ pub fn leave(arena: *Arena, slot: u8) void {
     arena.pilots[slot] = null;
 }
 
-pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire_for: ?u32) bool {
+pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire_for: ?u32, order: ?wire.ordnance.Order) bool {
     const all = arena.mission.objects;
     if (arena.pilots[slot] == null) return false;
     // An admitted pilot stays connected while the old ship finishes exploding.
     if (!all.hasBoundPlayerShip(slot)) return true;
     const pilot = all.playerBinding(slot).?;
-    return all.submitPlayerCommand(pilot, .{
+    const stock_mode = arena.mode.scenario() != null;
+    var submitted: game.players.Command = .{
         .flight = command,
-        .weapons = .{ .fire_guns = fire_for == pilot.ship.reuse and arena.mode.scenario() != null },
-    });
+        .weapons = .{ .fire_guns = fire_for == pilot.ship.reuse and stock_mode },
+    };
+    if (stock_mode) if (order) |weapons| {
+        if (weapons.aim.reuse == pilot.ship.reuse) {
+            const target = if (weapons.aim.target) |ref| weaponTarget(all, slot, ref) else null;
+            if (game.ai.controlEntry(all, slot)) |entry| {
+                if (target) |ref| {
+                    if (entry.target.slotIn(all) != ref.slot) submitted.target = .{ .aim = .{ .object = ref } };
+                } else if (entry.target != .none) submitted.target = .clear;
+            }
+            submitted.weapons.launch_missile = weapons.presses.launch and (weapons.aim.target == null or target != null);
+            submitted.weapons.countermeasures = weapons.presses.countermeasures;
+            submitted.weapons.rotate_missiles = weapons.presses.turn();
+        }
+    };
+    return all.submitPlayerCommand(pilot, submitted);
+}
+
+fn weaponTarget(all: *game.create.Objects, source: u16, ref: game.gameobj.ObjectRef) ?game.gameobj.ObjectRef {
+    const slot = ref.resolve(all) orelse return null;
+    if (slot == source or all.playerBinding(slot) == null or !game.ai.targetValid(all, .at(slot, null), .{})) return null;
+    return ref;
 }
 
 pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
@@ -265,16 +296,18 @@ test "the pilot stays admitted through destruction and old trigger input expires
     arena.mode = .@"nuclear-threat";
     const all = arena.mission.objects;
     const first = all.playerBinding(0).?.ship.reuse;
-    try std.testing.expect(arena.input(0, .{}, first));
+    try std.testing.expect(arena.input(0, .{}, first, null));
     try std.testing.expect(all.playerCommand(0).?.weapons.fire_guns);
     all.slots[0].object.flags.exploding = true;
-    try std.testing.expect(arena.input(0, .{}, first));
+    try std.testing.expect(arena.input(0, .{}, first, null));
     try std.testing.expectEqual(null, all.playerCommand(0));
     try arena.selectShip(0, .shroud);
-    try std.testing.expect(arena.input(0, .{}, first));
+    try std.testing.expect(arena.input(0, .{}, first, .{ .aim = .{ .reuse = first }, .presses = .{ .launch = true, .countermeasures = true } }));
     try std.testing.expect(!all.playerCommand(0).?.weapons.fire_guns);
-    try std.testing.expect(arena.input(0, .{}, all.playerBinding(0).?.ship.reuse));
+    try std.testing.expect(!all.playerCommand(0).?.weapons.launch_missile);
+    try std.testing.expect(!all.playerCommand(0).?.weapons.countermeasures);
+    try std.testing.expect(arena.input(0, .{}, all.playerBinding(0).?.ship.reuse, null));
     try std.testing.expect(all.playerCommand(0).?.weapons.fire_guns);
-    try std.testing.expect(arena.input(0, .{}, null));
+    try std.testing.expect(arena.input(0, .{}, null, null));
     try std.testing.expect(!all.playerCommand(0).?.weapons.fire_guns);
 }

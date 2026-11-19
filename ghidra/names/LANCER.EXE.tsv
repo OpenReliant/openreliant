@@ -3188,3 +3188,4 @@ address	kind	name	type	comment
 004b20b0	function	powerup_refuel_afterburner	void __fastcall (int pilot)	Adds fuel to the afterburner and caps it at the fighter's full tank
 0050c510	data	mp_powerup_rules	byte[480]	Twelve records of 0x28 bytes with flags, lifetime, weight, effect callbacks and pickup type
 005db4c4	data	mp_powerup_weights	float[12]	Cumulative weights for selecting a random arena pickup effect
+004b1b20	function	powerup_use	void __fastcall (int pilot, bool report)	Uses the held arena power-up, runs its use callback, updates its timer and can report consumption. Launch Missile dispatches here during arena play

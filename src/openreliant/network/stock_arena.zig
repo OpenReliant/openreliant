@@ -96,6 +96,7 @@ pub const Assets = struct {
     archive: game.bigfile.Hog,
     images: textures.Table,
     library: game.create.library.TypeCache,
+    mounts: game.create.library.MountCache,
 
     pub fn open(gpa: Allocator, io: Io, directory: Io.Dir, tables: *game.create.Stats, all: *game.create.Objects) !*Assets {
         const assets = try gpa.create(Assets);
@@ -111,6 +112,7 @@ pub const Assets = struct {
         assets.images = .init(gpa, cache, palette);
         errdefer assets.images.deinit();
         assets.library = .{ .gpa = gpa, .resources = &assets.archive, .textures = &assets.images, .looks = .{}, .global_palette = null };
+        assets.mounts = .{ .gpa = memory, .resources = &assets.archive, .textures = &assets.images };
         tables.* = .initial;
         tables.load(try records(memory, io, directory, .ships));
         all.gun_stats.load(try records(memory, io, directory, .guns));

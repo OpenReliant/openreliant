@@ -34,6 +34,19 @@ pub const Entry = extern struct {
     /// The count of an entry the ring doesn't hold.
     pub const no_entry: i16 = -1;
 
+    /// Build the display entry from a missile type and its count.
+    pub fn of(kind: Type, count: i16, place: i16) Entry {
+        const index = kind.baseIndex() orelse 0;
+        const own_name = if (kind.added()) |added| added.label_string else null;
+        return .{
+            .count = count,
+            .place = place,
+            .shape = if (index < shapes.len) shapes[index] else 0,
+            .name = if (own_name) |name| std.math.cast(i16, name) orelse 0 else if (index < names.len) names[index] else 0,
+            .type = kind,
+        };
+    }
+
     /// The missiles it has left, where the ring holds it.
     pub fn left(entry: Entry) ?i16 {
         return if (entry.count == no_entry) null else entry.count;
@@ -78,15 +91,7 @@ pub const Ring = struct {
             } else {
                 if (count == max_entries) continue;
                 // A missile a mod adds shows as its base, under its own name where it has one.
-                const index = rack.type.baseIndex() orelse 0;
-                const own_name = if (rack.type.added()) |added| added.label_string else null;
-                ring.entries[count] = .{
-                    .count = left,
-                    .place = @intCast(count),
-                    .shape = if (index < shapes.len) shapes[index] else 0,
-                    .name = if (own_name) |name| std.math.cast(i16, name) orelse 0 else if (index < names.len) names[index] else 0,
-                    .type = rack.type,
-                };
+                ring.entries[count] = .of(rack.type, left, @intCast(count));
                 count += 1;
             }
         }

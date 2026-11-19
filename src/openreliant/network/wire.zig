@@ -3,10 +3,11 @@ const std = @import("std");
 const version = @import("version");
 const flight_input = @import("flight_input.zig");
 const engine = @import("openreliant").engine;
+pub const ordnance = @import("ordnance.zig");
 const flight = engine.input.flight;
 pub const Fighter = engine.game.dmscenarios.Fighter;
 pub const Scenario = engine.game.dmscenarios.Scenario;
-pub const revision: u16 = 8;
+pub const revision: u16 = 9;
 pub const slots = 3;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
@@ -23,10 +24,10 @@ pub const Combat = struct {
     }
 };
 // A tag, scenario, tick, three ships, and the largest scenario payload.
-const snapshot_header = 2 + @sizeOf(u32) + slots * Ship.encoded_size + 1;
+const snapshot_header = 2 + @sizeOf(u32) + slots * Ship.encoded_size + 1 + 1;
 const beacon_snapshot_capacity = snapshot_header + beacon_count * (1 + 3 * @sizeOf(f32));
 const snapshot_capacity = @max(beacon_snapshot_capacity, snapshot_header + 1 + Rocks.max * (1 + @sizeOf(Facing)));
-pub const capacity = @max(snapshot_capacity, Combat.capacity);
+pub const capacity = @max(snapshot_capacity + ordnance.Status.capacity, Combat.capacity, ordnance.Page.capacity);
 const max_release = 96;
 
 pub const Input = struct {
@@ -149,6 +150,7 @@ pub const Snapshot = struct {
     ships: [slots]?Ship,
     objectives: Objectives = .none,
     rocks: Rocks = .{},
+    weapons: ?ordnance.Status = null,
 };
 
 fn writeScenario(w: *std.Io.Writer, scenario: ?Scenario) !void {
@@ -286,6 +288,8 @@ pub const Message = union(enum(u8)) {
     pick_ship: Fighter,
     beacon_notice: BeaconNotice,
     combat: Combat,
+    weapon_order: ordnance.Order,
+    projectiles: ordnance.Page,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -346,6 +350,8 @@ pub const Message = union(enum(u8)) {
                         if (entry) |facing| for (facing) |axis| try w.writeInt(i16, axis, .little);
                     }
                 }
+                try w.writeByte(@intFromBool(view.weapons != null));
+                if (view.weapons) |*status| try status.write(&w);
             },
             .leave => {},
             .received_final => |tick| try w.writeInt(u32, tick, .little),
@@ -367,6 +373,8 @@ pub const Message = union(enum(u8)) {
                 try writeCallSign(&w, &notice.name);
             },
             .combat => |combat| try writeCombat(&w, &combat),
+            .weapon_order => |order| try ordnance.writeOrder(&w, order),
+            .projectiles => |page| try page.write(&w),
         }
         return w.buffered();
     }
@@ -443,6 +451,11 @@ pub const Message = union(enum(u8)) {
                         };
                     }
                 }
+                view.weapons = switch (try r.takeByte()) {
+                    0 => null,
+                    1 => try ordnance.Status.read(&r),
+                    else => return error.InvalidSnapshot,
+                };
                 break :snapshot if (tag == .view) .{ .view = view } else .{ .finished = view };
             },
             .leave => .leave,
@@ -471,6 +484,8 @@ pub const Message = union(enum(u8)) {
                 break :notice .{ .beacon_notice = .{ .event = .{ .pilot = .{ .slot = slot, .generation = generation }, .tick = tick, .kind = kind }, .name = try readCallSign(&r) } };
             },
             .combat => .{ .combat = try readCombat(&r) },
+            .weapon_order => .{ .weapon_order = try ordnance.readOrder(&r, slots) },
+            .projectiles => .{ .projectiles = try ordnance.Page.read(&r) },
         };
         if (r.bufferedLen() != 0) return error.TrailingData;
         return message;
@@ -573,7 +588,7 @@ test "a final receipt names the applied tick" {
 test "flight updates fit the direct-IP payload budget" {
     const input_bytes = 25;
     // A fighter byte and a ship reuse count distinguish a respawn from a new admission.
-    const full_snapshot_bytes = 256;
+    const full_snapshot_bytes = 257;
     const objective_snapshot_budget = 336;
     var buffer: [capacity]u8 = undefined;
     const input: Message = .{ .input = .{ .sequence = 1, .command = .{
@@ -629,4 +644,43 @@ test "asteroid views include the stock mode and keep absent rock slots" {
     const bytes = try (Message{ .view = view }).encode(&buffer);
     try std.testing.expectEqualDeep(view, (try Message.decode(bytes)).view);
     try std.testing.expectError(error.EndOfStream, Message.decode(bytes[0 .. bytes.len - 1]));
+}
+
+test "ordnance orders address both ship lifetimes and keep a valid single press" {
+    var buffer: [capacity]u8 = undefined;
+    const order: Message = .{ .weapon_order = .{
+        .aim = .{ .reuse = 17, .target = .{ .slot = 1, .reuse = 23 } },
+        .presses = .from(.{ .launch_missile = true, .rotate_missiles = .anticlockwise }),
+    } };
+    const bytes = try order.encode(&buffer);
+    try std.testing.expectEqualDeep(order, try Message.decode(bytes));
+    try std.testing.expectError(error.EndOfStream, Message.decode(bytes[0 .. bytes.len - 1]));
+    buffer[1 + @sizeOf(u32)] = 0xff;
+    try std.testing.expectError(error.InvalidWeaponOrder, Message.decode(bytes));
+}
+
+test "a view can carry private missile and countermeasure status" {
+    var buffer: [capacity]u8 = undefined;
+    var view: Snapshot = .{ .tick = 1, .scenario = .asteroid_field, .ships = @splat(null) };
+    view.weapons = .{ .countermeasures = 3, .incoming = true, .armed = 1 };
+    view.weapons.?.ammo[0] = .{ .kind = .screamer, .count = 0 };
+    view.weapons.?.ammo[1] = .{ .kind = .raptor, .count = 2 };
+    view.weapons.?.held = .{ .phase = .locked, .count = 0, .ticks = 12, .point = .{ 3, 8, 21 } };
+    const transmitted = try (Message{ .view = view }).encode(&buffer);
+    const status = (try Message.decode(transmitted)).view.weapons.?;
+    try std.testing.expectEqualDeep(view.weapons.?, status);
+    var ring = status.ring();
+    try std.testing.expectEqual(engine.game.missiles.Type.of(.raptor), ring.armedEntry().type);
+    try std.testing.expectEqual(0, ring.entries[0].count);
+    try std.testing.expectEqual(2, ring.left);
+}
+
+test "projectile pages preserve slot reuse and reject entries past the end of the pool" {
+    var buffer: [capacity]u8 = undefined;
+    const Page = ordnance.Page;
+    var page: Page = .{ .tick = 8, .family = .missile, .number = Page.missiles_pages - 1 };
+    page.entries[0] = .{ .reuse = 22, .kind = .raptor, .position = .{ 10, 20, 30 }, .angles = .{ 0, 12, 3 }, .flight = .{ .burn = 32, .launched = true } };
+    try std.testing.expectEqualDeep(page, (try Message.decode(try (Message{ .projectiles = page }).encode(&buffer))).projectiles);
+    page.entries[Page.width - 1] = page.entries[0];
+    try std.testing.expectError(error.InvalidProjectilePage, Message.decode(try (Message{ .projectiles = page }).encode(&buffer)));
 }

@@ -4,6 +4,7 @@ const engine = @import("openreliant").engine;
 const game = engine.game;
 const wire = @import("wire.zig");
 const stock = @import("stock_arena.zig");
+const Projectiles = @import("projectiles.zig");
 const FlightFrame = @This();
 
 drawn: game.main.Drawn,
@@ -19,6 +20,8 @@ rocks: stock.RockSlots = .{},
 shot_ended_at: [game.guns.max_bullets]i32 = @splat(-1),
 effect_tick: ?i32 = null,
 sounds: ?*game.hog_snd.commands.Commands = null,
+lock_tone: game.main.lock.Tone = .{},
+projectiles: ?Projectiles = null,
 
 pub fn create(gpa: std.mem.Allocator, local: *const game.create.Objects, tables: *const game.create.Stats) !*FlightFrame {
     const frame = try gpa.create(FlightFrame);
@@ -29,6 +32,7 @@ pub fn create(gpa: std.mem.Allocator, local: *const game.create.Objects, tables:
     objects.players = wire.slots;
     objects.reuses = local.reuses;
     objects.gun_stats = local.gun_stats;
+    objects.missile_stats = local.missile_stats;
     objects.bullets.looks = local.bullets.looks;
     objects.bullets.shot_lights = local.bullets.shot_lights;
     frame.* = .{
@@ -47,6 +51,8 @@ pub fn create(gpa: std.mem.Allocator, local: *const game.create.Objects, tables:
 pub const CombatAssets = struct {
     textures: *engine.surrender.surrenderlib.srtexture.Table,
     images: ?game.explode.Explosions.Images,
+    ordnance_models: game.objects.Effects,
+    trails: game.missiles.trail.Trails.Images,
     sounds: ?*game.hog_snd.commands.Commands = null,
 };
 
@@ -54,17 +60,24 @@ pub fn enableCombat(frame: *FlightFrame, assets: CombatAssets) !void {
     const gpa = frame.drawn.gpa;
     frame.drawn.effects.explosions = try .init(gpa, assets.images);
     frame.drawn.effects.sparks = try .create(gpa, assets.textures);
+    frame.projectiles = .init(gpa, assets.ordnance_models, assets.trails);
     frame.sounds = assets.sounds;
 }
 
 pub fn destroy(frame: *FlightFrame) void {
     const gpa = frame.drawn.gpa;
     if (frame.loaded) |loaded| loaded.destroy();
+    if (frame.projectiles) |*shown| shown.deinit();
+    if (frame.sounds) |asked| frame.lock_tone.sound(false, asked, frame.drawn.player.viewing.last);
     if (frame.drawn.effects.explosions) |*effects| effects.deinit();
     if (frame.drawn.effects.sparks) |*sparks| sparks.deinit();
     frame.drawn.objects.destroy();
     frame.drawn.arena.deinit();
     gpa.destroy(frame);
+}
+
+pub fn presentProjectiles(frame: *FlightFrame, pages: *const [wire.ordnance.Page.pages]?wire.ordnance.Page) !void {
+    if (frame.projectiles) |*shown| try shown.apply(frame.world(), pages, frame.tick orelse return);
 }
 
 pub fn loadArena(frame: *FlightFrame, files: stock.Files, scenario: wire.Scenario, types: game.create.Types) !void {
@@ -98,6 +111,34 @@ pub fn applyRoster(frame: *FlightFrame, roster: wire.Roster) void {
         const peer = entry orelse continue;
         if (peer.generation == membership.joined.generation) membership.joined.name.set(peer.name.slice());
     }
+}
+
+pub fn weaponAim(frame: *FlightFrame) wire.ordnance.Aim {
+    const all = frame.drawn.objects;
+    var aim: wire.ordnance.Aim = .{ .reuse = frame.host_ship_reuse[all.player] };
+    const entry = game.ai.controlEntry(all, all.player) orelse return aim;
+    const target = entry.target.slotIn(all) orelse return aim;
+    if (target != all.player and target < wire.slots and all.playerBinding(target) != null)
+        aim.target = .{ .slot = target, .reuse = frame.host_ship_reuse[target] };
+    return aim;
+}
+
+fn presentWeapons(frame: *FlightFrame, status: ?wire.ordnance.Status) void {
+    const all = frame.drawn.objects;
+    const slot = &all.slots[all.player];
+    const weapons = &all.player_states[all.player].weapons;
+    const prior = weapons.ring;
+    const decoys_before = slot.object.countermeasures;
+    weapons.ring = if (status) |shown| shown.ring() else .{};
+    weapons.lock = if (status) |shown| shown.held else .{};
+    slot.object.countermeasures = if (status) |shown| shown.countermeasures else 0;
+    if (slot.object.countermeasures < decoys_before) game.hud.beep(frame.world(), .done);
+    slot.object.missile_homing = @intFromBool(if (status) |shown| shown.incoming else false);
+    if (status != null and (weapons.ring.left < prior.left or weapons.ring.armed != prior.armed)) {
+        if (frame.drawn.display.windows.open(.missiles, true))
+            frame.drawn.display.windows.status.getPtr(.missiles).held = true;
+    }
+    if (frame.sounds) |asked| frame.lock_tone.sound(weapons.lock.locked(), asked, frame.drawn.player.viewing.last);
 }
 
 fn world(frame: *FlightFrame) game.gameobj.World {
@@ -145,6 +186,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     all.player = admission.slot;
     const scene = frame.world();
     const ticks = snapshot.tick *| game.gameobj.ticks_per_step;
+    frame.drawn.clock.drawn_duration = if (frame.tick == null) game.gameobj.ticks_per_step else @intCast(@min(ticks -| frame.drawn.clock.game_ticks, std.math.maxInt(i32)));
     frame.drawn.clock.game_ticks = ticks;
     frame.drawn.clock.mission_ticks = @intCast(@min(ticks, std.math.maxInt(i32)));
     frame.drawn.clock.frame_start = frame.drawn.clock.mission_ticks;
@@ -197,6 +239,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         slot.object.reverse_thrust = ship.throttle == game.motion.reverse_throttle;
         if (slot.model) |*model| model.place(slot.drawn.position, slot.drawn.orientation);
     }
+    if (snapshot.scenario != null) frame.presentWeapons(snapshot.weapons);
     // Reserve the identities used during the session in the local mission's slot counters.
     for (local.reuses[0..wire.slots], all.reuses[0..wire.slots]) |*reuse, received| reuse.* = received +% 1;
     frame.drawn.beacon_snapshot = switch (snapshot.objectives) {

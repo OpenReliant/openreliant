@@ -256,6 +256,11 @@ choose it under **Change Game Mode**. Hold **Display Kills** in either arena to 
 by kills, then by fewest deaths. Asteroid Field has no automatic victory threshold. Random
 pickup effects and team selection are tracked in [#1400](https://github.com/OpenReliant/openreliant/issues/1400).
 
+When a fighter has missiles or countermeasures, use the usual targeting, rotate missile, launch
+missile and countermeasure controls. The host checks the lock, applies damage and rolls for the
+decoy. The cockpit shows your missile inventory, lock and incoming missile warning. Stock arena
+spawns have empty racks and zero countermeasures.
+
 To share an invite that also verifies the server's identity, copy the value after `invite` in the host's output and share it with your pilots. They can paste it in the same address field. The invite contains the IP
 address, port and public server key. Pilots should get the invite from the host operator so they
 can verify the right server. Anyone with the invite can try to join.

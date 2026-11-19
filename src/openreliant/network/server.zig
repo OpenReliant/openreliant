@@ -7,6 +7,7 @@ const flight = @import("openreliant").engine.input.flight;
 const flight_input = @import("flight_input.zig");
 const net = @import("transport.zig");
 const Arena = @import("arena.zig");
+const ProjectilePage = wire.ordnance.Page;
 const identity = @import("identity.zig");
 const HandshakeBudget = @import("handshake_budget");
 const Host = @This();
@@ -29,6 +30,7 @@ const Peer = struct {
     flight_command: flight.Command = .{},
     fire_for: ?u32 = null,
     presses: flight_input.Presses = .{},
+    weapons: ?wire.ordnance.Order = null,
 };
 
 io: Io,
@@ -44,6 +46,7 @@ start: union(enum) {
 listener: u32 = 0,
 peers: [wire.slots]?Peer = @splat(null),
 roster_dirty: bool = false,
+projectile_pages: [ProjectilePage.pages]bool = @splat(false),
 budget: HandshakeBudget = .{},
 tick: u32 = 0,
 last_tick: u32 = std.math.maxInt(u32),
@@ -201,7 +204,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
         .playing => {
             if (host.final_tick) |tick| {
                 if (message == .received_final and message.received_final == tick) host.final_receipts += 1;
-                return message == .input or message == .flight_press;
+                return message == .input or message == .flight_press or message == .weapon_order;
             }
             switch (message) {
                 .input => |input| {
@@ -214,6 +217,9 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                     }
                 },
                 .flight_press => |presses| if (host.start != .lobby) peer.presses.merge(presses),
+                .weapon_order => |order| if (host.start != .lobby) {
+                    if (peer.weapons) |*pending| pending.merge(order) else peer.weapons = order;
+                },
                 .call_sign => |name| {
                     // A callsign is a display name. It never identifies or controls a pilot.
                     // Accept it once to keep updates bounded, including during launch.
@@ -297,17 +303,25 @@ fn applyControls(host: *Host, time: i64) void {
         var command = if (expired) flight_input.release(peer.flight_command) else peer.flight_command;
         peer.presses.apply(&command);
         peer.presses = .{};
-        if (!host.arena.input(@intCast(slot), command, if (expired) null else peer.fire_for)) host.release(@intCast(slot));
+        const order = peer.weapons;
+        if (peer.weapons) |*pending| pending.presses = .{};
+        if (!host.arena.input(@intCast(slot), command, if (expired) null else peer.fire_for, order))
+            host.release(@intCast(slot));
     }
 }
 
 fn broadcast(host: *Host, view: wire.Snapshot, final: bool) !void {
-    const message: wire.Message = if (final) .{ .finished = view } else .{ .view = view };
     var buffer: [wire.capacity]u8 = undefined;
-    const bytes = try message.encode(&buffer);
+    var outgoing = view;
     for (&host.peers, 0..) |*entry, slot| {
         const peer = if (entry.*) |*peer| peer else continue;
         if (peer.state != .playing) continue;
+        outgoing.weapons = if (view.scenario != null and view.ships[slot] != null)
+            wire.ordnance.Status.capture(host.arena.mission.objects, @intCast(slot))
+        else
+            null;
+        const message: wire.Message = if (final) .{ .finished = outgoing } else .{ .view = outgoing };
+        const bytes = try message.encode(&buffer);
         net.sendBytes(peer.conn, bytes, final) catch {
             if (final) host.release(@intCast(slot));
             continue;
@@ -340,6 +354,46 @@ fn broadcastCombat(host: *Host) !void {
         for (host.peers) |entry| {
             const peer = entry orelse continue;
             if (peer.state == .playing) net.sendBytes(peer.conn, bytes, false) catch continue;
+        }
+    }
+}
+
+fn broadcastProjectiles(host: *Host) !void {
+    const all = host.arena.mission.objects;
+    for (std.enums.values(ProjectilePage.Family)) |family| {
+        for (0..family.pageCount()) |number| {
+            var page: ProjectilePage = .{ .tick = host.tick, .family = family, .number = @intCast(number) };
+            const active = &host.projectile_pages[page.index()];
+            const end = @min(page.first() + ProjectilePage.width, family.records());
+            for (page.first()..end, page.entries[0 .. end - page.first()]) |index, *entry| {
+                entry.* = switch (family) {
+                    .missile => if (all.missiles.records[index]) |*record| .{
+                        .kind = record.type.base(),
+                        .reuse = all.missiles.reuses[index],
+                        .position = record.slot.object.nextPosition(),
+                        .angles = wire.packFacing(record.slot.object.root.next_orientation),
+                        .flight = .{
+                            .burn = @intFromFloat(@round(std.math.clamp(record.slot.object.throttle, 0, 1) * std.math.maxInt(u6))),
+                            .jettisoned = record.order == .jettison,
+                            .launched = host.arena.mission.clock.frame_start -| record.started < @import("openreliant").engine.game.gameobj.ticks_per_step,
+                        },
+                    } else null,
+                    .decoy => if (host.arena.decoys) |*decoys| if (decoys.records[index]) |*record| .{
+                        .reuse = @bitCast(record.until),
+                        .position = record.model.position,
+                        .angles = wire.packFacing(record.model.orientation),
+                    } else null else null,
+                };
+            }
+            const nonempty = page.mask() != 0;
+            if (!nonempty and !active.*) continue;
+            active.* = nonempty;
+            var buffer: [wire.capacity]u8 = undefined;
+            const bytes = try (wire.Message{ .projectiles = page }).encode(&buffer);
+            for (host.peers) |entry| {
+                const peer = entry orelse continue;
+                if (peer.state == .playing) net.sendBytes(peer.conn, bytes, false) catch continue;
+            }
         }
     }
 }
@@ -403,7 +457,10 @@ pub fn pump(host: *Host) !enum { running, finished } {
         host.drain_until = time + timeout;
     }
     try host.broadcast(view, final);
-    if (!final) try host.broadcastCombat();
+    if (!final) {
+        try host.broadcastCombat();
+        if (view.scenario != null) try host.broadcastProjectiles();
+    }
     return .running;
 }
 

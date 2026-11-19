@@ -95,6 +95,15 @@ pub const TeamScore = struct {
     deaths: u32 = 0,
 };
 
+/// The host's object side is shared. Use admissions and arena teams for a missile's allies.
+pub fn missileAlly(all: *Objects, launcher: gameobj.DamageSource, pilot: players.ControlRef) bool {
+    const owner = all.playerBindingFor(launcher.object, launcher.participant_generation) orelse return false;
+    if (owner.participant.slot == pilot.participant.slot) return true;
+    if (all.arena_scores != .teams) return false;
+    const team = all.participantTeam(owner.participant) orelse return false;
+    return all.participantTeam(pilot.participant) == team;
+}
+
 /// Only a team game keeps the four sets of totals at 0x005D76FC and 0x005D76DC.
 pub const ArenaScores = union(enum) {
     free_for_all,

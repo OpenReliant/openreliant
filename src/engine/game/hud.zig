@@ -4797,6 +4797,14 @@ const ring_keys = [_]struct { action: input.controls.Action, turn: missile_displ
     .{ .action = .rotate_missiles_anticlockwise, .turn = .anticlockwise },
 };
 
+pub fn sampleMissileTurn(devices: *input.Devices) ?missile_display.Turn {
+    var turn: ?missile_display.Turn = null;
+    for (ring_keys) |key| if (devices.active(key.action, true)) {
+        turn = key.turn;
+    };
+    return turn;
+}
+
 /// The nearest target keys, and the side each looks for.
 const nearest_keys = [_]struct { action: input.controls.Action, side: gameobj.Side(i32) }{
     .{ .action = .target_nearest_enemy, .side = .hostile },

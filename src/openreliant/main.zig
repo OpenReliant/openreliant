@@ -1462,6 +1462,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             network_pilot.frame(gpa, objects, tables, types.types(), .{ .io = io, .directory = directory, .archive = &resources }, strings, presentation, .{
                 .textures = &textures,
                 .images = explosions.images,
+                .ordnance_models = .{ .mounts = effects_models.mounts(), .glows = &glows },
+                .trails = trails.images,
                 .sounds = if (output != null) &online_sounds else null,
             }) catch |err| frame: {
                 std.log.warn("could not display the multiplayer arena: {s}", .{@errorName(err)});
@@ -1471,6 +1473,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         else
             null;
         if (display.multiplayer != (network_frame != null)) {
+            if (display.multiplayer) {
+                display.drawing.warnOfLock(sound, false, false);
+                online_sounds.play(sound, view.place);
+            }
             display.drawing = .{};
             const mission_nebula = if (network_frame != null) network_pilot.flight.?.environment.requested else environment.requested;
             if (sky.nebula != mission_nebula) sky.select(&textures, mission_nebula, &space.lights) catch |err| {
@@ -1578,6 +1584,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 display.screen = size;
                 display.sight = .{ .place = place, .projection = context.projection };
                 display.cockpit_mode = viewing.cockpit_mode;
+                const projectiles = if (network_pilot.flight.?.projectiles) |*visuals| visuals else null;
                 try game.main.drawFrame(arena, frame_arena.allocator(), &scene, &context, .{
                     .objects = flight.objects,
                     .portals = &flight.portals,
@@ -1593,6 +1600,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .sparks = if (flight.effects.sparks) |*effects| effects else null,
                     .explosions = if (flight.effects.explosions) |*effects| effects else null,
                     .shields = &shields,
+                    .trails = if (projectiles) |visuals| &visuals.trails else null,
+                    .countermeasures = if (projectiles) |visuals| &visuals.decoys else null,
+                    .lock = &flight.objects.player_states[flight.objects.player].weapons.lock,
+                    .lock_rings = lock_rings,
                     .pickup_rings = &pickup_rings,
                     .attachments = .{ .camera = place.position, .frame_start = flight.clock.frame_start },
                 }, driver.interface());
@@ -2759,7 +2770,7 @@ const Display = struct {
             .hit_shake = if (display.multiplayer) 0 else display.view.shake_left,
             .multiplayer = display.multiplayer,
             .show_standings = display.show_standings,
-            .sound = if (display.multiplayer) null else display.settings.sound,
+            .sound = display.settings.sound,
             .radio = if (drawn.radio) |*on_air| on_air else null,
             .film = &display.film,
             .random = display.random,
