@@ -2,6 +2,7 @@
 const std = @import("std");
 const engine = @import("openreliant").engine;
 const game = engine.game;
+const simulation = @import("arena_simulation");
 const wire = @import("wire.zig");
 const Arena = @This();
 
@@ -27,9 +28,7 @@ pub fn deinit(arena: *Arena) void {
 }
 
 fn world(arena: *Arena) game.gameobj.World {
-    var host = arena.mission.world();
-    host.damage_rules = .{ .arena = null };
-    return host;
+    return simulation.world(&arena.mission, null);
 }
 
 pub fn join(arena: *Arena, slot: u8) !wire.Admission {
@@ -38,20 +37,16 @@ pub fn join(arena: *Arena, slot: u8) !wire.Admission {
     const x = @as(f32, @floatFromInt(slot)) * spawn_spacing;
     _ = try game.create.createObject(all, &mission.tables, game.create.testing.no_models, slot, .of(.predator), 0, .{ x, 0, 0 }, &mission.random);
     errdefer game.create.resetSlot(.of(arena.world()), slot);
-    const participant = all.joinParticipant(slot) orelse return error.AdmissionFailed;
-    errdefer _ = game.create.Objects.leaveParticipant(arena.world(), participant);
-    const pilot = all.bindParticipant(participant, .of(all, slot)) orelse return error.AdmissionFailed;
+    const pilot = try simulation.admit(arena.world(), slot);
+    errdefer _ = game.create.Objects.leaveParticipant(arena.world(), pilot.participant);
     if (!try game.aigeneric.push(.of(arena.world()), slot, .multiplayer_control, .none)) return error.OrderFailed;
     arena.pilots[slot] = pilot;
-    return .{ .slot = slot, .generation = participant.generation };
+    return .{ .slot = slot, .generation = pilot.participant.generation };
 }
 
 pub fn leave(arena: *Arena, slot: u8) void {
     const pilot = arena.pilots[slot] orelse return;
-    const host = arena.world();
-    if (game.create.Objects.leaveParticipant(host, pilot.participant)) {
-        game.create.resetSlot(.of(host), pilot.ship.slot);
-    }
+    _ = simulation.leave(arena.world(), pilot.participant);
     arena.pilots[slot] = null;
 }
 
@@ -65,10 +60,7 @@ pub fn input(arena: *Arena, slot: u8, steering: wire.Steering) bool {
 }
 
 pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
-    const clock = &arena.mission.clock;
-    clock.advanceTimer(game.gameobj.ticks_per_step);
-    if (game.main.gameFrames(clock, &arena.devices, null, arena.world(), .in_turn, null) != .played)
-        return error.ArenaEnded;
+    if (simulation.step(&arena.mission, &arena.devices, null) != .played) return error.ArenaEnded;
     const all = arena.mission.objects;
     var view: wire.Snapshot = .{ .tick = tick, .ships = @splat(null) };
     for (arena.pilots, &view.ships) |entry, *ship| {

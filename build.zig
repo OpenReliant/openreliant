@@ -151,6 +151,18 @@ pub fn build(b: *std.Build) void {
     });
     version.addOptions("build_options", build_options);
 
+    const arena_simulation = b.createModule(.{
+        .root_source_file = b.path("src/openreliant/network/arena_simulation.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "openreliant", .module = lib }},
+    });
+    const handshake_budget = b.createModule(.{
+        .root_source_file = b.path("src/openreliant/network/handshake_budget.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const openreliant = b.addExecutable(.{
         .name = "openreliant",
         .root_module = b.createModule(.{
@@ -168,6 +180,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
     b.installArtifact(openreliant);
+    openreliant.root_module.addImport("handshake_budget", handshake_budget);
+    openreliant.root_module.addImport("arena_simulation", arena_simulation);
     const gns_prefix = b.option([]const u8, "gns-prefix", "Standalone GameNetworkingSockets headers and static libraries for direct-IP sessions");
     const network_options = b.addOptions();
     network_options.addOption(bool, "enabled", gns_prefix != null);
@@ -345,23 +359,35 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("examples/transport-probe/arena.zig"),
         .target = target,
         .optimize = optimize,
-        .imports = &.{.{ .name = "openreliant", .module = lib }},
+        .imports = &.{ .{ .name = "openreliant", .module = lib }, .{ .name = "arena_simulation", .module = arena_simulation } },
     });
-    addProbeWorkload(b, "arena-loopback", "scenario", target, optimize, &.{.{ .name = "host_simulation", .module = arena }});
-    addProbeWorkload(b, "six-beacons-loopback", "beacons", target, optimize, &.{ .{ .name = "openreliant", .module = lib }, .{ .name = "version", .module = version } });
+    addProbeWorkload(b, "arena-loopback", "scenario", target, optimize, &.{
+        .{ .name = "host_simulation", .module = arena },
+        .{ .name = "handshake_budget", .module = handshake_budget },
+    });
+    addProbeWorkload(b, "six-beacons-loopback", "beacons", target, optimize, &.{
+        .{ .name = "openreliant", .module = lib },
+        .{ .name = "version", .module = version },
+        .{ .name = "handshake_budget", .module = handshake_budget },
+        .{ .name = "arena_simulation", .module = arena_simulation },
+    });
 
     // Every module's tests, and `zig build check`, which compiles the programs and the tests
     // without linking them (the C libraries, translate-c and mission 0 build once first):
     // `zig build check -fincremental --watch` reports compile errors within moments of a save.
     const probe_tests = b.createModule(.{
         .root_source_file = b.path("examples/transport-probe/tests.zig"),
-        .imports = &.{.{ .name = "openreliant", .module = lib }},
+        .imports = &.{
+            .{ .name = "openreliant", .module = lib },
+            .{ .name = "handshake_budget", .module = handshake_budget },
+            .{ .name = "arena_simulation", .module = arena_simulation },
+        },
         .target = target,
         .optimize = optimize,
     });
     const test_step = b.step("test", "Run tests");
     const check_step = b.step("check", "Check that the programs and the tests compile, without writing binaries");
-    for ([_]*std.Build.Module{ lib, platform, scripting, source_parser, version, probe_tests, openreliant.root_module, sltool.root_module, tablegen.root_module, ghidragen.root_module, build_resources.root_module }) |module| {
+    for ([_]*std.Build.Module{ lib, platform, scripting, source_parser, version, handshake_budget, probe_tests, openreliant.root_module, sltool.root_module, tablegen.root_module, ghidragen.root_module, build_resources.root_module }) |module| {
         const tests = b.addTest(.{ .root_module = module });
         test_step.dependOn(&b.addRunArtifact(tests).step);
         check_step.dependOn(&b.addTest(.{ .root_module = module }).step);

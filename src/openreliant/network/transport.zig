@@ -11,7 +11,6 @@ pub extern fn session_accept(conn: Connection) bool;
 pub extern fn session_close(conn: Connection) void;
 pub extern fn session_poll() void;
 pub extern fn session_key() u8;
-pub extern fn session_delivered(conn: Connection) bool;
 extern fn session_send(conn: Connection, bytes: [*]const u8, size: c_int, reliable: bool) bool;
 extern fn session_receive(conn: Connection, bytes: [*]u8, size: c_int) c_int;
 
@@ -22,6 +21,10 @@ pub fn send(conn: Connection, message: wire.Message) !void {
         .input, .view => false,
         else => true,
     };
+    try sendBytes(conn, bytes, reliable);
+}
+
+pub fn sendBytes(conn: Connection, bytes: []const u8, reliable: bool) error{SendFailed}!void {
     if (!session_send(conn, bytes.ptr, @intCast(bytes.len), reliable)) return error.SendFailed;
 }
 

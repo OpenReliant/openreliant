@@ -3,13 +3,13 @@ const std = @import("std");
 const Io = std.Io;
 const wire = @import("wire.zig");
 const net = @import("transport.zig");
-const Arena = @import("arena.zig");
 const Client = @This();
 
 pub const Controls = union(enum) { keyboard, fixed: wire.Steering };
 
 const timeout = 10 * std.time.us_per_s;
 const poll_ms = 4;
+const input_interval_us = 40 * std.time.us_per_ms;
 
 expected_host: []const u8,
 conn: net.Connection = 0,
@@ -70,15 +70,17 @@ pub fn run(client: *Client, io: Io, address: [:0]const u8, controls: Controls, l
                 's', 'S' => steering = .straight,
                 'd', 'D' => steering = .right,
                 'q', 'Q' => {
-                    try net.send(conn, .leave);
                     leaving = true;
-                    continue;
                 },
                 else => {},
             };
-            try net.send(conn, .{ .input = .{ .sequence = sequence, .steering = steering } });
-            sequence +%= 1;
-            next_input = now + Arena.step_us;
+            if (leaving) {
+                try net.send(conn, .leave);
+            } else {
+                try net.send(conn, .{ .input = .{ .sequence = sequence, .steering = steering } });
+                sequence +%= 1;
+                next_input = now + input_interval_us;
+            }
         }
         if (try net.receive(conn, &buffer)) |message| switch (message) {
             .joined => |admission| {
@@ -107,7 +109,7 @@ pub fn run(client: *Client, io: Io, address: [:0]const u8, controls: Controls, l
                         }
                         std.debug.print("\n", .{});
                         if (message == .finished) {
-                            try net.send(conn, .leave);
+                            try net.send(conn, .{ .received_final = view.tick });
                             leaving = true;
                             std.debug.print("finished {d}\n", .{view.tick});
                         } else if (leave_after == views) {

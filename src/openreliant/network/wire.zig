@@ -8,7 +8,16 @@ pub const slots = 3;
 const max_release = 96;
 
 pub const Steering = enum(i8) { left = -1, straight = 0, right = 1 };
-pub const Input = struct { sequence: u32, steering: Steering };
+pub const Input = struct {
+    sequence: u32,
+    steering: Steering,
+
+    /// Compare serial numbers across a wrap. The half-range is ambiguous.
+    pub fn follows(input: Input, previous: ?u32) bool {
+        const accepted = previous orelse return true;
+        return @as(i32, @bitCast(input.sequence -% accepted)) > 0;
+    }
+};
 pub const Admission = struct { slot: u8, generation: u64 };
 pub const Version = struct {
     protocol: u16,
@@ -31,6 +40,7 @@ pub const Message = union(enum(u8)) {
     view: Snapshot,
     finished: Snapshot,
     leave,
+    received_final: u32,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -62,6 +72,7 @@ pub const Message = union(enum(u8)) {
                 }
             },
             .leave => {},
+            .received_final => |tick| try w.writeInt(u32, tick, .little),
         }
         return w.buffered();
     }
@@ -105,6 +116,7 @@ pub const Message = union(enum(u8)) {
                 break :snapshot if (tag == .view) .{ .view = view } else .{ .finished = view };
             },
             .leave => .leave,
+            .received_final => .{ .received_final = try r.takeInt(u32, .little) },
         };
         if (r.bufferedLen() != 0) return error.TrailingData;
         return message;
@@ -121,4 +133,31 @@ test "versions compare by protocol and snapshots retain slot identities" {
     const bytes = try view.encode(&buffer);
     try std.testing.expectEqualDeep(view, try Message.decode(bytes));
     try std.testing.expectError(error.EndOfStream, Message.decode(bytes[0 .. bytes.len - 1]));
+}
+
+test "input sequence accepts fresh commands across a wrap" {
+    const input: Input = .{ .sequence = 0, .steering = .straight };
+    try std.testing.expect(input.follows(null));
+    try std.testing.expect(input.follows(std.math.maxInt(u32)));
+    try std.testing.expect(!input.follows(0));
+    try std.testing.expect(!input.follows(1));
+}
+
+test "a final receipt names the applied tick" {
+    var buffer: [capacity]u8 = undefined;
+    const receipt: Message = .{ .received_final = 175 };
+    try std.testing.expectEqualDeep(receipt, try Message.decode(try receipt.encode(&buffer)));
+}
+
+test "flight updates fit the direct-IP payload budget" {
+    const input_bytes = 6;
+    const full_snapshot_bytes = 65;
+    var buffer: [capacity]u8 = undefined;
+    const input: Message = .{ .input = .{ .sequence = 1, .steering = .straight } };
+    const view: Message = .{ .view = .{
+        .tick = 1,
+        .ships = @splat(.{ .generation = 1, .position = .{ 1, 2, 3 } }),
+    } };
+    try std.testing.expectEqual(input_bytes, (try input.encode(&buffer)).len);
+    try std.testing.expectEqual(full_snapshot_bytes, (try view.encode(&buffer)).len);
 }

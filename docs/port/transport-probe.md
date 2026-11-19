@@ -47,8 +47,9 @@ flight simulation and sends positions from its own state. An admitted pilot can 
 reconnect during the round. The other pilots keep receiving snapshots.
 
 Build the transport and the executable for the same target. This example uses Apple silicon.
-The build helper creates a private test trust root and three short-lived pilot identities.
-Each process needs only its own certificate file. Use test credentials for this workload.
+The build helper creates a disposable trust root and issues real Ed25519 certificates for
+the host and three pilots. The certificates expire after 24 hours. The private keys stay in
+the scratch directory. Each process reads its own certificate file.
 
 ```sh
 target=aarch64-macos.15.0
@@ -71,11 +72,23 @@ zig-out/bin/openreliant session join 127.0.0.1:27020 "$work/session-identities/p
 The host limits accepted handshakes, buffers and messages per pilot. It checks the authenticated
 connection and protocol revision before it allocates a ship, and accepts steering only for the
 current admission. A reconnect receives a fresh admission and ship. The app release can differ
-when the protocol revision matches.
+when the protocol revision matches. Each pilot confirms the final snapshot's tick. The host
+reports how many pilots confirmed it before shutdown.
+
+Flight commands and interim snapshots use unreliable delivery. They are sent as soon as they
+are ready. Admission, departures and the final result use reliable delivery. A command takes
+6 bytes and a three-pilot snapshot takes 65 bytes before transport headers. At 25 updates per
+second in both directions that is 1,775 payload bytes per second per pilot. The host encodes
+each snapshot once and sends those bytes to each pilot. Routed latency and sustained
+throughput measurements are tracked in [#1405](https://github.com/OpenReliant/openreliant/issues/1405).
 
 The training session is the first game-executable path under
-[#954](https://github.com/OpenReliant/openreliant/issues/954). Release packaging and operator
-credential provisioning are tracked in [#1405](https://github.com/OpenReliant/openreliant/issues/1405).
+[#954](https://github.com/OpenReliant/openreliant/issues/954). A released dedicated server should
+start from the packaged executable on the player's operating system. Operators should set ordinary
+game options such as the port, player limit and match rotation. The server should provision and
+renew its own credentials as part of that setup. Release packaging and credential provisioning
+are tracked in [#1405](https://github.com/OpenReliant/openreliant/issues/1405) and
+[#364](https://github.com/OpenReliant/openreliant/issues/364).
 The probe below still exercises ICE, TURN and directed events.
 
 ## Run it

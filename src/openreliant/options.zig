@@ -157,6 +157,12 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--help" = .{ .section = .other, .alias = "-h", .text = "show this page" },
 });
 
+/// `openreliant session --help`.
+pub const session_help =
+    \\usage: openreliant session host <ip:port> <certificate> [round-ticks]
+    \\       openreliant session join <ip:port> <certificate> <host-identity> <keyboard|left|straight|right> [views-before-leaving]
+    \\
+;
 /// `openreliant --help`.
 pub const help_page = page: {
     var out: []const u8 = help.paragraph("OpenReliant " ++ version.string ++ " plays StarLancer from an installed copy of the game.", 0) ++

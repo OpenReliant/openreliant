@@ -2,7 +2,7 @@
 const std = @import("std");
 const engine = @import("openreliant").engine;
 const game = engine.game;
-const simulation = @import("arena_simulation.zig");
+const simulation = @import("arena_simulation");
 const Host = @This();
 
 const spawn_x: [2]f32 = .{ -30000, 30000 };

@@ -1,7 +1,5 @@
 // The transport owns sockets. Zig owns admission, input validation and the simulation.
-#include <steam/steamnetworkingsockets.h>
-#include <steam/isteamnetworkingutils.h>
-#include <cstring>
+#include "gns_common.h"
 #if defined(_WIN32)
 #include <conio.h>
 #else
@@ -24,10 +22,7 @@ static void changed(SteamNetConnectionStatusChangedCallback_t *event) {
                 session_status(conn, Status::incoming, nullptr);
             break;
         case k_ESteamNetworkingConnectionState_Connected: {
-            constexpr int unsafe = k_nSteamNetworkConnectionInfoFlags_Unauthenticated |
-                                   k_nSteamNetworkConnectionInfoFlags_Unencrypted;
-            const char *identity = info.m_identityRemote.GetGenericString();
-            if (identity && !(info.m_nFlags & unsafe))
+            if (const char *identity = openreliant::gns::authenticated_identity(info))
                 session_status(conn, Status::authenticated, identity);
             else
                 session_status(conn, Status::closed, nullptr);
@@ -47,13 +42,8 @@ extern "C" bool session_init(const uint8_t *certificate, int size, int max_messa
     if (!GameNetworkingSockets_Init(nullptr, error)) return false;
     auto *utils = SteamNetworkingUtils();
     const bool configured =
-        // Direct IP requires this setting in standalone GNS. The connected callback
-        // admits only sessions the configured certificate authority authenticated.
-        utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 1) &&
-        utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_Unencrypted, 0) &&
-        utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_RecvMaxMessageSize, max_message) &&
-        utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_RecvBufferMessages, queued_messages) &&
-        utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_RecvBufferSize, queued_bytes) &&
+        openreliant::gns::require_encryption(utils) &&
+        openreliant::gns::receive_limits(max_message, queued_messages, queued_bytes) &&
         utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_SendBufferSize, queued_bytes) &&
         utils->SetGlobalCallback_SteamNetConnectionStatusChanged(changed) &&
         SteamNetworkingSockets()->SetCertificate(certificate, size, error);
@@ -86,31 +76,12 @@ extern "C" void session_close(uint32_t conn) {
 extern "C" void session_poll() { SteamNetworkingSockets()->RunCallbacks(); }
 
 extern "C" bool session_send(uint32_t conn, const uint8_t *bytes, int size, bool reliable) {
-    auto *message = SteamNetworkingUtils()->AllocateMessage(size);
-    if (!message) return false;
-    std::memcpy(message->m_pData, bytes, size);
-    message->m_conn = conn;
-    message->m_nFlags = reliable ? k_nSteamNetworkingSend_ReliableNoNagle
-                                : k_nSteamNetworkingSend_UnreliableNoNagle;
-    int64 result;
-    SteamNetworkingSockets()->SendMessages(1, &message, &result, true);
-    return result > 0;
+    return openreliant::gns::send(conn, 0, bytes, size, reliable);
 }
 
 extern "C" int session_receive(uint32_t conn, uint8_t *bytes, int capacity) {
-    SteamNetworkingMessage_t *message;
-    const int count = SteamNetworkingSockets()->ReceiveMessagesOnConnection(conn, &message, 1);
-    if (count <= 0) return count;
-    const int size = message->m_cbSize;
-    if (size > 0 && size <= capacity) std::memcpy(bytes, message->m_pData, size);
-    message->Release();
-    return size > 0 && size <= capacity ? size : -1;
-}
-
-extern "C" bool session_delivered(uint32_t conn) {
-    SteamNetConnectionRealTimeStatus_t status;
-    return SteamNetworkingSockets()->GetConnectionRealTimeStatus(conn, &status, 0, nullptr) == k_EResultOK &&
-           status.m_cbPendingReliable == 0 && status.m_cbSentUnackedReliable == 0;
+    uint16_t lane;
+    return openreliant::gns::receive(conn, bytes, capacity, lane);
 }
 
 extern "C" uint8_t session_key() {

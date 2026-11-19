@@ -5,11 +5,6 @@ const wire = @import("wire.zig");
 const Host = @import("server.zig");
 const Client = @import("client.zig");
 
-const usage =
-    \\usage: openreliant session host <ip:port> <certificate> [round-ticks]
-    \\       openreliant session join <ip:port> <certificate> <host-identity> <keyboard|left|straight|right> [views-before-leaving]
-    \\
-;
 const default_round_ticks = 250;
 const max_certificate = 4096;
 const Role = enum { host, join };
@@ -29,14 +24,15 @@ fn number(value: []const u8) !u32 {
 }
 
 pub fn run(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !u8 {
-    if (args.len == 0 or std.mem.eql(u8, args[0], "--help")) {
-        std.debug.print("{s}", .{usage});
-        return 0;
-    }
+    if (args.len == 0) return error.InvalidSessionArguments;
     const role = std.meta.stringToEnum(Role, args[0]) orelse return error.InvalidSessionRole;
     const min_args: usize = if (role == .host) 3 else 5;
     if (args.len < min_args or args.len > min_args + 1) return error.InvalidSessionArguments;
     const limit = if (args.len > min_args) try number(args[min_args]) else null;
+    const controls: Client.Controls = if (role == .host or std.mem.eql(u8, args[4], "keyboard"))
+        .keyboard
+    else
+        .{ .fixed = std.meta.stringToEnum(wire.Steering, args[4]) orelse return error.InvalidSteering };
     const address = args[1];
     {
         const cert = try std.Io.Dir.cwd().readFileAlloc(io, args[2], gpa, .limited(max_certificate));
@@ -60,10 +56,6 @@ pub fn run(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !u8 {
             try host.run(address, limit orelse default_round_ticks);
         },
         .join => {
-            const controls: Client.Controls = if (std.mem.eql(u8, args[4], "keyboard"))
-                .keyboard
-            else
-                .{ .fixed = std.meta.stringToEnum(wire.Steering, args[4]) orelse return error.InvalidSteering };
             var client: Client = .{ .expected_host = args[3] };
             current = .{ .client = &client };
             defer current = null;

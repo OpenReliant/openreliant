@@ -2,7 +2,7 @@
 const std = @import("std");
 const engine = @import("openreliant").engine;
 const game = engine.game;
-const simulation = @import("arena_simulation.zig");
+const simulation = @import("arena_simulation");
 const wire = @import("beacon_snapshot.zig");
 const Arena = @This();
 
@@ -69,10 +69,7 @@ pub fn admit(arena: *Arena, slot: u16) !game.players.ControlRef {
 
 /// mp_player_departed (0x004B6890) runs the mode's leave handler before clearing the ship slot.
 pub fn leave(arena: *Arena, participant: game.players.ParticipantRef) !void {
-    const host = arena.world();
-    const binding = host.objects.playerBinding(participant.slot);
-    if (!game.create.Objects.leaveParticipant(host, participant)) return error.StaleAdmission;
-    if (binding) |pilot| game.create.resetSlot(.of(host), pilot.ship.slot);
+    if (!simulation.leave(arena.world(), participant)) return error.StaleAdmission;
 }
 
 test "a departing carrier drops its cargo before the slot gets a fresh ship" {

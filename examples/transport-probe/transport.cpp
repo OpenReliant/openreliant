@@ -1,6 +1,5 @@
 // The probe uses only the public standalone API. All scenario state belongs to Zig.
-#include <steam/steamnetworkingsockets.h>
-#include <steam/isteamnetworkingutils.h>
+#include "../../src/openreliant/network/gns_common.h"
 
 #include "ice.h"
 #include "incoming.h"
@@ -32,15 +31,13 @@ static void status_changed(SteamNetConnectionStatusChangedCallback_t *event) {
             if (probe_reserve_incoming(conn) && net->AcceptConnection(conn) == k_EResultOK) return;
             break;
         case k_ESteamNetworkingConnectionState_Connected: {
-            constexpr int unsafe = k_nSteamNetworkConnectionInfoFlags_Unauthenticated |
-                                   k_nSteamNetworkConnectionInfoFlags_Unencrypted;
             constexpr int priorities[] = {0, 0, 1}; // Flight, mission events, background.
             if (incoming && !probe_has_incoming(conn)) break;
             const bool relayed = info.m_nFlags & k_nSteamNetworkConnectionInfoFlags_Relayed;
             if (using_ice && ((ice_mode == ice::Mode::direct && relayed) ||
                               (ice_mode == ice::Mode::relay_only && !relayed))) break;
-            const char *identity = info.m_identityRemote.GetGenericString();
-            if (!(info.m_nFlags & unsafe) && identity &&
+            const char *identity = openreliant::gns::authenticated_identity(info);
+            if (identity &&
                 net->ConfigureConnectionLanes(conn, 3, priorities, nullptr) == k_EResultOK &&
                 probe_connected(conn, identity, incoming)) {
                 if (using_ice) std::fprintf(stderr, "ICE %s connected to %s\n", relayed ? "private TURN" : "direct UDP", identity);
@@ -62,10 +59,7 @@ extern "C" bool probe_open(const char *address, bool host, int max_message_size)
     // Allow the 64-message background burst and leave room for flight and mission events.
     constexpr int max_queued_messages = 128;
     constexpr int max_queued_bytes = 64 * 1024;
-    auto *utils = SteamNetworkingUtils();
-    if (!utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_RecvMaxMessageSize, max_message_size) ||
-        !utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_RecvBufferMessages, max_queued_messages) ||
-        !utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_RecvBufferSize, max_queued_bytes)) return false;
+    if (!openreliant::gns::receive_limits(max_message_size, max_queued_messages, max_queued_bytes)) return false;
     if (using_ice) return ice::open(address[3] ? address + 4 : nullptr, host, ice_mode);
     SteamNetworkingIPAddr endpoint;
     if (!endpoint.ParseString(address)) return false;
@@ -79,31 +73,11 @@ extern "C" bool probe_open(const char *address, bool host, int max_message_size)
 }
 
 extern "C" bool probe_send(uint32_t conn, uint16_t lane, const uint8_t *bytes, int size) {
-    auto *message = SteamNetworkingUtils()->AllocateMessage(size);
-    if (!message) return false;
-    std::memcpy(message->m_pData, bytes, size);
-    message->m_conn = conn;
-    message->m_idxLane = lane;
-    message->m_nFlags = lane == 0 ? k_nSteamNetworkingSend_UnreliableNoNagle
-                                  : k_nSteamNetworkingSend_ReliableNoNagle;
-    int64 result;
-    SteamNetworkingSockets()->SendMessages(1, &message, &result, true);
-    return result > 0;
+    return openreliant::gns::send(conn, lane, bytes, size, lane != 0);
 }
 
 extern "C" int probe_receive(uint32_t conn, uint8_t *bytes, int capacity, uint16_t *lane) {
-    SteamNetworkingMessage_t *message;
-    int count = SteamNetworkingSockets()->ReceiveMessagesOnConnection(conn, &message, 1);
-    if (count <= 0) return count;
-    int size = message->m_cbSize;
-    if (size > 0 && size <= capacity) {
-        std::memcpy(bytes, message->m_pData, size);
-        *lane = message->m_idxLane;
-    } else {
-        size = -1;
-    }
-    message->Release();
-    return size;
+    return openreliant::gns::receive(conn, bytes, capacity, *lane);
 }
 
 extern "C" bool probe_delivered(uint32_t conn) {
@@ -160,12 +134,9 @@ int main(int argc, char **argv) {
             if (!using_ice || std::strncmp(message, "probe ICE ", 10) == 0)
                 std::fprintf(stderr, "%s\n", message);
         });
-    // Standalone GNS requires this to open a listener. The connected callback
-    // checks both encryption and the authenticated identity before admitting a peer.
     int result = 1;
     if (set_certificate(argv[3], error) &&
-        utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 1) &&
-        utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_Unencrypted, 0) &&
+        openreliant::gns::require_encryption(utils) &&
         utils->SetGlobalConfigValueFloat(k_ESteamNetworkingConfig_FakePacketLoss_Send, 8) &&
         utils->SetGlobalConfigValueFloat(k_ESteamNetworkingConfig_FakePacketReorder_Send, 12) &&
         utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_FakePacketReorder_Time, 30) &&

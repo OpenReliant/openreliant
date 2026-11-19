@@ -13,12 +13,15 @@ class Session:
         self.admission = None
         self.views = {}
         self.finished = None
+        self.receipts = None
+        self.last_line = ""
         self.messages = asyncio.Queue()
         self.reader = asyncio.create_task(self.read())
 
     async def read(self):
         async for line in self.process.stderr:
-            parts = line.decode().split()
+            self.last_line = line.decode().rstrip()
+            parts = self.last_line.split()
             if len(parts) == 3 and parts[0] == "admitted":
                 self.admission = tuple(map(int, parts[1:]))
             elif len(parts) == 11 and parts[0] == "view":
@@ -26,16 +29,18 @@ class Session:
                     (int(parts[i]), float(parts[i + 1]), float(parts[i + 2]))
                     for i in range(2, len(parts), 3)
                 )
-            elif len(parts) == 2 and parts[0] == "finished":
+            elif parts and parts[0] == "finished":
                 self.finished = int(parts[1])
-            await self.messages.put(line.decode().rstrip())
+                if len(parts) == 3:
+                    self.receipts = int(parts[2])
+            await self.messages.put(self.last_line)
         await self.messages.put(None)
 
     async def expect(self, text, check=lambda _: True):
         while True:
             line = await self.messages.get()
             if line is None:
-                raise RuntimeError(f"process exited before {text!r}")
+                raise RuntimeError(f"process exited before {text!r}. Last message: {self.last_line}")
             if line.startswith(text) and check(line):
                 return line
 
@@ -97,9 +102,10 @@ async def run(binary, credentials):
 
         participants = (first, second, replacement)
         for session in (host, *participants):
-            require(await session.wait() == 0, f"a peer exited before the end of the round ({session.finished})")
+            require(await session.wait() == 0, f"a peer exited before the end of the round. Last message: {session.last_line}")
         end = host.finished
         require(end is not None, "the host did not finish")
+        require(host.receipts == len(participants), "the host did not receive every final receipt")
         require(all(peer.finished == end for peer in participants), "pilots disagree about the final tick")
         require(all(peer.views[end] == first.views[end] for peer in participants), "pilots disagree about the final snapshot")
 

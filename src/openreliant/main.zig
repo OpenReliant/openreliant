@@ -116,6 +116,7 @@ pub fn main(init: std.process.Init) !u8 {
     if (args.len > 1 and std.mem.eql(u8, args[1], "hooks")) return hooks_command.main(init.io, args[2..]);
     if (args.len > 1 and std.mem.eql(u8, args[1], "debug")) return debug_command.main(init.io, init.gpa, args[2..]);
     if (args.len > 1 and std.mem.eql(u8, args[1], "session")) {
+        if (args.len == 2 or std.mem.eql(u8, args[2], "--help")) return say(init.io, options_page.session_help);
         if (!@import("network_options").enabled) {
             std.debug.print("Direct-IP sessions require a build with -Dgns-prefix.\n", .{});
             return 2;

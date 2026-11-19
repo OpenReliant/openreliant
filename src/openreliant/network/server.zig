@@ -4,10 +4,10 @@ const Io = std.Io;
 const wire = @import("wire.zig");
 const net = @import("transport.zig");
 const Arena = @import("arena.zig");
+const HandshakeBudget = @import("handshake_budget");
 const Host = @This();
 
 const timeout = 5 * std.time.us_per_s;
-const handshake_starts = 4;
 const packets_per_tick = 4;
 const max_identity = 32;
 const pilots_to_start = 2;
@@ -24,9 +24,9 @@ const Peer = struct {
 io: Io,
 arena: Arena,
 peers: [wire.slots]?Peer = @splat(null),
-starts: [handshake_starts]i64 = @splat(std.math.minInt(i64)),
-next_start: usize = 0,
-finishing: bool = false,
+budget: HandshakeBudget = .{},
+final_tick: ?u32 = null,
+final_receipts: usize = 0,
 
 fn now(host: *const Host) i64 {
     return Io.Clock.awake.now(host.io).toMicroseconds();
@@ -42,47 +42,45 @@ fn release(host: *Host, slot: u8) void {
     net.session_close(peer.conn);
 }
 
+fn slotFor(host: *const Host, conn: net.Connection) ?u8 {
+    for (host.peers, 0..) |entry, slot| {
+        if (entry) |peer| if (peer.conn == conn) return @intCast(slot);
+    }
+    return null;
+}
+
 pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]const u8) void {
+    const slot = host.slotFor(conn);
     switch (event) {
         .incoming => {
-            for (host.peers) |peer| if (peer != null and peer.?.conn == conn) return;
-            const time = host.now();
-            if (!host.finishing and time -| host.starts[host.next_start] >= std.time.us_per_s) {
-                for (&host.peers) |*peer| {
-                    if (peer.* != null) continue;
-                    host.starts[host.next_start] = time;
-                    host.next_start = (host.next_start + 1) % host.starts.len;
-                    if (net.session_accept(conn)) {
-                        peer.* = .{ .conn = conn, .expires = time + timeout };
+            if (slot != null) return;
+            if (host.final_tick == null) {
+                for (&host.peers) |*entry| {
+                    if (entry.* != null) continue;
+                    const time = host.now();
+                    if (host.budget.take(time) and net.session_accept(conn)) {
+                        entry.* = .{ .conn = conn, .expires = time + timeout };
                         return;
                     }
                     break;
                 }
             }
         },
-        .authenticated => {
+        .authenticated => if (slot) |index| {
+            const peer = &host.peers[index].?;
+            if (peer.state != .connecting) return;
             if (name) |identity| {
-                if (identity.len <= max_identity and !host.hasName(identity)) {
-                    for (&host.peers) |*entry| {
-                        const peer = if (entry.*) |*peer| peer else continue;
-                        if (peer.conn != conn or peer.state != .connecting) continue;
-                        @memcpy(peer.identity[0..identity.len], identity);
-                        peer.identity_len = @intCast(identity.len);
-                        peer.state = .joining;
-                        return;
-                    }
+                if (identity.len > 0 and identity.len <= max_identity and !host.hasName(identity)) {
+                    @memcpy(peer.identity[0..identity.len], identity);
+                    peer.identity_len = @intCast(identity.len);
+                    peer.state = .joining;
+                    return;
                 }
             }
         },
         .closed => {},
     }
-    for (host.peers, 0..) |entry, slot| {
-        if (entry != null and entry.?.conn == conn) {
-            host.release(@intCast(slot));
-            return;
-        }
-    }
-    net.session_close(conn);
+    if (slot) |index| host.release(index) else net.session_close(conn);
 }
 
 fn hasName(host: *const Host, name: []const u8) bool {
@@ -97,10 +95,11 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
     if (message == .leave) return false;
     switch (peer.state) {
         .joining => {
-            if (host.finishing or message != .join) return false;
+            if (host.final_tick != null or message != .join) return false;
             if (!message.join.compatible()) {
                 try net.send(peer.conn, .{ .wrong_protocol = .local });
                 peer.state = .rejecting;
+                peer.expires = time + timeout;
                 return true;
             }
             const admitted = try host.arena.join(slot);
@@ -111,10 +110,13 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
             return true;
         },
         .playing => {
+            if (host.final_tick) |tick| {
+                if (message == .received_final and message.received_final == tick) host.final_receipts += 1;
+                return message == .input;
+            }
             if (message != .input) return false;
-            if (host.finishing) return true;
             const input = message.input;
-            if (peer.sequence) |accepted| if (@as(i32, @bitCast(input.sequence -% accepted)) <= 0) return true;
+            if (!input.follows(peer.sequence)) return true;
             if (!host.arena.input(slot, input.steering)) return false;
             peer.sequence = input.sequence;
             peer.expires = time + timeout;
@@ -126,7 +128,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
 
 fn service(host: *Host, slot: u8, time: i64) !void {
     const peer = if (host.peers[slot]) |*peer| peer else return;
-    if (time >= peer.expires or (peer.state == .rejecting and net.session_delivered(peer.conn))) {
+    if (time >= peer.expires) {
         host.release(slot);
         return;
     }
@@ -149,14 +151,31 @@ fn service(host: *Host, slot: u8, time: i64) !void {
     }
 }
 
-fn broadcast(host: *Host, message: wire.Message) !void {
-    for (host.peers, 0..) |entry, slot| {
+fn servicePeers(host: *Host, time: i64) !void {
+    for (0..host.peers.len) |slot| try host.service(@intCast(slot), time);
+}
+
+fn playingCount(host: *const Host) usize {
+    var count: usize = 0;
+    for (host.peers) |entry| {
         const peer = entry orelse continue;
+        if (peer.state == .playing) count += 1;
+    }
+    return count;
+}
+
+fn broadcast(host: *Host, view: wire.Snapshot, final: bool) !void {
+    const message: wire.Message = if (final) .{ .finished = view } else .{ .view = view };
+    var buffer: [wire.capacity]u8 = undefined;
+    const bytes = try message.encode(&buffer);
+    for (&host.peers, 0..) |*entry, slot| {
+        const peer = if (entry.*) |*peer| peer else continue;
         if (peer.state != .playing) continue;
-        net.send(peer.conn, message) catch |err| switch (err) {
-            error.SendFailed => if (message == .finished) host.release(@intCast(slot)),
-            else => return err,
+        net.sendBytes(peer.conn, bytes, final) catch {
+            if (final) host.release(@intCast(slot));
+            continue;
         };
+        if (final) peer.expires = host.now() + timeout;
     }
 }
 
@@ -177,33 +196,19 @@ pub fn run(host: *Host, address: [:0]const u8, ticks: u32) !void {
             continue;
         }
         next_step = @max(next_step + Arena.step_us, time);
-        for (0..host.peers.len) |slot| try host.service(@intCast(slot), time);
-        if (tick == 0) {
-            var players: usize = 0;
-            for (host.arena.pilots) |pilot| {
-                if (pilot != null) players += 1;
-            }
-            if (players < pilots_to_start) continue;
-        }
+        try host.servicePeers(time);
+        if (tick == 0 and host.playingCount() < pilots_to_start) continue;
         tick += 1;
         const view = try host.arena.step(tick);
-        host.finishing = tick == ticks;
-        try host.broadcast(if (host.finishing) .{ .finished = view } else .{ .view = view });
+        if (tick == ticks) host.final_tick = tick;
+        try host.broadcast(view, tick == ticks);
     }
 
     const expires = host.now() + timeout;
-    while (host.now() < expires) {
+    while (host.playingCount() != 0 and host.now() < expires) {
         net.session_poll();
-        const time = host.now();
-        for (0..host.peers.len) |slot| try host.service(@intCast(slot), time);
-        for (host.peers) |entry| {
-            const peer = entry orelse continue;
-            if (peer.state == .playing) break;
-        } else {
-            std.debug.print("finished {d}\n", .{tick});
-            return;
-        }
-        try host.io.sleep(.fromMilliseconds(1), .awake);
+        try host.servicePeers(host.now());
+        if (host.playingCount() != 0) try host.io.sleep(.fromMilliseconds(1), .awake);
     }
-    return error.FinishTimedOut;
+    std.debug.print("finished {d} {d}\n", .{ tick, host.final_receipts });
 }
