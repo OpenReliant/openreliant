@@ -1,6 +1,7 @@
 #pragma once
 
 namespace ice {
-bool open(const char *server, bool host);
+enum class Mode { direct, private_turn, relay_only };
+bool open(const char *stun, bool host, Mode mode);
 bool poll();
 }

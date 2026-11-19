@@ -4,6 +4,7 @@
 #include <steam/isteamnetworkingutils.h>
 #include <steam/steamnetworkingcustomsignaling.h>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #ifdef _WIN32
@@ -66,7 +67,7 @@ bool dispatch() {
 }
 }
 
-bool open(const char *server, bool host) {
+bool open(const char *stun, bool host, Mode mode) {
 #ifndef _WIN32
     int flags = fcntl(STDIN_FILENO, F_GETFL);
     if (flags < 0 || fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) < 0) return false;
@@ -74,9 +75,27 @@ bool open(const char *server, bool host) {
     auto *utils = SteamNetworkingUtils();
     int candidates = k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Public |
                      k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Private;
-    if (!*server || !utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_P2P_Transport_ICE_Implementation, 1) ||
+    if (mode != Mode::direct) {
+        // The native API treats commas as separators, including in usernames and passwords.
+        const char *server = std::getenv("OPENRELIANT_TURN_SERVER");
+        const char *user = std::getenv("OPENRELIANT_TURN_USERNAME");
+        const char *password = std::getenv("OPENRELIANT_TURN_PASSWORD");
+        for (const char *value : {server, user, password}) {
+            if (!value || !*value || std::strchr(value, ',')) {
+                std::fputs("Private TURN requires one server, username and password per peer.\n", stderr);
+                return false;
+            }
+        }
+        if (!utils->SetGlobalConfigValueString(k_ESteamNetworkingConfig_P2P_TURN_ServerList, server) ||
+            !utils->SetGlobalConfigValueString(k_ESteamNetworkingConfig_P2P_TURN_UserList, user) ||
+            !utils->SetGlobalConfigValueString(k_ESteamNetworkingConfig_P2P_TURN_PassList, password)) return false;
+        if (mode == Mode::relay_only) candidates = 0;
+        candidates |= k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Relay;
+    }
+    constexpr char defaults[] = "stun.relay.metered.ca:80,stun.cloudflare.com:3478";
+    if (!utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_P2P_Transport_ICE_Implementation, 1) ||
         !utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_P2P_Transport_ICE_Enable, candidates) ||
-        !utils->SetGlobalConfigValueString(k_ESteamNetworkingConfig_P2P_STUN_ServerList, server)) return false;
+        !utils->SetGlobalConfigValueString(k_ESteamNetworkingConfig_P2P_STUN_ServerList, stun ? stun : defaults)) return false;
 
     auto *net = SteamNetworkingSockets();
     if (host) {

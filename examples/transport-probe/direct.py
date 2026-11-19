@@ -1,4 +1,4 @@
-"""Run two local pilots against a local or remote host with direct ICE only."""
+"""Run two local pilots against a local or remote host with direct ICE or an optional private relay."""
 
 import argparse
 import asyncio
@@ -24,7 +24,7 @@ async def run(args):
     peers = {}
     counts = {name: Counter() for name in ("host", "pilot1", "pilot2")}
     binary = args.work / args.target / "probe/transport-probe"
-    endpoint = "ice:" + args.stun
+    endpoint = "ice" if args.stun is None else "ice:" + args.stun
 
     async def start(name, command):
         peers[name] = await asyncio.create_subprocess_exec(
@@ -37,7 +37,7 @@ async def run(args):
             line = raw.decode(errors="replace").strip()
             if line.startswith("probe ICE "):
                 events[line.removeprefix("probe ICE ")] += 1
-            elif line.startswith(("ICE direct UDP connected to ", "host:", "pilot ", "pilot1:", "pilot2:")):
+            elif line.startswith(("ICE direct UDP connected to ", "ICE private TURN connected to ", "Private TURN requires ", "host:", "pilot ", "pilot1:", "pilot2:")):
                 print(line if line.startswith(name + ":") else f"{name}: {line}", flush=True)
         for event, count in events.items():
             print(f"{name}: {event} ({count})", flush=True)
@@ -51,7 +51,7 @@ async def run(args):
             if (name == "host") == (other == "host"):
                 raise ValueError("unexpected signalling destination")
             types = await asyncio.to_thread(candidates, args.work, bytes.fromhex(signal[2].decode()))
-            if b"relay" in types:
+            if not args.mode and b"relay" in types:
                 raise ValueError("unexpected relay candidate")
             try:
                 peers[other].stdin.write(signal[2] + b"\n")
@@ -62,11 +62,12 @@ async def run(args):
                 pass
 
     def local(name):
-        return [binary, name, endpoint, args.work / "identities" / (name + ".cert")]
+        return [binary, name, endpoint, args.work / "identities" / (name + ".cert"), *([args.mode] if args.mode else [])]
 
     try:
         await start("host", args.host_command or local("host"))
         if (await peers["host"].stdout.readline()).rstrip() != b"READY":
+            await report("host", peers["host"])
             raise RuntimeError("host did not listen")
         for name in ("pilot1", "pilot2"):
             await start(name, local(name))
@@ -82,7 +83,7 @@ async def run(args):
                 except ProcessLookupError:
                     pass
             print(f"{name} advertised candidates (including retries): "
-                  f"host={counts[name]['host']} srflx={counts[name]['srflx']} prflx={counts[name]['prflx']}")
+                  f"host={counts[name]['host']} srflx={counts[name]['srflx']} prflx={counts[name]['prflx']} relay={counts[name]['relay']}")
         await asyncio.gather(*(peer.wait() for peer in peers.values()))
 
 
@@ -90,7 +91,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("work", type=Path)
     parser.add_argument("target", help="local build target")
-    parser.add_argument("stun", help="comma-separated STUN hosts with explicit ports")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--private-turn", dest="mode", action="store_const", const="--private-turn",
+                       help="allow an operator-configured relay alongside direct routes")
+    modes.add_argument("--relay-only", dest="mode", action="store_const", const="--relay-only",
+                       help="require the private relay for a route test")
+    parser.add_argument("stun", nargs="?", help="comma-separated STUN hosts with explicit ports")
     parser.add_argument("host_command", nargs=argparse.REMAINDER,
                         help="optional command to start the remote host with stdin and stdout connected")
     try:
