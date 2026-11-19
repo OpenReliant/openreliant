@@ -39,6 +39,7 @@ pub const Membership = union(enum) {
 
     pub const Joined = struct {
         generation: u64,
+        smart_targeting: bool = false,
         name: Name = .{},
         ship: ?gameobj.ObjectRef = null,
         team: ?ArenaTeam = null,
@@ -124,6 +125,8 @@ pub const State = struct {
 pub const Command = struct {
     flight: flight.Command = .{},
     match_speed: bool = false,
+    /// Set the preference for this admission. A missing value keeps the previous setting.
+    smart_targeting: ?bool = null,
     weapons: WeaponCommand = .{},
     devices: ship_devices.Requests = .empty,
     target: union(enum) { keep, clear, aim: Target } = .keep,

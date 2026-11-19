@@ -70,6 +70,7 @@ pub const damage = @import("hud/damage.zig");
 pub const gunnery = @import("hud/gunnery.zig");
 pub const key_prompt = @import("hud/key_prompt.zig");
 pub const missile_display = @import("hud/missile_display.zig");
+const players = @import("players.zig");
 const ship_devices = @import("ship_devices.zig");
 const missile_lock = @import("main/lock.zig");
 pub const objectives_window = @import("hud/objectives_window.zig");
@@ -2861,7 +2862,7 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
         try drawing.drawEjectMarker(state, placing.pen(pen, .eject_marker), frame_duration);
         try drawing.drawScanner(frame.player.scanner.object != null, frame.clock.game_ticks, placing.pen(pen, .scanner));
         const participant = &frame.all.player_states[frame.all.player];
-        const lit = drawing.lit(state, live, &participant.charges, participant.controls.matching_speed, frame.multiplayer, frame_duration);
+        const lit = drawing.lit(state, live, participant, frame.multiplayer, frame_duration);
         try drawing.drawLights(&participant.charges, placing.pen(pen, .lights), lit, frame_duration);
         lock_lit = lit.enemy_lock;
     }
@@ -3977,8 +3978,8 @@ pub const State = struct {
 
     /// Which lights show for the player's `object`, steady or flashing, as `Drawing.lit` tests them
     /// but with every icon `ShowHudIcon` sets counted as lit, and no flash moved on.
-    pub fn lightsShown(state: *const State, object: *const gameobj.GameObject, charges: *const ship_devices.Charges, matching: bool, multiplayer: bool) Lit {
-        return state.lightsWith(object, charges, matching, multiplayer, .{ .set = &state.icons });
+    pub fn lightsShown(state: *const State, object: *const gameobj.GameObject, pilot: *const players.State, multiplayer: bool) Lit {
+        return state.lightsWith(object, pilot, multiplayer, .{ .set = &state.icons });
     }
 
     /// How a test of the lights reads `ShowHudIcon`'s icons: moving drawing's flashes on by a frame
@@ -3995,12 +3996,18 @@ pub const State = struct {
         }
     };
 
-    fn lightsWith(state: *const State, object: *const gameobj.GameObject, charges: *const ship_devices.Charges, matching: bool, multiplayer: bool, icons: IconTest) Lit {
+    fn lightsWith(state: *const State, object: *const gameobj.GameObject, pilot: *const players.State, multiplayer: bool, icons: IconTest) Lit {
         const homing = object.missile_homing != 0;
         var found: Lit = .{};
-        found.match_speed = matching;
+        const charges = &pilot.charges;
+        found.match_speed = pilot.controls.matching_speed;
         found.blind_fire = state.blind_fire_fitted and state.blind_fire and !object.gun_mode.all;
-        found.smart_targeting = state.smart_targeting or icons.lit(.smart_targeting);
+        const smart = switch (pilot.membership) {
+            .local_rules => state.smart_targeting,
+            .joined => |joined| joined.smart_targeting,
+            .vacant => false,
+        };
+        found.smart_targeting = smart or icons.lit(.smart_targeting);
         found.enemy_lock = (state.enemy_lock and !homing) or icons.lit(.enemy_lock);
         found.missile_incoming = homing or icons.lit(.missile_incoming);
         found.ecm = charges.get(.ecm).setting == .on or icons.lit(.ecm);
@@ -4331,10 +4338,9 @@ pub const Drawing = struct {
     }
 
     /// Which lights' conditions hold for the player's `object`, tested as `hud_draw` tests them,
-    /// in its order: an icon's flash moves on only when `hud_draw` asks for it. `matching` is
-    /// `matching_speed`.
-    pub fn lit(drawing: *Drawing, state: *const State, object: *const gameobj.GameObject, charges: *const ship_devices.Charges, matching: bool, multiplayer: bool, frame_duration: i32) Lit {
-        return state.lightsWith(object, charges, matching, multiplayer, .{ .step = .{ .drawing = drawing, .icons = &state.icons, .frame_duration = frame_duration } });
+    /// in its order. An icon advances its flash only when `hud_draw` asks for it.
+    pub fn lit(drawing: *Drawing, state: *const State, object: *const gameobj.GameObject, pilot: *const players.State, multiplayer: bool, frame_duration: i32) Lit {
+        return state.lightsWith(object, pilot, multiplayer, .{ .step = .{ .drawing = drawing, .icons = &state.icons, .frame_duration = frame_duration } });
     }
 
     /// Whether `icon` is lit in a frame of `frame_duration` (`hud_icon_lit`, `0x00482F50`): always
@@ -5234,33 +5240,39 @@ test "drawLights notes the lights it lights" {
 
 test "the lights hold as hud_draw tests them" {
     var state: State = .{};
-    var charges = ship_devices.full;
+    var pilot: players.State = .{};
     var drawing: Drawing = .{};
     var object: gameobj.GameObject = std.mem.zeroes(gameobj.GameObject);
     // A ship that carries every device but has none on shows only its cloak.
-    try std.testing.expectEqual(Lit{ .cloak = true }, drawing.lit(&state, &object, &charges, false, false, 1));
+    try std.testing.expectEqual(Lit{ .cloak = true }, drawing.lit(&state, &object, &pilot, false, 1));
     // ... and not even that in a multiplayer game.
-    try std.testing.expectEqual(Lit{}, drawing.lit(&state, &object, &charges, false, true, 1));
+    try std.testing.expectEqual(Lit{}, drawing.lit(&state, &object, &pilot, true, 1));
 
     // Blind fire, carried and on, shows while the guns are not all firing.
     state.blind_fire_fitted = true;
-    try std.testing.expect(drawing.lit(&state, &object, &charges, false, true, 1).blind_fire);
+    try std.testing.expect(drawing.lit(&state, &object, &pilot, true, 1).blind_fire);
     object.gun_mode.all = true;
-    try std.testing.expect(!drawing.lit(&state, &object, &charges, false, true, 1).blind_fire);
+    try std.testing.expect(!drawing.lit(&state, &object, &pilot, true, 1).blind_fire);
 
     // A missile homing on the ship takes the lock warning's place.
     state.enemy_lock = true;
-    try std.testing.expect(drawing.lit(&state, &object, &charges, false, true, 1).enemy_lock);
+    try std.testing.expect(drawing.lit(&state, &object, &pilot, true, 1).enemy_lock);
     object.missile_homing = 1;
-    const both = drawing.lit(&state, &object, &charges, false, true, 1);
+    const both = drawing.lit(&state, &object, &pilot, true, 1);
     try std.testing.expect(!both.enemy_lock and both.missile_incoming);
 
     // The spectral shields show only while on; an icon lights the ECM's light without it.
-    charges.getPtr(.spectral_shields).setting = .on;
-    try std.testing.expect(drawing.lit(&state, &object, &charges, false, true, 1).spectral_shields);
-    try std.testing.expect(!drawing.lit(&state, &object, &charges, false, true, 1).ecm);
+    pilot.charges.getPtr(.spectral_shields).setting = .on;
+    try std.testing.expect(drawing.lit(&state, &object, &pilot, true, 1).spectral_shields);
+    try std.testing.expect(!drawing.lit(&state, &object, &pilot, true, 1).ecm);
     state.showIcon(.ecm, .on);
-    try std.testing.expect(drawing.lit(&state, &object, &charges, false, true, 1).ecm);
+    try std.testing.expect(drawing.lit(&state, &object, &pilot, true, 1).ecm);
+
+    pilot.membership = .{ .joined = .{ .generation = 1, .smart_targeting = true } };
+    try std.testing.expect(drawing.lit(&state, &object, &pilot, true, 1).smart_targeting);
+    state.smart_targeting = true;
+    pilot.membership.joined.smart_targeting = false;
+    try std.testing.expect(!state.lightsShown(&object, &pilot, true).smart_targeting);
 }
 
 test "an icon flashes only as it is asked for" {
@@ -5270,10 +5282,10 @@ test "an icon flashes only as it is asked for" {
     const object: gameobj.GameObject = std.mem.zeroes(gameobj.GameObject);
     state.showIcon(.smart_targeting, .flash);
     state.smart_targeting = true;
-    _ = drawing.lit(&state, &object, &ship_devices.full, false, false, 30);
+    _ = drawing.lit(&state, &object, &.{}, false, 30);
     try std.testing.expectEqual(0, drawing.icon_ticks[4]);
     state.smart_targeting = false;
-    _ = drawing.lit(&state, &object, &ship_devices.full, false, false, 30);
+    _ = drawing.lit(&state, &object, &.{}, false, 30);
     try std.testing.expectEqual(30, drawing.icon_ticks[4]);
 }
 
@@ -5637,7 +5649,7 @@ test "what the instruments show, worked out without drawing" {
     var state: State = .{};
     state.showIcon(.ecm, .flash);
     const before = state.icons;
-    try std.testing.expect(state.lightsShown(&slot.object, &ship_devices.full, false, false).ecm);
+    try std.testing.expect(state.lightsShown(&slot.object, &.{}, false).ecm);
     try std.testing.expectEqual(before, state.icons);
 }
 
