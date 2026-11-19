@@ -214,7 +214,7 @@ can read each pilot's count from its first snapshot. The count belongs to the or
 and admission, so a replacement in the same slot starts with its own count. See
 [Six Beacons target count](hud.md#six-beacons-target-count).
 
-The local counter, target window text, pickup rings and network delivery are tracked in
+Pickup rings and network delivery are tracked in
 [#1416](https://github.com/OpenReliant/openreliant/issues/1416).
 
 ## Remaining work

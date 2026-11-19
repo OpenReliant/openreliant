@@ -2770,6 +2770,8 @@ pub const Instrument = enum {
     /// The radio's menu, in its window and in window 14, which shows it too.
     comms,
     wing_status,
+    /// The local pilot's counter in Six Beacons.
+    beacon_counter,
 
     /// The instrument a window is; null for the frames alone, which show nothing.
     pub fn ofWindow(window: windows.Window) ?Instrument {
@@ -2832,6 +2834,11 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
     var placing: Placings = .init(frame, pen.scale);
     defer placing.keep(drawing);
     drawing.flashes = .{};
+    const beacons: ?six_beacons.Hud = if (frame.beacon_snapshot) |snapshot|
+        .{ .snapshot = snapshot, .icons = resources.arenaIcons(frame.gpa) }
+    else
+        null;
+    if (beacons) |view| try view.drawLocal(placing.pen(pen, .beacon_counter), frame.all);
     try state.caption.draw(&drawing.caption, placing.pen(pen, .caption), frame.all.mission_number, frame.clock.game_ticks);
     try state.key_prompt.draw(placing.pen(pen, .key_prompt), frame.devices);
     // Where the lead cursor stands, which the reticle closes on, and whether the enemy lock's
@@ -2847,10 +2854,7 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
                 .all = frame.all,
                 .mode = frame.mode,
                 .speaker = speaker,
-                .beacons = if (frame.beacon_snapshot) |snapshot|
-                    .{ .snapshot = snapshot, .icons = resources.arenaIcons(frame.gpa) }
-                else
-                    null,
+                .beacons = beacons,
             };
             lead = try drawTarget(drawing, state, placing.pen(pen, .target_markers), &resources.target_fonts, scene, frame.edge_line);
         }
@@ -2877,7 +2881,7 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
         .damage = .{ .object = live },
         .missiles = .{ .ring = &frame.all.player_states[frame.all.player].weapons.ring },
         .power = .{ .ball = resources.ball, .object = live, .hit_shake = frame.hit_shake, .random = frame.random },
-        .target_display = .{ .state = state, .drawing = drawing, .all = frame.all },
+        .target_display = .{ .state = state, .drawing = drawing, .all = frame.all, .beacons = frame.beacon_snapshot },
         .objectives = .{ .objectives = &state.objectives },
         .comms = .{ .menu = &frame.player.menu, .font = &resources.target_fonts.new },
         .wing_status = .{ .all = frame.all },
@@ -6008,7 +6012,7 @@ pub const TargetFonts = struct {
 /// the cockpit's mode.
 pub const TargetScene = struct {
     sight: Sight,
-    beacons: ?six_beacons.TargetHud = null,
+    beacons: ?six_beacons.Hud = null,
     all: *const create.Objects,
     mode: camera.CockpitMode,
     /// The ship whose line the radio's window names, where it shows
@@ -6190,7 +6194,7 @@ pub fn drawTarget(drawing: *Drawing, state: *const State, pen: Pen, fonts: *Targ
     if (brightness > least_bright) try drawCorners(pen.dimmed(brightness), brackets_shape.of(hostile), .{ low, high });
     if (scene.beacons) |beacons| {
         if (all.playerBinding(index)) |pilot| {
-            if (pixelOf(low)) |corner| try beacons.draw(pen, &fonts.new, pilot, corner);
+            if (pixelOf(low)) |corner| try beacons.drawTarget(pen, &fonts.new, pilot, corner);
         }
     }
     // The range goes by the box's far corner, which a box reaching behind the camera throws
@@ -6721,13 +6725,17 @@ test "a target out of sight gets an arrow and a marker" {
     try std.testing.expectEqual(0, drawing.lines());
 }
 
-test "a bound arena pilot has a beacon icon and a centred count by the target box" {
+test "Six Beacons shows the local count and follows the selected pilot in both target displays" {
     var targeting: TargetingTest = undefined;
     try targeting.init();
     defer targeting.deinit();
     const all = targeting.mission.objects;
     const target = try targeting.add(.of(.sabre), .{ 0, 0, 5000 });
-    all.players = 2;
+    const empty = try targeting.add(.of(.sabre), .{ 500, 0, 5000 });
+    all.players = 3;
+    const local = all.joinParticipant(all.player).?;
+    const local_ship = all.bindParticipant(local, .of(all, all.player)).?;
+    _ = all.bindParticipant(all.joinParticipant(empty).?, .of(all, empty)).?;
     const pilot = all.joinParticipant(target).?;
     const binding = all.bindParticipant(pilot, .of(all, target)).?;
     input.setPlayerTarget(&targeting.state, all, @intCast(target), -1, false);
@@ -6740,18 +6748,21 @@ test "a bound arena pilot has a beacon icon and a centred count by the target bo
     var icons: Art = try .init(gpa, try .parse(sprites), null, null);
     defer icons.deinit(gpa);
 
-    // Give the test font a glyph for the single digit we expect.
+    // Use the fixture glyph for each digit and check which one each font drew.
     var font = drawing.fonts.new.font;
     var header = font.header.*;
-    var offsets: ['1' + 1]u32 = @splat(0);
-    offsets['1'] = font.offsets[1];
+    var offsets: ['2' + 1]u32 = @splat(0);
+    @memset(offsets['0'..], font.offsets[1]);
     header.count = offsets.len;
     font.header = &header;
     font.offsets = &offsets;
     drawing.fonts.new = .open(font, null);
+    drawing.fonts.small = .open(font, null);
 
     var snapshot: six_beacons.Snapshot = .{ .beacons = @splat(.{ .object = .of(all, target) }) };
     snapshot.beacons[0].carrier = binding;
+    snapshot.beacons[1].carrier = local_ship;
+    snapshot.beacons[2].carrier = local_ship;
     const scene: TargetScene = .{ .all = all, .sight = testSight(), .mode = .cockpit, .beacons = .{ .snapshot = &snapshot, .icons = &icons } };
     _ = try drawing.draw(gpa, &targeting.state, scene);
     try std.testing.expect(icons.images[0x10] != null);
@@ -6767,10 +6778,34 @@ test "a bound arena pilot has a beacon icon and a centred count by the target bo
     try std.testing.expectEqual(y + 2, drawing.recorder.drawn(0)[0].y);
     try std.testing.expectEqual(x - 25, drawing.recorder.drawn(1)[0].x);
     try std.testing.expectEqual(y + 18, drawing.recorder.drawn(1)[0].y);
+    var pen = testing.pen(&drawing.art, gpa, drawing.recorder.interface());
+    pen.font = &drawing.fonts.small;
+    drawing.recorder.clear();
+    try scene.beacons.?.drawLocal(pen, all);
+    try std.testing.expect(icons.images[0x0B] != null and pen.font.images['2'] != null);
+    try std.testing.expectEqual(2, drawing.recorder.draws.items.len);
+    try std.testing.expectEqual(294, drawing.recorder.drawn(0)[0].x);
+    try std.testing.expectEqual(16, drawing.recorder.drawn(0)[0].y);
+    try std.testing.expectEqual(315, drawing.recorder.drawn(1)[0].x);
+    try std.testing.expectEqual(56, drawing.recorder.drawn(1)[0].y);
+
+    var window: target_display.Scene = .{ .state = &targeting.state, .all = all, .drawing = &drawing.kept, .beacons = &snapshot };
+    const previous = window.small().?;
+    input.setPlayerTarget(&targeting.state, all, @intCast(empty), -1, false);
+    try std.testing.expectEqual(0, window.small().?.beacons.?);
+    try std.testing.expectEqual(1, previous.beacons.?);
+    _ = try drawing.draw(gpa, &targeting.state, scene);
+    try std.testing.expect(drawing.fonts.new.images['0'] != null);
+
+    window.beacons = null;
+    try std.testing.expectEqual(null, window.small().?.beacons);
+    window.beacons = &snapshot;
+    input.setPlayerTarget(&targeting.state, all, @intCast(target), -1, false);
     try std.testing.expect(create.Objects.leaveParticipant(targeting.mission.world(), pilot));
     drawing.recorder.clear();
     _ = try drawing.draw(gpa, &targeting.state, scene);
     try std.testing.expectEqual(0, drawing.recorder.draws.items.len);
+    try std.testing.expectEqual(null, window.small().?.beacons);
 }
 
 test "a hostile target ahead gets the lead cursor, whose point blind fire aims at" {
