@@ -1576,7 +1576,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = gpu.interface(), .window = size, .strings = &strings, .settings = .{ .devices = &devices, .sound = sound, .video = video_settings }, .presentation = presentation, .console = if (console) |*up| up else null };
             if (network_frame) |flight| {
                 const viewing = &flight.player.viewing;
-                const place = NetworkPilot.chase(flight);
+                const place = network_pilot.cameraPlace(flight);
+                viewing.seen_from = place;
                 online_sounds.play(sound, place);
                 context.camera = .{ .position = place.position, .orientation = place.orientation };
                 context.projection = (camera.Camera{}).projection(viewing.view, size[0], size[1], field_of_view);
@@ -1584,13 +1585,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 display.screen = size;
                 display.sight = .{ .place = place, .projection = context.projection };
                 display.cockpit_mode = viewing.cockpit_mode;
-                const projectiles = if (network_pilot.flight.?.projectiles) |*visuals| visuals else null;
+                const online = network_pilot.flight.?;
+                const projectiles = if (online.projectiles) |*visuals| visuals else null;
                 try game.main.drawFrame(arena, frame_arena.allocator(), &scene, &context, .{
                     .objects = flight.objects,
                     .portals = &flight.portals,
                     .space = space,
                     .sky = sky,
-                    .environment = &network_pilot.flight.?.environment,
+                    .environment = &online.environment,
                     .view = viewing.view,
                     .last_view = viewing.last,
                     .cockpit_mode = viewing.cockpit_mode,
@@ -1599,6 +1601,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .overlay = display.overlay(),
                     .sparks = if (flight.effects.sparks) |*effects| effects else null,
                     .explosions = if (flight.effects.explosions) |*effects| effects else null,
+                    .shockwaves = if (flight.effects.shockwaves) |*rings| rings else null,
+                    .flash = if (flight.effects.flash) |*screen_flash| screen_flash else null,
+                    .respawns = &online.respawns,
+                    .wall = if (online.wall_mesh) |*mesh| .{ .flashes = &online.wall, .mesh = mesh } else null,
                     .shields = &shields,
                     .trails = if (projectiles) |visuals| &visuals.trails else null,
                     .countermeasures = if (projectiles) |visuals| &visuals.decoys else null,

@@ -7,7 +7,7 @@ pub const ordnance = @import("ordnance.zig");
 const flight = engine.input.flight;
 pub const Fighter = engine.game.dmscenarios.Fighter;
 pub const Scenario = engine.game.dmscenarios.Scenario;
-pub const revision: u16 = 10;
+pub const revision: u16 = 11;
 pub const slots = 3;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
@@ -26,7 +26,7 @@ pub const Combat = struct {
 };
 // A tag, scenario, tick, three ships, and the largest scenario payload.
 const snapshot_header = 2 + @sizeOf(u32) + slots * Ship.encoded_size + 1 + 1;
-const beacon_snapshot_capacity = snapshot_header + beacon_count * (1 + 3 * @sizeOf(f32));
+const beacon_snapshot_capacity = snapshot_header + beacon_count * (1 + 3 * @sizeOf(f32)) + Blast.encoded_size;
 const asteroid_capacity = snapshot_header + slots + 1 + Rocks.max * (1 + @sizeOf(Facing)) +
     @sizeOf(powerups.Pickups.Mask) + @sizeOf(u32) + powerups.mine_count * Mine.encoded_size + 1 + @sizeOf(i32);
 const snapshot_capacity = @max(beacon_snapshot_capacity, asteroid_capacity);
@@ -112,8 +112,13 @@ pub const Ship = struct {
     kills: i32 = 0,
     deaths: u32 = 0,
     cloaked: bool = false,
+    respawn: u16 = 0,
+    at_wall: bool = false,
+    ping_ms: ?u16 = null,
 
-    const encoded_size = @sizeOf(u64) + @sizeOf(u32) + 1 + 13 * @sizeOf(f32) + 3 * @sizeOf(i16) + 3 * @sizeOf(i32);
+    pub const unknown_ping = std.math.maxInt(u16);
+
+    const encoded_size = @sizeOf(u64) + @sizeOf(u32) + 1 + 13 * @sizeOf(f32) + 3 * @sizeOf(i16) + 3 * @sizeOf(i32) + 2 * @sizeOf(u16) + 1;
 
     pub fn face(ship: *Ship, orientation: engine.surrender.math.Matrix) void {
         ship.angles = packFacing(orientation);
@@ -158,6 +163,46 @@ pub const Snapshot = struct {
     pickups: powerups.Pickups.Mask = 0,
     mines: [powerups.mine_count]?Mine = @splat(null),
     power: ?Power = null,
+    blast: ?Blast = null,
+};
+
+pub const Blast = struct {
+    owner: u8,
+    started: i32,
+    size: f32,
+    position: [3]f32,
+    angles: Facing,
+
+    // The pilot slot also acts as the presence flag.
+    const encoded_size = 1 + @sizeOf(i32) + 4 * @sizeOf(f32) + @sizeOf(Facing);
+
+    fn write(value: ?Blast, w: *std.Io.Writer) !void {
+        const blast = value orelse return w.writeByte(slots);
+        try w.writeByte(blast.owner);
+        try w.writeInt(i32, blast.started, .little);
+        try writeFloat(w, blast.size);
+        try writePosition(w, blast.position);
+        for (blast.angles) |angle| try w.writeInt(i16, angle, .little);
+    }
+
+    fn read(r: *std.Io.Reader, tick: u32) !?Blast {
+        const owner = try r.takeByte();
+        if (owner == slots) return null;
+        if (owner > slots) return error.InvalidSnapshot;
+        const started = try r.takeInt(i32, .little);
+        const size = try readFloat(r);
+        const now: i32 = @intCast(@min(tick *| engine.game.gameobj.ticks_per_step, std.math.maxInt(i32)));
+        const duration = engine.game.deathmatch.six_beacons.blast_ticks;
+        if (started < 0 or started > now or now - started > duration + engine.game.gameobj.ticks_per_step or
+            size <= 0 or !std.math.isFinite(size * size)) return error.InvalidSnapshot;
+        return .{
+            .owner = owner,
+            .started = started,
+            .size = size,
+            .position = try readPosition(r),
+            .angles = .{ try r.takeInt(i16, .little), try r.takeInt(i16, .little), try r.takeInt(i16, .little) },
+        };
+    }
 };
 
 pub const Power = struct {
@@ -287,6 +332,16 @@ fn writeCombat(w: *std.Io.Writer, combat: *const Combat) !void {
                 try writeFloat(w, beam.charge);
                 try w.writeInt(i32, beam.fired_at, .little);
             },
+            .wall => |wall| {
+                try writePosition(w, wall.at);
+                try writePosition(w, wall.inward);
+                try w.writeInt(i32, wall.started, .little);
+                try w.writeByte(@intFromBool(wall.flare));
+                if (wall.shot) |shot| {
+                    try w.writeByte(shot.index);
+                    try w.writeInt(i32, shot.fired_at, .little);
+                } else try w.writeByte(guns.max_bullets);
+            },
         }
     }
 }
@@ -332,6 +387,27 @@ fn readCombat(r: *std.Io.Reader) !Combat {
                 const fired_at = try r.takeInt(i32, .little);
                 if (owner.slot >= slots or charge <= 0 or charge > guns.nova.full_charge or fired_at < 0) return error.InvalidCombat;
                 break :nova .{ .nova = .{ .owner = owner, .charge = charge, .fired_at = fired_at } };
+            },
+            .wall => wall: {
+                const at = try readPosition(r);
+                const inward = try readPosition(r);
+                const length = math.lengthSquared(inward);
+                if (length < 0.99 or length > 1.01) return error.InvalidCombat;
+                const started = try r.takeInt(i32, .little);
+                if (started < 0) return error.InvalidCombat;
+                const flare = switch (try r.takeByte()) {
+                    0 => false,
+                    1 => true,
+                    else => return error.InvalidCombat,
+                };
+                const index = try r.takeByte();
+                if (index > guns.max_bullets) return error.InvalidCombat;
+                const shot: ?engine.game.deathmatch.Boundary.Impact.Shot = if (index == guns.max_bullets) null else .{
+                    .index = index,
+                    .fired_at = try r.takeInt(i32, .little),
+                };
+                if (shot) |value| if (value.fired_at < 0) return error.InvalidCombat;
+                break :wall .{ .wall = .{ .at = at, .inward = inward, .started = started, .flare = flare, .shot = shot } };
             },
         };
     }
@@ -395,6 +471,11 @@ pub const Message = union(enum(u8)) {
                     for (ship.armor.values()) |value| try writeFloat(&w, value);
                     try w.writeInt(i32, ship.kills, .little);
                     try w.writeInt(u32, ship.deaths, .little);
+                    if (view.scenario != null) {
+                        try w.writeInt(u16, ship.respawn, .little);
+                        try w.writeByte(@intFromBool(ship.at_wall));
+                        try w.writeInt(u16, ship.ping_ms orelse Ship.unknown_ping, .little);
+                    }
                     if (view.scenario == .asteroid_field) try w.writeByte(@intFromBool(ship.cloaked));
                 }
                 try w.writeByte(@backingInt(std.meta.activeTag(view.objectives)));
@@ -417,6 +498,7 @@ pub const Message = union(enum(u8)) {
                     }
                     try writeArena(&w, &view);
                 }
+                if (view.scenario == .nuclear_threat) try Blast.write(view.blast, &w);
                 try w.writeByte(@intFromBool(view.weapons != null));
                 if (view.weapons) |*status| try status.write(&w);
             },
@@ -485,6 +567,17 @@ pub const Message = union(enum(u8)) {
                     for (std.enums.values(engine.game.collision.Quadrant)) |quadrant| ship.armor.at(quadrant).* = try readFloat(&r);
                     ship.kills = try r.takeInt(i32, .little);
                     ship.deaths = try r.takeInt(u32, .little);
+                    if (view.scenario != null) {
+                        ship.respawn = try r.takeInt(u16, .little);
+                        if (ship.respawn > engine.game.deathmatch.respawn.duration) return error.InvalidSnapshot;
+                        ship.at_wall = switch (try r.takeByte()) {
+                            0 => false,
+                            1 => true,
+                            else => return error.InvalidSnapshot,
+                        };
+                        const ping = try r.takeInt(u16, .little);
+                        ship.ping_ms = if (ping == Ship.unknown_ping) null else ping;
+                    }
                     if (view.scenario == .asteroid_field) ship.cloaked = switch (try r.takeByte()) {
                         0 => false,
                         1 => true,
@@ -524,6 +617,7 @@ pub const Message = union(enum(u8)) {
                     }
                     try readArena(&r, &view);
                 }
+                if (view.scenario == .nuclear_threat) view.blast = try Blast.read(&r, view.tick);
                 view.weapons = switch (try r.takeByte()) {
                     0 => null,
                     1 => try ordnance.Status.read(&r),
@@ -605,11 +699,12 @@ test "held primary input names one ship and adds no bytes when released" {
 
 test "combat batches carry visual effects with bounded counts and pool indices" {
     var buffer: [capacity]u8 = undefined;
-    var effects: Combat = .{ .count = 3 };
-    effects.entries[0..3].* = .{
+    var effects: Combat = .{ .count = 4 };
+    effects.entries[0..4].* = .{
         .{ .shot = .{ .index = 4, .owner = 0, .kind = .pulse_cannon, .fired_at = 84, .dies_at = 124, .origin = .{ 1, 2, 3 }, .velocity = .{ 0, 0, 1 } } },
         .{ .impact = .{ .shot = 4, .fired_at = 84, .target = .{ .slot = 2, .reuse = 7 }, .at = .{ 1, 2, 20 }, .kind = .shield } },
         .{ .nova = .{ .owner = .{ .slot = 2, .reuse = 7 }, .charge = 0.75, .fired_at = 85 } },
+        .{ .wall = .{ .at = .{ 100, 200, 300 }, .inward = .{ 1, 0, 0 }, .started = 86, .flare = true, .shot = .{ .index = 8, .fired_at = 82 } } },
     };
     const content = try (Message{ .combat = effects }).encode(&buffer);
     const decoded = (try Message.decode(content)).combat;
@@ -687,8 +782,10 @@ test "the objective view fits one packet and a carrier needs a current ship" {
     var buffer: [capacity]u8 = undefined;
     var view: Message = .{ .view = .{
         .tick = 3,
-        .ships = @splat(.{ .generation = 2, .position = @splat(0) }),
+        .scenario = .nuclear_threat,
+        .ships = @splat(.{ .generation = 2, .position = @splat(0), .respawn = 289, .ping_ms = 72 }),
         .objectives = .{ .six_beacons = @splat(.{ .loose = .{ 2, 3, 4 } }) },
+        .blast = .{ .owner = 1, .started = 10, .size = 2200, .position = .{ 8, 9, 10 }, .angles = .{ 4, -5, 6 } },
     } };
     const full = try view.encode(&buffer);
     try std.testing.expectEqual(beacon_snapshot_capacity, full.len);

@@ -1311,11 +1311,12 @@ pub const Candidate = struct {
     part: ?u16 = null,
 };
 
-/// Primary weapon events emitted by the simulation and replayed by the flight renderer.
+/// Gunfire and arena wall effects emitted by the simulation and replayed by the flight renderer.
 pub const FlightEffect = union(enum(u8)) {
     shot: Shot,
     impact: Impact,
     nova: Nova,
+    wall: @import("deathmatch.zig").Boundary.Impact,
 
     pub const Shot = struct {
         index: u8,
@@ -1822,6 +1823,12 @@ pub fn bulletsFrame(world: gameobj.World, clock: *const Clock, fraction: f32) vo
             if (bullet.candidate_count > 0) bulletHit(world, bullet, @intCast(index));
             // A hit marks it spent, which frees it below rather than flying on.
             if (clock.frame_start < bullet.dies_at) {
+                if (world.damage_rules == .arena) if (world.objects.arena_boundary) |*boundary| {
+                    if (boundary.stopsShot(world, @intCast(index), bullet)) {
+                        bullets.release(@intCast(index));
+                        continue;
+                    }
+                };
                 bullet.last = bullet.at;
                 continue;
             }
@@ -2055,9 +2062,7 @@ pub fn showShot(world: gameobj.World, shot: FlightEffect.Shot) void {
 
 /// End the matching visual bolt and show the impact on its original ship, if it still exists.
 pub fn showImpact(world: gameobj.World, impact: FlightEffect.Impact, target: ?u16) void {
-    const bullets = &world.objects.bullets;
-    const bullet = &bullets.pool[impact.shot];
-    if (bullet.live and bullet.fired_at == impact.fired_at) bullets.release(impact.shot);
+    endReplica(world, impact.shot, impact.fired_at);
     if (target) |index| switch (impact.kind) {
         .shield => shield.flare(world, index, impact.at),
         .hull => {
@@ -2065,6 +2070,12 @@ pub fn showImpact(world: gameobj.World, impact: FlightEffect.Impact, target: ?u1
             hullSparks(world, index, impact.at);
         },
     };
+}
+
+pub fn endReplica(world: gameobj.World, index: u8, fired_at: i32) void {
+    const bullets = &world.objects.bullets;
+    const bullet = &bullets.pool[index];
+    if (bullet.live and bullet.fired_at == fired_at) bullets.release(index);
 }
 
 /// Move only the effects. The host owns hits, damage and the end of each bolt on impact.

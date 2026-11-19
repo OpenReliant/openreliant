@@ -6,6 +6,7 @@ const wire = @import("wire.zig");
 const flight = @import("openreliant").engine.input.flight;
 const flight_input = @import("flight_input.zig");
 const net = @import("transport.zig");
+const game = @import("openreliant").engine.game;
 const Arena = @import("arena.zig");
 const ProjectilePage = wire.ordnance.Page;
 const identity = @import("identity.zig");
@@ -31,6 +32,7 @@ const Peer = struct {
     fire_for: ?u32 = null,
     presses: flight_input.Presses = .{},
     weapons: ?wire.ordnance.Order = null,
+    ping_ms: ?u16 = null,
 };
 
 io: Io,
@@ -313,6 +315,19 @@ fn applyControls(host: *Host, time: i64) void {
 fn broadcast(host: *Host, view: wire.Snapshot, final: bool) !void {
     var buffer: [wire.capacity]u8 = undefined;
     var outgoing = view;
+    if (view.scenario != null) {
+        const ticks_per_second = game.main.ticks_per_second / game.gameobj.ticks_per_step;
+        const sample_ping = host.tick == 1 or host.tick % ticks_per_second == 0;
+        for (&host.peers, &outgoing.ships) |*entry, *ship| {
+            const peer = if (entry.*) |*peer| peer else continue;
+            if (peer.state != .playing or ship.* == null) continue;
+            if (sample_ping) {
+                const ping = net.session_ping_ms(peer.conn);
+                peer.ping_ms = if (ping < 0) null else @intCast(@min(ping, wire.Ship.unknown_ping - 1));
+            }
+            ship.*.?.ping_ms = peer.ping_ms;
+        }
+    }
     for (&host.peers, 0..) |*entry, slot| {
         const peer = if (entry.*) |*peer| peer else continue;
         if (peer.state != .playing) continue;

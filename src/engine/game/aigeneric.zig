@@ -469,6 +469,7 @@ pub const State = extern union {
     eject: aieject.State,
     scoop_up: tractor.State,
     disrupted: aifuncs.DisruptedState,
+    respawn_until: i32,
     lights: aifuncs.LightsState,
     dark_reign: aifuncs.DarkReignState,
     ion_cannon: aiioncan.State,
@@ -1066,8 +1067,7 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         // Warp steps share their independent tunnel record.
         .warp_in => wgate.warp_orders.inInit(ctx, index),
         .warp_out => wgate.warp_orders.outInit(ctx, index),
-        // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
-        .deathmatch_respawn_effect => {},
+        .deathmatch_respawn_effect => @import("deathmatch.zig").respawn.init(ctx, index),
         .turns_object_lights_on => aifuncs.lightsOnInit(ctx, index),
         .fire_ion_cannon => aiioncan.init(ctx, index),
         .avoid_target => aifuncs.avoidTargetInit(ctx, index),
@@ -1159,8 +1159,7 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         // Warp steps share their independent tunnel record.
         .warp_in => wgate.warp_orders.inUpdate(ctx, index),
         .warp_out => wgate.warp_orders.outUpdate(ctx, index),
-        // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
-        .deathmatch_respawn_effect => {},
+        .deathmatch_respawn_effect => @import("deathmatch.zig").respawn.update(ctx, index),
         .turns_object_lights_on => aifuncs.lightsOn(ctx, index),
         .turns_object_lights_off => aifuncs.lightsOff(ctx, index),
         .dark_reign_shoot => aifuncs.darkReignShoot(ctx, index),
@@ -1201,8 +1200,7 @@ fn runExit(ctx: Context, index: u16, info: orders.Info) void {
         .dock => aidock.exit(ctx, index),
         .ripper_grabs_target_object => airipper.grabExit(ctx, index),
         .fire_ion_cannon => aiioncan.exit(ctx, index),
-        // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
-        .deathmatch_respawn_effect => {},
+        .deathmatch_respawn_effect => @import("deathmatch.zig").respawn.exit(ctx, index),
         // The table gives the others no `exit`, which the build checks, so that one it gives
         // needs its own arm.
         inline else => |order| comptime {

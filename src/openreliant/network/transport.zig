@@ -9,6 +9,7 @@ pub extern fn session_deinit() void;
 pub extern fn session_open(address: [*:0]const u8, host: bool) u32;
 pub extern fn session_local_pair(server: *Connection, client: *Connection) bool;
 pub extern fn session_peer_ip(conn: Connection, address: *[16]u8) bool;
+pub extern fn session_ping_ms(conn: Connection) c_int;
 pub extern fn session_listen_close(listener: u32) void;
 pub extern fn session_accept(conn: Connection) bool;
 pub extern fn session_close(conn: Connection) void;

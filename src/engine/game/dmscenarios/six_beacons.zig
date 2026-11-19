@@ -19,7 +19,7 @@ pub const required = 6;
 const gate_distance: f32 = 2500;
 /// six_beacons_trigger_nuke (0x004B3180, 0x004DCA64).
 const blast_radius_share: f32 = 0.22;
-const blast_ticks = 1000;
+pub const blast_ticks = 1000;
 /// pickup_drop (0x004B26B0) cycles through these world axes at 0x0050C4AC.
 const drop_directions = [required]math.Vector{ .{ 1, 0, 0 }, .{ -1, 0, 0 }, .{ 0, 1, 0 }, .{ 0, -1, 0 }, .{ 0, 0, 1 }, .{ 0, 0, -1 } };
 const drop_radius_share: f32 = 0.8; // 0x004DC410
@@ -337,6 +337,7 @@ pub const Round = struct {
             if (math.distance(all.slots[index].drawn.position, slot.drawn.position) > gate_distance) continue;
             @import("../explode.zig").uberExplode(world, index, first.?, round.bounds.radius * blast_radius_share, blast_ticks);
             Notice.post(world, pilot.participant, .triggered);
+            if (world.flash) |flash| flash.start();
             world.shake.* = 1;
             sound3d.playIn(world, null, null, index, .dmdrop, 1, sound3d.fxClass(all, index));
             round.reset(world);
@@ -344,11 +345,10 @@ pub const Round = struct {
         }
     }
 
-    /// mp_arena_pickups_frame (0x004B18E0) runs pickups before checking gate contact.
+    /// six_beacons_frame (0x004B3300) maintains the objectives before
+    /// mp_arena_pickups_frame (0x004B18E0) handles pickups and checks the gate.
     pub fn frame(round: *Round, world: gameobj.World) void {
         const all = world.objects;
-        round.collect(world);
-        round.checkGate(world);
         if (@mod(world.clock.frame_start, boundary_interval) == 0) {
             for (round.beacons) |beacon| {
                 if (beacon.carrier != null) continue;
@@ -357,6 +357,8 @@ pub const Round = struct {
             }
         }
         if (@mod(world.clock.frame_start, repair_interval) == 0) round.repair(world);
+        round.collect(world);
+        round.checkGate(world);
     }
 };
 

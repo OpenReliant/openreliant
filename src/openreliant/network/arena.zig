@@ -159,7 +159,7 @@ fn noteCombat(context: *anyopaque, effect: game.guns.FlightEffect) void {
     switch (effect) {
         .shot => |shot| if (shot.owner >= wire.slots) return,
         .nova => |beam| if (beam.owner.slot >= wire.slots) return,
-        .impact => {},
+        .impact, .wall => {},
     }
     if (arena.combat_count == arena.combat.len) return;
     arena.combat[arena.combat_count] = effect;
@@ -221,6 +221,7 @@ pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire
     if (arena.pilots[slot] == null) return false;
     // An admitted pilot stays connected while the old ship finishes exploding.
     if (!all.hasBoundPlayerShip(slot)) return true;
+    if (all.slots[slot].running(.deathmatch_respawn_effect) != null) return true;
     const pilot = all.playerBinding(slot).?;
     const stock_mode = arena.mode.scenario() != null;
     var submitted: game.players.Command = .{
@@ -289,6 +290,8 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
             .kills = score.kills.count,
             .deaths = score.deaths,
             .cloaked = if (all.slots[index].cloak) |cloak| !cloak.going else false,
+            .respawn = game.deathmatch.respawn.remaining(&all.slots[index], arena.mission.clock.frame_start),
+            .at_wall = if (all.arena_boundary) |*boundary| boundary.outside(object.nextPosition()) else false,
         };
         ship.*.?.face(object.root.next_orientation);
     }
@@ -302,6 +305,15 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
                 .{ .loose = position };
         }
         view.objectives = .{ .six_beacons = beacons };
+        if (arena.explosions) |*flights| if (flights.uber.blast) |*blast| {
+            view.blast = .{
+                .owner = @intCast(blast.owner.object.slot),
+                .started = blast.started,
+                .size = blast.size,
+                .position = blast.place.position,
+                .angles = wire.packFacing(blast.place.orientation),
+            };
+        };
     }
     return view;
 }
