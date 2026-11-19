@@ -3116,7 +3116,9 @@ address	kind	name	type	comment
 004b32c0	function	six_beacons_check_nuke	void __fastcall (int slot)	On gate contact, fires the nuke if the pilot carries all six beacons and sends the new counts
 004b2ff0	function	six_beacons_reset	void (void)	Clears every admitted pilot's count and places six beacons at free beacon markers
 004bb130	function	mp_report_six_beacons_nuke	void __fastcall (int slot)	Sends the triggering pilot slot in Six Beacons message 0x36
+004b1880	function	mp_arena_free_pickup_effects	void (void)	Frees the three ring meshes for each random pickup and the scenario sprite sets
 004b18e0	function	mp_arena_pickups_frame	void (void)	Checks pickup contact and expired power-ups, checks the scenario gate on the host, and draws the pickup rings
+004b1d10	function	mp_random_pickup_create_rings	void __fastcall (int slot)	Attaches three additive squares to a random power-up, centred between its first two model points
 004b2300	function	six_beacons_collect	void __fastcall (int pilot, int pickup)	Collects a beacon, announces the sixth, hides the pickup and sends updated counts
 004b24a0	function	pickup_frame	void __fastcall (int pilot)	Checks nearby pickups for a pilot who can collect them and warns a lone pilot
 004b25c0	function	pickup_collect	void __fastcall (int pilot, int pickup, bool report)	Dispatches collection to the power-up or scenario and optionally reports it
@@ -3131,9 +3133,14 @@ address	kind	name	type	comment
 004b3510	function	six_beacons_total	int (void)	Counts enabled beacons and the beacons carried by admitted pilots
 004b3840	function	six_beacons_draw_pilot_count	void __fastcall (int pilot, int x, int y)	Draws shape 0x10 and the targeted pilot's count beside the top left of the target brackets
 0050c4ac	data	pickup_drop_directions	Vec3[6]	The six world axes in the order used to drop pickups
+004dca5c	data	mp_pickup_ring_speed	float	Radians each random pickup ring turns per mission tick
+005db128	data	mp_pickup_ring_records		Groups of three mesh object pointers followed by the random pickup slot
+005db134	data	mp_first_ring_pickup_slot	int	Slot of the first random pickup with rings, repeated every 16 bytes
+005db314	data	mp_pickup_ring_count	int	Number of random power-ups with ring meshes
 005db318	data	pickup_drop_direction	int	The next axis used when a pilot drops a pickup
 005db3e0	data	mp_pickup_after	int[8]	The first tick when each respawned pilot may collect a pickup
 005db400	data	pickup_last_solo_contact	int	The last tick when a lone pilot touched a pickup
+005db404	data	mp_arena_glow_sprites	void *[48]	Diffuse glow sprites attached to arena object model points
 0050c500	data	six_beacons_gate_distance	float	The largest distance from a gate at which a pilot carrying six beacons triggers the blast
 0050c4f8	data	gate_trigger_scenario	int	The scenario that enables gate contact checks
 0050c4fc	data	gate_trigger_type	ObjectType	The type of object that triggers the scenario's gate check

@@ -657,6 +657,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer gun_particles.deinit();
     var shockwaves: game.shockwave.Shockwaves = try .create(gpa, &textures, options.rings);
     defer shockwaves.deinit(gpa);
+    var pickup_rings: game.deathmatch.pickup_rings.Rings = .{ .textures = &textures };
+    defer pickup_rings.deinit();
     var trails: game.missiles.trail.Trails = .init(gpa, try .load(&textures));
     defer trails.deinit();
     // The rays, the tractors and the Rippers' beams, and what drawing keeps of each.
@@ -1517,6 +1519,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .ahead = game.objects.pastTick(&drawn.clock, smooth_motion),
                 .explosions = drawn_world.explosions,
                 .shockwaves = drawn_world.shockwaves,
+                .pickup_rings = if (drawn_world.damage_rules == .arena) &pickup_rings else null,
                 .trails = &trails,
                 .countermeasures = drawn_world.countermeasures,
                 .lock = &drawn.objects.player_states[drawn.objects.player].weapons.lock,
