@@ -46,12 +46,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: linux-x86_64, os: ubuntu-latest, target: x86_64-linux-gnu }
-          - { name: linux-aarch64, os: ubuntu-latest, target: aarch64-linux-gnu }
-          - { name: windows-x86_64, os: windows-latest, target: x86_64-windows-gnu }
-          - { name: windows-aarch64, os: windows-latest, target: aarch64-windows-gnu }
-          - { name: macos-x86_64, os: macos-latest, target: x86_64-macos }
-          - { name: macos-aarch64, os: macos-latest, target: aarch64-macos }
+          - { name: linux-x86_64, os: ubuntu-latest, target: x86_64-linux-gnu.2.31 }
+          - { name: linux-aarch64, os: ubuntu-latest, target: aarch64-linux-gnu.2.31 }
+          - { name: windows-x86_64, os: ubuntu-latest, target: x86_64-windows-gnu }
+          - { name: windows-aarch64, os: ubuntu-latest, target: aarch64-windows-gnu }
+          - { name: macos-x86_64, os: macos-latest, target: x86_64-macos.15.0 }
+          - { name: macos-aarch64, os: macos-latest, target: aarch64-macos.15.0 }
     runs-on: ${{ matrix.os }}
     # The build only reads the repository. The attestations need a token from GitHub's OIDC provider,
     # to get a signing certificate from Sigstore, and the rights `actions/attest` asks for to store
@@ -67,13 +67,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: mlugg/setup-zig@v2
+      # Build the pinned transport alongside the stripped executables for the baseline CPU.
+      # Linux runners can cross-compile and package the Windows releases.
+      - uses: ./.github/actions/build-release
         with:
-          version: 0.17.1
-      # An explicit target builds for the architecture's baseline processor, so the binary runs on
-      # any machine of that kind, not just ones like the runner. Stripped, the Linux builds leave
-      # out the debug information their executables would otherwise carry.
-      - run: zig build --release=fast -Dstrip -Dtarget=${{ matrix.target }}
+          target: ${{ matrix.target }}
       - name: Package
         shell: bash
         env:
@@ -86,13 +84,13 @@ jobs:
           done
           # The licence of the libraries whose text has to go with every copy.
           cp deps/luau/LICENSE.txt "$name"/LICENSE-luau.txt
-          cp zig-out/LICENSE-glslang.txt zig-out/LICENSE-spirv-cross.txt zig-out/LICENSE-bc7enc.txt zig-out/LICENSE-libarchive.txt "$name"/
+          cp zig-out/LICENSE-*.txt "$name"/
           # The definitions of the scripting API and of mission source, for mods' authors' editors.
           cp docs/guide/openreliant.d.luau docs/guide/mission.d.luau "$name"/
           case "${{ matrix.target }}" in
             *windows*)
               cp zig-out/bin/openreliant.exe zig-out/bin/sltool.exe "$name"/
-              7z a -tzip "dist/$name.zip" "$name" > /dev/null
+              python3 -m zipfile -c "dist/$name.zip" "$name"
               ;;
             *)
               cp zig-out/bin/openreliant zig-out/bin/sltool "$name"/

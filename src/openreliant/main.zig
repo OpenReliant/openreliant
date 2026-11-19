@@ -118,7 +118,7 @@ pub fn main(init: std.process.Init) !u8 {
     if (args.len > 1 and std.mem.eql(u8, args[1], "session")) {
         if (args.len == 2 or std.mem.eql(u8, args[2], "--help")) return say(init.io, options_page.session_help);
         if (!@import("network_options").enabled) {
-            std.debug.print("Direct-IP sessions require a build with -Dgns-prefix.\n", .{});
+            std.debug.print("This developer build has no multiplayer transport. Build it with scripts/build_transport.py.\n", .{});
             return 2;
         }
         return @import("network/session.zig").run(init.io, init.gpa, args[2..]) catch |err| {

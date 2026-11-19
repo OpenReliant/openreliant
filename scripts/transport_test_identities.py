@@ -1,9 +1,8 @@
-"""Issue short-lived identities for the isolated transport probe."""
+"""Issue disposable identities for headless transport tests."""
 
 import hashlib
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
 import time
 
@@ -62,7 +61,3 @@ def write_identities(directory, schema, protoc, late_pilot):
         path = directory / (name + ".cert")
         path.touch(mode=0o600, exist_ok=False)
         path.write_bytes(signed)
-
-
-if __name__ == "__main__":
-    issue(Path(sys.argv[1]), Path(sys.argv[2]))

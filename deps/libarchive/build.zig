@@ -114,7 +114,7 @@ pub fn build(b: *std.Build) void {
         .HAVE_FCHFLAGS = null,
         .HAVE_FCHMOD = !is_windows,
         .HAVE_FCHOWN = true,
-        .HAVE_FCNTL = true,
+        .HAVE_FCNTL = !is_windows,
         .HAVE_FCNTL_H = true,
         .HAVE_FDOPENDIR = true,
         .HAVE_FGETEA = null,

@@ -159,8 +159,10 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
 
 /// `openreliant session --help`.
 pub const session_help =
-    \\usage: openreliant session host <ip:port> <certificate> [round-ticks]
-    \\       openreliant session join <ip:port> <certificate> <host-identity> <keyboard|left|straight|right> [views-before-leaving]
+    \\Run the headless training session with test identity files.
+    \\
+    \\usage: openreliant session host <ip:port> <root-public-key> <certificate> [round-ticks]
+    \\       openreliant session join <ip:port> <root-public-key> <certificate> <host-identity> <keyboard|left|straight|right> [views-before-leaving]
     \\
 ;
 /// `openreliant --help`.

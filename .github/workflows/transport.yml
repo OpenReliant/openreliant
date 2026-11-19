@@ -1,0 +1,44 @@
+name: Multiplayer transport
+
+on:
+  pull_request:
+    paths:
+      - .github/actions/build-release/**
+      - .github/workflows/transport.yml
+      - .github/workflows/release.yml
+      - build.zig
+      - build.zig.zon
+      - deps/transport/**
+      - examples/transport-probe/**
+      - scripts/build_transport.py
+      - scripts/check-direct-session.py
+      - scripts/transport_test_identities.py
+      - scripts/transport-test-requirements.txt
+      - src/openreliant/network/**
+      - src/openreliant/main.zig
+      - src/openreliant/options.zig
+
+permissions:
+  contents: read
+
+jobs:
+  session:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-linux-gnu.2.31, smoke: 'true' }
+          - { os: ubuntu-24.04-arm, target: aarch64-linux-gnu.2.31, smoke: 'true' }
+          - { os: ubuntu-latest, target: x86_64-windows-gnu }
+          - { os: ubuntu-latest, target: aarch64-windows-gnu }
+          - { os: macos-15-intel, target: x86_64-macos.15.0, smoke: 'true' }
+          - { os: macos-latest, target: aarch64-macos.15.0, smoke: 'true' }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/build-release
+        with:
+          target: ${{ matrix.target }}
+          smoke: ${{ matrix.smoke || 'false' }}

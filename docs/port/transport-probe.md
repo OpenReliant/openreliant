@@ -46,15 +46,17 @@ arena with three slots. Two admitted pilots start the round. The host advances t
 flight simulation and sends positions from its own state. An admitted pilot can leave or
 reconnect during the round. The other pilots keep receiving snapshots.
 
-Build the transport and the executable for the same target. This example uses Apple silicon.
-The build helper creates a disposable trust root and issues real Ed25519 certificates for
-the host and three pilots. The certificates expire after 24 hours. The private keys stay in
-the scratch directory. Each process reads its own certificate file.
+Release builds include the transport on every target. To build it locally, use the same target
+for both the libraries and the executable. This example uses Apple silicon. The test option
+creates a disposable trust root and signs Ed25519 certificates for the host and three pilots.
+The certificates expire after 24 hours. The private keys stay in the scratch directory. Each
+process reads the root's public key and its own certificate at startup.
 
 ```sh
 target=aarch64-macos.15.0
 work=/path/to/scratch
-python3 examples/transport-probe/build.py "$work" "$target" --session
+python3 -m pip install -r scripts/transport-test-requirements.txt
+python3 scripts/build_transport.py "$work" "$target" --test-identities
 zig build -Dtarget="$target" -Dgns-prefix="$work/$target/prefix"
 python3 scripts/check-direct-session.py zig-out/bin/openreliant "$work/session-identities"
 ```
@@ -64,9 +66,10 @@ The client checks the host identity in the certificate. In keyboard mode, type A
 and press Enter to steer left, fly straight, steer right or leave.
 
 ```sh
-zig-out/bin/openreliant session host 127.0.0.1:27020 "$work/session-identities/host.cert"
-zig-out/bin/openreliant session join 127.0.0.1:27020 "$work/session-identities/pilot1.cert" host keyboard
-zig-out/bin/openreliant session join 127.0.0.1:27020 "$work/session-identities/pilot2.cert" host keyboard
+ids="$work/session-identities"
+zig-out/bin/openreliant session host 127.0.0.1:27020 "$ids/root.pub" "$ids/host.cert"
+zig-out/bin/openreliant session join 127.0.0.1:27020 "$ids/root.pub" "$ids/pilot1.cert" host keyboard
+zig-out/bin/openreliant session join 127.0.0.1:27020 "$ids/root.pub" "$ids/pilot2.cert" host keyboard
 ```
 
 The host limits accepted handshakes, buffers and messages per pilot. It checks the authenticated
@@ -83,20 +86,23 @@ each snapshot once and sends those bytes to each pilot. Routed latency and susta
 throughput measurements are tracked in [#1405](https://github.com/OpenReliant/openreliant/issues/1405).
 
 The training session is the first game-executable path under
-[#954](https://github.com/OpenReliant/openreliant/issues/954). The `-Dgns-prefix` flag is a
-temporary development step. OpenReliant's multiplayer release must include the transport in
-the packaged executable on every supported platform. Operators should set ordinary game
-options such as the port, player limit and match rotation. The server should provision and
-renew its own credentials as part of that setup. Release packaging and credential provisioning
-are tracked in [#1405](https://github.com/OpenReliant/openreliant/issues/1405) and
-[#364](https://github.com/OpenReliant/openreliant/issues/364).
+[#954](https://github.com/OpenReliant/openreliant/issues/954). The release build prepares the
+transport prefix automatically. Test identities are generated separately and stay outside the
+package. The dedicated server must manage its identity and renewal through its normal setup.
+Players must be able to join a public server by reachable IP address or from the server list.
+A DNS hostname is optional. Operators set game options such as the port, player limit and match
+rotation. A long-running server can also use a hostname and an external identity provider that
+renews its credentials. A Certbot or Let's Encrypt certificate can secure that provider's HTTPS
+endpoint. The provider still issues
+[GameNetworkingSockets identities](https://github.com/ValveSoftware/GameNetworkingSockets/blob/v1.6.1/include/steam/isteamnetworkingsockets.h)
+for game traffic. Dedicated server setup is tracked in [#364](https://github.com/OpenReliant/openreliant/issues/364).
 The probe below still exercises ICE, TURN and directed events.
 
 ## Run it
 
 On a Unix build machine, install Zig 0.17, Git, patch, CMake, Ninja, Make, Perl, a native C++ compiler
 and Python 3.9 or newer. Install the test certificate helper's dependencies with
-`python3 -m pip install -r examples/transport-probe/requirements.txt`. Apple targets need
+`python3 -m pip install -r scripts/transport-test-requirements.txt`. Apple targets need
 the macOS SDK. From the repository root, pick a target and a scratch directory outside the checkout.
 For example, on an Apple silicon Mac:
 
