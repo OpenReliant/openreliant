@@ -2,6 +2,8 @@
 const std = @import("std");
 const Io = std.Io;
 const wire = @import("wire.zig");
+const flight = @import("openreliant").engine.input.flight;
+const flight_input = @import("flight_input.zig");
 const net = @import("transport.zig");
 const Arena = @import("arena.zig");
 const identity = @import("identity.zig");
@@ -9,6 +11,7 @@ const HandshakeBudget = @import("handshake_budget");
 const Host = @This();
 
 const timeout = 5 * std.time.us_per_s;
+const held_input_timeout = 250 * std.time.us_per_ms;
 const packets_per_tick = 4;
 const max_identity = 32;
 pub const pilots_to_start = 2;
@@ -20,6 +23,8 @@ const Peer = struct {
     identity_len: u8 = 0,
     expires: i64,
     sequence: ?u32 = null,
+    flight_command: flight.Command = .{},
+    presses: flight_input.Presses = .{},
 };
 
 io: Io,
@@ -122,14 +127,18 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
         .playing => {
             if (host.final_tick) |tick| {
                 if (message == .received_final and message.received_final == tick) host.final_receipts += 1;
-                return message == .input;
+                return message == .input or message == .flight_press;
             }
-            if (message != .input) return false;
-            const input = message.input;
-            if (!input.follows(peer.sequence)) return true;
-            if (!host.arena.input(slot, input.steering)) return false;
-            peer.sequence = input.sequence;
-            peer.expires = time + timeout;
+            switch (message) {
+                .input => |input| {
+                    if (!input.follows(peer.sequence)) return true;
+                    peer.flight_command = input.command;
+                    peer.sequence = input.sequence;
+                    peer.expires = time + timeout;
+                },
+                .flight_press => |presses| peer.presses.merge(presses),
+                else => return false,
+            }
             return true;
         },
         .connecting, .closing => return false,
@@ -174,6 +183,20 @@ fn playingCount(host: *const Host) usize {
     return count;
 }
 
+fn applyControls(host: *Host, time: i64) void {
+    for (&host.peers, 0..) |*entry, slot| {
+        const peer = if (entry.*) |*peer| peer else continue;
+        if (peer.state != .playing or peer.sequence == null) continue;
+        var command = if (time - (peer.expires - timeout) >= held_input_timeout)
+            flight_input.release(peer.flight_command)
+        else
+            peer.flight_command;
+        peer.presses.apply(&command);
+        peer.presses = .{};
+        if (!host.arena.input(@intCast(slot), command)) host.release(@intCast(slot));
+    }
+}
+
 fn broadcast(host: *Host, view: wire.Snapshot, final: bool) !void {
     const message: wire.Message = if (final) .{ .finished = view } else .{ .view = view };
     var buffer: [wire.capacity]u8 = undefined;
@@ -209,10 +232,10 @@ pub fn run(host: *Host, address: [:0]const u8, ticks: ?u32, invite: ?identity.In
         net.session_poll();
         const time = host.now();
         if (time < next_step) {
-            try host.io.sleep(.fromMicroseconds(@min(Arena.step_us, next_step - time)), .awake);
+            try host.io.sleep(.fromMicroseconds(@min(wire.step_us, next_step - time)), .awake);
             continue;
         }
-        next_step = @max(next_step + Arena.step_us, time);
+        next_step = @max(next_step + wire.step_us, time);
         if (host.signer) |signer| {
             if (time >= renew_at) {
                 var certificate = try signer.hostCertificate(host.io);
@@ -224,6 +247,7 @@ pub fn run(host: *Host, address: [:0]const u8, ticks: ?u32, invite: ?identity.In
         }
         try host.servicePeers(time);
         if (tick == 0 and host.playingCount() < pilots_to_start) continue;
+        host.applyControls(time);
         tick += 1;
         const view = try host.arena.step(tick);
         if (tick == last_tick) host.final_tick = tick;

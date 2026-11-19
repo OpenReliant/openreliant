@@ -1,15 +1,28 @@
 //! The direct-IP pilot used by the connection screen and the headless client.
 const std = @import("std");
 const Io = std.Io;
+const flight = @import("openreliant").engine.input.flight;
+const Presses = @import("flight_input.zig").Presses;
 const wire = @import("wire.zig");
 const net = @import("transport.zig");
 const Client = @This();
 
-pub const Controls = union(enum) { keyboard, fixed: wire.Steering };
+pub const Controls = union(enum) { keyboard, fixed: Steering };
+
+/// Repeatable controls for the terminal client and loopback workloads.
+pub const Steering = enum(i8) {
+    left = -1,
+    straight = 0,
+    right = 1,
+
+    fn command(steering: Steering) flight.Command {
+        const axis = @as(f32, @floatFromInt(@backingInt(steering))) * 0.1;
+        return .{ .steering = .{ .axes = .{ axis, 0, 0 } }, .throttle = .{ .axis = 1 } };
+    }
+};
 
 const timeout = 10 * std.time.us_per_s;
 const poll_ms = 4;
-const input_interval_us = 40 * std.time.us_per_ms;
 
 expected_host: ?[]const u8,
 conn: net.Connection = 0,
@@ -22,6 +35,8 @@ latest: ?wire.Snapshot = null,
 sequence: u32 = 0,
 next_input: i64 = 0,
 leaving: bool = false,
+flight_command: flight.Command = .{},
+presses: Presses = .{},
 
 pub fn status(client: *Client, conn: net.Connection, event: net.Status, name: ?[]const u8) void {
     if (conn != client.conn) {
@@ -64,8 +79,13 @@ pub fn leave(client: *Client, io: Io) !void {
 
 pub const Event = enum { idle, admitted, snapshot, finished, closed };
 
+pub fn setFlight(client: *Client, command: flight.Command) void {
+    client.flight_command = command;
+    client.presses.take(&client.flight_command);
+}
+
 /// Advance the connection without waiting for a packet or a simulation tick.
-pub fn poll(client: *Client, io: Io, steering: wire.Steering) !Event {
+pub fn poll(client: *Client, io: Io) !Event {
     net.session_poll();
     if (client.state == .unverified) return error.UnverifiedServer;
     if (client.state == .closed) return if (client.leaving) .closed else error.Disconnected;
@@ -77,9 +97,13 @@ pub fn poll(client: *Client, io: Io, steering: wire.Steering) !Event {
         client.sent_join = true;
     }
     if (client.joined != null and !client.leaving and now >= client.next_input) {
-        try net.send(client.conn, .{ .input = .{ .sequence = client.sequence, .steering = steering } });
+        try net.send(client.conn, .{ .input = .{ .sequence = client.sequence, .command = client.flight_command } });
+        if (client.presses.any()) {
+            try net.send(client.conn, .{ .flight_press = client.presses });
+            client.presses = .{};
+        }
         client.sequence +%= 1;
-        client.next_input = now + input_interval_us;
+        client.next_input = now + wire.step_us;
     }
     var buffer: [wire.capacity]u8 = undefined;
     const message = try net.receive(client.conn, &buffer) orelse return .idle;
@@ -119,7 +143,7 @@ pub fn run(client: *Client, io: Io, address: [:0]const u8, controls: Controls, l
 }
 
 pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !void {
-    var steering: wire.Steering = switch (controls) {
+    var steering: Steering = switch (controls) {
         .keyboard => .straight,
         .fixed => |value| value,
     };
@@ -134,7 +158,8 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
             'q', 'Q' => try client.leave(io),
             else => {},
         };
-        const event = try client.poll(io, steering);
+        client.setFlight(steering.command());
+        const event = try client.poll(io);
         switch (event) {
             .idle => {},
             .closed => return,

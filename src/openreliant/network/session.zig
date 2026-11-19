@@ -95,7 +95,7 @@ pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity
 
 fn controls(value: []const u8) !Client.Controls {
     if (std.mem.eql(u8, value, "keyboard")) return .keyboard;
-    return .{ .fixed = std.meta.stringToEnum(wire.Steering, value) orelse return error.InvalidSteering };
+    return .{ .fixed = std.meta.stringToEnum(Client.Steering, value) orelse return error.InvalidSteering };
 }
 
 fn directAddress(text: []const u8) !std.Io.net.IpAddress {

@@ -1,20 +1,21 @@
 //! Messages used by the direct-IP session. Every message fits in one datagram.
 const std = @import("std");
 const version = @import("version");
-
+const flight_input = @import("flight_input.zig");
 const engine = @import("openreliant").engine;
+const flight = engine.input.flight;
 pub const arena_ship: engine.game.gameobj.Type = .of(.predator);
-pub const revision: u16 = 3;
+pub const revision: u16 = 4;
 pub const slots = 3;
-pub const beacon_count = @import("openreliant").engine.game.deathmatch.six_beacons.required;
+pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
+pub const beacon_count = engine.game.deathmatch.six_beacons.required;
 // A tag and tick, three full ship records, and six loose beacons.
-pub const capacity = 1 + @sizeOf(u32) + slots * (@sizeOf(u64) + 3 * (@sizeOf(f32) + @sizeOf(i16))) + 1 + beacon_count * (1 + 3 * @sizeOf(f32));
+pub const capacity = 1 + @sizeOf(u32) + slots * Ship.encoded_size + 1 + beacon_count * (1 + 3 * @sizeOf(f32));
 const max_release = 96;
 
-pub const Steering = enum(i8) { left = -1, straight = 0, right = 1 };
 pub const Input = struct {
     sequence: u32,
-    steering: Steering,
+    command: flight.Command,
 
     /// Compare serial numbers across a wrap. The half-range is ambiguous.
     pub fn follows(input: Input, previous: ?u32) bool {
@@ -38,6 +39,11 @@ pub const Ship = struct {
     position: [3]f32,
     // Signed half-turns keep the three angles to six bytes per ship.
     angles: [3]i16 = @splat(0),
+    speed: f32 = 0,
+    throttle: f32 = 0,
+    fuel: i32 = 0,
+
+    const encoded_size = @sizeOf(u64) + 5 * @sizeOf(f32) + 3 * @sizeOf(i16) + @sizeOf(i32);
 
     pub fn face(ship: *Ship, orientation: engine.surrender.math.Matrix) void {
         const radians = engine.surrender.math.angles(orientation);
@@ -55,16 +61,25 @@ pub const Objectives = union(enum(u8)) { none, six_beacons: [beacon_count]Beacon
 pub const Snapshot = struct { tick: u32, ships: [slots]?Ship, objectives: Objectives = .none };
 
 fn writePosition(writer: *std.Io.Writer, position: [3]f32) !void {
-    for (position) |axis| try writer.writeInt(u32, @bitCast(axis), .little);
+    for (position) |axis| try writeFloat(writer, axis);
 }
 
 fn readPosition(reader: *std.Io.Reader) ![3]f32 {
     var position: [3]f32 = undefined;
     for (&position) |*axis| {
-        axis.* = @bitCast(try reader.takeInt(u32, .little));
-        if (!std.math.isFinite(axis.*)) return error.InvalidPosition;
+        axis.* = try readFloat(reader);
     }
     return position;
+}
+
+fn writeFloat(writer: *std.Io.Writer, value: f32) !void {
+    try writer.writeInt(u32, @bitCast(value), .little);
+}
+
+fn readFloat(reader: *std.Io.Reader) !f32 {
+    const value: f32 = @bitCast(try reader.takeInt(u32, .little));
+    if (!std.math.isFinite(value)) return error.InvalidSnapshot;
+    return value;
 }
 
 pub const Message = union(enum(u8)) {
@@ -76,6 +91,7 @@ pub const Message = union(enum(u8)) {
     finished: Snapshot,
     leave,
     received_final: u32,
+    flight_press: flight_input.Presses,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -93,7 +109,7 @@ pub const Message = union(enum(u8)) {
             },
             .input => |input| {
                 try w.writeInt(u32, input.sequence, .little);
-                try w.writeByte(@bitCast(@backingInt(input.steering)));
+                try flight_input.write(&w, input.command);
             },
             .view, .finished => |view| {
                 try w.writeInt(u32, view.tick, .little);
@@ -105,6 +121,9 @@ pub const Message = union(enum(u8)) {
                     try w.writeInt(u64, ship.generation, .little);
                     try writePosition(&w, ship.position);
                     for (ship.angles) |angle| try w.writeInt(i16, angle, .little);
+                    try writeFloat(&w, ship.speed);
+                    try writeFloat(&w, ship.throttle);
+                    try w.writeInt(i32, ship.fuel, .little);
                 }
                 try w.writeByte(@backingInt(std.meta.activeTag(view.objectives)));
                 switch (view.objectives) {
@@ -120,6 +139,7 @@ pub const Message = union(enum(u8)) {
             },
             .leave => {},
             .received_final => |tick| try w.writeInt(u32, tick, .little),
+            .flight_press => |presses| try w.writeByte(@bitCast(presses)),
         }
         return w.buffered();
     }
@@ -146,7 +166,7 @@ pub const Message = union(enum(u8)) {
             },
             .input => .{ .input = .{
                 .sequence = try r.takeInt(u32, .little),
-                .steering = try r.takeEnum(Steering, .little),
+                .command = try flight_input.read(&r),
             } },
             .view, .finished => snapshot: {
                 var view: Snapshot = .{ .tick = try r.takeInt(u32, .little), .ships = @splat(null) };
@@ -155,6 +175,12 @@ pub const Message = union(enum(u8)) {
                     if (generation == 0) continue;
                     var ship: Ship = .{ .generation = generation, .position = try readPosition(&r) };
                     for (&ship.angles) |*angle| angle.* = try r.takeInt(i16, .little);
+                    ship.speed = try readFloat(&r);
+                    ship.throttle = try readFloat(&r);
+                    ship.fuel = try r.takeInt(i32, .little);
+                    const motion = engine.game.motion;
+                    if (ship.throttle < motion.reverse_throttle or ship.throttle > motion.afterburner_throttle or ship.fuel < 0)
+                        return error.InvalidSnapshot;
                     entry.* = ship;
                 }
                 view.objectives = switch (try r.takeEnum(std.meta.Tag(Objectives), .little)) {
@@ -178,6 +204,11 @@ pub const Message = union(enum(u8)) {
             },
             .leave => .leave,
             .received_final => .{ .received_final = try r.takeInt(u32, .little) },
+            .flight_press => presses: {
+                const value: flight_input.Presses = @bitCast(try r.takeByte());
+                if (value.reserved != 0 or !value.any()) return error.InvalidFlightInput;
+                break :presses .{ .flight_press = value };
+            },
         };
         if (r.bufferedLen() != 0) return error.TrailingData;
         return message;
@@ -190,14 +221,21 @@ test "versions compare by protocol and snapshots retain slot identities" {
     try std.testing.expect((try Message.decode(try local.encode(&buffer))).join.compatible());
     const old: Message = .{ .join = .{ .protocol = revision - 1, .release = "next" } };
     try std.testing.expect(!(try Message.decode(try old.encode(&buffer))).join.compatible());
-    const view: Message = .{ .view = .{ .tick = 12, .ships = .{ .{ .generation = 4, .position = .{ 1, 2, 3 }, .angles = .{ -1234, 5, 678 } }, null, null } } };
+    const view: Message = .{ .view = .{ .tick = 12, .ships = .{ .{
+        .generation = 4,
+        .position = .{ 1, 2, 3 },
+        .angles = .{ -1234, 5, 678 },
+        .speed = 37.5,
+        .throttle = engine.game.motion.afterburner_throttle,
+        .fuel = 650,
+    }, null, null } } };
     const bytes = try view.encode(&buffer);
     try std.testing.expectEqualDeep(view, try Message.decode(bytes));
     try std.testing.expectError(error.EndOfStream, Message.decode(bytes[0 .. bytes.len - 1]));
 }
 
 test "input sequence accepts fresh commands across a wrap" {
-    const input: Input = .{ .sequence = 0, .steering = .straight };
+    const input: Input = .{ .sequence = 0, .command = .{} };
     try std.testing.expect(input.follows(null));
     try std.testing.expect(input.follows(std.math.maxInt(u32)));
     try std.testing.expect(!input.follows(0));
@@ -211,15 +249,22 @@ test "a final receipt names the applied tick" {
 }
 
 test "flight updates fit the direct-IP payload budget" {
-    const input_bytes = 6;
-    const full_snapshot_bytes = 84;
+    const input_bytes = 25;
+    const full_snapshot_bytes = 120;
     var buffer: [capacity]u8 = undefined;
-    const input: Message = .{ .input = .{ .sequence = 1, .steering = .straight } };
+    const input: Message = .{ .input = .{ .sequence = 1, .command = .{
+        .steering = .{ .axes = .{ 0.2, -0.5, 0.8 } },
+        .throttle = .{ .axis = 0.75 },
+        .strafe = .positive,
+        .afterburner = true,
+    } } };
     const view: Message = .{ .view = .{
         .tick = 1,
         .ships = @splat(.{ .generation = 1, .position = .{ 1, 2, 3 } }),
     } };
-    try std.testing.expectEqual(input_bytes, (try input.encode(&buffer)).len);
+    const encoded = try input.encode(&buffer);
+    try std.testing.expectEqual(input_bytes, encoded.len);
+    try std.testing.expectEqualDeep(input, try Message.decode(encoded));
     try std.testing.expectEqual(full_snapshot_bytes, (try view.encode(&buffer)).len);
 }
 

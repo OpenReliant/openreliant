@@ -7,8 +7,6 @@ const wire = @import("wire.zig");
 const Arena = @This();
 
 const spawn_spacing: f32 = 12000;
-const steering_scale: f32 = 0.1;
-pub const step_us = game.gameobj.ticks_per_step * std.time.us_per_s / game.main.ticks_per_second;
 pub const Mode = enum { training, @"six-beacons" };
 
 comptime {
@@ -75,13 +73,9 @@ pub fn leave(arena: *Arena, slot: u8) void {
     arena.pilots[slot] = null;
 }
 
-pub fn input(arena: *Arena, slot: u8, steering: wire.Steering) bool {
+pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command) bool {
     const pilot = arena.pilots[slot] orelse return false;
-    const axis = @as(f32, @floatFromInt(@backingInt(steering))) * steering_scale;
-    return arena.mission.objects.submitPlayerCommand(pilot, .{ .flight = .{
-        .steering = .{ .axes = .{ axis, 0, 0 } },
-        .throttle = .{ .axis = 1 },
-    } });
+    return arena.mission.objects.submitPlayerCommand(pilot, .{ .flight = command });
 }
 
 pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
@@ -91,11 +85,15 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
     for (arena.pilots, &view.ships) |entry, *ship| {
         const pilot = entry orelse continue;
         const index = pilot.ship.resolve(all) orelse continue;
+        const object = &all.slots[index].object;
         ship.* = .{
             .generation = pilot.participant.generation,
-            .position = all.slots[index].object.nextPosition(),
+            .position = object.nextPosition(),
+            .speed = object.speed,
+            .throttle = object.last_throttle,
+            .fuel = object.afterburner_fuel,
         };
-        ship.*.?.face(all.slots[index].object.root.next_orientation);
+        ship.*.?.face(object.root.next_orientation);
     }
     if (arena.mode == .@"six-beacons") {
         const captured = try simulation.BeaconView.capture(all);

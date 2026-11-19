@@ -1136,12 +1136,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             const ticks = platform.window.ticks();
             const elapsed = std.math.cast(i32, ticks -| front_ticks) orelse std.math.maxInt(i32);
             front_ticks = ticks;
-            devices.keyboard.read();
+            if (network_enabled and network_pilot.flying()) devices.read() else devices.keyboard.read();
             sound.updateMusic();
             front_context.window = size;
             front_context.elapsed = elapsed;
             // While the console is up, it takes the pass.
-            if (network_enabled) network_pilot.update(io, &front, &devices, presentation);
+            if (network_enabled) network_pilot.update(io, &front, &devices, presentation, app.active and !console_up);
             const in_arena = network_enabled and network_pilot.flying();
             if (!console_up and in_arena and devices.keyboard.pressed(engine.input.scan.escape, .none, true)) {
                 network_pilot.stop(presentation);
