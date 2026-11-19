@@ -1607,7 +1607,9 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
                 state.controls.matching_speed = false;
                 if (index == all.player) if (world.display) |display| display.targetChanged(all, false);
             },
-            .aim => |aim| _ = aimPlayerFor(world, index, aim),
+            .aim => |aim| if (aim.resolve(all)) |target| {
+                _ = aimPlayerFor(world, index, target);
+            },
         }
         flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, command.flight, world.clock.frame_duration);
         matchSpeedFor(world, index, command.match_speed, if (index == all.player) world.view() else .cockpit);
@@ -1854,15 +1856,13 @@ pub fn setPlayerTarget(display: *hud.State, all: *create.Objects, index: i16, co
 /// is aimed at it, the display follows (`hud.State.targetChanged`), and the player stops matching
 /// speeds (`flight.State.matching_speed`). Returns whether it worked.
 pub fn aimPlayer(world: gameobj.World, target: aigeneric.Target) bool {
-    return aimPlayerFor(world, world.objects.player, .selected(world.objects, target));
+    return aimPlayerFor(world, world.objects.player, target);
 }
 
-/// Selects a retained target for one participant, after validating it in the host's simulation.
-/// An expired selection cannot silently select a later ship in the same slot.
-pub fn aimPlayerFor(world: gameobj.World, player: u16, selected: aigeneric.Aim) bool {
+/// Checks the target and component in the simulation before changing this pilot's aim.
+fn aimPlayerFor(world: gameobj.World, player: u16, target: aigeneric.Target) bool {
     const all = world.objects;
     const state = all.playerState(player) orelse return false;
-    const target = selected.resolve(all);
     if (!ai.targetValid(all, target, .{})) return false;
     const entry = ai.controlEntry(all, player) orelse return false;
     entry.target = entry.target.retarget(all, target.index, target.component);
@@ -3478,7 +3478,7 @@ test "participant commands steer either slot without reading local devices" {
         const ctx: aigeneric.Context = .{ .world = world, .devices = &devices };
         try std.testing.expect(all.submitPlayerCommand(source, .{
             .flight = .{ .steering = .{ .keys = .{ .yaw = .positive } }, .throttle = .{ .keys = .{ .accelerate = true } }, .toggle_afterburner = true },
-            .target = .{ .aim = .at(all, target, null) },
+            .target = .{ .aim = .{ .object = .of(all, target) } },
         }));
         multiplayerControlOrder(ctx, remote);
         try std.testing.expectApproxEqAbs(0.3, object.yaw_input, 1e-6);
@@ -3519,14 +3519,20 @@ test "queued targets reject a reused slot and invalid commands leave input intac
     all.slots[first].object.flags.targetable = true;
     all.slots[target].object.flags.targetable = true;
     try std.testing.expect(try aigeneric.push(mission.orders(), second, .multiplayer_control, .at(first, null)));
-    const selected: aigeneric.Aim = .at(all, target, null);
+    const selected: players.Target = .{ .object = .of(all, target) };
+    const participant = all.joinParticipant(second).?;
+    const source = all.bindParticipant(participant, .of(all, second)).?;
+    var future = selected.object;
+    future.reuse +%= 1;
+    try std.testing.expect(all.submitPlayerCommand(source, .{ .target = .{ .aim = .{ .object = future } } }));
+    try std.testing.expect(all.playerCommand(second).?.target == .keep);
+
+    try std.testing.expect(all.submitPlayerCommand(source, .{ .target = .{ .aim = selected }, .flight = .{ .throttle = .{ .axis = 0.5 } } }));
+    try std.testing.expect(all.playerCommand(second).?.target == .aim);
+    try std.testing.expect(!all.submitPlayerCommand(source, .{ .flight = .{ .throttle = .{ .axis = std.math.nan(f32) } } }));
     create.resetSlot(mission.orders(), target);
     _ = try create.createObject(all, &mission.tables, create.testing.no_models, target, .of(.sabre), 0, .{ 0, 0, 5000 }, &mission.random);
     all.slots[target].object.flags.targetable = true;
-    const participant = all.joinParticipant(second).?;
-    const source = all.bindParticipant(participant, .of(all, second)).?;
-    try std.testing.expect(all.submitPlayerCommand(source, .{ .target = .{ .aim = selected }, .flight = .{ .throttle = .{ .axis = 0.5 } } }));
-    try std.testing.expect(!all.submitPlayerCommand(source, .{ .flight = .{ .throttle = .{ .axis = std.math.nan(f32) } } }));
     multiplayerControlOrder(mission.orders(), second);
     try std.testing.expectEqual(first, ai.controlEntry(all, second).?.target.slotIn(all));
     try std.testing.expectEqual(0.5, all.slots[second].object.throttle);

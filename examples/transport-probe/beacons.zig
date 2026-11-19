@@ -6,11 +6,14 @@ const socket = @import("socket.zig");
 const wire = @import("beacon_snapshot.zig");
 const version = @import("version").string;
 
-const Role = enum { host, pilot1, pilot2, pilot3, wrong_protocol };
+const Role = enum { host, pilot1, pilot2, pilot3, cancel_join, wrong_protocol };
 const pilot_count = 3;
+const starting_pilots = 2;
+const join_timeout = 3 * std.time.us_per_s;
 const first_marker = 5000;
 
 extern "c" fn puts(text: [*:0]const u8) c_int;
+extern "c" fn getchar() c_int;
 extern "c" fn fflush(stream: ?*anyopaque) c_int;
 
 const Arena = struct {
@@ -33,7 +36,7 @@ const Arena = struct {
         }
         const gate = try arena.mission.add(.of(.dm_beacon_gate), @splat(0));
         arena.mission.slot(gate).object.radius = 100;
-        for (0..6) |i| {
+        for (0..game.deathmatch.six_beacons.required) |i| {
             const x: f32 = @floatFromInt(first_marker + i * 1000);
             const marker = try arena.mission.add(.of(.beacon_marker), .{ x, 0, 0 });
             arena.mission.slot(marker).object.radius = 0;
@@ -71,7 +74,11 @@ const Arena = struct {
 };
 
 // The transport dispatches callbacks on the polling thread.
-var connections: [pilot_count]?socket.Connection = @splat(null);
+const Peer = struct {
+    conn: ?socket.Connection = null,
+    admitted: bool = false,
+};
+var peers: [pilot_count]Peer = @splat(.{});
 var role: Role = undefined;
 var disconnected = false;
 var deadline: i64 = undefined;
@@ -80,19 +87,21 @@ export fn probe_connected(conn: socket.Connection, identity: [*:0]const u8, inco
     if (incoming != (role == .host)) return false;
     const other = std.meta.stringToEnum(Role, std.mem.span(identity)) orelse return false;
     const index: usize = if (incoming) switch (other) {
-        .host => return false,
-        else => @backingInt(other) - 1,
+        .pilot1 => 0,
+        .pilot2 => 1,
+        .pilot3 => 2,
+        .host, .cancel_join, .wrong_protocol => return false,
     } else if (other == .host) 0 else return false;
-    if (connections[index] != null) return false;
-    connections[index] = conn;
+    if (peers[index].conn != null) return false;
+    peers[index] = .{ .conn = conn };
     return true;
 }
 
 export fn probe_closed(conn: socket.Connection) void {
-    for (&connections) |*entry| {
-        if (entry.* != conn) continue;
-        entry.* = null;
-        disconnected = true;
+    for (&peers) |*peer| {
+        if (peer.conn != conn) continue;
+        if (role != .host or peer.admitted) disconnected = true;
+        peer.* = .{};
     }
 }
 
@@ -103,8 +112,8 @@ fn poll() !void {
 }
 
 fn waitForPeer(slot: usize) !socket.Connection {
-    while (connections[slot] == null) try poll();
-    return connections[slot].?;
+    while (peers[slot].conn == null) try poll();
+    return peers[slot].conn.?;
 }
 
 fn receive(conn: socket.Connection, buffer: []u8) ![]const u8 {
@@ -147,17 +156,37 @@ const Version = struct {
     }
 };
 
+fn signalReady(message: [*:0]const u8) !void {
+    if (puts(message) < 0 or fflush(null) != 0) return error.ReadySignalFailed;
+}
+
 fn compatiblePeer(slot: usize) !socket.Connection {
+    const peer = &peers[slot];
     var buffer: [wire.capacity]u8 = undefined;
     while (true) {
         const conn = try waitForPeer(slot);
-        const request = try Version.read(try receive(conn, &buffer), .join);
-        if (request.revision == protocol_revision) return conn;
-
-        // Reject before admitting the peer or sending any state. The rejected test client
-        // closes when it receives the server's protocol revision.
-        try sendVersion(conn, .wrong_protocol, protocol_revision, version);
-        connections[slot] = null;
+        if (slot == starting_pilots) try signalReady("checking late join");
+        const hello_deadline = socket.probe_now() + join_timeout;
+        while (socket.probe_now() < hello_deadline) {
+            try poll();
+            if (peer.conn != conn) break;
+            const packet = socket.receive(conn, &buffer) catch break orelse continue;
+            if (packet.lane != wire.lane) break;
+            const request = Version.read(packet.bytes, .join) catch break;
+            if (request.revision != protocol_revision) {
+                sendVersion(conn, .wrong_protocol, protocol_revision, version) catch break;
+                // Allow time to read the rejection even if the transport already acknowledged it.
+                while (peer.conn == conn and socket.probe_now() < hello_deadline) try poll();
+                break;
+            }
+            peer.admitted = true;
+            return conn;
+        }
+        if (peer.conn == conn) {
+            peer.* = .{};
+            if (!socket.probe_close(conn)) return error.CloseFailed;
+        }
+        try signalReady("join slot free");
     }
 }
 
@@ -190,24 +219,24 @@ fn host() !void {
     try arena.init();
     defer arena.deinit();
     var clients: [pilot_count]socket.Connection = undefined;
-    for (0..2) |i| {
+    for (0..starting_pilots) |i| {
         clients[i] = try compatiblePeer(i);
         _ = try arena.admit(@intCast(i));
     }
     const pickup = try arena.frame();
     const carrier = try checkPickup(pickup);
-    for (clients[0..2]) |conn| try sendView(conn, pickup);
-    for (clients[0..2]) |conn| try expect(conn, .applied);
+    for (clients[0..starting_pilots]) |conn| try sendView(conn, pickup);
+    for (clients[0..starting_pilots]) |conn| try expect(conn, .applied);
 
     // The runner only starts the third process after the first two pilots confirm the pickup.
-    if (puts("beacon carried") < 0 or fflush(null) != 0) return error.ReadySignalFailed;
-    clients[2] = try compatiblePeer(2);
-    const late = try arena.admit(2);
+    try signalReady("beacon carried");
+    clients[starting_pilots] = try compatiblePeer(starting_pilots);
+    const late = try arena.admit(starting_pilots);
     const joined = try arena.frame();
     if (!std.meta.eql(carrier, try checkPickup(joined)) or joined.state.countFor(late) != 0)
         return error.WrongJoinState;
-    try sendView(clients[2], joined);
-    try expect(clients[2], .applied);
+    try sendView(clients[starting_pilots], joined);
+    try expect(clients[starting_pilots], .applied);
 
     // This is the normal destruction order. Its init releases the ship's cargo.
     const orders: game.aigeneric.Context = .of(arena.world());
@@ -221,8 +250,8 @@ fn host() !void {
     // A client may close after receiving the final message. Drain anything still queued.
     while (true) {
         if (!socket.probe_poll() or socket.probe_now() >= deadline) return error.TimedOut;
-        for (connections) |entry| {
-            if (entry) |conn| if (!socket.probe_delivered(conn)) break;
+        for (peers) |peer| {
+            if (peer.conn) |conn| if (!socket.probe_delivered(conn)) break;
         } else break;
     }
     std.debug.print("host: all three pilots confirmed the drop\n", .{});
@@ -231,11 +260,19 @@ fn host() !void {
 fn client() !void {
     const conn = try waitForPeer(0);
     var buffer: [wire.capacity]u8 = undefined;
+    if (role == .cancel_join) {
+        // The runner cancels after the host starts waiting for this pilot's join message.
+        if (getchar() != '\n') return error.MissingCancellation;
+        if (!socket.probe_close(conn)) return error.CloseFailed;
+        return;
+    }
     if (role == .wrong_protocol) {
         try sendVersion(conn, .join, protocol_revision + 1, version);
         const required = try Version.read(try receive(conn, &buffer), .wrong_protocol);
         if (required.revision != protocol_revision or !std.mem.eql(u8, required.release, version))
             return error.WrongProtocolRejection;
+        // Stay connected until the runner observes the host releasing the slot.
+        if (getchar() != '\n') return error.MissingRelease;
         std.debug.print("incompatible client: host requires protocol {d} (OpenReliant {s})\n", .{ required.revision, required.release });
         return;
     }
@@ -256,7 +293,7 @@ fn client() !void {
 }
 
 fn run(address: [*:0]const u8) !void {
-    if (!socket.probe_open(address, role == .host)) return error.OpenFailed;
+    if (!socket.probe_open(address, role == .host, wire.capacity)) return error.OpenFailed;
     deadline = socket.probe_now() + 30 * std.time.us_per_s;
     return if (role == .host) host() else client();
 }

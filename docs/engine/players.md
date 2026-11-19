@@ -39,8 +39,8 @@ The remote control order does not repeat the local control routine. Reading the 
 once for each connected ship would give them all the same controls.
 
 The original remains the comparison for gameplay rules and timing. Host authority requires
-simulation state and commands for each participant, rather than treating remote reported ship
-state as authoritative ([#954](https://github.com/OpenReliant/openreliant/issues/954).
+the host to simulate each ship from its pilot's commands. See
+[#954](https://github.com/OpenReliant/openreliant/issues/954).
 
 ## Flight commands and targets
 
@@ -57,6 +57,8 @@ The HUD and script instruments read matching state from the displayed participan
 A host input source submits a `players.Command` through the current participant and ship binding.
 The host rejects invalid axes without replacing the previous input. The record retains held flight inputs while
 consuming throttle presets, afterburner toggles, speed-match toggles and target requests once.
+A target request names one object and an optional component. The host checks the object's
+identity on receipt and again when applying the command, then checks whether it can be targeted.
 The host applies that input even for slot zero on a headless host. A host-managed slot reads
 commands exclusively, including while the slot is vacant or the participant has no ship. Existing non-player Player
 Control orders retain their local input behaviour.
@@ -220,7 +222,7 @@ can read each pilot's count from its first snapshot. The count belongs to the or
 and admission, so a replacement in the same slot starts with its own count. See
 [Six Beacons target count](hud.md#six-beacons-target-count).
 
-Network delivery of the beacon counts is tracked in
+The headless loopback test delivers the counts across a late join and a drop. Delivery in the playable client is tracked in
 [#1416](https://github.com/OpenReliant/openreliant/issues/1416).
 
 ### Random arena power-ups

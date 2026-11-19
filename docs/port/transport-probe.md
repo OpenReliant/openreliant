@@ -18,6 +18,12 @@ order and receive exactly the number of recalls the host assigned them. Each pil
 it finished, waits for the host's receipt and confirms it. The host can finish as soon as both
 pilots confirm, even if a relay delays the connection close notifications.
 
+Before opening a connection, the probe configures GameNetworkingSockets to limit the size of
+each incoming message to the workload's packet buffer. Each peer can queue up to 128 messages
+and 64 KiB of received data. The public host also needs to bound pending admissions and keep
+serving other pilots when a client breaks the protocol. See
+[#1432](https://github.com/OpenReliant/openreliant/issues/1432).
+
 The host reports the time between sending a snapshot and receiving a pilot's acknowledgement
 that it applied it. This includes the return trip and the wait for the next input message. All
 times in that measurement come from the host's clock. Each pilot also reports how many snapshots
@@ -91,11 +97,15 @@ python3 "$probe/loopback.py" "$work/$target/six-beacons-probe/transport-probe" \
 ```
 
 Two pilots enter a small test arena. Once the host simulation awards the first beacon, the
-runner tries a third client with an incompatible protocol revision. The host rejects it before
-admission and sends back the revision it requires. The runner then starts a client that reports
+runner connects a third pilot who leaves before sending a join request. It then tries the same
+identity with an incompatible protocol revision. The host replies with the required revision
+and closes the connection. Both attempts leave the pilot slot free. The runner then starts a client that reports
 a different OpenReliant release but uses the same protocol. Its first snapshot contains all six
-beacons, their positions, and the carrier's participant and ship identities. The host then runs the carrier's destruction
-order. All three clients must confirm that the same beacon is loose at its drop position.
+beacons, their positions and the carrier's participant and ship identities. The host then runs
+the carrier's destruction order. All three clients must confirm that the
+same beacon is loose at its drop position. The test pauses between simulation frames to make
+the join repeatable. A public server must keep ticking while a pilot negotiates admission
+([#1432](https://github.com/OpenReliant/openreliant/issues/1432)).
 
 The protocol revision is separate from the OpenReliant version. Bump it when a change
 makes the wire format or the meaning of its messages incompatible. Matching the revision

@@ -10,10 +10,11 @@ async def run(binary, credentials, late_pilot):
     children = []
 
     async def start(role, address):
-        identity = {"reject": "pilot1", "wrong_protocol": "pilot3"}.get(role, role)
+        identity = {"reject": "pilot1", "wrong_protocol": "pilot3", "cancel_join": "pilot3"}.get(role, role)
         child = await asyncio.create_subprocess_exec(
             str(binary), role, address, str(credentials / (identity + ".cert")), "--shared-clock",
             stdout=asyncio.subprocess.PIPE if role == "host" else None,
+            stdin=asyncio.subprocess.PIPE if role in ("cancel_join", "wrong_protocol") else None,
         )
         children.append(child)
         return child
@@ -21,6 +22,10 @@ async def run(binary, credentials, late_pilot):
     async def check(child):
         if await child.wait() != 0:
             raise RuntimeError("transport probe failed")
+
+    async def slot_free(host, role):
+        if await host.stdout.readline() != b"join slot free\n":
+            raise RuntimeError(f"host did not release the pilot slot after {role}")
 
     async def listen():
         # Valve requires an explicit port. Retry if another process claims it first.
@@ -46,7 +51,18 @@ async def run(binary, credentials, late_pilot):
         if late_pilot:
             if await host.stdout.readline() != b"beacon carried\n":
                 raise RuntimeError("host did not confirm the first pickup")
-            await check(await start("wrong_protocol", address))
+            for role in ("cancel_join", "wrong_protocol"):
+                attempt = await start(role, address)
+                if await host.stdout.readline() != b"checking late join\n":
+                    raise RuntimeError(f"host did not receive {role}")
+                if role == "wrong_protocol":
+                    await slot_free(host, role)
+                attempt.stdin.write(b"\n")
+                await attempt.stdin.drain()
+                attempt.stdin.close()
+                await check(attempt)
+                if role == "cancel_join":
+                    await slot_free(host, role)
             pilots.append(await start("pilot3", address))
         await asyncio.gather(*(check(peer) for peer in [host, *pilots]))
     finally:

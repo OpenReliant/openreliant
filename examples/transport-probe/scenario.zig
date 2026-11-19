@@ -200,7 +200,7 @@ fn run(role: Role, address: [*:0]const u8, shared_clock: bool) !void {
     scenario = .{ .role = role, .shared_clock = shared_clock };
     if (role == .host) try scenario.host.init();
     defer if (role == .host) scenario.host.deinit();
-    if (!socket.probe_open(address, role == .host)) return error.OpenFailed;
+    if (!socket.probe_open(address, role == .host, wire.capacity)) return error.OpenFailed;
     const deadline = socket.probe_now() + deadline_us;
     while (!scenario.success) {
         if (!socket.probe_poll()) return error.SignallingClosed;

@@ -3153,3 +3153,10 @@ address	kind	name	type	comment
 004b3570	function	six_beacons_draw_hud	void (void)	Draws shape 0x0B at the local HUD anchor and centres the count in hud_font 21 pixels right and 40 below it, then draws diagnostics when enabled
 004b2d70	function	scenario_target_text	bool __fastcall (GameObject *target, char *text)	Asks the selected scenario for the extra text in the target window
 004b37b0	function	six_beacons_target_text	bool __fastcall (GameObject *target, char *text)	Writes the count, a space and language string 0x2D6 for one or 0x2D7 for zero or more than one
+005dd524	data	net_update_interval	int	Timer ticks between session updates, 10 during play and 50 while paused
+004bbef0	function	net_update_frame		Runs a round of session updates when the interval has elapsed and sends queued packets
+005d76f0	data	dm_scenario_index	int	Index of the active multiplayer arena scenario in dm_scenarios
+005db538	data	shadow_player_slot	int	Player slot holding the cloak in Hunt The Shadow, or -1 when no pilot holds it
+004547a0	function	chat_line_open		Clears typed keys and starts multiplayer chat entry
+004547c0	function	chat_line_frame		Updates multiplayer chat entry during a session and sends the line on Enter
+0051cf04	data	held_stick_angle_flag	short	Selects the unused stick angle input branch, starts at zero and is only cleared

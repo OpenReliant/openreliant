@@ -50,7 +50,14 @@ static void status_changed(SteamNetConnectionStatusChangedCallback_t *event) {
     net->CloseConnection(conn, 0, nullptr, false);
 }
 
-extern "C" bool probe_open(const char *address, bool host) {
+extern "C" bool probe_open(const char *address, bool host, int max_message_size) {
+    // Allow the 64-message background burst and leave room for flight and mission events.
+    constexpr int max_queued_messages = 128;
+    constexpr int max_queued_bytes = 64 * 1024;
+    auto *utils = SteamNetworkingUtils();
+    if (!utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_RecvMaxMessageSize, max_message_size) ||
+        !utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_RecvBufferMessages, max_queued_messages) ||
+        !utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_RecvBufferSize, max_queued_bytes)) return false;
     if (using_ice) return ice::open(address[3] ? address + 4 : nullptr, host, ice_mode);
     SteamNetworkingIPAddr endpoint;
     if (!endpoint.ParseString(address)) return false;
@@ -91,6 +98,10 @@ extern "C" int probe_receive(uint32_t conn, uint8_t *bytes, int capacity, uint16
     return size;
 }
 
+extern "C" bool probe_close(uint32_t conn) {
+    return SteamNetworkingSockets()->CloseConnection(conn, 0, nullptr, false);
+}
+
 extern "C" bool probe_delivered(uint32_t conn) {
     SteamNetConnectionRealTimeStatus_t status;
     return SteamNetworkingSockets()->GetConnectionRealTimeStatus(conn, &status, 0, nullptr) == k_EResultOK &&
@@ -121,7 +132,7 @@ static bool set_certificate(const char *path, SteamNetworkingErrMsg &error) {
 
 int main(int argc, char **argv) {
     if (argc < 4) {
-        std::fprintf(stderr, "usage: transport-probe host|pilot1|pilot2|reject ADDRESS:PORT|ice[:STUN_LIST] CERT [--shared-clock] [--private-turn|--relay-only]\n");
+        std::fprintf(stderr, "usage: transport-probe ROLE ADDRESS:PORT|ice[:STUN_LIST] CERT [--shared-clock] [--private-turn|--relay-only]\n");
         return 2;
     }
     using_ice = std::strcmp(argv[2], "ice") == 0 || std::strncmp(argv[2], "ice:", 4) == 0;

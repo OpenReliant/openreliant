@@ -96,20 +96,9 @@ pub const State = struct {
     /// Drops all state tied to the old ship while keeping the participant's admission.
     pub fn unbindShip(state: *State) void {
         if (state.membership != .joined) return;
-        state.membership.joined.ship = null;
-        state.recall = .none;
-        state.carrier = null;
-        state.command = null;
-        state.controls = .{};
-        state.weapons = .{};
-        state.charges = ship_devices.full;
-        state.shield_reserves = .{};
-        state.armor_warned_at = 0;
-        state.hull_heard_at = 0;
-        state.taunt_next = 0;
-        state.missile_warning_next = 0;
-        state.kill_remark_next = 0;
-        state.friendly_fire = .{};
+        var pilot = state.membership.joined;
+        pilot.ship = null;
+        state.* = .{ .membership = .{ .joined = pilot } };
     }
 
     pub fn resetMission(state: *State) void {
@@ -137,7 +126,7 @@ pub const Command = struct {
     match_speed: bool = false,
     weapons: WeaponCommand = .{},
     devices: ship_devices.Requests = .empty,
-    target: union(enum) { keep, clear, aim: aigeneric.Aim } = .keep,
+    target: union(enum) { keep, clear, aim: Target } = .keep,
 
     pub fn consumePresses(command: *Command) void {
         command.flight.consumePresses();
@@ -145,6 +134,17 @@ pub const Command = struct {
         command.target = .keep;
         command.devices = .empty;
         command.weapons = .{ .fire_guns = command.weapons.fire_guns };
+    }
+};
+
+/// A pilot can request a live object and one of its components.
+pub const Target = struct {
+    object: gameobj.ObjectRef,
+    component: ?u15 = null,
+
+    pub fn resolve(target: Target, all: *const @import("create.zig").Objects) ?aigeneric.Target {
+        const slot = target.object.resolve(all) orelse return null;
+        return .of(.ship, slot, if (target.component) |part| @intCast(part) else aigeneric.Target.whole);
     }
 };
 

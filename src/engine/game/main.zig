@@ -939,7 +939,7 @@ pub fn followCarrier(world: gameobj.World) void {
     const all = world.objects;
     followLaunchCarrier(all, &world.player.carrier);
     if (world.damage_rules == .cooperative) {
-        for (all.player_states[0..all.players]) |*state| followLaunchCarrier(all, &state.carrier);
+        for (all.player_states[0..all.playerSlotCount()]) |*state| followLaunchCarrier(all, &state.carrier);
     }
 }
 
@@ -3435,7 +3435,7 @@ test "a headless host builds a lock for the requesting pilot and launches only w
     try std.testing.expectEqual(lock.Phase.idle, all.playerState(stage.player).?.weapons.lock.phase);
 
     // Changing targets and launching in one command cannot spend the old lock on the new target.
-    try std.testing.expect(all.submitPlayerCommand(source, .{ .weapons = launch_missile, .target = .{ .aim = .at(all, other, null) } }));
+    try std.testing.expect(all.submitPlayerCommand(source, .{ .weapons = launch_missile, .target = .{ .aim = .{ .object = .of(all, other) } } }));
     input.multiplayerControlOrder(ctx, shooter);
     try std.testing.expectEqual(0, stage.armed.live());
     try std.testing.expectEqual(1, state.weapons.ring.armedEntry().count);
