@@ -25,7 +25,7 @@ Host-managed participants use the lifecycle below.
 | Shield recharge | `object_recharge_shields` (`0x00476FC0`) runs for all objects, but applies the reserve globals only to the local ship | Each player's recharge uses their own reserves; ordinary ships recharge without reserves |
 | Flight controls | `player_controls` (`0x00413410`) reads local devices and control globals | Local input produces flight commands; each participant has separate control state |
 | Remote control order | `order_multiplayer_control` (`0x00414F70`) sets `disabled` when `sent_off` is set | Keeps that check, then applies the participant's commands without reading local devices |
-| Kills and deaths | `kills_add` (`0x004B14F0`) and `deaths_add` (`0x004B1580`) update local globals and per-slot counters at `0x005DB684` and `0x005DB688`, with a `0x3C` stride | The host keeps individual kills for each admission. Arena eligibility, deaths and team scores follow in [#1398](https://github.com/OpenReliant/openreliant/issues/1398) |
+| Kills and deaths | `kills_add` (`0x004B14F0`) and `deaths_add` (`0x004B1580`) update local globals and per-slot counters at `0x005DB684` and `0x005DB688`, with a `0x3C` stride | The host credits the pilot who owned the damage source. In an arena it also counts each pilot's deaths and keeps separate totals for team games. |
 
 `simulation_step` (`0x004774D0`) reads devices every fourth tick and updates every object's nodes,
 shields and guns. It runs an extra Player Control update for the local ship before movement.
@@ -163,11 +163,25 @@ A replacement ship keeps both counts. A new mission clears the mission count, an
 admission starts both counts at zero. Co-op saves and profile loading are tracked in
 [#475](https://github.com/OpenReliant/openreliant/issues/475) and [#804](https://github.com/OpenReliant/openreliant/issues/804).
 
-The original stores each player slot's team at 0x005DAE30. In team arenas it compares the
-pilots' entries at 0x0040858E before awarding a kill.
-It keeps separate kill and death totals for four teams and reports the local pilot's totals
-in message 0x3B (0x004B9F20). Host-owned arena scoring is tracked in
-[#1398](https://github.com/OpenReliant/openreliant/issues/1398).
+### Arena scores
+
+The original compares the pilots' teams at 0x0040858E. When a player's ship starts exploding,
+it records the death at 0x00408866 before checking who gets the kill. Each machine reports
+its local pilot's totals in message 0x3B (0x004B9F20).
+
+**Improvement:** the host scores the destruction for every bound pilot. A hostile ship or a
+pilot's ship qualifies if it is a fighter, Kamov, Kurgan or Gurevich. The component hull path
+also credits a Kurgan, Antanov or Gurevich. Free-for-all ignores team assignments. In a team
+game the attacker needs a team, and a bound victim must belong to a different team. The victim
+still records a death after friendly fire, an environmental loss or a hit from a departed pilot.
+Only an assigned pilot contributes to a team's totals.
+
+Starting an arena round clears individual and team scores and keeps the pilots' assignments
+(`mp_arena_init`, 0x004AE860). Respawning preserves scores. A team keeps its score while any
+member remains, including a pilot waiting for a ship. When its last pilot leaves or changes
+teams, both team totals return to zero (`mp_reset_team_tallies`, 0x004B15E0).
+The Uber blast has separate award and protection rules tracked in
+[#1412](https://github.com/OpenReliant/openreliant/issues/1412).
 
 ## Remaining work
 

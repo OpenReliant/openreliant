@@ -13,8 +13,8 @@
 //! **Improvement:** the game opens the halves and spreads the ball by rounded factors (3.33333 and
 //! 1.42857 a share, 0.19635 and 0.349066 radians); OpenReliant divides.
 //!
-//! Not ported: what a blast in a multiplayer game spares, counts and tells the players, which is
-//! multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+//! The arena rules for which pilots the blast spares, who earns the kill and what the players
+//! see are tracked in [#1412](https://github.com/OpenReliant/openreliant/issues/1412).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

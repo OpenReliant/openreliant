@@ -305,17 +305,15 @@ fn limpetCarUpdate(ctx: Context, index: u16) void {
 /// faster from where the camera was (`0x004DC440`).
 const slow: f32 = 100;
 
-/// `explode_ship_init` (`0x004086F0`): a ship's end begins. Close to the camera it is heard at
-/// once. It takes a style of going, the torpedoes always stopping dead; the player's credit for the
-/// kill is settled (`killCredit`), a pilot of the player's wing dies (`pilots.Wingmen.lose`), and
-/// the ship's Destroyed event posted (`events.destroyed`). The player's has the camera watch it,
-/// from a view by the style and how fast it was flying, and the mission end with it. At the end of
-/// the player's ejection (`main.Showing.ejection`) the player's pod stops dead instead, as the
-/// Sabre's view watches it, and its end ends nothing.
+/// `explode_ship_init` (0x004086F0) starts the ship's explosion and plays its sound if the
+/// camera is close. Torpedoes and the player's ejection pod halt. Other ships take a random
+/// explosion style. The arena host records the pilot's death before checking kill credit.
+/// The simulation then marks a lost wingman and posts the ship's Destroyed event.
+/// In the campaign, the camera follows the player's dying ship and the mission ends.
+/// Destroying the pod during the ejection cutaway leaves the camera and mission running.
 ///
-/// Not ported: a multiplayer game's end, in which a player's ship is made invulnerable and its kill
-/// announced to everyone, a proximity mine halts and is retired, and every other ship spins out
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// The original arena also protects the dying pilot, announces the kill, retires proximity
+/// mines and makes other ships spin out ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn shipInit(ctx: Context, index: u16) void {
     const world = ctx.world;
     const slot = &world.objects.slots[index];
@@ -330,6 +328,7 @@ fn shipInit(ctx: Context, index: u16) void {
         .halt
     else
         @fromBackingInt(@intCast(xtrabits.objectRandom15(object) % std.enums.values(Style).len));
+    if (world.damage_rules == .arena) deathmatch.recordDeath(world.objects, index);
     killCredit(world, index);
     world.objects.wingmen.lose(object.pilot);
     events.destroyed(world, index, null);
@@ -351,7 +350,7 @@ fn shipInit(ctx: Context, index: u16) void {
     }
 }
 
-/// `explode_kill_credit` (`0x00408500`) credits an eligible hostile ship to its last attacker.
+/// `explode_kill_credit` (`0x00408500`) credits an eligible hostile ship or arena pilot to the last attacker.
 /// The local campaign also remarks on the loss of a ship from the player's wing. Clear the
 /// exploding flag while preparing the lines so that the dying pilot can speak.
 ///
@@ -366,8 +365,8 @@ pub fn killCredit(world: gameobj.World, index: u16) void {
     const flags = object.flags;
     object.flags.exploding = false;
     defer object.flags = flags;
-    // Arena player targets and same-team kills follow in #1398.
-    if (object.side == .hostile and credited(slot)) deathmatch.creditDestruction(world, index, .open_only);
+    const arena_pilot = world.damage_rules == .arena and all.playerBinding(index) != null;
+    if ((object.side == .hostile or arena_pilot) and credited(slot)) deathmatch.creditDestruction(world, index, .open_only);
     if (channels_open and object.wing == .player) radio.shipLost(world, index);
 }
 

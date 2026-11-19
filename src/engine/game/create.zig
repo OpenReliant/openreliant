@@ -748,6 +748,7 @@ pub const Objects = struct {
     /// OpenReliant's: each participant's simulation state. Only the first `players` entries
     /// belong to participants, independently of which player this machine displays (`player`).
     player_states: [gameobj.max_objects]players.State = @splat(.{}),
+    arena_scores: @import("deathmatch.zig").ArenaScores = .free_for_all,
     /// Advances on each admission and survives mission resets within the same session.
     participant_generation: u64 = 0,
     /// `camera_marker` (`0x00588390`): the slot of the camera's marker, which the mission's start
@@ -919,7 +920,11 @@ pub const Objects = struct {
     /// even while the pilot is waiting for a ship.
     pub fn setParticipantTeam(all: *Objects, ref: players.ParticipantRef, team: ?players.ArenaTeam) bool {
         const state = all.joinedParticipant(ref) orelse return false;
-        state.membership.joined.team = team;
+        const previous = state.membership.joined.team;
+        if (previous != team) {
+            state.membership.joined.team = team;
+            all.arena_scores.clearEmptyTeam(all, previous);
+        }
         return true;
     }
 
@@ -951,7 +956,9 @@ pub const Objects = struct {
         const all = world.objects;
         const state = all.joinedParticipant(ref) orelse return false;
         const bound = state.membership.joined.ship;
+        const team = state.membership.joined.team;
         state.* = .{ .membership = .vacant };
+        all.arena_scores.clearEmptyTeam(all, team);
         if (bound) |ship| if (ship.resolve(all)) |index| {
             const slot = &all.slots[index];
             slot.object.letGo();

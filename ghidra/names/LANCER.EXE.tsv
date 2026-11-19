@@ -619,7 +619,7 @@ address	kind	name	type	comment
 00401f30	function	object_destroyed	void __fastcall (int slot, bool may_spin, bool no_eject)	A ship's end: an AI ship's pilot ejects where +0x74C is clear and eject_roll is under 40, or where told to eject before exploding, leaving the ship to Eject Spin; the player's ejects unless no_eject or already ejected or flying the Kamov; otherwise the ship explodes, its stack overwritten; may_spin goes into the order's data
 00402100	function	object_destroyed_net	void __fastcall (int slot, bool may_spin, bool no_eject)	object_destroyed, first telling the other players (0x004B9C70) where a network session runs a mission that is not multiplayer's; objects_collide's for a torpedo and a mine going off
 004e1798	data	explode_modes		Explode's routines for each mode, 0x18 bytes each: init and update, for a ship, a ship with components as a whole, one of its components, an asteroid and the limpet car
-004086f0	function	explode_ship_init	ObjectRoutine	Explode's init for a ship: heard at once close to the camera, it takes a style (the torpedoes always 2, else object_random15 % 3), the player's has the camera watch it from view 8, 0x1A or 0x1B and sets mission_ending to 1, then the style's init. After explode_kill_credit, a pilot of the player's wing (alpha_pilots) leaves an empty place, -1, and is marked dead (0) in pilot_pool
+004086f0	function	explode_ship_init	ObjectRoutine	Starts a ship explosion and plays the sound near the camera. Campaign torpedoes halt, and ordinary ships use object_random15 % 3. The player's death selects camera view 8, 0x1A or 0x1B and sets mission_ending. In arenas the local pilot's death counts before explode_kill_credit. A lost wingman's alpha_pilots entry becomes -1 and pilot_pool marks them dead before the explosion style starts.
 00408a60	function	explode_ship	ObjectRoutine	Explode's update for a ship: its style's update until the tick at +4; then explode_burst for style 1, explode_blast for the rest but the torpedoes, and object_retire
 00409170	function	explode_hull_init	ObjectRoutine	Explode's init for a ship that lists components, going as a whole
 004091e0	function	explode_hull	ObjectRoutine	Explode's update for a ship that lists components, going as a whole
@@ -635,7 +635,7 @@ address	kind	name	type	comment
 004090f0	function	explode_burst_init	ObjectRoutine	Style 1: unpowered, its rates and inputs zero, blowing up at once
 00408d20	function	explode_halt_init	ObjectRoutine	Style 2: stopped dead, unpowered, a random spin, blowing up at once; a fireball of its radius, and for a torpedo five more and a shockwave
 00408f70	function	explode_spin	ObjectRoutine	The update of styles 0 and 2: while fewer ticks are left than ten a bit of its trail, a small burning bit (explosion_bit, size 0.1, speed 1) thrown backwards from within 250 of it, every other one for a ship a pilot has left (flag abandoned); then the rotation set from the spin times the ticks left times 0.005
-00408500	function	explode_kill_credit	ObjectRoutine	Where the player destroyed a hostile fighter, or type 0x2D, 0x3C or 0x3E, adds the kill (kills_add) and a radio line on it (radio_kill_remark); a ship with +0x74C clear gets a line of its own (radio_ship_lost)
+00408500	function	explode_kill_credit	ObjectRoutine	Credits the local attacker for a hostile ship or arena player in a fighter, Kamov, Kurgan or Gurevich, skips same-team kills in team games and prepares the radio remarks
 004aeb50	function	arena_frame	void (void)	In a multiplayer mission, once a frame: the first time, sizes the arena's sphere round the objects from slot 8 but mines, beacons and a few ranges of types; after, a player's ship that strays past it meets its wall (arena_wall_hit) once until it is back inside, and the local player's is shaken and pushed back in, or put back just inside; the wall's flashes play on and the players' ships are kept apart
 004af0e0	function	arena_shot_check	void __fastcall (int *shot)	Once the arena is sized, a shot past its sphere meets its wall (arena_wall_hit)
 004af5c0	function	multiplayer_list_spawns	void (void)	As a multiplayer game starts: lists the objects of type spawn_player (0x3E1), the players' spawn points, by their slots (0x005D7CA8, the count at 0x005DAD2C), and unless 0x0050C2F1 is set, holds the guns of every object from slot 8 on; then 0x004B1760, and 0x004B09A0 where the network session is other than 1
@@ -3096,3 +3096,18 @@ address	kind	name	type	comment
 004b15e0	function	mp_reset_team_tallies	void __fastcall (int team)	Clears the kill and death counts for one arena team
 004b1600	function	mp_player_is_opponent	int __fastcall (int slot)	Returns 1 in a free-for-all or when the slot belongs to a different team from the local pilot
 004b9f20	function	mp_report_local_tallies	void __cdecl (void)	Writes the local pilot's kill and death counts as two 32-bit values in multiplayer message 0x3B
+004ae860	function	mp_arena_init	void (void)	Initialises the arena, clears individual and team scores, and loads team assignments and the team game option
+004b1470	function	mp_get_team_kills	int __fastcall (int team)	Reads the team kill count when 0x0050C2E4 is -1 and returns 999 otherwise
+004b1490	function	mp_get_team_deaths	int __fastcall (int team)	Reads the team death count when 0x0050C2E4 is -1 and returns 999 otherwise
+004b14b0	function	mp_set_team_kills	void __fastcall (int team, int count)	Replaces the kill count for one team
+004b14c0	function	mp_set_team_deaths	void __fastcall (int team, int count)	Replaces the death count for one team
+004b14d0	function	mp_occupied_slot_count	int (void)	Counts the eight in-game player slots whose network player ID is nonzero
+004b6890	function	mp_player_departed		Handles a departing network player, clears their arena scores, and resets their team scores if no teammate remains
+004bccd0	function	mp_team_for_player_id	int __fastcall (int player_id)	Finds a network player ID in the lobby roster and returns its team, or zero if absent
+00524d5c	data	mp_team_game_option	int	The lobby option copied to mp_team_game at arena initialisation
+005db650	data	mp_first_player_id	int	Network player ID in the first in-game player row, or zero for an empty slot, with a 0x3C stride
+005db654	data	mp_first_player_name	char	Start of the first in-game player name, used in arena kill and departure messages, with a 0x3C stride
+005db83c	data	mp_lobby_player_count	int	Number of players in the lobby roster searched by mp_team_for_player_id
+005db8f0	data	mp_first_lobby_player_id	int	Network player ID in the first lobby row, with a 0xFC stride
+005db8f4	data	mp_first_lobby_player_name	char	Start of the first lobby player name, with a 0xFC stride
+005db920	data	mp_first_lobby_player_team	int	Team index in the first lobby row, with a 0xFC stride
