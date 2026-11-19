@@ -38,6 +38,7 @@ sequence: u32 = 0,
 next_input: i64 = 0,
 leaving: bool = false,
 flight_command: flight.Command = .{},
+fire_primary: bool = false,
 presses: Presses = .{},
 
 pub fn status(client: *Client, conn: net.Connection, event: net.Status, name: ?[]const u8) void {
@@ -92,7 +93,16 @@ pub fn leave(client: *Client, io: Io) !void {
     client.leaving = true;
 }
 
-pub const Event = union(enum) { idle, admitted, lobby: wire.Lobby, beacon_notice: wire.BeaconNotice, snapshot, finished, closed };
+pub const Event = union(enum) {
+    idle,
+    admitted,
+    lobby: wire.Lobby,
+    beacon_notice: wire.BeaconNotice,
+    combat: wire.Combat,
+    snapshot,
+    finished,
+    closed,
+};
 
 pub fn setFlight(client: *Client, command: flight.Command) void {
     client.flight_command = command;
@@ -120,7 +130,11 @@ pub fn poll(client: *Client, io: Io) !Event {
         client.sent_join = true;
     }
     if (client.joined != null and !client.leaving and now >= client.next_input) {
-        try net.send(client.conn, .{ .input = .{ .sequence = client.sequence, .command = client.flight_command } });
+        try net.send(client.conn, .{ .input = .{
+            .sequence = client.sequence,
+            .command = client.flight_command,
+            .fire_for = if (client.fire_primary and client.latest != null) client.latest.?.ships[client.joined.?.slot].?.reuse else null,
+        } });
         if (client.presses.any()) {
             try net.send(client.conn, .{ .flight_press = client.presses });
             client.presses = .{};
@@ -149,6 +163,7 @@ pub fn poll(client: *Client, io: Io) !Event {
             return .{ .lobby = roster };
         },
         .beacon_notice => |notice| return if (client.joined != null and !client.leaving) .{ .beacon_notice = notice } else error.UnexpectedMessage,
+        .combat => |effects| return if (client.latest != null and !client.leaving) .{ .combat = effects } else .idle,
         .view, .finished => |view| {
             const admission = client.joined orelse {
                 // Unreliable flight updates can arrive before the reliable admission.
@@ -195,7 +210,7 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
         client.setFlight(steering.command());
         const event = try client.poll(io);
         switch (event) {
-            .idle, .lobby => {},
+            .idle, .lobby, .combat => {},
             .beacon_notice => |notice| std.debug.print("notice {s} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot }),
             .closed => return,
             .admitted => {

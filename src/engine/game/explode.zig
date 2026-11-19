@@ -1131,8 +1131,13 @@ pub fn blast(world: gameobj.World, index: u16) void {
         });
     }
     sparkles(world, at, velocity, blast_carried, .{});
-    fireballAt(world, at, .{ .size = slot.object.radius, .light = true, .velocity = velocity * @as(Vector, @splat(blast_carried)) });
+    fighterFireball(world, at, velocity, slot.object.radius);
     sound(world, at, soundClass(world, at) orelse return);
+}
+
+/// The main fireball of a fighter's blast, also used to show a remote fighter's destruction.
+pub fn fighterFireball(world: gameobj.World, at: Vector, velocity: Vector, radius: f32) void {
+    fireballAt(world, at, .{ .size = radius, .light = true, .velocity = velocity * @as(Vector, @splat(blast_carried)) });
 }
 
 /// A missile's fireball: three times its radius across, over a second.

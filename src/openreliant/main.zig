@@ -663,6 +663,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // camera stands.
     var sound_commands: game.hog_snd.commands.Commands = .{ .gpa = gpa };
     defer sound_commands.deinit(sound);
+    var online_sounds: game.hog_snd.commands.Commands = .{ .gpa = gpa };
+    defer online_sounds.deinit(sound);
     try loading.show(game.xtrabits.loading.startup_step);
     // What the explosions leave for the frames after them, and the particles they send out.
     var explosions: game.explode.Explosions = try .init(gpa, try .load(&textures));
@@ -1457,7 +1459,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         // display takes up what they started for it, before the scripts and the frame read it.
         view.notice(&player.viewing);
         const network_frame = if (network_enabled and flow.in_front_end)
-            network_pilot.frame(gpa, objects, tables, types.types(), .{ .io = io, .directory = directory, .archive = &resources }, strings, presentation) catch |err| frame: {
+            network_pilot.frame(gpa, objects, tables, types.types(), .{ .io = io, .directory = directory, .archive = &resources }, strings, presentation, .{
+                .textures = &textures,
+                .images = explosions.images,
+                .sounds = if (output != null) &online_sounds else null,
+            }) catch |err| frame: {
                 std.log.warn("could not display the multiplayer arena: {s}", .{@errorName(err)});
                 network_pilot.returnToBrowser(&front.connection, presentation, .{ .english = "Could not load the multiplayer arena" });
                 break :frame null;
@@ -1564,6 +1570,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             if (network_frame) |flight| {
                 const viewing = &flight.player.viewing;
                 const place = NetworkPilot.chase(flight);
+                online_sounds.play(sound, place);
                 context.camera = .{ .position = place.position, .orientation = place.orientation };
                 context.projection = (camera.Camera{}).projection(viewing.view, size[0], size[1], field_of_view);
                 display.device = gpu.interface();
@@ -1582,8 +1589,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .chase = chase_objects,
                     .display = &display.drawing,
                     .overlay = display.overlay(),
+                    .sparks = if (flight.effects.sparks) |*effects| effects else null,
+                    .explosions = if (flight.effects.explosions) |*effects| effects else null,
+                    .shields = &shields,
                     .pickup_rings = &pickup_rings,
-                    .attachments = .{ .camera = place.position },
+                    .attachments = .{ .camera = place.position, .frame_start = flight.clock.frame_start },
                 }, driver.interface());
             } else {
                 scene.clear();

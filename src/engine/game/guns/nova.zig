@@ -33,7 +33,7 @@ const charge_per_hold: f32 = 0.0025;
 /// (`0x004DC408`). Above it, charging shakes the player's view by `charging_shake`, and at
 /// `full_charge` by `charged_shake`.
 const least_charge: f32 = 0.5;
-const full_charge: f32 = 1;
+pub const full_charge: f32 = 1;
 const charging_shake: f32 = 0.3;
 const charged_shake: f32 = 0.6;
 
@@ -314,8 +314,21 @@ pub fn releaseWithFeedback(world: gameobj.World, index: u16, feedback: bool) voi
     if (world.sounds) |asked| asked.add(.{ .buffered = .{ .index = blast_sound, .at = ship.drawn.position, .volume = ship.object.radius * blast_loudness } });
     if (feedback) if (world.forces) |forces| forces.start(.nc, now);
     strike(world, index, fired, charged(ship));
+    guns.FlightEffect.emit(.{ .nova = .{ .owner = .of(all, index), .charge = fired, .fired_at = now } }, world);
     const looks = all.bullets.looks orelse return;
     slot.* = .init(&looks.nova, .of(world.objects, index), now + beam_ticks, fired);
+}
+
+/// Draw the host's beam without running its strike on the client.
+pub fn show(world: gameobj.World, owner: u16, effect: guns.FlightEffect.Nova) void {
+    const all = world.objects;
+    const until = effect.fired_at +| beam_ticks;
+    if (until < world.clock.frame_start) return;
+    const looks = all.bullets.looks orelse return;
+    const slot = all.bullets.beams.free() orelse return;
+    slot.* = .init(&looks.nova, .of(all, owner), until, effect.charge);
+    const ship = &all.slots[owner];
+    if (world.sounds) |asked| asked.add(.{ .buffered = .{ .index = blast_sound, .at = ship.drawn.position, .volume = ship.object.radius * blast_loudness } });
 }
 
 /// Damages every object whose bounding box the beam crosses, up to `beam_reach` straight ahead of
