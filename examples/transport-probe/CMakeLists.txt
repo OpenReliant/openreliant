@@ -9,6 +9,9 @@ set(BUILD_STATIC_LIB ON CACHE BOOL "")
 add_subdirectory("${GNS_SOURCE}" gns)
 target_compile_definitions(GameNetworkingSockets_s PRIVATE
     STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY="${root_key}")
+if(OPENRELIANT_TRANSPORT_ONLY)
+    return()
+endif()
 
 # Configure and trace native ICE in a build-local copy of the pinned translation unit.
 set(clientlib "${GNS_SOURCE}/src/steamnetworkingsockets/clientlib")
@@ -25,6 +28,7 @@ set_source_files_properties("${trace_source}" TARGET_DIRECTORY GameNetworkingSoc
     PROPERTIES INCLUDE_DIRECTORIES "${clientlib}")
 
 add_executable(transport-probe transport.cpp ice.cpp)
+target_compile_features(transport-probe PRIVATE cxx_std_17)
 if(PROBE_WORKLOAD_LIBRARY)
     target_link_libraries(transport-probe PRIVATE "${PROBE_WORKLOAD_LIBRARY}")
 else()
@@ -35,12 +39,14 @@ else()
         message(FATAL_ERROR "Set PROBE_ZIG_TARGET to the C++ compiler's target")
     endif()
     set(object "${CMAKE_CURRENT_BINARY_DIR}/scenario${CMAKE_CXX_OUTPUT_EXTENSION}")
+    set(handshake_budget "${CMAKE_CURRENT_SOURCE_DIR}/../../src/openreliant/network/handshake_budget.zig")
     add_custom_command(OUTPUT "${object}"
         COMMAND "${ZIG}" build-obj -OReleaseSafe -fPIC ${target_args} -lc
-                "-femit-bin=${object}" --dep host_simulation
+                "-femit-bin=${object}" --dep host_simulation --dep handshake_budget
                 "-Mroot=${CMAKE_CURRENT_SOURCE_DIR}/scenario.zig"
                 -OReleaseSafe ${target_args} "-Mhost_simulation=${CMAKE_CURRENT_SOURCE_DIR}/toy.zig"
-        DEPENDS scenario.zig socket.zig incoming_connections.zig toy.zig wire.zig VERBATIM)
+                -OReleaseSafe ${target_args} "-Mhandshake_budget=${handshake_budget}"
+        DEPENDS scenario.zig socket.zig incoming_connections.zig toy.zig wire.zig "${handshake_budget}" VERBATIM)
     target_sources(transport-probe PRIVATE "${object}")
 endif()
 target_link_libraries(transport-probe PRIVATE GameNetworkingSockets::static)

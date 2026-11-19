@@ -5,6 +5,7 @@ import fcntl
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 
 HERE = Path(__file__).resolve().parent
@@ -69,12 +70,13 @@ def build(work, target, workload):
     pb_options = ["-DCMAKE_POLICY_VERSION_MINIMUM=3.5", "-Dprotobuf_BUILD_TESTS=OFF", "-Dprotobuf_WITH_ZLIB=OFF"]
     cmake(pb, work / "host", pb_options, "protoc")
     protoc = work / "host" / "protoc"
-    beacons = workload == "six-beacons"
-    credentials = work / ("six-beacons-identities" if beacons else "identities")
+    session = workload == "session"
+    late_pilot = workload in ("six-beacons", "session")
+    credentials = work / (f"{workload}-identities" if late_pilot else "identities")
     if not credentials.exists():
         from credentials import issue
 
-        issue(credentials, gns / "src/common/steamnetworkingsockets_messages_certs.proto", protoc, late_pilot=beacons)
+        issue(credentials, gns / "src/common/steamnetworkingsockets_messages_certs.proto", protoc, late_pilot=late_pilot)
 
     arch, platform = target.split("-", 1)
     system = "Darwin" if platform.startswith("macos") else "Windows" if platform == "windows-gnu" else "Linux"
@@ -105,7 +107,10 @@ def build(work, target, workload):
             crypto.append(f'-DCMAKE_EXE_LINKER_FLAGS=-F"{sdk}/System/Library/Frameworks" -L"{sdk}/usr/lib"')
     options = []
     directory = "probe"
-    if workload:
+    if session:
+        directory = "session-transport"
+        options = ["-DOPENRELIANT_TRANSPORT_ONLY=ON"]
+    elif workload:
         name = workload + "-loopback"
         zig_prefix = out / (workload + "-zig")
         subprocess.run(["zig", "build", name, f"-Dtarget={target}",
@@ -115,7 +120,14 @@ def build(work, target, workload):
         directory = workload + "-probe"
     cmake(HERE, out / directory, cross + crypto + options + [
         f"-DGNS_SOURCE={gns}", f"-DPROBE_ROOT_KEY={credentials}/root.pub", f"-DPROBE_ZIG_TARGET={target}",
-        f"-DProtobuf_DIR={prefix}/lib/cmake/protobuf", f"-DProtobuf_PROTOC_EXECUTABLE={protoc}"])
+        f"-DProtobuf_DIR={prefix}/lib/cmake/protobuf", f"-DProtobuf_PROTOC_EXECUTABLE={protoc}"],
+        "GameNetworkingSockets_s" if session else None)
+    if session:
+        shutil.copytree(gns / "include" / "steam", prefix / "include" / "steam", dirs_exist_ok=True)
+        shutil.copyfile(out / directory / "gns" / "src" / "libGameNetworkingSockets_s.a",
+                        prefix / "lib" / "libGameNetworkingSockets_s.a")
+        if system != "Windows":
+            shutil.copyfile(ssl / "libcrypto.a", prefix / "lib" / "libcrypto.a")
 
 
 if __name__ == "__main__":
@@ -125,6 +137,8 @@ if __name__ == "__main__":
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--arena", dest="workload", action="store_const", const="arena", help="run headless flight")
     mode.add_argument("--six-beacons", dest="workload", action="store_const", const="six-beacons", help="run the headless late join and drop test")
+    mode.add_argument("--session", dest="workload", action="store_const", const="session",
+                      help="build libraries and test identities for openreliant session")
     args = parser.parse_args()
     work = args.work.resolve()
     work.mkdir(parents=True, exist_ok=True)

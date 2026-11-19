@@ -157,6 +157,12 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--help" = .{ .section = .other, .alias = "-h", .text = "show this page" },
 });
 
+/// `openreliant session --help`.
+pub const session_help =
+    \\usage: openreliant session host <ip:port> <certificate> [round-ticks]
+    \\       openreliant session join <ip:port> <certificate> <host-identity> <keyboard|left|straight|right> [views-before-leaving]
+    \\
+;
 /// `openreliant --help`.
 pub const help_page = page: {
     var out: []const u8 = help.paragraph("OpenReliant " ++ version.string ++ " plays StarLancer from an installed copy of the game.", 0) ++
@@ -167,6 +173,7 @@ pub const help_page = page: {
         \\       openreliant missions [<game-directory>] [--no-mods]
         \\       openreliant hooks [<hook>] [--definitions]
         \\       openreliant debug [--port <port>]
+        \\       openreliant session --help
         \\
         \\
     ++ help.table(&.{.{ .typed = "<game-directory>", .text = "where StarLancer is installed, with resource.hog and tcachehw.dat; by default the first that holds the game of the current directory, the directories in it, the directory openreliant is in and the directories beside it" }}) ++
