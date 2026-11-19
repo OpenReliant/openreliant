@@ -182,12 +182,17 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(openreliant);
     openreliant.root_module.addImport("handshake_budget", handshake_budget);
     openreliant.root_module.addImport("arena_simulation", arena_simulation);
-    const gns_prefix = b.option([]const u8, "gns-prefix", "Standalone GameNetworkingSockets headers and static libraries for direct-IP sessions");
+    const gns_prefix = b.option([]const u8, "gns-prefix", "Transport prefix from scripts/build_transport.py");
     const network_options = b.addOptions();
     network_options.addOption(bool, "enabled", gns_prefix != null);
     openreliant.root_module.addOptions("network_options", network_options);
     if (gns_prefix) |prefix| {
         const driver = openreliant.root_module;
+        b.installDirectory(.{
+            .source_dir = b.graph.cwdRelativePath(b.pathJoin(&.{ prefix, "licenses" })),
+            .install_dir = .prefix,
+            .install_subdir = "",
+        });
         driver.addIncludePath(b.graph.cwdRelativePath(b.pathJoin(&.{ prefix, "include" })));
         driver.addCSourceFile(.{ .file = b.path("src/openreliant/network/gns.cpp"), .flags = &.{
             "-std=c++17", "-DSTEAMNETWORKINGSOCKETS_STATIC_LINK", "-fno-sanitize=undefined",

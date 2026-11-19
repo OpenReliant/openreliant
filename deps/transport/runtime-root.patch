@@ -1,0 +1,43 @@
+--- a/steamnetworkingsockets_certstore.cpp
++++ b/steamnetworkingsockets_certstore.cpp
+@@ -14,0 +15,4 @@
++#include "clientlib/steamnetworkingsockets_lowlevel.h"
++
++// The caller supplies the trusted key before any connection is opened.
++#undef STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY
+@@ -302,0 +307,21 @@
++extern "C" bool OpenReliant_SetTransportRoot( const char *keyText, size_t size )
++{
++	SteamNetworkingGlobalLock lock( "OpenReliant_SetTransportRoot" );
++	auto key = std::make_unique<PublicKey>();
++	if ( !key->m_keyPublic.SetFromOpenSSHAuthorizedKeys( keyText, size ) )
++		return false;
++
++	uint64 id = key->CalculateKeyID();
++	if ( s_mapPublicKeys.Count() != 0 )
++	{
++		const PublicKey *existing = FindPublicKey( id );
++		return existing && existing->m_eTrust == k_ETrust_Hardcoded &&
++			existing->m_keyPublic == key->m_keyPublic;
++	}
++	key->m_eTrust = k_ETrust_Hardcoded;
++	key->m_effectiveAuthScope.SetAll();
++	s_mapPublicKeys.Insert( id, std::move( key ) );
++	s_bTrustValid = false;
++	return true;
++}
++
+@@ -479,11 +504,2 @@
+-			#ifdef STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY
+-				// If hardcoded root cert is in use, only trust the
+-				// one hardcoded root key.  (We've already tagged it
+-				// as trusted by hardcoded, so we don't get this far
+-				// for those keys).
+-				cert.m_status_msg = "Trusted root is hardcoded, cannot add more self-signed certs";
+-				continue;
+-			#else
+-				// Self signed is OK.
+-				cert.m_status_msg = "(Self-signed root)";
+-			#endif
++			cert.m_status_msg = "Self-signed certificates cannot add trusted keys";
++			continue;

@@ -9,6 +9,7 @@
 
 enum class Status : int { incoming, authenticated, closed };
 extern "C" void session_status(uint32_t conn, Status status, const char *identity);
+extern "C" bool OpenReliant_SetTransportRoot(const char *key, size_t size);
 
 constexpr int queued_messages = 32;
 constexpr int queued_bytes = 4096;
@@ -37,11 +38,13 @@ static void changed(SteamNetConnectionStatusChangedCallback_t *event) {
     }
 }
 
-extern "C" bool session_init(const uint8_t *certificate, int size, int max_message) {
+extern "C" bool session_init(const char *root, size_t root_size,
+                             const uint8_t *certificate, int size, int max_message) {
     SteamNetworkingErrMsg error{};
     if (!GameNetworkingSockets_Init(nullptr, error)) return false;
     auto *utils = SteamNetworkingUtils();
     const bool configured =
+        OpenReliant_SetTransportRoot(root, root_size) &&
         openreliant::gns::require_encryption(utils) &&
         openreliant::gns::receive_limits(max_message, queued_messages, queued_bytes) &&
         utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_SendBufferSize, queued_bytes) &&

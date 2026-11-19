@@ -1,0 +1,46 @@
+name: Build multiplayer transport
+description: Build the transport libraries for an OpenReliant target
+inputs:
+  target:
+    description: Zig target triple
+    required: true
+  test-identities:
+    description: Generate disposable identities for the headless session check
+    default: "false"
+outputs:
+  prefix:
+    description: Headers, libraries and licenses to pass to the Zig build
+    value: ${{ steps.build.outputs.prefix }}
+  identities:
+    description: Directory for the disposable test identities
+    value: ${{ steps.build.outputs.identities }}
+runs:
+  using: composite
+  steps:
+    - name: Check the build tools
+      shell: bash
+      run: |
+        if ! command -v ninja > /dev/null; then
+          case "$RUNNER_OS" in
+            macOS) brew install ninja ;;
+            Linux) sudo apt-get update && sudo apt-get install -y ninja-build ;;
+          esac
+        fi
+    - name: Build the transport
+      id: build
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+        TEST_IDENTITIES: ${{ inputs.test-identities }}
+      run: |
+        work="$RUNNER_TEMP/openreliant-transport"
+        python=python3
+        args=()
+        if [ "$TEST_IDENTITIES" = true ]; then
+          python3 -m venv "$RUNNER_TEMP/openreliant-session-tests"
+          python="$RUNNER_TEMP/openreliant-session-tests/bin/python"
+          "$python" -m pip install -r scripts/transport-test-requirements.txt
+          args+=(--test-identities)
+        fi
+        "$python" scripts/build_transport.py "$work" "$TARGET" "${args[@]}"
+        printf 'prefix=%s\nidentities=%s\n' "$work/$TARGET/prefix" "$work/session-identities" >> "$GITHUB_OUTPUT"

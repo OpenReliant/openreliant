@@ -5,6 +5,8 @@ import asyncio
 import os
 from pathlib import Path
 import socket
+import subprocess
+import tempfile
 
 
 class Session:
@@ -57,12 +59,14 @@ def require(condition, description):
 
 async def run(binary, credentials):
     sessions = []
+    root = credentials / "root.pub"
 
-    async def start(role, identity, *args):
+    async def start(role, identity, *args, trust=root):
         process = await asyncio.create_subprocess_exec(
-            str(binary), "session", role, address, str(credentials / f"{identity}.cert"), *args,
+            str(binary), "session", role, address, str(trust), str(credentials / f"{identity}.cert"), *args,
             stdin=asyncio.subprocess.PIPE if "keyboard" in args else None,
             stderr=asyncio.subprocess.PIPE,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
         session = Session(process)
         sessions.append(session)
@@ -76,6 +80,12 @@ async def run(binary, credentials):
         address = f"127.0.0.1:{udp.getsockname()[1]}"
 
     try:
+        with tempfile.TemporaryDirectory() as directory:
+            invalid_key = Path(directory) / "root.pub"
+            invalid_key.write_text("invalid public key\n", encoding="ascii")
+            invalid = await start("host", "host", "175", trust=invalid_key)
+            require(await invalid.wait() == 1 and invalid.last_line == "session: InvalidTransportIdentity",
+                    "the host accepted an invalid trust root")
         host = await start("host", "host", "175")
         await host.expect("listening ")
         keyboard = os.name == "posix"
