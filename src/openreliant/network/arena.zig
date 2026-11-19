@@ -8,7 +8,28 @@ const wire = @import("wire.zig");
 const Arena = @This();
 
 const spawn_spacing: f32 = 12000;
-pub const Mode = enum { training, @"six-beacons", @"nuclear-threat" };
+pub const Mode = enum {
+    training,
+    @"six-beacons",
+    @"nuclear-threat",
+    @"asteroid-field",
+
+    pub fn scenario(mode: Mode) ?wire.Scenario {
+        return switch (mode) {
+            .training, .@"six-beacons" => null,
+            .@"nuclear-threat" => .nuclear_threat,
+            .@"asteroid-field" => .asteroid_field,
+        };
+    }
+
+    pub fn stockMode(chosen: wire.Scenario) !Mode {
+        return switch (chosen) {
+            .nuclear_threat => .@"nuclear-threat",
+            .asteroid_field => .@"asteroid-field",
+            else => error.UnsupportedArena,
+        };
+    }
+};
 const Pilot = struct { participant: game.players.ParticipantRef, fighter: wire.Fighter };
 const Notice = game.deathmatch.six_beacons.Notice;
 const notice_capacity = wire.slots + 2;
@@ -24,12 +45,20 @@ devices: engine.input.Devices = .{},
 pilots: [wire.slots]?Pilot = @splat(null),
 assets: ?*stock.Assets = null,
 loaded: ?*game.mission.Loaded = null,
+rocks: stock.RockSlots = .{},
 notices: [notice_capacity]Notice = undefined,
 notice_count: usize = 0,
 combat: [2 * game.guns.max_bullets + wire.slots]game.guns.FlightEffect = undefined,
 combat_count: usize = 0,
 
-pub fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory: std.Io.Dir) !void {
+pub fn create(gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory: std.Io.Dir) !*Arena {
+    const arena = try gpa.create(Arena);
+    errdefer gpa.destroy(arena);
+    try arena.init(gpa, mode, io, directory);
+    return arena;
+}
+
+fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory: std.Io.Dir) !void {
     try arena.mission.init(gpa);
     arena.mode = mode;
     arena.explosions = null;
@@ -37,6 +66,7 @@ pub fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, direc
     arena.pilots = @splat(null);
     arena.assets = null;
     arena.loaded = null;
+    arena.rocks = .{};
     arena.notice_count = 0;
     arena.combat_count = 0;
     errdefer arena.deinit();
@@ -50,17 +80,43 @@ pub fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, direc
             arena.explosions = try .init(gpa, null);
             try simulation.prepareSixBeacons(&arena.mission, &arena.explosions.?);
         },
-        .@"nuclear-threat" => {
+        .@"nuclear-threat", .@"asteroid-field" => {
             const assets = try stock.Assets.open(gpa, io, directory, &arena.mission.tables, arena.mission.objects);
             arena.assets = assets;
             arena.explosions = try .init(gpa, null);
-            arena.loaded = try assets.files.load(gpa, .nuclear_threat, arena.world());
-            if (arena.mission.objects.arena_scenario != .six_beacons) return error.ArenaScriptDidNotStart;
+            const scenario = mode.scenario().?;
+            arena.loaded = try assets.files.load(gpa, scenario, arena.world());
+            if ((scenario == .nuclear_threat) != (arena.mission.objects.arena_scenario == .six_beacons))
+                return error.ArenaScriptDidNotStart;
+            if (scenario == .asteroid_field) arena.rocks = try .collect(arena.mission.objects);
         },
     }
 }
 
-pub fn deinit(arena: *Arena) void {
+/// Prepare a stock arena with the lobby's admissions. Its objects hold pointers to its ship tables.
+pub fn prepareStock(arena: *const Arena, scenario: wire.Scenario, io: std.Io, directory: std.Io.Dir) !*Arena {
+    const gpa = arena.mission.objects.gpa;
+    const next = try create(gpa, try .stockMode(scenario), io, directory);
+    errdefer next.destroy();
+    const all = next.mission.objects;
+    all.participant_generation = arena.mission.objects.participant_generation;
+    for (arena.pilots, &next.pilots) |entry, *new| {
+        const pilot = entry orelse continue;
+        const slot = pilot.participant.slot;
+        all.player_states[slot] = .{ .membership = .{ .joined = .{ .generation = pilot.participant.generation } } };
+        try next.spawnPilot(pilot, true);
+        new.* = pilot;
+    }
+    return next;
+}
+
+pub fn destroy(arena: *Arena) void {
+    const gpa = arena.mission.objects.gpa;
+    arena.deinit();
+    gpa.destroy(arena);
+}
+
+fn deinit(arena: *Arena) void {
     const gpa = arena.mission.objects.gpa;
     if (arena.loaded) |loaded| loaded.destroy();
     if (arena.explosions) |*explosions| explosions.deinit();
@@ -117,7 +173,7 @@ pub fn join(arena: *Arena, slot: u8, fighter: wire.Fighter) !wire.Admission {
     const pilot: Pilot = .{ .participant = participant, .fighter = fighter };
     try arena.spawnPilot(pilot, true);
     arena.pilots[slot] = pilot;
-    return .{ .slot = slot, .generation = participant.generation, .scenario = if (arena.assets != null) .nuclear_threat else null };
+    return .{ .slot = slot, .generation = participant.generation };
 }
 
 fn spawnPilot(arena: *Arena, pilot: Pilot, first: bool) !void {
@@ -151,7 +207,7 @@ pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire
     const pilot = all.playerBinding(slot).?;
     return all.submitPlayerCommand(pilot, .{
         .flight = command,
-        .weapons = .{ .fire_guns = fire_for == pilot.ship.reuse and arena.mode == .@"nuclear-threat" },
+        .weapons = .{ .fire_guns = fire_for == pilot.ship.reuse and arena.mode.scenario() != null },
     });
 }
 
@@ -161,7 +217,8 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
     arena.mission.clock.advanceTimer(game.gameobj.ticks_per_step);
     if (game.main.gameFrames(&arena.mission.clock, &arena.devices, null, arena.world(), .in_turn, arena.loaded) != .played) return error.ArenaEnded;
     const all = arena.mission.objects;
-    var view: wire.Snapshot = .{ .tick = tick, .ships = @splat(null) };
+    var view: wire.Snapshot = .{ .tick = tick, .scenario = arena.mode.scenario(), .ships = @splat(null) };
+    view.rocks = arena.rocks.capture(all);
     for (arena.pilots, &view.ships, 0..) |entry, *ship, at| {
         const pilot = entry orelse continue;
         const index: u16 = @intCast(at);

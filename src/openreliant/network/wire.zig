@@ -6,7 +6,7 @@ const engine = @import("openreliant").engine;
 const flight = engine.input.flight;
 pub const Fighter = engine.game.dmscenarios.Fighter;
 pub const Scenario = engine.game.dmscenarios.Scenario;
-pub const revision: u16 = 7;
+pub const revision: u16 = 8;
 pub const slots = 3;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
@@ -22,8 +22,10 @@ pub const Combat = struct {
         return combat.entries[0..combat.count];
     }
 };
-// A tag and tick, three full ship records, and six loose beacons.
-const snapshot_capacity = 1 + @sizeOf(u32) + slots * Ship.encoded_size + 1 + beacon_count * (1 + 3 * @sizeOf(f32));
+// A tag, scenario, tick, three ships, and the largest scenario payload.
+const snapshot_header = 2 + @sizeOf(u32) + slots * Ship.encoded_size + 1;
+const beacon_snapshot_capacity = snapshot_header + beacon_count * (1 + 3 * @sizeOf(f32));
+const snapshot_capacity = @max(beacon_snapshot_capacity, snapshot_header + 1 + Rocks.max * (1 + @sizeOf(Facing)));
 pub const capacity = @max(snapshot_capacity, Combat.capacity);
 const max_release = 96;
 
@@ -39,9 +41,14 @@ pub const Input = struct {
         return @as(i32, @bitCast(input.sequence -% accepted)) > 0;
     }
 };
-pub const Admission = struct { slot: u8, generation: u64, scenario: ?Scenario = null };
+pub const Admission = struct { slot: u8, generation: u64 };
 pub const CallSign = engine.game.interface.pilot_roster.CallSign;
-pub const Lobby = [slots]?CallSign;
+pub const Roster = struct {
+    lobby: ?Scenario = null,
+    pilots: [slots]?Pilot = @splat(null),
+
+    pub const Pilot = struct { generation: u64, name: CallSign = .{} };
+};
 pub const BeaconNotice = struct { event: engine.game.deathmatch.six_beacons.Notice, name: CallSign };
 
 fn validCallSignByte(byte: u8) bool {
@@ -92,7 +99,7 @@ pub const Ship = struct {
     fighter: Fighter = .predator,
     position: [3]f32,
     // Signed half-turns keep the three angles to six bytes per ship.
-    angles: [3]i16 = @splat(0),
+    angles: Facing = @splat(0),
     speed: f32 = 0,
     throttle: f32 = 0,
     fuel: i32 = 0,
@@ -104,19 +111,57 @@ pub const Ship = struct {
     const encoded_size = @sizeOf(u64) + @sizeOf(u32) + 1 + 13 * @sizeOf(f32) + 3 * @sizeOf(i16) + 3 * @sizeOf(i32);
 
     pub fn face(ship: *Ship, orientation: engine.surrender.math.Matrix) void {
-        const radians = engine.surrender.math.angles(orientation);
-        inline for (&ship.angles, 0..) |*angle, i| angle.* = @intFromFloat(@round(radians[i] * (32767.0 / std.math.pi)));
+        ship.angles = packFacing(orientation);
     }
 
     pub fn orientationMatrix(ship: Ship) engine.surrender.math.Matrix {
-        var angles: engine.surrender.math.Vector = undefined;
-        inline for (ship.angles, 0..) |angle, i| angles[i] = @as(f32, @floatFromInt(angle)) * (std.math.pi / 32767.0);
-        return engine.surrender.math.fromAngleVector(angles);
+        return unpackFacing(ship.angles);
     }
 };
 pub const Beacon = union(enum(u8)) { loose: [3]f32, carried: u8 };
 pub const Objectives = union(enum(u8)) { none, six_beacons: [beacon_count]Beacon };
-pub const Snapshot = struct { tick: u32, ships: [slots]?Ship, objectives: Objectives = .none };
+pub const Facing = [3]i16;
+const math = engine.surrender.math;
+
+pub fn packFacing(orientation: math.Matrix) Facing {
+    const radians = math.angles(orientation);
+    var packed_angles: Facing = undefined;
+    inline for (&packed_angles, 0..) |*angle, i| angle.* = @intFromFloat(@round(radians[i] * (32767.0 / std.math.pi)));
+    return packed_angles;
+}
+
+pub fn unpackFacing(packed_angles: Facing) math.Matrix {
+    var angles: math.Vector = undefined;
+    inline for (packed_angles, 0..) |angle, i| angles[i] = @as(f32, @floatFromInt(angle)) * (std.math.pi / 32767.0);
+    return math.fromAngleVector(angles);
+}
+
+pub const Rocks = struct {
+    /// Mission 85 has thirty rocks. The room for extra entries keeps the packet bounded.
+    pub const max = 32;
+    count: u8 = 0,
+    angles: [max]?Facing = @splat(null),
+};
+
+pub const Snapshot = struct {
+    tick: u32,
+    scenario: ?Scenario = null,
+    ships: [slots]?Ship,
+    objectives: Objectives = .none,
+    rocks: Rocks = .{},
+};
+
+fn writeScenario(w: *std.Io.Writer, scenario: ?Scenario) !void {
+    try w.writeByte(if (scenario) |value| @backingInt(value) + 1 else 0);
+}
+
+fn readScenario(r: *std.Io.Reader) !?Scenario {
+    const code = try r.takeByte();
+    if (code == 0) return null;
+    const scenario = std.enums.fromInt(Scenario, code - 1) orelse return error.InvalidScenario;
+    if (!scenario.available()) return error.InvalidScenario;
+    return scenario;
+}
 
 fn writePosition(writer: *std.Io.Writer, position: [3]f32) !void {
     for (position) |axis| try writeFloat(writer, axis);
@@ -236,7 +281,7 @@ pub const Message = union(enum(u8)) {
     leave,
     received_final: u32,
     flight_press: flight_input.Presses,
-    lobby: Lobby,
+    roster: Roster,
     call_sign: CallSign,
     pick_ship: Fighter,
     beacon_notice: BeaconNotice,
@@ -255,7 +300,6 @@ pub const Message = union(enum(u8)) {
             .joined => |id| {
                 try w.writeByte(id.slot);
                 try w.writeInt(u64, id.generation, .little);
-                try w.writeByte(if (id.scenario) |scenario| @backingInt(scenario) + 1 else 0);
             },
             .input => |input| {
                 try w.writeInt(u32, input.sequence, .little);
@@ -264,6 +308,7 @@ pub const Message = union(enum(u8)) {
             },
             .view, .finished => |view| {
                 try w.writeInt(u32, view.tick, .little);
+                try writeScenario(&w, view.scenario);
                 for (view.ships) |entry| {
                     const ship = entry orelse {
                         try w.writeInt(u64, 0, .little);
@@ -293,13 +338,24 @@ pub const Message = union(enum(u8)) {
                         }
                     },
                 }
+                if (view.scenario == .asteroid_field) {
+                    if (view.rocks.count > Rocks.max) return error.InvalidSnapshot;
+                    try w.writeByte(view.rocks.count);
+                    for (view.rocks.angles[0..view.rocks.count]) |entry| {
+                        try w.writeByte(@intFromBool(entry != null));
+                        if (entry) |facing| for (facing) |axis| try w.writeInt(i16, axis, .little);
+                    }
+                }
             },
             .leave => {},
             .received_final => |tick| try w.writeInt(u32, tick, .little),
             .flight_press => |presses| try w.writeByte(@bitCast(presses)),
-            .lobby => |roster| for (roster) |name| {
-                try w.writeByte(@intFromBool(name != null));
-                if (name) |present| try writeCallSign(&w, &present);
+            .roster => |roster| {
+                try writeScenario(&w, roster.lobby);
+                for (roster.pilots) |entry| {
+                    try w.writeInt(u64, if (entry) |pilot| pilot.generation else 0, .little);
+                    if (entry) |pilot| try writeCallSign(&w, &pilot.name);
+                }
             },
             .call_sign => |name| try writeCallSign(&w, &name),
             .pick_ship => |fighter| try w.writeByte(@backingInt(fighter)),
@@ -332,10 +388,8 @@ pub const Message = union(enum(u8)) {
             .joined => admitted: {
                 const slot = try r.takeByte();
                 const generation = try r.takeInt(u64, .little);
-                const code = try r.takeByte();
-                const scenario = if (code == 0) null else std.enums.fromInt(Scenario, code - 1) orelse return error.InvalidAdmission;
                 if (slot >= slots or generation == 0) return error.InvalidAdmission;
-                break :admitted .{ .joined = .{ .slot = slot, .generation = generation, .scenario = scenario } };
+                break :admitted .{ .joined = .{ .slot = slot, .generation = generation } };
             },
             .input => .{ .input = .{
                 .sequence = try r.takeInt(u32, .little),
@@ -343,7 +397,7 @@ pub const Message = union(enum(u8)) {
                 .fire_for = if (r.bufferedLen() == 0) null else try r.takeInt(u32, .little),
             } },
             .view, .finished => snapshot: {
-                var view: Snapshot = .{ .tick = try r.takeInt(u32, .little), .ships = @splat(null) };
+                var view: Snapshot = .{ .tick = try r.takeInt(u32, .little), .scenario = try readScenario(&r), .ships = @splat(null) };
                 for (&view.ships) |*entry| {
                     const generation = try r.takeInt(u64, .little);
                     if (generation == 0) continue;
@@ -378,6 +432,17 @@ pub const Message = union(enum(u8)) {
                         break :objectives .{ .six_beacons = beacons };
                     },
                 };
+                if (view.scenario == .asteroid_field) {
+                    view.rocks.count = try r.takeByte();
+                    if (view.rocks.count > Rocks.max) return error.InvalidSnapshot;
+                    for (view.rocks.angles[0..view.rocks.count]) |*entry| {
+                        entry.* = switch (try r.takeByte()) {
+                            0 => null,
+                            1 => .{ try r.takeInt(i16, .little), try r.takeInt(i16, .little), try r.takeInt(i16, .little) },
+                            else => return error.InvalidSnapshot,
+                        };
+                    }
+                }
                 break :snapshot if (tag == .view) .{ .view = view } else .{ .finished = view };
             },
             .leave => .leave,
@@ -387,15 +452,13 @@ pub const Message = union(enum(u8)) {
                 if (value.reserved != 0 or !value.any()) return error.InvalidFlightInput;
                 break :presses .{ .flight_press = value };
             },
-            .lobby => roster: {
-                var roster: Lobby = undefined;
-                for (&roster) |*entry| entry.* = switch (try r.takeByte()) {
-                    0 => null,
-                    1 => try readCallSign(&r),
-                    else => return error.InvalidLobby,
-                };
-                if (roster[0] == null) return error.InvalidLobby;
-                break :roster .{ .lobby = roster };
+            .roster => roster: {
+                var view: Roster = .{ .lobby = try readScenario(&r) };
+                for (&view.pilots) |*entry| {
+                    const generation = try r.takeInt(u64, .little);
+                    if (generation != 0) entry.* = .{ .generation = generation, .name = try readCallSign(&r) };
+                }
+                break :roster .{ .roster = view };
             },
             .call_sign => .{ .call_sign = try readCallSign(&r) },
             .pick_ship => .{ .pick_ship = try r.takeEnum(Fighter, .little) },
@@ -471,16 +534,20 @@ test "combat batches carry visual effects with bounded counts and pool indices" 
 test "a lobby preserves occupied slots and treats callsigns as bounded display text" {
     const host_name = lobbyName("  Falcon\x00  ");
     const guest_name = lobbyName("\xc9toile");
-    const message: Message = .{ .lobby = .{ host_name, null, guest_name } };
+    const message: Message = .{ .roster = .{ .lobby = .asteroid_field, .pilots = .{
+        .{ .generation = 1, .name = host_name }, null, .{ .generation = 4, .name = guest_name },
+    } } };
     var buffer: [capacity]u8 = undefined;
-    const decoded = (try Message.decode(try message.encode(&buffer))).lobby;
-    try std.testing.expectEqualStrings("Falcon", decoded[0].?.slice());
-    try std.testing.expectEqual(null, decoded[1]);
-    try std.testing.expectEqualStrings("\xc9toile", decoded[2].?.slice());
+    const decoded = (try Message.decode(try message.encode(&buffer))).roster;
+    try std.testing.expectEqual(.asteroid_field, decoded.lobby);
+    try std.testing.expectEqualStrings("Falcon", decoded.pilots[0].?.name.slice());
+    try std.testing.expectEqual(null, decoded.pilots[1]);
+    try std.testing.expectEqual(4, decoded.pilots[2].?.generation);
+    try std.testing.expectEqualStrings("\xc9toile", decoded.pilots[2].?.name.slice());
     const call_sign = @backingInt(std.meta.Tag(Message).call_sign);
     try std.testing.expectError(error.InvalidCallSign, Message.decode(&.{ call_sign, 32 }));
     try std.testing.expectError(error.InvalidCallSign, Message.decode(&.{ call_sign, 1, '\n' }));
-    try std.testing.expectError(error.InvalidLobby, Message.decode(&.{ @backingInt(std.meta.Tag(Message).lobby), 0, 0, 0 }));
+    try std.testing.expectError(error.InvalidScenario, Message.decode(&.{ @backingInt(std.meta.Tag(Message).roster), 255 }));
 }
 
 test "fighter choices and reliable beacon notices have bounded wire fields" {
@@ -506,7 +573,7 @@ test "a final receipt names the applied tick" {
 test "flight updates fit the direct-IP payload budget" {
     const input_bytes = 25;
     // A fighter byte and a ship reuse count distinguish a respawn from a new admission.
-    const full_snapshot_bytes = 255;
+    const full_snapshot_bytes = 256;
     const objective_snapshot_budget = 336;
     var buffer: [capacity]u8 = undefined;
     const input: Message = .{ .input = .{ .sequence = 1, .command = .{
@@ -535,8 +602,9 @@ test "the objective view fits one packet and a carrier needs a current ship" {
         .ships = @splat(.{ .generation = 2, .position = @splat(0) }),
         .objectives = .{ .six_beacons = @splat(.{ .loose = .{ 2, 3, 4 } }) },
     } };
-    try std.testing.expectEqual(snapshot_capacity, (try view.encode(&buffer)).len);
-    try std.testing.expectEqualDeep(view, try Message.decode(&buffer));
+    const full = try view.encode(&buffer);
+    try std.testing.expectEqual(beacon_snapshot_capacity, full.len);
+    try std.testing.expectEqualDeep(view, try Message.decode(full));
     view.view.objectives.six_beacons[0] = .{ .carried = 1 };
     try std.testing.expectEqualDeep(view, try Message.decode(try view.encode(&buffer)));
     view.view.ships[1] = null;
@@ -544,11 +612,21 @@ test "the objective view fits one packet and a carrier needs a current ship" {
 }
 
 test "ship angles round-trip the host orientation" {
-    const math = engine.surrender.math;
     const facing = math.fromAngles(0.42, -0.91, 2.1);
     var ship: Ship = .{ .generation = 1, .position = @splat(0) };
     ship.face(facing);
     for (facing, ship.orientationMatrix()) |expected, actual| {
         try std.testing.expectApproxEqAbs(expected, actual, 0.0002);
     }
+}
+
+test "asteroid views include the stock mode and keep absent rock slots" {
+    var buffer: [capacity]u8 = undefined;
+    var view: Snapshot = .{ .tick = 7, .scenario = .asteroid_field, .ships = @splat(null) };
+    view.rocks.count = Rocks.max;
+    view.rocks.angles = @splat(.{ 123, 456, -789 });
+    view.rocks.angles[1] = null;
+    const bytes = try (Message{ .view = view }).encode(&buffer);
+    try std.testing.expectEqualDeep(view, (try Message.decode(bytes)).view);
+    try std.testing.expectError(error.EndOfStream, Message.decode(bytes[0 .. bytes.len - 1]));
 }

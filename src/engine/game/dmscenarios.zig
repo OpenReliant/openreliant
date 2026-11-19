@@ -2,7 +2,7 @@
 //! `dm_scenario_mission` is this file's: it lies before the file's known code, and reads the
 //! scenarios' table, which lies beside the file's name.
 //!
-//! Ported so far: whether a mission is one of the scenarios' maps (`isScenario`).
+//! Stock arena missions and their strings, as used by the mission loader and game mode picker.
 
 const std = @import("std");
 const gameobj = @import("gameobj.zig");
@@ -33,7 +33,10 @@ pub const Scenario = enum(u8) {
     }
 
     pub fn available(scenario: Scenario) bool {
-        return scenario == .nuclear_threat;
+        return switch (scenario) {
+            .asteroid_field, .nuclear_threat => true,
+            else => false,
+        };
     }
 };
 

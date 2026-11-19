@@ -32,17 +32,18 @@ const Peer = struct {
 };
 
 io: Io,
-arena: Arena,
+arena: *Arena,
 signer: ?*const identity.Server = null,
 player_limit: u8 = wire.slots,
 lan_only: bool = false,
 start: union(enum) {
     automatic,
-    lobby: struct { changed: bool = false },
+    lobby: struct { scenario: wire.Scenario = .nuclear_threat },
     launched,
 } = .automatic,
 listener: u32 = 0,
 peers: [wire.slots]?Peer = @splat(null),
+roster_dirty: bool = false,
 budget: HandshakeBudget = .{},
 tick: u32 = 0,
 last_tick: u32 = std.math.maxInt(u32),
@@ -61,7 +62,7 @@ fn release(host: *Host, slot: u8) void {
     if (host.arena.pilots[slot]) |pilot| {
         std.debug.print("left {d} {d}\n", .{ slot, pilot.participant.generation });
         host.arena.leave(slot);
-        host.lobbyChanged();
+        host.roster_dirty = true;
     }
     host.peers[slot] = null;
     net.session_close(peer.conn);
@@ -102,11 +103,20 @@ pub fn canLaunch(host: *const Host) bool {
 
 /// Only the local host's menu calls this. Pilots can join an arena after it starts.
 pub fn launch(host: *Host) void {
-    if (host.canLaunch()) host.start = .launched;
+    if (!host.canLaunch()) return;
+    // Loading the stock mission can take longer than the idle timeout on a slow machine.
+    const expires = host.now() + timeout;
+    for (&host.peers) |*entry| if (entry.*) |*peer| {
+        if (peer.state == .playing) peer.expires = expires;
+    };
+    host.start = .launched;
+    host.roster_dirty = true;
 }
 
-fn lobbyChanged(host: *Host) void {
-    if (host.start == .lobby) host.start.lobby.changed = true;
+pub fn selectScenario(host: *Host, scenario: wire.Scenario) void {
+    if (host.start != .lobby or host.start.lobby.scenario == scenario or !scenario.available()) return;
+    host.start.lobby.scenario = scenario;
+    host.roster_dirty = true;
 }
 
 pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]const u8) void {
@@ -184,7 +194,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
             peer.state = .playing;
             peer.expires = time + timeout;
             try net.send(peer.conn, .{ .joined = admitted });
-            host.lobbyChanged();
+            host.roster_dirty = true;
             std.debug.print("joined {d} {d}\n", .{ slot, admitted.generation });
             return true;
         },
@@ -209,7 +219,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                     // Accept it once to keep updates bounded, including during launch.
                     if (peer.call_sign == null) {
                         peer.call_sign = name;
-                        host.lobbyChanged();
+                        host.roster_dirty = true;
                     }
                 },
                 .pick_ship => |fighter| if (host.tick == 0 and host.start != .automatic) {
@@ -261,16 +271,17 @@ fn playingCount(host: *const Host) usize {
     return count;
 }
 
-fn publishLobby(host: *Host) !void {
-    if (!host.start.lobby.changed or !host.canLaunch()) return;
-    host.start.lobby.changed = false;
-    var roster: wire.Lobby = @splat(null);
-    for (host.peers, &roster) |entry, *name| {
+fn publishRoster(host: *Host) !void {
+    if (!host.roster_dirty or (host.start == .lobby and !host.canLaunch())) return;
+    host.roster_dirty = false;
+    var roster: wire.Roster = .{ .lobby = if (host.start == .lobby) host.start.lobby.scenario else null };
+    for (host.peers, host.arena.pilots, &roster.pilots) |entry, participant, *listed| {
         const peer = entry orelse continue;
-        if (peer.state == .playing) name.* = peer.call_sign orelse .{};
+        const pilot = participant orelse continue;
+        if (peer.state == .playing) listed.* = .{ .generation = pilot.participant.generation, .name = peer.call_sign orelse .{} };
     }
     var buffer: [wire.capacity]u8 = undefined;
-    const bytes = try (wire.Message{ .lobby = roster }).encode(&buffer);
+    const bytes = try (wire.Message{ .roster = roster }).encode(&buffer);
     for (host.peers, 0..) |entry, slot| {
         const peer = entry orelse continue;
         if (peer.state != .playing) continue;
@@ -370,11 +381,9 @@ pub fn pump(host: *Host) !enum { running, finished } {
         }
     }
     try host.servicePeers(time);
+    try host.publishRoster();
     switch (host.start) {
-        .lobby => {
-            try host.publishLobby();
-            return .running;
-        },
+        .lobby => return .running,
         .automatic => if (host.tick == 0 and host.playingCount() < pilots_to_start) return .running,
         .launched => {},
     }

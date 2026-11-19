@@ -73,6 +73,7 @@ fn initAutomatic(server: *const credential.Server, io: std.Io) !void {
 /// inside the process, so remote admission can never take the host pilot's reservation.
 pub const LocalGame = struct {
     gpa: std.mem.Allocator,
+    directory: std.Io.Dir,
     server: credential.Server,
     host: Host,
 
@@ -80,13 +81,14 @@ pub const LocalGame = struct {
         const game = try gpa.create(LocalGame);
         errdefer gpa.destroy(game);
         game.gpa = gpa;
+        game.directory = directory;
         game.server = try .load(io, directory);
         errdefer game.server.wipe();
         try initAutomatic(&game.server, io);
         errdefer net.session_deinit();
-        game.host = .{ .io = io, .arena = undefined, .signer = &game.server, .lan_only = true, .start = .{ .lobby = .{} } };
-        try game.host.arena.init(gpa, .@"nuclear-threat", io, directory);
-        errdefer game.host.arena.deinit();
+        const arena = try Arena.create(gpa, .training, io, directory);
+        errdefer arena.destroy();
+        game.host = .{ .io = io, .arena = arena, .signer = &game.server, .lan_only = true, .start = .{ .lobby = .{} } };
 
         var address_buffer: [credential.Invite.max_address]u8 = undefined;
         const address = try std.fmt.bufPrintSentinel(&address_buffer, "[::]:{d}", .{port}, 0);
@@ -101,12 +103,20 @@ pub const LocalGame = struct {
         return game;
     }
 
+    pub fn launch(game: *LocalGame) !void {
+        if (!game.host.canLaunch()) return;
+        const staging = game.host.arena;
+        game.host.arena = try staging.prepareStock(game.host.start.lobby.scenario, game.host.io, game.directory);
+        staging.destroy();
+        game.host.launch();
+    }
+
     pub fn stop(game: *LocalGame, client: *Client) void {
         current = .{};
         client.close();
         game.host.close();
         net.session_deinit();
-        game.host.arena.deinit();
+        game.host.arena.destroy();
         game.server.wipe();
         game.gpa.destroy(game);
     }
@@ -124,14 +134,14 @@ pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity
     defer net.session_deinit();
     const host = try gpa.create(Host);
     defer gpa.destroy(host);
+    const arena = try Arena.create(gpa, options.mode, io, options.game_directory orelse directory);
+    defer arena.destroy();
     host.* = .{
         .io = io,
-        .arena = undefined,
+        .arena = arena,
         .player_limit = options.players,
         .signer = if (server) |*automatic| automatic else null,
     };
-    try host.arena.init(gpa, options.mode, io, options.game_directory orelse directory);
-    defer host.arena.deinit();
     current.host = host;
     defer current.host = null;
     const invite: ?credential.Invite = if (server) |*automatic|

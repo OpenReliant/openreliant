@@ -1185,7 +1185,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         continue;
                     },
                     .launch_session => {
-                        if (network_enabled) network_pilot.launch();
+                        if (network_enabled) network_pilot.launch(&front.connection);
                         continue;
                     },
                     .choose_ship => |ship| {
@@ -1479,6 +1479,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             if (network_frame) |flight| space.place(sky, flight.objects, flight.objects.count);
         }
         display.multiplayer = network_frame != null;
+        display.show_standings = display.multiplayer and network_pilot.show_standings;
         display.drawn = network_frame orelse &drawn;
         display.drawing.takeUp(if (network_frame) |flight| &flight.display else &game_display);
         // The frame draws a copy of the game: of the objects, which with smooth motion has what
@@ -2660,6 +2661,7 @@ const Display = struct {
     /// DRIVE (`game.main.Drawn`).
     drawn: *const game.main.Drawn,
     multiplayer: bool = false,
+    show_standings: bool = false,
     /// What drawing hands the game (`game.main.Handed`), here what the player aimed at as the
     /// display was drawn.
     handed: *game.main.Handed,
@@ -2756,6 +2758,7 @@ const Display = struct {
             .strings = display.strings,
             .hit_shake = if (display.multiplayer) 0 else display.view.shake_left,
             .multiplayer = display.multiplayer,
+            .show_standings = display.show_standings,
             .sound = if (display.multiplayer) null else display.settings.sound,
             .radio = if (drawn.radio) |*on_air| on_air else null,
             .film = &display.film,

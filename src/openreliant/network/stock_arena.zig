@@ -6,8 +6,49 @@ const game = engine.game;
 const Scenario = game.dmscenarios.Scenario;
 const textures = engine.surrender.surrenderlib.srtexture;
 const stats = openreliant.stats;
+const wire = @import("wire.zig");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
+
+/// Mission rocks keep their authored positions. The host supplies their facing and which survive.
+/// Both ends index the same installed mission in object-slot order.
+pub const RockSlots = struct {
+    entries: [wire.Rocks.max]game.gameobj.ObjectRef = undefined,
+    count: u8 = 0,
+
+    pub fn collect(all: *const game.create.Objects) !RockSlots {
+        var rocks: RockSlots = .{};
+        for (all.slots[all.players..all.count], all.players..) |*slot, index| {
+            if (!slot.object.created or slot.object.type.base().rock() == null) continue;
+            if (rocks.count == rocks.entries.len) return error.TooManyArenaRocks;
+            rocks.entries[rocks.count] = .of(all, @intCast(index));
+            rocks.count += 1;
+        }
+        return rocks;
+    }
+
+    pub fn capture(rocks: *const RockSlots, all: *const game.create.Objects) wire.Rocks {
+        var snapshot: wire.Rocks = .{ .count = rocks.count };
+        for (rocks.entries[0..rocks.count], snapshot.angles[0..rocks.count]) |reference, *facing| {
+            const index = reference.resolve(all) orelse continue;
+            const object = &all.slots[index].object;
+            if (object.created and !object.flags.disabled) facing.* = wire.packFacing(object.root.next_orientation);
+        }
+        return snapshot;
+    }
+
+    pub fn apply(rocks: *const RockSlots, all: *game.create.Objects, snapshot: *const wire.Rocks) !void {
+        if (snapshot.count != rocks.count) return error.ArenaRockCountMismatch;
+        for (rocks.entries[0..rocks.count], snapshot.angles[0..rocks.count]) |reference, facing| {
+            const index = reference.resolve(all) orelse continue;
+            const slot = &all.slots[index];
+            slot.object.flags.disabled = facing == null;
+            const angles = facing orelse continue;
+            game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = slot.drawn.position, .orientation = wire.unpackFacing(angles) });
+            if (slot.model) |*model| model.place(slot.drawn.position, slot.drawn.orientation);
+        }
+    }
+};
 
 pub const Files = struct {
     io: Io,

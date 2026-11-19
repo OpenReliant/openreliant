@@ -198,6 +198,25 @@ The [Uber blast](effects.md#the-uber-explode) can also award a kill for a teamma
 notice carries the owner and victim admissions and the scoring tick. Session delivery and pilot name lookup
 are tracked in [#954](https://github.com/OpenReliant/openreliant/issues/954).
 
+Hold **Display Kills** to see the flight standings. The rows follow `mp_draw_scoreboard`
+(0x004AF650), which sorts by kills and then by fewest deaths. The host supplies both counts
+and the pilot's name. The client checks that the name belongs to the same admission as the score.
+
+### Asteroid Field
+
+Asteroid Field is the first entry in `dm_scenarios` (0x0050C790). Mission 85 creates thirty
+rocks, eight spawn markers and nine random pickups. Its startup script gives two groups of
+rocks their slow and medium spins, then calls `ResetToSpawnPositions`. The scenario table
+provides no special scoring or round-end callback. OpenReliant uses the common arena score
+and spawn rules, with a host snapshot of the rocks' orientation and visibility.
+
+In the original, the shared pickup pass checks contact in pilot and object order and requires
+at least two pilots. `mp_arena_prepare_pickups` (0x004B1760) builds cumulative odds from the
+weights in `mp_powerup_rules` (0x0050C510). The table includes timed effects, repairs, fuel,
+missiles, mines and control penalties. The pickup effects and team selection still belong to
+[#1400](https://github.com/OpenReliant/openreliant/issues/1400). The control penalties also
+depend on [#722](https://github.com/OpenReliant/openreliant/issues/722).
+
 ### Six Beacons
 
 Nuclear Threat is the second stock arena in `dm_scenarios` (0x0050C790). Its map has six
