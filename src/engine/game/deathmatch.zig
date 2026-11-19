@@ -7,6 +7,7 @@ const radio = @import("radio.zig");
 const Objects = @import("create.zig").Objects;
 const players = @import("players.zig");
 
+pub const pickup_rings = @import("deathmatch/pickup_rings.zig");
 pub const six_beacons = @import("dmscenarios/six_beacons.zig");
 const math = @import("../surrender/math.zig");
 

@@ -41,6 +41,7 @@ const cloak = @import("cloak.zig");
 pub const lock = @import("main/lock.zig");
 const missiles = @import("missiles.zig");
 const explode = @import("explode.zig");
+const deathmatch = @import("deathmatch.zig");
 const friendly_fire = @import("friendly_fire.zig");
 const particles = @import("particles.zig");
 const shield = @import("shield.zig");
@@ -408,6 +409,7 @@ pub const Frame = struct {
     ahead: f32 = 0,
     explosions: ?*const explode.Explosions = null,
     shockwaves: ?*const shockwave.Shockwaves = null,
+    pickup_rings: ?*deathmatch.pickup_rings.Rings = null,
     trails: ?*missiles.trail.Trails = null,
     countermeasures: ?*cloak.Countermeasures = null,
     /// The player's missile lock and its rings, which go into the overlay's layer while it builds,
@@ -1414,7 +1416,10 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     attachments.scale = context.projection.scale[0];
     attachments.paused = frame.paused;
     const riding = wgate.ridingWorm(frame.gates);
-    if (!riding) try drawObjects(gpa, arena, scene, frame.objects, attachments, frame.seat, if (frame.explosions) |explosions| &explosions.splits else null, frame.shown, frame.environment);
+    if (!riding) {
+        try drawObjects(gpa, arena, scene, frame.objects, attachments, frame.seat, if (frame.explosions) |explosions| &explosions.splits else null, frame.shown, frame.environment);
+        if (frame.pickup_rings) |rings| try rings.draw(gpa, arena, scene, frame.objects, attachments.frame_start);
+    }
     if (frame.tractors_drawing) |drawing| if (frame.tractors) |tractors| try drawing.draw(tractors, gpa, scene, frame.objects, frame.shields);
     if (frame.rippers_drawing) |drawing| if (frame.rippers) |rippers| try drawing.draw(rippers, gpa, scene, frame.objects);
     if (frame.jump_effects) |effects| try effects.draw(gpa, arena, scene, frame.objects);

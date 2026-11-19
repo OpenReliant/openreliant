@@ -220,8 +220,18 @@ can read each pilot's count from its first snapshot. The count belongs to the or
 and admission, so a replacement in the same slot starts with its own count. See
 [Six Beacons target count](hud.md#six-beacons-target-count).
 
-Pickup rings and network delivery are tracked in
+Network delivery of the beacon counts is tracked in
 [#1416](https://github.com/OpenReliant/openreliant/issues/1416).
+
+### Random arena power-ups
+
+Random power-ups (type 0x8C) have three rotating rings. Six Beacons pickups (0x8E) and the
+gate (0x8D) have none. Each ring is a 1400 by 1400 square with the additive texture
+`dmpowerup128-2` (0x004B1D10). The rings share a centre halfway between the first two points
+in the first model part's first point list. A replacement model can move the rings by moving
+those points. A model without both points shows no rings. The three squares start in different
+planes and turn 0.052 radians per mission tick. They follow the pickup when it moves and
+disappear while it is disabled (0x004B18E0).
 
 ## Remaining work
 
