@@ -247,9 +247,11 @@ test "browser panels, columns of controls and hit targets keep their alignment" 
         try std.testing.expectEqual(layout.list.x, layout.field.x);
         try std.testing.expectEqual(layout.list.width, layout.field.width);
         const join = layout.control(.selected);
-        try std.testing.expectEqual(layout.details.x + Layout.inset, join.x);
-        try std.testing.expectEqual(Layout.footer_inset, layout.details.y + layout.details.height - join.y - join.height);
-        try std.testing.expect(layout.details.holds(layout.control(.selected).centre()));
+        const left_gap = join.x - Layout.button_left_overhang - layout.details.x;
+        const bottom_gap = layout.details.y + layout.details.height - (join.y + Layout.button_last_row);
+        try std.testing.expectEqual(Layout.footer_inset, left_gap);
+        try std.testing.expectEqual(left_gap, bottom_gap);
+        try std.testing.expect(join.y + join.height <= layout.details.y + layout.details.height);
         const back = layout.control(.back);
         const end = layout.point(.{ 640, 480 });
         try std.testing.expect(back.y + back.height <= end[1]);

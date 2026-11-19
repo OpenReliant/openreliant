@@ -6,7 +6,11 @@ const hud = @import("../../hud.zig");
 
 pub const Layout = @This();
 pub const inset = 7;
-pub const footer_inset = 16;
+pub const footer_inset = 12;
+// Shapes 0x17 and 0x18 start one sprite pixel to the left of their anchor.
+pub const button_left_overhang = 1;
+// The button's last painted row is 13 layout units below the hit target's top.
+pub const button_last_row = 13;
 pub const row_height = 21;
 pub const text_scale = 1.28;
 pub const label_offset = 25;
@@ -61,7 +65,7 @@ pub fn control(layout: Layout, which: Control) ui.Rect {
         .lan => .{ list.x + 108, source_y },
         .refresh => .{ list.x + list.width - width, source_y },
         .host => .{ details.x + details.width - width, @intCast(layout.title()[1]) },
-        .selected => .{ details.x + inset, details.y + details.height - footer_inset - 20 },
+        .selected => .{ details.x + footer_inset + button_left_overhang, details.y + details.height - footer_inset - button_last_row },
         .connect => .{ details.x + inset, layout.field.y + 1 },
         .back => .{ list.x, @intCast(layout.point(.{ 0, 437 })[1]) },
     };
