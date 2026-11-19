@@ -440,6 +440,8 @@ declare extern type Object with
     radius: number
     --- Whether it's the player's ship.
     is_player: boolean
+    --- The session ID of the participant bound to this ship. It is nil in standalone play and for unbound ships. This read-only string stays the same when the participant changes ships. On a dedicated host it identifies remote pilots. Presentation scripts see the bindings available on their client.
+    participant_id: string?
     --- The order it's following: one of the game's (`Order`), or a mod's by its qualified name; nil for none.
     order: (string | number)?
     --- The combat maneuver it flies while it follows the Fight order: one of the game's by its name (`Maneuver`), or one a mod adds by its number (`records.maneuvers`); nil while it follows another order.
@@ -773,6 +775,8 @@ export type World = {
     objects: () -> { Object },
     --- Every missile in flight, newest first.
     missiles: () -> { Missile },
+    --- The current ship for an object's `participant_id` in this session. Returns nil between missions, after the participant leaves, or while they have no bound ship.
+    participant_ship: (id: string) -> Object?,
     --- Makes `target`, or its component number `component`, the player's target, as a mission's SetPlayerTarget does: the display shows it, and the player stops matching speeds. Returns whether it worked: false for a target the player can't aim at, such as a destroyed component, and between missions.
     set_player_target: (target: Object, component: number?) -> boolean,
     --- Makes `target`, or its component number `component`, the mission's primary target, as a mission's SetPrimaryTarget does: the PRIMARY TARGET key selects it. Nil leaves the mission without one. Returns false between missions.
@@ -1200,6 +1204,7 @@ export type Interfaces = {
         player_carrier: Object?,
         objects: () -> { Object },
         missiles: () -> { Missile },
+        participant_ship: (id: string) -> Object?,
         set_player_target: (target: Object, component: number?) -> boolean,
         set_primary_target: (target: Object?, component: number?) -> boolean,
         set_objective: (objective: number, state: ObjectiveState) -> boolean,

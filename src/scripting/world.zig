@@ -19,6 +19,7 @@ const game = @import("game.zig");
 pub const package = struct {
     pub const objects = api.Function("Every object in the mission, in the order of their slots.", &.{}, allObjects);
     pub const missiles = api.Function("Every missile in flight, newest first.", &.{}, allMissiles);
+    pub const participant_ship = api.Function("The current ship for an object's `participant_id` in this session. Returns nil between missions, after the participant leaves, or while they have no bound ship.", &.{"id"}, participantShip);
     pub const set_player_target = api.Function("Makes `target`, or its component number `component`, the player's target, as a mission's SetPlayerTarget does: the display shows it, and the player stops matching speeds. Returns whether it worked: false for a target the player can't aim at, such as a destroyed component, and between missions.", &.{ "target", "component" }, setPlayerTarget);
     pub const set_primary_target = api.Function("Makes `target`, or its component number `component`, the mission's primary target, as a mission's SetPrimaryTarget does: the PRIMARY TARGET key selects it. Nil leaves the mission without one. Returns false between missions.", &.{ "target", "component" }, setPrimaryTarget);
     pub const set_objective = api.Function("Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names.", &.{ "objective", "state" }, setObjective);
@@ -48,6 +49,12 @@ pub const package = struct {
         }
     });
 };
+
+fn participantShip(call: Call, id: []const u8) ?Object {
+    const held = game.Game.of(call);
+    if (held.mission == null) return null;
+    return @import("participants.zig").shipForId(held.objects, id);
+}
 
 /// `world.set_player_carrier(ship)`: `gameobj.Player.carrier`, which a launch of the player's ship
 /// sets (`launch.init`).

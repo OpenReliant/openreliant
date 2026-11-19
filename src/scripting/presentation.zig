@@ -1917,11 +1917,12 @@ test "player scripts run with the game, and send it events" {
                 \\    engine_handlers = { on_frame = function()
                 \\        if sent then return end
                 \\        -- Its own object is the player's ship.
-                \\        assert(require("openreliant.self").is_player)
+                \\        local self = require("openreliant.self")
+                \\        assert(self.is_player and self.participant_id == nil)
                 \\        -- A player script can't change the game itself, only send it events.
                 \\        assert(not pcall(require, "openreliant.world"))
                 \\        local ships = nearby.objects(1000)
-                \\        assert(#ships == 1 and ships[1].type == "sabre")
+                \\        assert(#ships == 1 and ships[1].type == "sabre" and type(ships[1].participant_id) == "string")
                 \\        assert(not pcall(function() ships[1].throttle = 0.5 end))
                 \\        core.send_global_event("Throttle", { ship = ships[1], to = 0.5 })
                 \\        sent = true
@@ -1943,6 +1944,10 @@ test "player scripts run with the game, and send it events" {
     const game = (try game_module.Game.start(gpa, std.testing.io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects, .{}, false)).?;
     defer game.stop();
     const sabre = try fixture.mission.add(.of(.sabre), .{ 0, 0, 500 });
+    const all = fixture.mission.objects;
+    all.players = sabre + 1;
+    const pilot = all.joinParticipant(sabre).?;
+    _ = all.bindParticipant(pilot, .of(all, sabre)).?;
     try std.testing.expectEqual(1, fixture.shown.lists.get(.menu).items.len);
     try fixture.shown.startGame(game, fixture.mission.objects, false);
     try std.testing.expectEqual(1, fixture.shown.lists.get(.player).items.len);
