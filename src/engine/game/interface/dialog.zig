@@ -18,6 +18,10 @@ const button_shape = 3;
 const lit_button_shape = 4;
 const box_at: [2]i32 = .{ 0x72, 0xB1 };
 
+pub fn drawBox(canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
+    try canvas.shape(art, box_shape, box_at);
+}
+
 /// YES and NO (`dialog_buttons`, `0x004E5CB8`), and their labels, written in the large font
 /// against them.
 pub const buttons = [_]Rect{
@@ -63,7 +67,7 @@ pub const Confirm = struct {
     /// (`dialog_open`): the box, the buttons with the one under the pointer lit, the question, and
     /// YES and NO.
     pub fn draw(confirm: Confirm, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
-        try canvas.shape(art, box_shape, box_at);
+        try drawBox(canvas, art);
         for (buttons, 0..) |button, index| {
             const shape: usize = if (confirm.under == index) lit_button_shape else button_shape;
             try canvas.shape(art, shape, .{ button.x, button.y });
@@ -109,7 +113,7 @@ pub const SaveError = struct {
     }
 
     pub fn draw(box: SaveError, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
-        try canvas.shape(art, box_shape, box_at);
+        try drawBox(canvas, art);
         try canvas.shape(art, if (box.under) lit_button_shape else button_shape, .{ ok_button.x, ok_button.y });
         if (canvas.strings.string(error_text)) |words| try canvas.wrapped(canvas.fonts.small, error_at, words, canvas_module.blue, .centre, message_lines);
         try canvas.string(canvas.fonts.large, ok_at, ok_string, canvas_module.blue, .right);

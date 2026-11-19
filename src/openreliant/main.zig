@@ -1016,7 +1016,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         while (window.poll()) |event| switch (event) {
             .quit => return,
             .key => |key| if (options.screenshot == null) {
-                if (key.paste and flow.in_front_end and front.screen == .connection and !front.connection.busy and !(if (console) |*shown| shown.isUp() else false)) {
+                if (key.paste and flow.in_front_end and front.screen == .connection and front.connection.host_choice == null and !front.connection.busy and !(if (console) |*shown| shown.isUp() else false)) {
                     var buffer: [128]u8 = undefined;
                     if (platform.window.clipboard(&buffer)) |text| {
                         front.connection.address.set(text);

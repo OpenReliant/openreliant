@@ -42,9 +42,10 @@ HUD. Escape leaves the server.
 
 ### Session lobby
 
-**Host** opens the deathmatch lobby immediately, starts a LAN listener on UDP port 27020 and
-reserves a place for the local pilot. Friends use Direct Connect with the host's LAN IP. The
-lobby shows them the same roster, with the host marked and their own row highlighted. The host
+**Host** opens a game type chooser. **Deathmatch** opens the lobby immediately, starts a LAN
+listener on UDP port 27020 and reserves a place for the local pilot. Co-op is disabled until
+its hosting flow is ready. Friends use Direct Connect with the host's LAN IP. The lobby shows
+them the same roster, with the host marked and their own row highlighted. The host
 selects **Start Game** when they are ready to fly. Joining a match in progress takes the pilot
 straight to flight. **Stop Hosting** or Escape in the lobby or in flight closes the listener.
 The dedicated server uses the same simulation and admission checks and starts on its existing

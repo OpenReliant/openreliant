@@ -8,6 +8,7 @@ const winmain = @import("../winmain.zig");
 const input = @import("../../input.zig");
 const Layout = @import("connection/layout.zig");
 const widgets = @import("connection/widgets.zig");
+pub const HostChoice = @import("connection/host_choice.zig");
 pub const Lobby = @import("connection/lobby.zig");
 const Connection = @This();
 
@@ -30,6 +31,7 @@ address: language.Text(128) = .{},
 message: Label = .{},
 busy: bool = false,
 host_available: bool = false,
+host_choice: ?HostChoice = null,
 lobby: ?Lobby = null,
 source: Source = .internet,
 // The discovery source owns the strings while its list is displayed.
@@ -56,6 +58,15 @@ fn enabled(screen: *const Connection, control: Layout.Control) bool {
 }
 
 pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, typed: *winmain.Typed, window: [2]u32) ?Action {
+    if (screen.host_choice) |*choice| {
+        typed.clear();
+        const action = choice.frame(mouse, keys) orelse return null;
+        screen.host_choice = null;
+        return switch (action) {
+            .cancel => null,
+            .deathmatch => .host_lan,
+        };
+    }
     if (screen.lobby) |*lobby| return switch (lobby.frame(mouse, keys, window) orelse return null) {
         .leave => .leave_session,
         .launch => .launch_session,
@@ -78,7 +89,11 @@ pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, type
             },
             .selected => return .{ .join = screen.servers()[screen.selected].target },
             .connect => return .{ .join = screen.address.slice() },
-            .host => return .host_lan,
+            .host => {
+                screen.host_choice = .{};
+                screen.editing = false;
+                return null;
+            },
             else => {},
         } else if (layout.field.holds(at)) {
             screen.editing = true;
@@ -151,7 +166,7 @@ fn cells(canvas: ui.Canvas, layout: Layout, y: i16, words: [4][]const u8, colour
     }
 }
 
-pub fn draw(screen: *const Connection, original: ui.Canvas, art: *hud.Art, ticks: u32) !void {
+pub fn draw(screen: *const Connection, original: ui.Canvas, art: *hud.Art, dialog_art: *hud.Art, ticks: u32) !void {
     const layout = Layout.init(original.window);
     var canvas = original;
     canvas.share = layout.share;
@@ -175,6 +190,7 @@ pub fn draw(screen: *const Connection, original: ui.Canvas, art: *hud.Art, ticks
         };
         try widgets.button(canvas, art, box, labels.get(control), screen.enabled(control), lit);
     }
+    if (screen.host_choice) |choice| try choice.draw(original, art, dialog_art);
 }
 
 fn drawList(screen: *const Connection, canvas: ui.Canvas, layout: Layout) !void {
@@ -255,7 +271,12 @@ test "the browser only offers hosting when the transport is available" {
     try std.testing.expectEqual(null, screen.frame(click, &keys, &typed, size));
 
     screen.host_available = true;
-    try std.testing.expect(screen.frame(click, &keys, &typed, size).? == .host_lan);
+    try std.testing.expectEqual(null, screen.frame(click, &keys, &typed, size));
+    try std.testing.expect(screen.host_choice != null);
+    keys.down[@backingInt(input.Key.enter)] = true;
+    keys.read();
+    try std.testing.expect(screen.frame(.{}, &keys, &typed, size).? == .host_lan);
+    try std.testing.expectEqual(null, screen.host_choice);
     screen.busy = true;
     try std.testing.expectEqual(null, screen.frame(click, &keys, &typed, size));
 }

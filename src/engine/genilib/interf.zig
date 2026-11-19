@@ -678,6 +678,7 @@ pub const Interface = struct {
                 context.typed.clear();
                 front.connection.message = .{};
                 front.connection.editing = true;
+                front.connection.host_choice = null;
             },
             .game_options => front.game_options = .{},
             .audio => if (context.settings) |settings_file| front.settings.enter(.game_options, .audio, settingsContext(front, context, settings_file, front.pointer)),
@@ -786,7 +787,7 @@ pub const Interface = struct {
         if (front.scripted_shown != null) return;
         switch (front.screen) {
             .main_menu => try front.main_menu.draw(drawn, art, &resources.dialog, &resources.developer.font),
-            .connection => try front.connection.draw(drawn, art, front.ticks),
+            .connection => try front.connection.draw(drawn, art, &resources.dialog, front.ticks),
             .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about),
             .audio, .controls, .video => try front.settings.draw(drawn, art, &resources.dialog, shown),
             .mods => try front.mod_manager.draw(drawn, art),
