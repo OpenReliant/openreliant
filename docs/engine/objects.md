@@ -598,9 +598,9 @@ OpenReliant applies these limits using each [player's own reserves](players.md).
 recharge without reserves.
 
 An object whose components are listed recharges no shields here, and neither does one holding
-the `no_shield_recharge` power-up (8). One whose `0xB95` is 5 has its shields emptied instead. In a
-multiplayer game, the player's shields don't recharge while `0x5D76F0` is 4 and `0x5DB538` names
-the player. That arena rule is tracked in [#55](https://github.com/OpenReliant/openreliant/issues/55).
+the `no_shield_recharge` power-up (8). One whose `0xB95` is 5 has its shields emptied instead. In Hunt The Shadow (scenario 4 at `0x5D76F0`), the original skips shield recharge for
+every object on the shadow pilot's machine. The test at `0x00476FFF` compares the shadow's slot
+(`0x5DB538`) with the local pilot's slot. The arena rule is tracked in [#55](https://github.com/OpenReliant/openreliant/issues/55).
 
 `object_armor_conditions` (`0x00492370`) uses the armour left in each quadrant as a fraction of
 its starting armour, `6 * armor_class - 1`. Shield recharge (`0x664`) adds a quarter of each

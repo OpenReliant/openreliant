@@ -84,7 +84,7 @@ pub const ArenaScores = union(enum) {
     pub fn clearEmptyTeam(scores: *ArenaScores, all: *const Objects, previous: ?players.ArenaTeam) void {
         const team = previous orelse return;
         if (scores.* != .teams) return;
-        for (all.player_states[0..@min(all.players, all.player_states.len)]) |*state| {
+        for (all.player_states[0..all.playerSlotCount()]) |*state| {
             if (state.membership == .joined and state.membership.joined.team == team) return;
         }
         scores.teams.set(team, .{});
@@ -99,7 +99,7 @@ pub fn startRound(all: *Objects, mode: std.meta.Tag(ArenaScores)) void {
         .free_for_all => .free_for_all,
         .teams => .{ .teams = .initFill(.{}) },
     };
-    for (all.player_states[0..@min(all.players, all.player_states.len)]) |*state| {
+    for (all.player_states[0..all.playerSlotCount()]) |*state| {
         if (state.membership == .joined) {
             state.membership.joined.kills.count = 0;
             state.membership.joined.deaths = 0;

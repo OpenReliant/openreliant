@@ -894,11 +894,16 @@ pub const Objects = struct {
         all.exhaust.reset();
     }
 
+    /// Number of reserved player slots with simulation state.
+    pub fn playerSlotCount(all: *const Objects) usize {
+        return @min(all.players, all.player_states.len);
+    }
+
     /// The simulation state of the participant in `index`, or null for an ordinary object.
     /// Player roles use the first `players` slots, as in the original (`player_slots`). They
     /// survive ship replacement, unlike an `ObjectRef`.
     pub fn playerState(all: *Objects, index: u16) ?*players.State {
-        if (index >= all.players or index >= all.player_states.len) return null;
+        if (index >= all.playerSlotCount()) return null;
         return &all.player_states[index];
     }
 
@@ -994,7 +999,9 @@ pub const Objects = struct {
         const ship = state.membership.joined.ship orelse return false;
         if (!std.meta.eql(ship, source.ship) or !all.canBindShip(index, ship)) return false;
         if (!command.flight.valid()) return false;
-        state.command = command;
+        var accepted = command;
+        if (command.target == .aim and command.target.aim.resolve(all) == null) accepted.target = .keep;
+        state.command = accepted;
         return true;
     }
 
@@ -1014,7 +1021,7 @@ pub const Objects = struct {
 
     /// The admission that owns the ship currently occupying this slot.
     pub fn boundParticipant(all: *const Objects, index: u16) ?*const players.Membership.Joined {
-        if (index >= all.players or index >= all.player_states.len) return null;
+        if (index >= all.playerSlotCount()) return null;
         const membership = &all.player_states[index].membership;
         if (membership.* != .joined) return null;
         const ship = membership.joined.ship orelse return null;

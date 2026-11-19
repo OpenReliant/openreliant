@@ -1,7 +1,7 @@
 //! Full objective snapshots for the private Six Beacons workload.
 const std = @import("std");
 const game = @import("openreliant").engine.game;
-const Snapshot = game.deathmatch.six_beacons.Snapshot;
+const objectives = game.deathmatch.six_beacons;
 const ObjectRef = game.gameobj.ObjectRef;
 
 pub const lane = 1; // Reliable events.
@@ -11,12 +11,12 @@ const Ownership = enum(u8) { loose, carried };
 
 pub const View = struct {
     tick: i32,
-    state: Snapshot,
-    positions: [6][3]f32,
+    state: objectives.Snapshot,
+    positions: [objectives.required][3]f32,
 
     pub fn capture(all: *const game.create.Objects, tick: i32) !View {
         const state = all.arena_scenario.six_beacons.snapshot();
-        var positions: [6][3]f32 = undefined;
+        var positions: [objectives.required][3]f32 = undefined;
         for (state.beacons, &positions) |beacon, *position| {
             const index = beacon.object.resolve(all) orelse return error.MissingBeacon;
             const object = &all.slots[index].object;

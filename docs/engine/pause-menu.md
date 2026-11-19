@@ -52,15 +52,16 @@ without the menu. In single player the window going inactive pauses only the sou
    (`net_send_pause(1)`, `0x004BAAE0`: packet `0x27` with the flag and `pause_reason`).
 6. Sets `paused_clock` (`0x00587CC0`).
 
-It always sets `pause_view_setting` (`0x00582E88`) to `cockpit_mode_setting`, and `0x005DD524` to
-50. **Unknown:** what reads `0x005DD524`.
+It copies `cockpit_mode_setting` to `pause_view_setting` (`0x00582E88`) and sets the network
+update interval (`0x005DD524`) to 50 timer ticks. The original checks this interval at
+`0x004BBF2C` before running a round of session updates.
 
 Resuming, if paused: restores the window if it is suspended (`0x005DDD28`; **Unverified:**
 `WM_SYSCOMMAND` `SC_RESTORE` through two imports), calls `sr + 0x78`, clears bit 0 of
 `radar_backing + 0x14`, clears `paused`, resumes the sample, the frame timing, the 3D voices and the
 voices, sends the resume where it sent the pause, puts `hud_draw` back, closes the menu
 (`pause_menu_close`), and switches to view 0 (`camera_set_view(0, player, 0, 1)`) if
-`cockpit_mode_setting` changed while paused. It always sets `0x005DD524` to 10. The music is never
+`cockpit_mode_setting` changed while paused. It restores the network update interval to 10 ticks. The music is never
 paused.
 
 ## The paused frame

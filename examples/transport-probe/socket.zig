@@ -2,9 +2,10 @@
 pub const Connection = u32;
 pub const Packet = struct { bytes: []const u8, lane: u16 };
 
-pub extern fn probe_open(address: [*:0]const u8, host: bool) bool;
+pub extern fn probe_open(address: [*:0]const u8, host: bool, max_message_size: c_int) bool;
 extern fn probe_send(conn: Connection, lane: u16, data: [*]const u8, size: c_int) bool;
 extern fn probe_receive(conn: Connection, data: [*]u8, capacity: c_int, lane: *u16) c_int;
+pub extern fn probe_close(conn: Connection) bool;
 pub extern fn probe_now() i64;
 pub extern fn probe_poll() bool;
 pub extern fn probe_delivered(conn: Connection) bool;

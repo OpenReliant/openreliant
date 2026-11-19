@@ -15,7 +15,7 @@ const sound3d = @import("../sound3d.zig");
 const deathmatch = @import("../deathmatch.zig");
 
 /// six_beacons_check_nuke (0x004B32C0) and the gate contact record (0x0050C500).
-const required = 6;
+pub const required = 6;
 const gate_distance: f32 = 2500;
 /// six_beacons_trigger_nuke (0x004B3180, 0x004DCA64).
 const blast_radius_share: f32 = 0.22;
@@ -264,7 +264,7 @@ pub const Round = struct {
     fn collect(round: *Round, world: gameobj.World) void {
         const all = world.objects;
         if (!round.ready(all)) return;
-        const states = all.player_states[0..@min(all.players, all.player_states.len)];
+        const states = all.player_states[0..all.playerSlotCount()];
         var joined: usize = 0;
         for (states) |*state| {
             if (state.membership == .joined) joined += 1;
@@ -296,7 +296,7 @@ pub const Round = struct {
         beacon.carrier = pilot;
         all.slots[beacon.object.slot].object.flags.disabled = true;
         if (round.carried(pilot.participant) == required) Notice.post(world, pilot.participant, .all_collected);
-        for (all.player_states[0..@min(all.players, all.player_states.len)], 0..) |*state, i| {
+        for (all.player_states[0..all.playerSlotCount()], 0..) |*state, i| {
             if (state.membership != .joined) continue;
             const owner: u16 = @intCast(i);
             const entry = ai.controlEntry(all, owner) orelse continue;

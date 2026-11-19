@@ -255,15 +255,16 @@ In each mode, half the yaw input is added to the roll input, so the ship banks i
 and 1. While the player holds the `reversed_controls` deathmatch power-up (9), all four inputs are
 reversed.
 
-While SHIELD BALANCING or POWERBALL WINDOW is held, or the flag at `0x51CF04` is set, the stick
-doesn't steer: the four inputs are zeroed, the throttle isn't read, and the stick's position goes
-to [the shield balance](#the-shield-balance) or [the power distribution](#the-power-distribution)
-instead, in that order of priority. The joystick's X and Y are the stick; with the keyboard,
-ROTATE CLOCKWISE and ROTATE ANTI-CLOCKWISE count as -1 and 1 across and NOSE UP and NOSE DOWN as
--1 and 1 down; the mouse gives its movement times 64 over 800. `0x51CF04`'s routine
-(`0x00413200`) turns two angles at `0x51CF30` and `0x51CF00` by the stick, and `frame_controls`
-clears the flag on every frame OBJECTIVES WINDOW isn't pressed. **Unknown:** what sets the flag,
-and what the angles turn.
+Holding SHIELD BALANCING or POWERBALL WINDOW zeroes the four steering inputs and skips
+the throttle. The stick adjusts [shield balance](#the-shield-balance) first, or
+[power distribution](#the-power-distribution) if only that window is held. A joystick supplies
+its X and Y axes. On the keyboard, the two rotation keys supply horizontal movement and the
+two pitch keys supply vertical movement, each from -1 to 1. Mouse movement is scaled by 64/800.
+
+A third branch at `0x00413200` uses the stick to turn two angles at `0x51CF30` and `0x51CF00`.
+Its flag (`0x51CF04`) starts at zero. The only direct write clears it on frames when
+OBJECTIVES WINDOW is not pressed, so the branch never runs. **Unknown:** what the angles
+were intended to turn.
 
 ## Throttle
 
@@ -314,9 +315,9 @@ clear the ship to land ([Landing](orders.md#landing)).
 
 `player_controls` also reads FIRE LASERS, LAUNCH MISSILE, CLOAK SHIP, JUMP DRIVE, EJECT and
 COUNTERMEASURES, all but FIRE LASERS once for each press. LAUNCH MISSILE and COUNTERMEASURES are in
-[Missiles](missiles.md#the-players). While the byte at `0x529FB8` is set, it
-reads none of them, nor MATCH SPEED, AFTERBURNER TOGGLE, the throttle keys or the keys that turn
-the ship. **Unknown:** what sets that byte.
+[Missiles](missiles.md#the-players). Opening a multiplayer chat line sets `chat_typing` (`0x529FB8`,
+`0x004547AE`). While the pilot types, the original skips these actions, MATCH SPEED,
+AFTERBURNER TOGGLE, the throttle keys and the steering keys.
 
 ## The power distribution
 

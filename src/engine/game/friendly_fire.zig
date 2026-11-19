@@ -117,7 +117,7 @@ pub fn destroyed(world: gameobj.World, index: u16, source: gameobj.DamageSource,
 /// The original message 0x49 leaves an existing mark intact (0x004B9389).
 fn markCrew(world: gameobj.World, mark: gameobj.SentHome) void {
     const all = world.objects;
-    for (all.player_states[0..all.players], 0..) |*state, i| {
+    for (all.player_states[0..all.playerSlotCount()], 0..) |*state, i| {
         if (all.playerBinding(@intCast(i)) == null) continue;
         if (state.recall == .none and state.membership.joined.ending == .playing) state.recall = mark;
     }
@@ -141,7 +141,7 @@ pub fn sendHome(ctx: aigeneric.Context) void {
             object.flags.sent_off = true;
         },
         .cooperative => {
-            for (all.player_states[0..all.players], 0..) |*state, i| {
+            for (all.player_states[0..all.playerSlotCount()], 0..) |*state, i| {
                 if (state.recall == .none) continue;
                 const binding = all.playerBinding(@intCast(i)) orelse continue;
                 sendParticipantHome(ctx, binding, state.recall);
@@ -154,7 +154,7 @@ pub fn sendHome(ctx: aigeneric.Context) void {
 /// Finish a co-op recall after the last active pilot leaves and the shared jumps finish.
 pub fn recallComplete(all: *const create.Objects) bool {
     var recalled = false;
-    for (all.player_states[0..all.players], 0..) |state, i| {
+    for (all.player_states[0..all.playerSlotCount()], 0..) |state, i| {
         if (state.membership != .joined) continue;
         recalled = recalled or state.membership.joined.ending.sentHome();
         if (all.playerBinding(@intCast(i)) == null) continue;
