@@ -54,7 +54,7 @@ pub const Scene = struct {
     /// last showed.
     drawing: *hud.Drawing,
     all: *const create.Objects,
-    beacons: ?*const six_beacons.Snapshot = null,
+    beacons: ?*const six_beacons.HudSnapshot = null,
     multiplayer: bool = false,
 
     /// Draws `form`: what it shows now, and what it last showed as it shrinks away closing

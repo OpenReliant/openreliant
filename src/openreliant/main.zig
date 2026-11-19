@@ -828,7 +828,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // sets, who flies every mission; and the pilot's profile, whose call sign the pilot takes as
     // the game starts (`campaign_new`).
     var network_pilot: NetworkPilot = .{};
-    defer if (network_enabled) network_pilot.stop(gpa);
+    defer if (network_enabled) network_pilot.stop(presentation);
     var front: engine.genilib.interf.Interface = .{ .pilot = .{ .difficulty = options.difficulty orelse .easy } };
     defer front.deinit();
     var pilot_profile: game.gameflow.ProfileFile = .{
@@ -1141,10 +1141,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             front_context.window = size;
             front_context.elapsed = elapsed;
             // While the console is up, it takes the pass.
-            if (network_enabled) network_pilot.update(gpa, io, &front, &devices);
+            if (network_enabled) network_pilot.update(io, &front, &devices, presentation);
             const in_arena = network_enabled and network_pilot.flying();
             if (!console_up and in_arena and devices.keyboard.pressed(engine.input.scan.escape, .none, true)) {
-                network_pilot.stop(gpa);
+                network_pilot.stop(presentation);
                 front.connection.busy = false;
                 front.connection.message = "Left the server";
             }
@@ -1438,7 +1438,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         // copied: a switch of view picks the subtarget's parts out of them, or puts them back. The
         // display takes up what they started for it, before the scripts and the frame read it.
         view.notice(&player.viewing);
-        display.drawing.takeUp(&game_display);
+        const network_frame = if (network_enabled and flow.in_front_end)
+            try network_pilot.frame(gpa, objects, tables, types.types(), presentation)
+        else
+            null;
+        if (display.multiplayer != (network_frame != null)) display.drawing = .{};
+        display.multiplayer = network_frame != null;
+        display.drawn = network_frame orelse &drawn;
+        display.drawing.takeUp(if (network_frame) |flight| &flight.display else &game_display);
         // The frame draws a copy of the game: of the objects, which with smooth motion has what
         // moves as far on as the clock has run past the tick, where the camera follows it, and of
         // the records drawing reads. Until drawing is done with the frame, the subtarget keeps the
@@ -1470,25 +1477,29 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         // layers is drawn on.
         if (script_frames) |*frames| {
             const shown = frames.presentation;
-            var host = frames.host(size, !flow.in_front_end and !drawn.clock.paused);
-            if (flow.in_front_end) {
+            var host = frames.host(size, network_frame != null or (!flow.in_front_end and !drawn.clock.paused));
+            if (flow.in_front_end and network_frame == null) {
                 const fonts = &front_resources.?;
                 frames.show(&host, .ui, &fonts.small.font, game.interface.canvas.scaleFor(size), if (fonts.shapes) |*art| art else null, null);
             } else {
                 const layer: scripting.drawing.Which = if (pause_menu.isOpen()) .ui else .hud;
                 if (script_font) |*file| frames.show(&host, layer, &file.font, display.ui_scale.of(size), &display.resources.art, display.resources.scripts_ball);
-                host.camera = .{ .camera = &view, .viewing = &drawn.player.viewing, .bounds = .of(drawn_world), .now = drawn.clock.viewTime(), .player = drawn.objects.player };
-                host.scene = hearing.scene(drawn_world);
+                if (network_frame == null) {
+                    host.camera = .{ .camera = &view, .viewing = &drawn.player.viewing, .bounds = .of(drawn_world), .now = drawn.clock.viewTime(), .player = drawn.objects.player };
+                    host.scene = hearing.scene(drawn_world);
+                }
+                const flight = display.drawn;
                 host.flight = .{
-                    .hud = &drawn.display,
+                    .hud = &flight.display,
                     .drawing = &display.drawing,
-                    .player = &drawn.player,
-                    .play = drawn.clock.play,
-                    .variables = drawn_world.variables,
-                    .last_view = drawn.player.viewing.last,
+                    .player = &flight.player,
+                    .play = flight.clock.play,
+                    .variables = if (network_frame != null) null else drawn_world.variables,
+                    .last_view = flight.player.viewing.last,
                     .strings = display.strings,
-                    .speaker = if (drawn.radio) |*on_air| on_air.speakingShip(&drawn.display.windows, drawn.objects) else null,
-                    .speaker_name = if (drawn.radio) |*on_air| on_air.shownName() else null,
+                    .multiplayer = display.multiplayer,
+                    .speaker = if (flight.radio) |*on_air| on_air.speakingShip(&flight.display.windows, flight.objects) else null,
+                    .speaker_name = if (flight.radio) |*on_air| on_air.shownName() else null,
                 };
             }
             if (shown.runtime.registries.selected_screen != null and host.views.get(.ui) == null) host.views.set(.ui, host.views.get(.hud));
@@ -1498,7 +1509,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             shown.frame(host);
             shown.runtime.objects = game_objects;
             // The copy is drawn with the surface functions the player scripts gave its objects.
-            if (drawn_objects) |copy| shown.dressObjects(copy);
+            if (network_frame) |flight| shown.dressObjects(flight.objects) else if (drawn_objects) |copy| shown.dressObjects(copy);
             display.placements = shown.instrumentPlacements();
             display.parts = shown.partPlacements();
             if (host.camera != null) if (drawn_objects) |copy| {
@@ -1521,13 +1532,32 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             // its first frame is drawn, as each of the game's screens enters before its loop.
             front.enterShown(front_context);
             var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = gpu.interface(), .window = size, .strings = &strings, .settings = .{ .devices = &devices, .sound = sound, .video = video_settings }, .presentation = presentation, .console = if (console) |*up| up else null };
-            scene.clear();
-            if (network_enabled and network_pilot.flying()) {
-                try network_pilot.draw(gpa, arena, types.types(), &scene, &context, size, field_of_view);
-                try space.frame(arena, &scene, &context, .chase, .chase);
-                try sky.frame(arena, &scene, &context);
-                try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), null);
-            } else try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), shown.overlay());
+            if (network_frame) |flight| {
+                const viewing = &flight.player.viewing;
+                const place = NetworkPilot.chase(flight);
+                context.camera = .{ .position = place.position, .orientation = place.orientation };
+                context.projection = (camera.Camera{}).projection(viewing.view, size[0], size[1], field_of_view);
+                display.device = gpu.interface();
+                display.screen = size;
+                display.sight = .{ .place = place, .projection = context.projection };
+                display.cockpit_mode = viewing.cockpit_mode;
+                try game.main.drawFrame(arena, frame_arena.allocator(), &scene, &context, .{
+                    .objects = flight.objects,
+                    .portals = &flight.portals,
+                    .space = space,
+                    .sky = sky,
+                    .view = viewing.view,
+                    .last_view = viewing.last,
+                    .cockpit_mode = viewing.cockpit_mode,
+                    .chase = chase_objects,
+                    .display = &display.drawing,
+                    .overlay = display.overlay(),
+                    .attachments = .{ .camera = place.position },
+                }, driver.interface());
+            } else {
+                scene.clear();
+                try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), shown.overlay());
+            }
         } else {
             const copy = drawn_objects.?;
             // The game takes where this frame is drawn from as input, for the effects that depend
@@ -2588,6 +2618,7 @@ const Display = struct {
     /// shows the speaker's face, and the mission's variables, which have what is ready for JUMP
     /// DRIVE (`game.main.Drawn`).
     drawn: *const game.main.Drawn,
+    multiplayer: bool = false,
     /// What drawing hands the game (`game.main.Handed`), here what the player aimed at as the
     /// display was drawn.
     handed: *game.main.Handed,
@@ -2682,8 +2713,9 @@ const Display = struct {
             .last_view = drawn.player.viewing.last,
             .mode = display.cockpit_mode,
             .strings = display.strings,
-            .hit_shake = display.view.shake_left,
-            .sound = display.settings.sound,
+            .hit_shake = if (display.multiplayer) 0 else display.view.shake_left,
+            .multiplayer = display.multiplayer,
+            .sound = if (display.multiplayer) null else display.settings.sound,
             .radio = if (drawn.radio) |*on_air| on_air else null,
             .film = &display.film,
             .random = display.random,
@@ -2694,7 +2726,7 @@ const Display = struct {
             .parts = display.parts,
             .devices = display.devices,
         });
-        display.handed.aim = display.drawing.aim;
+        if (!display.multiplayer) display.handed.aim = display.drawing.aim;
     }
 };
 

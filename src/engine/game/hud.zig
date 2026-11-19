@@ -2573,7 +2573,7 @@ pub const Frame = struct {
     ready: *const Readiness,
     edge_line: EdgeLine,
     multiplayer: bool = false,
-    beacon_snapshot: ?*const six_beacons.Snapshot = null,
+    beacon_snapshot: ?*const six_beacons.HudSnapshot = null,
     /// The sound the enemy lock's warning plays through (`Drawing.warnOfLock`); none where nothing
     /// is heard.
     sound: ?*hog_snd.Sound = null,
@@ -6775,10 +6775,10 @@ test "target displays follow the bound pilot and scenario counts" {
     drawing.fonts.new = .open(font, null);
     drawing.fonts.small = .open(font, null);
 
-    var snapshot: six_beacons.Snapshot = .{ .beacons = @splat(.{ .object = .of(all, target) }) };
-    snapshot.beacons[0].carrier = binding;
-    snapshot.beacons[1].carrier = local_ship;
-    snapshot.beacons[2].carrier = local_ship;
+    var snapshot: six_beacons.HudSnapshot = .{};
+    snapshot.carriers[0] = binding;
+    snapshot.carriers[1] = local_ship;
+    snapshot.carriers[2] = local_ship;
     const scene: TargetScene = .{ .all = all, .sight = testSight(), .mode = .cockpit, .beacons = .{ .snapshot = &snapshot, .icons = &icons } };
     _ = try drawing.draw(gpa, &targeting.state, scene);
     try std.testing.expect(icons.images[0x10] != null);

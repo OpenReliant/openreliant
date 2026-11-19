@@ -401,8 +401,9 @@ pub const part_bounds = api.Function("Where the part `part` of the game's instru
 pub const instruments_shown = api.Field(bool, "Whether the game's instruments show this frame: during a mission, in the view ahead from the cockpit.", struct {
     pub fn get(call: Call) bool {
         const host = presentation.Presentation.of(call).host orelse return false;
-        const held = host.camera orelse return false;
-        return hud.instrumented(held.viewing.view);
+        if (host.camera) |held| return hud.instrumented(held.viewing.view);
+        const flight = host.flight orelse return false;
+        return hud.instrumented(flight.last_view);
     }
 });
 
