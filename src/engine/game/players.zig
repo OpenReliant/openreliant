@@ -38,6 +38,7 @@ pub const Membership = union(enum) {
         ship: ?gameobj.ObjectRef = null,
         team: ?ArenaTeam = null,
         kills: Kills = .{},
+        deaths: u32 = 0,
         ending: @import("main.zig").Ending = .playing,
     };
 };
