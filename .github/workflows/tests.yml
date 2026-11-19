@@ -23,6 +23,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.1
@@ -33,7 +35,37 @@ jobs:
       - name: Forget the cached builds of our own code
         shell: bash
         run: ${{ env.forget_our_code }}
-      - run: zig build --summary all
+      - name: Check for multiplayer transport changes
+        if: runner.os == 'Linux'
+        id: transport_changes
+        shell: bash
+        run: |
+          if ! git diff --quiet HEAD^1 HEAD -- build.zig build.zig.zon deps/transport \
+            src/openreliant/network src/openreliant/main.zig src/openreliant/options.zig \
+            scripts/build_transport.py scripts/check-direct-session.py scripts/transport_test_identities.py \
+            scripts/transport-test-requirements.txt .github/actions/build-transport \
+            .github/workflows/release.yml .github/workflows/tests.yml; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: ./.github/actions/build-transport
+        if: steps.transport_changes.outputs.changed == 'true'
+        id: transport
+        with:
+          target: x86_64-linux-gnu.2.31
+          test-identities: "true"
+      - name: Build the executables
+        shell: bash
+        env:
+          GNS_PREFIX: ${{ steps.transport.outputs.prefix }}
+        run: |
+          args=()
+          if [ -n "$GNS_PREFIX" ]; then args+=(-Dgns-prefix="$GNS_PREFIX"); fi
+          zig build --summary all "${args[@]}"
+      - name: Check the headless multiplayer session
+        if: steps.transport_changes.outputs.changed == 'true'
+        env:
+          IDENTITIES: ${{ steps.transport.outputs.identities }}
+        run: python3 scripts/check-direct-session.py zig-out/bin/openreliant "$IDENTITIES"
       # On Windows, the executables carry a manifest, which Windows reads as they start, and version
       # information, which has to give the version they report.
       - if: runner.os == 'Windows'

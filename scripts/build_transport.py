@@ -75,7 +75,7 @@ def cross_tools(out, target, system, arch, sdk):
             args.extend(["-target", target, "-g0", "-Wno-date-time",
                          f"-ffile-prefix-map={out.parent}=."])
             if system == "Windows":
-                args.extend(["-isystem", str(headers)])
+                args.extend(["-I", str(headers)])
             if sdk:
                 frameworks = Path(sdk) / "System" / "Library" / "Frameworks"
                 args.extend(["-isysroot", sdk, "-iframework", str(frameworks)])

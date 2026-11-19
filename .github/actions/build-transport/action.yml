@@ -1,18 +1,22 @@
-name: Build release executables
-description: Build OpenReliant and its multiplayer transport for a release target
+name: Build multiplayer transport
+description: Build the transport libraries for an OpenReliant target
 inputs:
   target:
     description: Zig target triple
     required: true
-  smoke:
-    description: Run the headless session on a runner that can execute the target
+  test-identities:
+    description: Generate disposable identities for the headless session check
     default: "false"
+outputs:
+  prefix:
+    description: Headers, libraries and licenses to pass to the Zig build
+    value: ${{ steps.build.outputs.prefix }}
+  identities:
+    description: Directory for the disposable test identities
+    value: ${{ steps.build.outputs.identities }}
 runs:
   using: composite
   steps:
-    - uses: mlugg/setup-zig@v2
-      with:
-        version: 0.17.1
     - name: Check the build tools
       shell: bash
       run: |
@@ -22,26 +26,21 @@ runs:
             Linux) sudo apt-get update && sudo apt-get install -y ninja-build ;;
           esac
         fi
-    - name: Build the transport and game
+    - name: Build the transport
+      id: build
       shell: bash
       env:
         TARGET: ${{ inputs.target }}
-        SMOKE: ${{ inputs.smoke }}
+        TEST_IDENTITIES: ${{ inputs.test-identities }}
       run: |
         work="$RUNNER_TEMP/openreliant-transport"
         python=python3
         args=()
-        if [ "$SMOKE" = true ]; then
+        if [ "$TEST_IDENTITIES" = true ]; then
           python3 -m venv "$RUNNER_TEMP/openreliant-session-tests"
           python="$RUNNER_TEMP/openreliant-session-tests/bin/python"
           "$python" -m pip install -r scripts/transport-test-requirements.txt
           args+=(--test-identities)
         fi
         "$python" scripts/build_transport.py "$work" "$TARGET" "${args[@]}"
-        zig build --release=fast -Dstrip -Dtarget="$TARGET" -Dgns-prefix="$work/$TARGET/prefix"
-    - name: Test the release executables headlessly
-      if: inputs.smoke == 'true'
-      shell: bash
-      run: |
-        work="$RUNNER_TEMP/openreliant-transport"
-        python3 scripts/check-direct-session.py zig-out/bin/openreliant "$work/session-identities"
+        printf 'prefix=%s\nidentities=%s\n' "$work/$TARGET/prefix" "$work/session-identities" >> "$GITHUB_OUTPUT"
