@@ -34,14 +34,7 @@ pub const Scenario = enum(u8) {
 
     pub fn hasPowerUps(scenario: Scenario) bool {
         return switch (scenario) {
-            .asteroid_field, .dark_reign, .tag_bomb, .hunt_the_shadow => true,
-            else => false,
-        };
-    }
-
-    pub fn available(scenario: Scenario) bool {
-        return switch (scenario) {
-            .asteroid_field, .nuclear_threat, .dark_reign, .tag_bomb, .hunt_the_shadow => true,
+            .asteroid_field, .dark_reign, .tag_bomb, .hunt_the_shadow, .vampires => true,
             else => false,
         };
     }

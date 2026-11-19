@@ -282,6 +282,11 @@ cloaked, has no shields and cannot collect random power-ups. Killing the Shadow 
 role and adds five bonus frags to the normal frag. If the Shadow disconnects or dies without
 a credited killer, the next pilot to score a frag takes the role.
 
+In **Vampires**, the first pilot to die becomes a vampire. Vampires keep their role when they
+respawn, cannot collect power-ups, and infect humans they kill. The last human to die earns five
+frags and everyone becomes human again. Scores and the match clock carry on. As in the original,
+any departure when just one human remains also resets the roles, without a score bonus.
+
 To share an invite that also verifies the server's identity, copy the value after `invite` in the host's output and share it with your pilots. They can paste it in the same address field. The invite contains the IP
 address, port and public server key. Pilots should get the invite from the host operator so they
 can verify the right server. Anyone with the invite can try to join.
@@ -297,7 +302,7 @@ your pilots can reach. Allow incoming UDP on `Port` and use the same port if you
 | `BindAddress` | `127.0.0.1` | The IPv4 or IPv6 address the host listens on. The default accepts pilots from the host machine |
 | `InviteAddress` | `BindAddress` | The IPv4 or IPv6 address to put in the invite. Set this to a specific address when listening on all interfaces |
 | `Port` | `27020` | The UDP port to listen on, from 1 to 65535 |
-| `Arena` | `nuclear-threat` | `nuclear-threat`, `asteroid-field`, `dark-reign`, `tag-bomb` or `hunt-the-shadow` for the stock missions. `six-beacons` and `training` are small transport test arenas |
+| `Arena` | `nuclear-threat` | `nuclear-threat`, `asteroid-field`, `dark-reign`, `tag-bomb`, `hunt-the-shadow` or `vampires` for the stock missions. `six-beacons` and `training` are small transport test arenas |
 | `GameDirectory` | `.` | Installed game folder, relative to `server.ini` or an absolute path. Used by stock missions |
 | `Players` | `3` | The maximum pilots. This build supports 2 or 3, and starts the round once two are admitted |
 | `RoundTicks` | Unset | Keep the host running until stopped. Set a positive tick count to end a test round at that tick |

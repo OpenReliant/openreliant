@@ -340,6 +340,7 @@ fn shipInit(ctx: Context, index: u16) void {
         switch (scenario.*) {
             .tag_bomb => |*round| round.bomb.destroyed(world, index),
             .hunt_the_shadow => |*round| round.shadow.destroyed(world, index),
+            .vampires => |*round| round.infection.destroyed(world, index),
             else => {},
         }
         deathmatch.recordDeath(world.objects, index);

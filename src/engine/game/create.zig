@@ -971,7 +971,7 @@ pub const Objects = struct {
     pub fn leaveParticipant(world: gameobj.World, ref: players.ParticipantRef) bool {
         const all = world.objects;
         const state = all.joinedParticipant(ref) orelse return false;
-        all.arena_scenario.departShip(all, ref);
+        all.arena_scenario.departShip(world, ref);
         const bound = state.membership.joined.ship;
         const team = state.membership.joined.team;
         state.* = .{ .membership = .vacant };

@@ -14,7 +14,14 @@ const Graphical = @This();
 const Connection = game.interface.Connection;
 const combat_messages_per_frame = 8;
 const messages_per_frame = combat_messages_per_frame + wire.ordnance.Page.pages;
-const FlightNotice = union(enum) { beacon: wire.BeaconNotice, tag_bomb: wire.TagBombNotice, shadow: wire.ShadowNotice, pilot: wire.PilotNotice, chat: wire.ChatLine };
+const FlightNotice = union(enum) {
+    beacon: wire.BeaconNotice,
+    tag_bomb: wire.TagBombNotice,
+    shadow: wire.ShadowNotice,
+    vampires: wire.VampiresNotice,
+    pilot: wire.PilotNotice,
+    chat: wire.ChatLine,
+};
 
 // net_handle_system_message (0x004B6A80) posts 0x3B7 on session loss in flight.
 const host_left: Connection.Label = .{ .english = "The host has left the game", .installed = 0x3B7 };
@@ -356,6 +363,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             .beacon_notice => |notice| pilot.queueNotice(.{ .beacon = notice }),
             .tag_bomb_notice => |notice| pilot.queueNotice(.{ .tag_bomb = notice }),
             .shadow_notice => |notice| pilot.queueNotice(.{ .shadow = notice }),
+            .vampires_notice => |notice| pilot.queueNotice(.{ .vampires = notice }),
             .pilot_notice => |notice| {
                 if (notice.kind == .left_lobby) {
                     const listed = client.roster.pilots[notice.pilot.slot];
@@ -513,6 +521,12 @@ fn presentNotices(pilot: *Graphical, flight: *FlightFrame, strings: game.languag
             notice.event.present(messages, strings, viewer, name, other);
             shadow_announced = shadow_announced or notice.event.kind != .killed;
         },
+        .vampires => |*notice| {
+            var fallback: [64]u8 = undefined;
+            const name = if (notice.event.change.pilot()) |who| pilotName(&fallback, strings, &notice.name, who.slot) else "";
+            notice.event.present(messages, strings, viewer, name);
+            flight.vampires_started = true;
+        },
         .pilot => |notice| presentPilotNotice(messages, strings, notice),
         .chat => |line| presentChat(messages, strings, line, flight.drawn.clock.frame_start),
     };
@@ -538,6 +552,11 @@ fn presentNotices(pilot: *Graphical, flight: *FlightFrame, strings: game.languag
             shadow.announce(messages, strings, tick, null);
         }
         flight.shadow_was_active = role != null;
+    }
+    if (flight.drawn.vampire_roles) |roles| {
+        if (!flight.vampires_started and roles.count() == 0)
+            game.deathmatch.vampires.announceEmpty(messages, strings, flight.drawn.clock.frame_start);
+        flight.vampires_started = true;
     }
     pilot.notice_count = 0;
 }

@@ -1252,6 +1252,7 @@ pub const Drawn = struct {
     forces: ?input.force.Forces = null,
     tag_bomb: ?@import("dmscenarios/tag_bomb.zig").Hud = null,
     shadow: ?@import("players.zig").ParticipantRef = null,
+    vampire_roles: ?@import("dmscenarios/vampires.zig").Roles = null,
     relay_carrier: ?@import("players.zig").ControlRef = null,
     beacon_snapshot: ?@import("dmscenarios/six_beacons.zig").HudSnapshot = null,
     /// Copies of the game's effects, which drawing draws.

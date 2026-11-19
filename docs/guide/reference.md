@@ -1999,7 +1999,7 @@ number. A script can set a field to either.
 
 ### HudInstrument
 
-`caption`, `key_prompt`, `jump_prompt`, `target_markers`, `eject_marker`, `scanner`, `lights`, `view_name`, `subtitle`, `messages`, `nav_marker`, `fuel`, `kills`, `countermeasures`, `ship_status`, `gauges`, `radar`, `reticle`, `clock`, `radio`, `gunnery`, `missiles`, `target_display`, `damage`, `power`, `big_target_display`, `objectives`, `comms`, `wing_status`, `beacon_counter`, `chat_input`, `arena_power_up`, `standings`, `dark_reign_relay`, `tag_bomb_timer`, `shadow_badge`.
+`caption`, `key_prompt`, `jump_prompt`, `target_markers`, `eject_marker`, `scanner`, `lights`, `view_name`, `subtitle`, `messages`, `nav_marker`, `fuel`, `kills`, `countermeasures`, `ship_status`, `gauges`, `radar`, `reticle`, `clock`, `radio`, `gunnery`, `missiles`, `target_display`, `damage`, `power`, `big_target_display`, `objectives`, `comms`, `wing_status`, `beacon_counter`, `chat_input`, `arena_power_up`, `standings`, `dark_reign_relay`, `tag_bomb_timer`, `shadow_badge`, `vampire_badge`.
 
 ### TargetForm
 
@@ -2027,7 +2027,7 @@ number. A script can set a field to either.
 
 ### HudPart
 
-`caption_text`, `caption_cursor`, `key_prompt_press`, `key_prompt_action`, `key_prompt_key`, `key_prompt_modifier`, `key_prompt_plus`, `view_name_text`, `subtitle_text`, `messages_text`, `fuel_figure`, `kills_figure`, `countermeasures_figure`, `gauges_speed`, `gauges_throttle`, `target_markers_range`, `clock_text`, `radio_speaker`, `radio_face`, `gunnery_gun`, `gunnery_rounds`, `missiles_count`, `missiles_name`, `target_display_name`, `target_display_pilot`, `target_display_range`, `target_display_speed`, `target_display_subtarget`, `damage_title`, `damage_names`, `power_title`, `power_figures`, `power_ball`, `objectives_title`, `objectives_heading`, `objectives_name`, `comms_title`, `comms_numbers`, `comms_items`, `wing_status_title`, `wing_status_numbers`, `target_display_beacons`, `chat_input_text`, `chat_input_caret`, `target_markers_relay`, `target_display_relay`, `tag_bomb_countdown`, `target_markers_bomb`, `target_display_bomb`, `shadow_badge_icon`.
+`caption_text`, `caption_cursor`, `key_prompt_press`, `key_prompt_action`, `key_prompt_key`, `key_prompt_modifier`, `key_prompt_plus`, `view_name_text`, `subtitle_text`, `messages_text`, `fuel_figure`, `kills_figure`, `countermeasures_figure`, `gauges_speed`, `gauges_throttle`, `target_markers_range`, `clock_text`, `radio_speaker`, `radio_face`, `gunnery_gun`, `gunnery_rounds`, `missiles_count`, `missiles_name`, `target_display_name`, `target_display_pilot`, `target_display_range`, `target_display_speed`, `target_display_subtarget`, `damage_title`, `damage_names`, `power_title`, `power_figures`, `power_ball`, `objectives_title`, `objectives_heading`, `objectives_name`, `comms_title`, `comms_numbers`, `comms_items`, `wing_status_title`, `wing_status_numbers`, `target_display_beacons`, `chat_input_text`, `chat_input_caret`, `target_markers_relay`, `target_display_relay`, `tag_bomb_countdown`, `target_markers_bomb`, `target_display_bomb`, `shadow_badge_icon`, `vampire_badge_icon`, `target_markers_vampire`, `target_display_vampires_role`.
 
 ### HudWindowPhase
 

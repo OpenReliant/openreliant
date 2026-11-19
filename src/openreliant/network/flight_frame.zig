@@ -15,6 +15,7 @@ random: engine.random.Random = .{},
 tick: ?u32 = null,
 bomb_was_active: ?bool = null,
 shadow_was_active: ?bool = null,
+vampires_started: bool = false,
 host_ship_reuse: [wire.slots]u32 = @splat(0),
 respawns: game.deathmatch.respawn.View = .{},
 wall: game.deathmatch.Boundary.Flashes = .{},
@@ -129,7 +130,6 @@ pub fn presentProjectiles(frame: *FlightFrame, pages: *const [wire.ordnance.Page
 }
 
 pub fn loadArena(frame: *FlightFrame, files: stock.Files, scenario: wire.Scenario, types: game.create.Types) !void {
-    if (!scenario.available()) return error.UnsupportedArena;
     const drawn = &frame.drawn;
     frame.loaded = try files.load(drawn.gpa, scenario, .{
         .objects = drawn.objects,
@@ -481,8 +481,9 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
             null
     else
         null;
+    frame.drawn.vampire_roles = if (snapshot.objectives == .vampires) snapshot.objectives.vampires else null;
     frame.drawn.beacon_snapshot = switch (snapshot.objectives) {
-        .none, .tag_bomb, .hunt_the_shadow => null,
+        .none, .tag_bomb, .hunt_the_shadow, .vampires => null,
         .dark_reign => |mode| view: {
             try frame.presentDarkReign(scene, mode);
             break :view null;

@@ -3285,5 +3285,17 @@ address	kind	name	type	comment
 004b4cb0	function	shadow_read_state	void (void)	Reads the Shadow's slot into the shared arena join state
 004b2dc0	function	mp_can_take_powerup	bool __fastcall (int pilot)	Refuses random power-ups for the Shadow and for vampires
 005db608	data	shadow_join_slot	int	The Shadow's slot from a resync packet, or minus one
-005d7c94	data	shadow_show_debug	bool	Enables the unused shadow slot text in the HUD
+005d7c94	data	dm_show_debug	bool	Enables unused arena diagnostics in the HUD
 005db58c	data	tag_bomb_previous_tick	int	The last frame tick used to advance the bomb
+004b4cf0	function	vampires_init	void (void)	Starts everyone human or restores the vampire roles from a join packet
+004b4d40	function	vampires_write_state	void (void)	Packs the eight vampire roles into the world state
+004b4d80	function	vampires_read_state	void (void)	Reads the eight roles into the join state
+004b4dc0	function	vampires_pilot_destroyed	void __fastcall (int pilot)	Infects the first casualty or a human killed by a vampire
+004b4e40	function	vampires_pilot_left	void __fastcall (int pilot)	Clears all roles if exactly one human was in the roster before departure or clears just the departing pilot
+004b4ec0	function	vampires_draw_hud	void (void)	Draws shape 0x0E for the local vampire at the arena objective anchor
+004b4fe0	function	vampires_target_text	bool __fastcall (GameObject *target, char *text)	Writes language string 0x2DB for Vampire or 0x2DC for Human
+004b5060	function	vampires_draw_target_badge	void __fastcall (int pilot, int x, int y)	Draws shape 0x12 at x minus 33 and y plus 2 beside a vampire's brackets
+004b5090	function	vampires_set_role	void __fastcall (int pilot, bool infected, bool report)	Sets the pilot's role and awards the last human five frags before clearing all infections
+004baff0	function	net_send_vampire_role	void __fastcall (int pilot, bool infected)	Tells session peers that a pilot's vampire role changed
+005db4f8	data	vampires_join_roles	byte[8]	The eight roles read from the join packet
+005db600	data	vampires_roles	byte[8]	Whether each pilot is infected

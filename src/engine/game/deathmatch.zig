@@ -16,6 +16,7 @@ pub const dark_reign = @import("dmscenarios/dark_reign.zig");
 pub const six_beacons = @import("dmscenarios/six_beacons.zig");
 pub const tag_bomb = @import("dmscenarios/tag_bomb.zig");
 pub const hunt_the_shadow = @import("dmscenarios/hunt_the_shadow.zig");
+pub const vampires = @import("dmscenarios/vampires.zig");
 const math = @import("../surrender/math.zig");
 
 /// `cmd_ResetToSpawnPositions` (`0x004591B0`) selects the rules for this map once and
@@ -40,6 +41,8 @@ pub fn resetToSpawnPositions(world: gameobj.World) !void {
             all.arena_scenario = .{ .tag_bomb = .{ .powerups = try powerups.Round.start(all) } };
         if (all.mission_number == scenarios.Scenario.hunt_the_shadow.mission())
             all.arena_scenario = .{ .hunt_the_shadow = .{ .powerups = try powerups.Round.start(all) } };
+        if (all.mission_number == scenarios.Scenario.vampires.mission())
+            all.arena_scenario = .{ .vampires = .{ .powerups = try powerups.Round.start(all) } };
         all.arena_boundary = .{ .bounds = switch (all.arena_scenario) {
             .six_beacons => |*round| round.bounds,
             else => .of(all),
@@ -101,6 +104,7 @@ pub const Scenario = union(enum) {
     dark_reign: struct { relay: dark_reign.Round, powerups: powerups.Round },
     tag_bomb: struct { bomb: tag_bomb.Round = .{}, powerups: powerups.Round },
     hunt_the_shadow: struct { shadow: hunt_the_shadow.Round = .{}, powerups: powerups.Round },
+    vampires: struct { infection: vampires.Round = .{}, powerups: powerups.Round },
 
     pub fn powerUps(scenario: *Scenario) ?*powerups.Round {
         return switch (scenario.*) {
@@ -108,6 +112,7 @@ pub const Scenario = union(enum) {
             .dark_reign => |*round| &round.powerups,
             .tag_bomb => |*round| &round.powerups,
             .hunt_the_shadow => |*round| &round.powerups,
+            .vampires => |*round| &round.powerups,
             else => null,
         };
     }
@@ -115,7 +120,7 @@ pub const Scenario = union(enum) {
     pub fn frame(scenario: *Scenario, world: gameobj.World) void {
         if (scenario.powerUps()) |round| round.frame(world);
         switch (scenario.*) {
-            .deathmatch, .asteroid_field, .hunt_the_shadow => {},
+            .deathmatch, .asteroid_field, .hunt_the_shadow, .vampires => {},
             .dark_reign => |*round| round.relay.frame(world),
             .six_beacons => |*round| round.frame(world),
             .tag_bomb => |*round| round.bomb.frame(world),
@@ -125,17 +130,19 @@ pub const Scenario = union(enum) {
     pub fn releaseShip(scenario: *Scenario, all: *Objects, index: u16) void {
         if (scenario.powerUps()) |round| round.release(all, index);
         switch (scenario.*) {
-            .deathmatch, .asteroid_field, .tag_bomb, .hunt_the_shadow => {},
+            .deathmatch, .asteroid_field, .tag_bomb, .hunt_the_shadow, .vampires => {},
             .dark_reign => |*round| round.relay.drop(all, index),
             .six_beacons => |*round| round.drop(all, index),
         }
     }
 
-    pub fn departShip(scenario: *Scenario, all: *Objects, pilot: players.ParticipantRef) void {
+    pub fn departShip(scenario: *Scenario, world: gameobj.World, pilot: players.ParticipantRef) void {
+        const all = world.objects;
         switch (scenario.*) {
             .dark_reign => |*round| round.relay.leave(all, pilot.slot),
             .tag_bomb => |*round| round.bomb.leave(pilot),
             .hunt_the_shadow => |*round| round.shadow.leave(pilot),
+            .vampires => |*round| round.infection.leave(world, pilot),
             else => return scenario.releaseShip(all, pilot.slot),
         }
         if (scenario.powerUps()) |round| round.release(all, pilot.slot);

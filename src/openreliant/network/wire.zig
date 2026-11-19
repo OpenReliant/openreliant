@@ -7,7 +7,7 @@ pub const ordnance = @import("ordnance.zig");
 const flight = engine.input.flight;
 pub const Fighter = engine.game.dmscenarios.Fighter;
 pub const Scenario = engine.game.dmscenarios.Scenario;
-pub const revision: u16 = 17;
+pub const revision: u16 = 18;
 pub const slots = 3;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
@@ -165,6 +165,34 @@ pub const ShadowNotice = struct {
     }
 };
 
+const vampires = engine.game.deathmatch.vampires;
+pub const VampiresNotice = struct {
+    event: vampires.Notice,
+    name: CallSign = .{},
+
+    fn write(notice: VampiresNotice, w: *std.Io.Writer) !void {
+        try w.writeByte(@backingInt(std.meta.activeTag(notice.event.change)));
+        try w.writeInt(i32, notice.event.tick, .little);
+        if (notice.event.change.pilot()) |pilot| {
+            try writeParticipant(w, pilot);
+            try writeCallSign(w, &notice.name);
+        }
+    }
+
+    fn read(r: *std.Io.Reader) !VampiresNotice {
+        const kind = try r.takeEnum(std.meta.Tag(vampires.Notice.Change), .little);
+        const tick = try r.takeInt(i32, .little);
+        if (tick < 0) return error.InvalidVampiresNotice;
+        const change: vampires.Notice.Change = switch (kind) {
+            .infected => .{ .infected = try readParticipant(r) },
+            .last_human => .{ .last_human = try readParticipant(r) },
+            .round_left => .round_left,
+            .none_left => .none_left,
+        };
+        return .{ .event = .{ .tick = tick, .change = change }, .name = if (change.pilot() != null) try readCallSign(r) else .{} };
+    }
+};
+
 pub const Wreck = engine.game.deathmatch.Wreck;
 /// A late effect is useful while original debris could still be present.
 pub const wreck_window = 500;
@@ -258,6 +286,7 @@ pub const Objectives = union(enum(u8)) {
     dark_reign: DarkReign,
     tag_bomb: ?ActiveBomb,
     hunt_the_shadow: ?u8,
+    vampires: vampires.Roles,
 };
 
 pub const ActiveBomb = struct {
@@ -486,9 +515,7 @@ fn writeScenario(w: *std.Io.Writer, scenario: ?Scenario) !void {
 fn readScenario(r: *std.Io.Reader) !?Scenario {
     const code = try r.takeByte();
     if (code == 0) return null;
-    const scenario = std.enums.fromInt(Scenario, code - 1) orelse return error.InvalidScenario;
-    if (!scenario.available()) return error.InvalidScenario;
-    return scenario;
+    return std.enums.fromInt(Scenario, code - 1) orelse error.InvalidScenario;
 }
 
 fn writePosition(writer: *std.Io.Writer, position: [3]f32) !void {
@@ -653,6 +680,7 @@ pub const Message = union(enum(u8)) {
     chat_line: ChatLine,
     tag_bomb_notice: TagBombNotice,
     shadow_notice: ShadowNotice,
+    vampires_notice: VampiresNotice,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -725,6 +753,10 @@ pub const Message = union(enum(u8)) {
                         if (view.scenario != .hunt_the_shadow) return error.InvalidSnapshot;
                         try w.writeByte(shadow orelse slots);
                     },
+                    .vampires => |roles| {
+                        if (view.scenario != .vampires) return error.InvalidSnapshot;
+                        try w.writeByte(roles.mask);
+                    },
                 }
                 if (view.scenario != null and view.scenario.?.hasPowerUps()) {
                     try view.rocks.write(&w, compactRocks(view.scenario));
@@ -756,6 +788,7 @@ pub const Message = union(enum(u8)) {
             },
             .tag_bomb_notice => |notice| try notice.write(&w),
             .shadow_notice => |notice| try notice.write(&w),
+            .vampires_notice => |notice| try notice.write(&w),
             .combat => |combat| try writeCombat(&w, &combat),
             .weapon_order => |order| try ordnance.writeOrder(&w, order),
             .projectiles => |page| try page.write(&w),
@@ -889,10 +922,20 @@ pub const Message = union(enum(u8)) {
                         if (slot >= slots or view.ships[slot] == null) return error.InvalidSnapshot;
                         break :shadow .{ .hunt_the_shadow = slot };
                     },
+                    .vampires => roles: {
+                        if (view.scenario != .vampires) return error.InvalidSnapshot;
+                        const infected: vampires.Roles = .{ .mask = try r.takeByte() };
+                        if (infected.mask >> slots != 0) return error.InvalidSnapshot;
+                        for (&view.ships, 0..) |*ship, slot| {
+                            if (ship.* == null and infected.isSet(slot)) return error.InvalidSnapshot;
+                        }
+                        break :roles .{ .vampires = infected };
+                    },
                 };
                 if (view.scenario == .dark_reign and view.objectives != .dark_reign) return error.InvalidSnapshot;
                 if (view.scenario == .tag_bomb and view.objectives != .tag_bomb) return error.InvalidSnapshot;
                 if (view.scenario == .hunt_the_shadow and view.objectives != .hunt_the_shadow) return error.InvalidSnapshot;
+                if (view.scenario == .vampires and view.objectives != .vampires) return error.InvalidSnapshot;
                 if (view.scenario != null and view.scenario.?.hasPowerUps()) {
                     view.rocks = try .read(&r, compactRocks(view.scenario));
                     try readArena(&r, &view);
@@ -939,6 +982,7 @@ pub const Message = union(enum(u8)) {
             },
             .tag_bomb_notice => .{ .tag_bomb_notice = try .read(&r) },
             .shadow_notice => .{ .shadow_notice = try .read(&r) },
+            .vampires_notice => .{ .vampires_notice = try .read(&r) },
             .combat => .{ .combat = try readCombat(&r) },
             .weapon_order => .{ .weapon_order = try ordnance.readOrder(&r, slots) },
             .projectiles => .{ .projectiles = try ordnance.Page.read(&r) },
@@ -1359,4 +1403,35 @@ test "Shadow notices retain only the pilots involved in the event" {
     claim.shadow_notice.event.other = null;
     claim.shadow_notice.other_name = .{};
     try std.testing.expectEqualDeep(claim, try Message.decode(try claim.encode(&buffer)));
+}
+
+test "Vampires snapshots can show two roles and reject absent pilots" {
+    var buffer: [capacity]u8 = undefined;
+    var view: Snapshot = .{
+        .tick = 97,
+        .scenario = .vampires,
+        .ships = @splat(null),
+        .objectives = .{ .vampires = .{ .mask = 0b101 } },
+    };
+    view.ships[0] = .{ .generation = 1, .position = @splat(0) };
+    view.ships[2] = .{ .generation = 3, .position = @splat(0) };
+    try std.testing.expectEqualDeep(view, (try Message.decode(try (Message{ .view = view }).encode(&buffer))).view);
+    view.objectives.vampires.set(1);
+    try std.testing.expectError(error.InvalidSnapshot, Message.decode(try (Message{ .view = view }).encode(&buffer)));
+    view.objectives.vampires.unset(1);
+    view.objectives.vampires.set(slots);
+    try std.testing.expectError(error.InvalidSnapshot, Message.decode(try (Message{ .view = view }).encode(&buffer)));
+}
+
+test "Vampires notices carry a last human or a departure without a pilot" {
+    var buffer: [capacity]u8 = undefined;
+    const last: Message = .{ .vampires_notice = .{
+        .event = .{ .tick = 401, .change = .{ .last_human = .{ .slot = 1, .generation = 7 } } },
+        .name = lobbyName("Viper"),
+    } };
+    const sent = try last.encode(&buffer);
+    try std.testing.expectEqualDeep(last, try Message.decode(sent));
+    try std.testing.expectError(error.EndOfStream, Message.decode(sent[0 .. sent.len - 1]));
+    const left: Message = .{ .vampires_notice = .{ .event = .{ .tick = 500, .change = .round_left } } };
+    try std.testing.expectEqualDeep(left, try Message.decode(try left.encode(&buffer)));
 }
