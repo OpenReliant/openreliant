@@ -58,7 +58,7 @@ pub fn control(layout: Layout, which: Control) ui.Rect {
     const width: i16 = switch (which) {
         .internet, .selected, .host, .back => 108,
         .refresh, .connect => 96,
-        .lan => 65,
+        .lan => 146,
     };
     const x: i16, const y: i16 = switch (which) {
         .internet => .{ list.x, source_y },

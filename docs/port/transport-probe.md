@@ -203,8 +203,8 @@ The original restores beacon positions and pilot counts on a mid-round join
 arena mode before resetting the ship slot. In Six Beacons the host drops the departing
 pilot's cargo and sends the new counts (`six_beacons_pilot_left`, 0x004B30A0). The headless
 arena follows this order and creates a fresh ship when another pilot takes the slot. The
-playable lobby and mission notices are tracked in
-[#1442](https://github.com/OpenReliant/openreliant/issues/1442).
+[LAN lobby](../engine/front-end.md#session-lobby) shows the shared roster before launch.
+The remaining in-flight notices are tracked in [#1442](https://github.com/OpenReliant/openreliant/issues/1442).
 
 The replacement reports a different OpenReliant release with the same protocol revision. Its
 first snapshot includes all six beacons, their positions and the carrier's participant and ship

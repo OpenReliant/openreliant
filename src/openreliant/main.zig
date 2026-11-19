@@ -829,7 +829,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // the game starts (`campaign_new`).
     var network_pilot: NetworkPilot = .{};
     defer if (network_enabled) network_pilot.stop(presentation);
-    var front: engine.genilib.interf.Interface = .{ .pilot = .{ .difficulty = options.difficulty orelse .easy } };
+    var front: engine.genilib.interf.Interface = .{
+        .pilot = .{ .difficulty = options.difficulty orelse .easy },
+        .connection = .{ .host_available = network_enabled },
+    };
     defer front.deinit();
     var pilot_profile: game.gameflow.ProfileFile = .{
         .io = io,
@@ -1013,7 +1016,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         while (window.poll()) |event| switch (event) {
             .quit => return,
             .key => |key| if (options.screenshot == null) {
-                if (key.paste and flow.in_front_end and front.screen == .connection and !front.connection.busy and !(if (console) |*shown| shown.isUp() else false)) {
+                if (key.paste and flow.in_front_end and front.screen == .connection and front.connection.host_choice == null and !front.connection.busy and !(if (console) |*shown| shown.isUp() else false)) {
                     var buffer: [128]u8 = undefined;
                     if (platform.window.clipboard(&buffer)) |text| {
                         front.connection.address.set(text);
@@ -1144,9 +1147,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             if (network_enabled) network_pilot.update(io, &front, &devices, presentation, app.active and !console_up);
             const in_arena = network_enabled and network_pilot.flying();
             if (!console_up and in_arena and devices.keyboard.pressed(engine.input.scan.escape, .none, true)) {
-                network_pilot.stop(presentation);
-                front.connection.busy = false;
-                front.connection.message = "Left the server";
+                network_pilot.leave(&front.connection, presentation);
             }
             const front_outcome = if (console_up or in_arena) null else front.frame(front_context);
             // The movie a menu script asked for (`ui.play_movie`).
@@ -1169,11 +1170,23 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         through.mode_saved = .unchosen;
                         try game_scripts.start();
                     },
-                    .quit, .briefing, .mode_mission, .mode_left, .join_server => {},
+                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session => {},
                 }
                 flow.next = switch (outcome) {
+                    .host_lan => {
+                        if (network_enabled) network_pilot.hostLan(io, gpa, directory, &front.connection, &front.pilot.call_sign);
+                        continue;
+                    },
+                    .leave_session => {
+                        if (network_enabled) network_pilot.leave(&front.connection, presentation);
+                        continue;
+                    },
+                    .launch_session => {
+                        if (network_enabled) network_pilot.launch();
+                        continue;
+                    },
                     .join_server => |target| {
-                        if (network_enabled) network_pilot.start(io, target, &front.connection) else front.connection.message = "Multiplayer is unavailable in this build";
+                        if (network_enabled) network_pilot.start(io, target, &front.connection, &front.pilot.call_sign) else front.connection.message = .{ .english = "Multiplayer is unavailable in this build" };
                         continue;
                     },
                     .quit => return,

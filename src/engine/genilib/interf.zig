@@ -82,6 +82,9 @@ pub const Screen = enum(u8) {
 /// What the front end ends in, which `interface_run` returns to WinMain.
 pub const Outcome = union(enum) {
     join_server: []const u8,
+    host_lan,
+    leave_session,
+    launch_session,
     /// QUIT, answered YES: 3.
     quit,
     /// START GAME: 1, a single-player campaign, which `WinMain` takes into the Reliant's rooms
@@ -428,6 +431,9 @@ pub const Interface = struct {
                 const action = front.connection.frame(pointer, &context.devices.keyboard, context.typed, context.window) orelse return null;
                 switch (action) {
                     .join => |target| return .{ .join_server = target },
+                    .host_lan => return .host_lan,
+                    .leave_session => return .leave_session,
+                    .launch_session => return .launch_session,
                     .back => {
                         front.screen = .main_menu;
                         return null;
@@ -670,8 +676,9 @@ pub const Interface = struct {
             },
             .connection => {
                 context.typed.clear();
-                front.connection.message = "";
+                front.connection.message = .{};
                 front.connection.editing = true;
+                front.connection.host_choice = null;
             },
             .game_options => front.game_options = .{},
             .audio => if (context.settings) |settings_file| front.settings.enter(.game_options, .audio, settingsContext(front, context, settings_file, front.pointer)),
@@ -780,7 +787,7 @@ pub const Interface = struct {
         if (front.scripted_shown != null) return;
         switch (front.screen) {
             .main_menu => try front.main_menu.draw(drawn, art, &resources.dialog, &resources.developer.font),
-            .connection => try front.connection.draw(drawn, art, front.ticks),
+            .connection => try front.connection.draw(drawn, art, &resources.dialog, front.ticks),
             .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about),
             .audio, .controls, .video => try front.settings.draw(drawn, art, &resources.dialog, shown),
             .mods => try front.mod_manager.draw(drawn, art),

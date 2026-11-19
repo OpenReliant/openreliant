@@ -12,7 +12,7 @@ OpenReliant opens in the front end unless `--mission` names a mission. The pilot
 
 Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GAME OPTIONS ([GAME OPTIONS](#game-options)), the audio, the controls and the video, on OpenReliant's settings screen ([The settings screen](#the-settings-screen)), the mods screen ([The mods screen](#the-mods-screen)), the pilot roster with SET GAME DIFFICULTY, the saved games ([The saved games](#the-saved-games)), the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, the movies around a mission ([Movies](movies.md)), and the restart screen. Not yet:
 
-- The multiplayer lobby and loadout screens ([#404](https://github.com/OpenReliant/openreliant/issues/404)).
+- Co-op lobby setup and multiplayer loadout selection ([#404](https://github.com/OpenReliant/openreliant/issues/404)).
 - The movies between the screens not yet ported, which come with their screens ([Movies](movies.md)).
 
 **Fix:** a screen takes no press until the button held as it was entered comes up. The movie between two screens gives the press that chose the second time to end; where the transitions are off, the game lets it go on to what lies under the pointer on the new screen.
@@ -39,9 +39,36 @@ and runs the installed mods' player scripts through the same display layer as a 
 mission. Keyboard, mouse and controller input use the usual flight bindings. The host
 applies those commands and sends back speed, throttle, fuel and objective counts for the
 HUD. Escape leaves the server.
-Public discovery, LAN discovery and player hosting still need their runtime providers.
-See [public discovery](https://github.com/OpenReliant/openreliant/issues/957) and
-[player hosting](https://github.com/OpenReliant/openreliant/issues/363).
+
+### Session lobby
+
+**Host** opens a game type chooser. **Deathmatch** opens the lobby immediately, starts a LAN
+listener on UDP port 27020 and reserves a place for the local pilot. Co-op is disabled until
+its hosting flow is ready. Friends use Direct Connect with the host's LAN IP. The lobby shows
+them the same roster, with the host marked and their own row highlighted. The host
+selects **Start Game** when they are ready to fly. Joining a match in progress takes the pilot
+straight to flight. **Stop Hosting** or Escape in the lobby or in flight closes the listener.
+The dedicated server uses the same simulation and admission checks and starts on its existing
+two-pilot threshold.
+
+The original's Host Co-op opens `multiplayer_sessions_screen` (`0x0043CA50`). Host Deathmatch
+opens `session_loadout_screen` (`0x0044B950`). Both screens open the network session on entry
+for the host (`directplay_create_session`, `0x004BC550`). The deathmatch screen combines setup
+and the waiting roster. Its Start Game action returns to `WinMain` to launch (`0x0044CAC2`).
+The co-op screen has a ready check and needs at least two pilots before launch (`0x0043D680`).
+
+**Improvement:** the LAN lobby uses OpenReliant's multiplayer layout and hosts the current
+Six Beacons arena fixture, with the Predator as its ship. Co-op, scenario and ship selection,
+and lobby chat are tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404).
+
+The browser reads matching labels from the installed language table, with English fallbacks.
+A pilot returns to the browser with the host-departure message (string `0x3B7` from the
+session loss path at `0x004B6C11`) if the host closes the session. A connection lost to a
+transport failure uses the separate connection warning (string `0x5F1`).
+
+Automatic discovery and internet joining for player hosts are tracked in
+[#957](https://github.com/OpenReliant/openreliant/issues/957) and
+[#363](https://github.com/OpenReliant/openreliant/issues/363).
 
 ## The screens
 

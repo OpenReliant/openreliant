@@ -5,7 +5,7 @@ const flight_input = @import("flight_input.zig");
 const engine = @import("openreliant").engine;
 const flight = engine.input.flight;
 pub const arena_ship: engine.game.gameobj.Type = .of(.predator);
-pub const revision: u16 = 4;
+pub const revision: u16 = 5;
 pub const slots = 3;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
@@ -24,6 +24,41 @@ pub const Input = struct {
     }
 };
 pub const Admission = struct { slot: u8, generation: u64 };
+pub const CallSign = engine.game.interface.pilot_roster.CallSign;
+pub const Lobby = [slots]?CallSign;
+
+fn validCallSignByte(byte: u8) bool {
+    return byte >= ' ' and byte != 0x7f;
+}
+
+pub fn lobbyName(profile: []const u8) CallSign {
+    var name: CallSign = .{};
+    for (profile[0..@min(profile.len, name.bytes.len)]) |byte| {
+        if (!validCallSignByte(byte)) continue;
+        name.bytes[name.len] = byte;
+        name.len += 1;
+    }
+    name.set(std.mem.trim(u8, name.slice(), " "));
+    return name;
+}
+
+fn writeCallSign(writer: *std.Io.Writer, name: *const CallSign) !void {
+    try writer.writeByte(@intCast(name.len));
+    try writer.writeAll(name.slice());
+}
+
+fn readCallSign(reader: *std.Io.Reader) !CallSign {
+    var name: CallSign = .{};
+    const length = try reader.takeByte();
+    if (length > name.bytes.len) return error.InvalidCallSign;
+    const bytes = try reader.take(length);
+    for (bytes) |byte| {
+        // The front end uses the game's code page. Exclude control characters.
+        if (!validCallSignByte(byte)) return error.InvalidCallSign;
+    }
+    name.set(bytes);
+    return name;
+}
 pub const Version = struct {
     protocol: u16,
     release: []const u8,
@@ -92,6 +127,8 @@ pub const Message = union(enum(u8)) {
     leave,
     received_final: u32,
     flight_press: flight_input.Presses,
+    lobby: Lobby,
+    call_sign: CallSign,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -140,6 +177,11 @@ pub const Message = union(enum(u8)) {
             .leave => {},
             .received_final => |tick| try w.writeInt(u32, tick, .little),
             .flight_press => |presses| try w.writeByte(@bitCast(presses)),
+            .lobby => |roster| for (roster) |name| {
+                try w.writeByte(@intFromBool(name != null));
+                if (name) |present| try writeCallSign(&w, &present);
+            },
+            .call_sign => |name| try writeCallSign(&w, &name),
         }
         return w.buffered();
     }
@@ -209,6 +251,17 @@ pub const Message = union(enum(u8)) {
                 if (value.reserved != 0 or !value.any()) return error.InvalidFlightInput;
                 break :presses .{ .flight_press = value };
             },
+            .lobby => roster: {
+                var roster: Lobby = undefined;
+                for (&roster) |*entry| entry.* = switch (try r.takeByte()) {
+                    0 => null,
+                    1 => try readCallSign(&r),
+                    else => return error.InvalidLobby,
+                };
+                if (roster[0] == null) return error.InvalidLobby;
+                break :roster .{ .lobby = roster };
+            },
+            .call_sign => .{ .call_sign = try readCallSign(&r) },
         };
         if (r.bufferedLen() != 0) return error.TrailingData;
         return message;
@@ -240,6 +293,21 @@ test "input sequence accepts fresh commands across a wrap" {
     try std.testing.expect(input.follows(std.math.maxInt(u32)));
     try std.testing.expect(!input.follows(0));
     try std.testing.expect(!input.follows(1));
+}
+
+test "a lobby preserves occupied slots and treats callsigns as bounded display text" {
+    const host_name = lobbyName("  Falcon\x00  ");
+    const guest_name = lobbyName("\xc9toile");
+    const message: Message = .{ .lobby = .{ host_name, null, guest_name } };
+    var buffer: [capacity]u8 = undefined;
+    const decoded = (try Message.decode(try message.encode(&buffer))).lobby;
+    try std.testing.expectEqualStrings("Falcon", decoded[0].?.slice());
+    try std.testing.expectEqual(null, decoded[1]);
+    try std.testing.expectEqualStrings("\xc9toile", decoded[2].?.slice());
+    const call_sign = @backingInt(std.meta.Tag(Message).call_sign);
+    try std.testing.expectError(error.InvalidCallSign, Message.decode(&.{ call_sign, 32 }));
+    try std.testing.expectError(error.InvalidCallSign, Message.decode(&.{ call_sign, 1, '\n' }));
+    try std.testing.expectError(error.InvalidLobby, Message.decode(&.{ @backingInt(std.meta.Tag(Message).lobby), 0, 0, 0 }));
 }
 
 test "a final receipt names the applied tick" {
