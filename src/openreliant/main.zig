@@ -1157,7 +1157,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .standings_scale = display.placements.get(.standings).scale,
             }, presentation, strings, &display.resources.font, app.active and !console_up);
             if (network_enabled) if (network_pilot.takeCampaignResult()) |result| {
-                if (front.connection.debrief) |*debrief| debrief.setNarrative(itac_strings);
+                if (front.connection.debrief) |*debrief| debrief.setNarrative(strings, itac_strings);
                 var service: NetworkPilot.Briefing = .{ .pilot = &network_pilot, .io = io };
                 const shared_debrief = network_pilot.client != null;
                 if (shared_debrief) movies.service = .{ .context = &service, .tick = NetworkPilot.Briefing.service };

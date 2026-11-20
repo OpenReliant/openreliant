@@ -26,10 +26,6 @@ pub fn init(window: [2]u32) Layout {
     const scale = @max(0.01, ui.scaleFor(window));
     const control_scale = std.math.clamp(scale * 480 / 760, 0.83, 1.22);
     const share = std.math.clamp(control_scale * text_scale / scale, 0.5, 1);
-    return atShare(share);
-}
-
-pub fn atShare(share: f32) Layout {
     const left = axis(48, 320, share);
     const right = axis(592, 320, share);
     const split = axis(432, 320, share);

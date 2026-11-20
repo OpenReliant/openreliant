@@ -851,7 +851,7 @@ pub const Interface = struct {
             .connection => try front.connection.draw(drawn, art, &resources.dialog, if (front.connection.lobby != null) resources.pagingArt() else null, .{
                 .pictures = if (resources.fighter_pictures) |*pictures| pictures else null,
                 .strings = resources.itac_strings,
-            }, front.ticks, if (resources.debrief_shapes) |*stock| &stock.art else null),
+            }, front.ticks, if (resources.debrief_shapes) |*stock| &stock.art else null, &resources.small.font),
             .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about),
             .audio, .controls, .video => try front.settings.draw(drawn, art, &resources.dialog, shown),
             .mods => try front.mod_manager.draw(drawn, art),
@@ -878,12 +878,16 @@ pub const Interface = struct {
     /// (`canvas.Canvas.drawPointer`).
     pub fn drawPointer(front: Interface, resources: *Resources, target: device.Device, window: [2]u32, strings: *const language.Language) canvas.Error!void {
         if (!front.showsScreen()) return;
-        const art = if (front.screen == .connection and front.connection.debrief != null and resources.debrief_shapes != null)
+        const is_debrief = front.screen == .connection and front.connection.debrief != null and resources.debrief_shapes != null;
+        const art = if (is_debrief)
             &resources.debrief_shapes.?.art
         else if (resources.shapes) |*shapes|
             shapes
         else
             return;
+        const previous_palette = art.global;
+        if (is_debrief) art.global = art.set.paletteAt(1);
+        defer art.global = previous_palette;
         const drawn: canvas.Canvas = .{
             .gpa = resources.gpa,
             .target = target,

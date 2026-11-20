@@ -221,14 +221,14 @@ fn cells(canvas: ui.Canvas, layout: Layout, y: i16, words: [4][]const u8, colour
     }
 }
 
-pub fn draw(screen: *const Connection, original: ui.Canvas, art: *hud.Art, dialog_art: *hud.Art, paging_art: ?*hud.Art, fighters: ShipPicker.Art, ticks: u32, debrief_art: ?*hud.Art) !void {
+pub fn draw(screen: *const Connection, original: ui.Canvas, art: *hud.Art, dialog_art: *hud.Art, paging_art: ?*hud.Art, fighters: ShipPicker.Art, ticks: u32, debrief_art: ?*hud.Art, panel_font: *hud.Opened) !void {
     const layout = Layout.init(original.window);
     var canvas = original;
     canvas.share = layout.share;
     art.global = art.set.paletteAt(0x12);
     defer art.global = art.set.paletteAt(0);
     if (screen.debrief) |*debrief| {
-        try debrief.draw(original, art, debrief_art);
+        try debrief.draw(original, panel_font, debrief_art);
     } else if (screen.lobby) |*lobby| {
         try lobby.draw(original, art, paging_art);
     } else {
