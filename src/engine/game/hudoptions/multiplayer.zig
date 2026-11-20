@@ -43,8 +43,9 @@ const scores_y = @as(comptime_int, ui.size[1]) / 2 - hud.standings.paused_rise;
 const first_row = scores_y + hud.standings.first_row - 1;
 const row_height = hud.standings.row_height;
 const reject_x = ui.size[0] / 2 + hud.standings.reject_offset;
-const chat_y = 396;
-const score_area: ui.Rect = .{ .x = 87, .y = scores_y, .width = 522, .height = chat_y - scores_y };
+const chat_rise = 84;
+// Leave room for the bottom edge of the score panel and the gap above the chat text.
+const score_bottom_gap = 7;
 const loss_box: ui.Rect = .{ .x = 80, .y = 180, .width = 480, .height = 120 };
 const buttons = [_]menu.Item{
     .{ .anchor = .{ 0.5, 1 }, .offset = .{ 16, -32 }, .shape = .button, .lit = .button_lit, .font = .small, .string = .leave_mission, .text_offset = .{ 25, -5 } },
@@ -123,9 +124,12 @@ pub const State = struct {
                     state.editor.focused = controls.devices.active(.send_comms_message, true);
                 }
                 const teams = game.teams;
-                const shown = scoreRows(teams);
+                const chat_y = foot - chat_rise;
+                const shown = scoreRows(teams, chat_y);
                 var scroll = hud.standings.scrollWindow(state.first_score, count, shown);
                 if (count > shown) {
+                    const score_height = std.math.clamp(chat_y - scores_y, 0, std.math.maxInt(i16) - scores_y);
+                    const score_area: ui.Rect = .{ .x = 87, .y = scores_y, .width = 522, .height = @intCast(score_height) };
                     if (score_area.holds(pointer.at)) hud.standings.scrollWheel(&scroll, pointer.wheel);
                     if (!state.editor.focused) {
                         if (keys.pressed(input.scan.up, .none, true)) scroll.scroll(.up);
@@ -191,7 +195,7 @@ pub const State = struct {
         var scores: Scores = undefined;
         const rows = scores.collect(game);
         const teams = game.teams;
-        const shown = scoreRows(teams);
+        const shown = scoreRows(teams, screenRow(canvas.window, canvas.share, 1) - chat_rise);
         const scroll = hud.standings.scrollWindow(state.first_score, rows.len, shown);
         const pen: hud.Pen = .{
             .art = art.menu,
@@ -222,7 +226,7 @@ pub const State = struct {
         for (first..history.count) |index| {
             var line: [History.line_size + 2]u8 = undefined;
             const text = std.fmt.bufPrint(&line, "- {s}", .{history.line(index)}) catch unreachable;
-            const y = bottom - 84 + hud.Messages.spacing * @as(i32, @intCast(index - first));
+            const y = bottom - chat_rise + hud.Messages.spacing * @as(i32, @intCast(index - first));
             try canvas.text(font, .{ 210, y }, text, menu.orange, .left);
         }
         if (!state.editor.focused) return;
@@ -282,8 +286,8 @@ fn buttonAt(art: ?*const hud.Art, at: [2]i32) ui.Rect {
     return .{ .x = @as(i16, @intCast(at[0])) + x - @divTrunc(width, 2), .y = @as(i16, @intCast(at[1])) + y - @divTrunc(height, 2), .width = width, .height = height };
 }
 
-fn scoreRows(teams: hud.standings.TeamBoard) usize {
-    return @intCast(@max(1, @divTrunc(chat_y - rowY(0, teams) - 10, row_height)));
+fn scoreRows(teams: hud.standings.TeamBoard, chat_y: i32) usize {
+    return @intCast(@max(1, @divTrunc(chat_y - rowY(0, teams) - score_bottom_gap, row_height)));
 }
 
 fn scorePager(teams: hud.standings.TeamBoard) settings.Line {
@@ -355,13 +359,18 @@ test "standings discard a score belonging to an earlier admission" {
 }
 
 test "paused standings show all stock slots and stop their paging before chat" {
-    const count = 20;
-    const available_rows = scoreRows(.{});
-    const last = hud.standings.scrollWindow(count, count, available_rows);
-    try std.testing.expect(available_rows >= 8);
-    try std.testing.expectEqual(count - available_rows, last.first);
-    try std.testing.expectEqual(count, last.end());
-    try std.testing.expect(rowY(available_rows - 1, .{}) + row_height <= chat_y);
+    const teams: hud.standings.TeamBoard = .{ .count = 4 };
+    for ([_]f32{ 0.8, 1 }) |share| {
+        const chat_y = screenRow(.{ 800, 600 }, share, 1) - chat_rise;
+        const available = scoreRows(teams, chat_y);
+        const stock = hud.standings.scrollWindow(0, 8, available);
+        try std.testing.expectEqual(stock.count, stock.end());
+        const count = 20;
+        const last = hud.standings.scrollWindow(count, count, available);
+        try std.testing.expectEqual(count - available, last.first);
+        try std.testing.expectEqual(count, last.end());
+        try std.testing.expect(rowY(available - 1, teams) + row_height <= chat_y);
+    }
 }
 
 test "a shared pause guest cannot resume the simulation by pressing Escape" {
