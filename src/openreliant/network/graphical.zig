@@ -304,6 +304,7 @@ fn showSessionLoss(pilot: *Graphical, screen: *Connection, presentation: ?*Prese
         return;
     }
     pilot.stopConnection();
+    pilot.flight.?.endAudio();
     pilot.session_lost = reason;
     pilot.pause_menu = .{};
     pilot.chat = .{};
@@ -459,7 +460,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
         };
         switch (event) {
             .idle => break,
-            .projectiles, .scene_page, .scenery, .campaign_movie => {},
+            .projectiles, .scene_page, .scenery, .campaign_movie, .mission_music => {},
             .campaign_result => {
                 const mission = client.latest.?.mission.?;
                 if (mission.ending_scene != .none) {
@@ -677,6 +678,7 @@ pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Obje
     }
     const flight = try FlightFrame.create(gpa, local, tables);
     errdefer flight.destroy();
+    flight.beginAudio(combat_assets.audio);
     flight.round_start = client.campaign_floor;
     if (client.latest.?.scenario) |scenario| {
         try flight.loadArena(files, scenario, types);

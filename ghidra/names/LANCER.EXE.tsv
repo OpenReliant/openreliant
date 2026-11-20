@@ -1325,6 +1325,7 @@ address	kind	name	type	comment
 0049d360	function	sound3d_play	int __fastcall (Vec3 *at, Vec3 *facing, int owner, int sound, float volume, int unused, char class)	Plays a 3D sound of the table at 0x00507140, placed by what it follows, on a voice of its class, else one not reserved, else a borrowed one; not started beyond its maximum distance but for the engines' sounds
 0049dcb0	function	sound3d_engine_sound	int (void)	The player's engine sound by its ship type: PSHIP01 on
 0049dcf0	function	sound3d_engine_update	void (void)	The player's engine pitched and loudened by its throttle, the afterburner's or reverse thrust's sound while either is on and its fade after, then the fighters heard flying past the camera
+00458df0	function	cmd_PlayMusic	uint __fastcall (byte **ip, uint *args)	Plays the script's track from the music folder at level 80 in a loop. Argument two starts it at once for 1 or after the previous piece fades for any other value.
 0049e2f0	function	sound3d_pause	void (void)	Stops every 3D voice playing
 0049e330	function	sound3d_resume	void (void)	
 0049e370	function	shield_bubble_object		A shield bubble's scene object, named Shield mesh, over the finest level (flags 0x280800), its texture coordinates each vertex's x and y, scaled by the float on the stack

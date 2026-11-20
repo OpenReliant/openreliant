@@ -48,7 +48,8 @@ eject_view: ?struct { started: i32, offset: engine.surrender.math.Vector } = nul
 ending_scene: ?EndingScene = null,
 effect_tick: ?i32 = null,
 blast_started: ?i32 = null,
-sounds: ?*game.hog_snd.commands.Commands = null,
+audio: ?Audio = null,
+engine_ship: ?game.gameobj.ObjectRef = null,
 lock_tone: game.main.lock.Tone = .{},
 projectiles: ?Projectiles = null,
 
@@ -211,10 +212,54 @@ pub const CombatAssets = struct {
     images: ?game.explode.Explosions.Images,
     ordnance_models: game.objects.Effects,
     trails: game.missiles.trail.Trails.Images,
-    sounds: ?*game.hog_snd.commands.Commands = null,
+    audio: ?Audio = null,
     explosions: game.explode.Settings,
     particles: game.particles.Pool.Settings,
 };
+
+pub const Audio = struct {
+    commands: *game.hog_snd.commands.Commands,
+    sound: *game.hog_snd.Sound,
+};
+
+pub fn beginAudio(frame: *FlightFrame, audio: ?Audio) void {
+    frame.audio = audio;
+    if (audio) |ready| ready.sound.stopMusic();
+}
+
+pub fn endAudio(frame: *FlightFrame) void {
+    if (frame.audio) |ready| ready.commands.endFlight(ready.sound);
+    frame.audio = null;
+}
+
+pub fn playAudio(frame: *FlightFrame, listener: game.camera.Place, music: []const wire.MissionMusic, timer: u32, paused: bool) void {
+    const audio = frame.audio orelse return;
+    const scene = frame.world();
+    for (music) |cue| {
+        const command = cue.commands(timer);
+        audio.sound.playMusic(command.piece.pathOf(), command.piece.loops, command.piece.level, command.when);
+    }
+    if (paused) return audio.sound.updateMusic();
+    audio.commands.play(audio.sound, listener);
+    audio.sound.surround(scene.player.showing.surroundings(scene.view()));
+    const heard: game.hog_snd.Hearing = .{ .sound = audio.sound, .camera = &listener, .clock = scene.clock };
+    var sound_scene = heard.scene(scene);
+    sound_scene.deathmatch = frame.loaded != null;
+    if (audio.sound.stdsmp) |bank| {
+        audio.sound.frame(bank, sound_scene);
+    } else {
+        audio.sound.updateMusic();
+        audio.sound.update3D(sound_scene);
+    }
+}
+
+fn setEngineShip(frame: *FlightFrame, scene: game.gameobj.World, ship: ?game.gameobj.ObjectRef) void {
+    const audio = frame.audio orelse return;
+    if (std.meta.eql(frame.engine_ship, ship)) return;
+    if (frame.engine_ship != null) audio.commands.add(.engine_ended);
+    if (ship != null) game.sound3d.hearEngine(scene);
+    frame.engine_ship = ship;
+}
 
 pub fn enableCombat(frame: *FlightFrame, assets: CombatAssets, types: game.create.Types) !void {
     const gpa = frame.drawn.gpa;
@@ -237,18 +282,16 @@ pub fn enableCombat(frame: *FlightFrame, assets: CombatAssets, types: game.creat
     try frame.respawns.load(gpa, assets.textures);
     frame.wall_mesh = try game.deathmatch.Boundary.Flashes.mesh(gpa, assets.textures);
     frame.projectiles = .init(gpa, assets.ordnance_models, assets.trails);
-    frame.sounds = assets.sounds;
 }
 
 pub fn destroy(frame: *FlightFrame) void {
     const gpa = frame.drawn.gpa;
+    frame.endAudio();
     if (frame.drawn.radio) |*radio| {
-        radio.stopSpeech(frame.sounds);
         radio.deinit();
     }
     if (frame.loaded) |loaded| loaded.destroy();
     if (frame.projectiles) |*shown| shown.deinit();
-    if (frame.sounds) |asked| frame.lock_tone.sound(false, asked, frame.drawn.player.viewing.last);
     if (frame.drawn.effects.explosions) |*effects| effects.deinit();
     if (frame.drawn.effects.particles) |*particles| particles.deinit();
     if (frame.drawn.effects.sparks) |*sparks| sparks.deinit();
@@ -421,7 +464,7 @@ fn presentWeapons(frame: *FlightFrame, status: ?wire.ordnance.Status) void {
         if (frame.drawn.display.windows.open(.missiles, false))
             frame.drawn.display.windows.status.getPtr(.missiles).held = true;
     }
-    if (frame.sounds) |asked| frame.lock_tone.sound(weapons.lock.locked(), asked, frame.drawn.player.viewing.last);
+    if (frame.audio) |audio| frame.lock_tone.sound(weapons.lock.locked(), audio.commands, frame.drawn.player.viewing.last);
 }
 
 fn presentPower(frame: *FlightFrame, power: ?wire.Power) void {
@@ -476,7 +519,7 @@ pub fn world(frame: *FlightFrame) game.gameobj.World {
         .random = &frame.random,
         .clock = &frame.drawn.clock,
         .shake = &frame.drawn.shake,
-        .sounds = frame.sounds,
+        .sounds = if (frame.audio) |audio| audio.commands else null,
         .radio = if (frame.drawn.radio) |*radio| radio else null,
         .explosions = if (frame.drawn.effects.explosions) |*effects| effects else null,
         .particles = if (frame.drawn.effects.particles) |*particles| particles else null,
@@ -649,13 +692,13 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
             if (index == admission.slot) {
                 _ = try game.aigeneric.push(.of(scene), index, .player_control, .none);
                 game.main.fitDevices(&all.player_states[index].charges, &frame.drawn.display, game.main.cockpitShip(all, ship.kind()), false);
-                // Starting and updating the local ship's engine and afterburner loops is in #1491.
             } else if (snapshot.mission == null) {
                 all.slots[index].object.side = .hostile;
             }
         }
         const slot = &all.slots[index];
-        if (ship.pod and !slot.object.flags.ejected) {
+        const ejected = ship.pod and !slot.object.flags.ejected;
+        if (ejected) {
             game.aieject.showPod(slot);
             if (index == admission.slot) frame.eject_view = .{
                 .started = scene.clock.frame_start,
@@ -665,10 +708,14 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         slot.object.flags.ejected = ship.pod;
         slot.object.flags.hidden = ship.pod_clear and index != admission.slot;
         if (ship.pod) slot.object.flags.targetable = !ship.pod_clear;
-        game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = ship.position, .orientation = ship.orientationMatrix() });
+        const orientation = ship.orientationMatrix();
+        game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = ship.position, .orientation = orientation });
+        // order_eject breaks off the cockpit and plays EJECT01 (0x00415808).
+        if (ejected) game.sound3d.playIn(scene, null, null, index, .eject01, 1, game.sound3d.fxClass(all, index));
         if ((before == 0 or ship.respawn > before) and ship.respawn + game.gameobj.ticks_per_step >= game.deathmatch.respawn.duration)
             game.deathmatch.respawn.sound(scene, index);
         slot.object.speed = ship.speed;
+        slot.object.velocity = .of(engine.surrender.math.forward(orientation) * @as(engine.surrender.math.Vector, @splat(ship.speed)));
         slot.object.throttle = ship.throttle;
         slot.object.last_throttle = ship.throttle;
         slot.object.afterburner_fuel = ship.fuel;
@@ -696,8 +743,8 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         all.player_states[index].membership.joined.kills.count = ship.kills;
         all.player_states[index].membership.joined.deaths = ship.deaths;
         all.player_states[index].membership.joined.ping_ms = ship.ping_ms;
-        slot.object.afterburner = ship.throttle == game.motion.afterburner_throttle;
-        slot.object.reverse_thrust = ship.throttle == game.motion.reverse_throttle;
+        slot.object.afterburner = ship.afterburner;
+        slot.object.reverse_thrust = ship.reverse_thrust;
         const cloaking = if (slot.cloak) |effect| !effect.going else false;
         if (ship.cloaked != cloaking) {
             if (ship.cloaked) game.cloak.beginPowerUp(scene, index) else game.cloak.uncloak(scene, index);
@@ -706,6 +753,9 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         if (slot.model) |*model| model.place(slot.drawn.position, slot.drawn.orientation);
         frame.respawns.clip(slot, index, &frame.drawn.portals, ship.respawn);
     }
+    const local_ship = snapshot.ships[admission.slot];
+    const sounding = if (local_ship) |ship| !ship.pod and !ship.dying and !ship.engine_waiting else false;
+    frame.setEngineShip(scene, if (sounding) .of(all, admission.slot) else null);
     const viewing = &frame.drawn.player.viewing;
     viewing.last = viewing.view;
     viewing.view = if (frame.director != null)
@@ -816,6 +866,66 @@ test "the flight view follows host admissions and objective carriers" {
     try std.testing.expectEqualStrings("", all.player_states[0].membership.joined.name.slice());
     try std.testing.expectEqual(0, frame.drawn.beacon_snapshot.?.countAt(all, all.player));
     try std.testing.expectEqual(2, game.hud.Readout.skull.value(all, &frame.drawn.player));
+}
+
+test "the mixer follows the local fighter across launch, burn, ejection and replacement" {
+    const gpa = std.testing.allocator;
+    var speaker: game.hog_snd.testing.Speaker = undefined;
+    try speaker.init(4, null);
+    defer speaker.deinit();
+    const bank = comptime game.hog_snd.testing.bank(80);
+    speaker.sound.open3D(try @import("openreliant").fat.Bank.parse(&bank), &.{});
+    const sound = &speaker.sound;
+    const driver = speaker.mixer.driver();
+    const engine_voice = &sound.voices_3d[sound.engine_voice.?];
+    const burner = &sound.voices_3d[sound.burner_voice.?];
+
+    var random: engine.random.Random = .{};
+    const local = try game.create.Objects.create(gpa, &random);
+    defer local.destroy();
+    const tables = game.create.testing.tables();
+    const frame = try create(gpa, local, &tables);
+    defer frame.destroy();
+    frame.beginAudio(.{ .commands = &speaker.asked, .sound = sound });
+
+    const admission: wire.Admission = .{ .slot = 0, .generation = 1 };
+    const no_models = game.create.testing.no_models;
+    var snapshot: wire.Snapshot = .{ .tick = 1, .ships = @splat(null), .mission = .{ .number = 1, .pilot_slots = 1, .lead = 0 } };
+    snapshot.ships[0] = .{ .generation = 1, .position = @splat(0), .engine_waiting = true };
+    try frame.apply(&snapshot, admission, local, no_models);
+    frame.playAudio(speaker.listener, &.{}, 4, false);
+    try std.testing.expect(engine_voice.isFree());
+
+    snapshot.tick += 1;
+    snapshot.ships[0].?.engine_waiting = false;
+    snapshot.ships[0].?.throttle = game.motion.afterburner_throttle;
+    snapshot.ships[0].?.afterburner = true;
+    try frame.apply(&snapshot, admission, local, no_models);
+    frame.playAudio(speaker.listener, &.{}, 8, false);
+    try std.testing.expectEqual(.playing, driver.sample3DStatus(engine_voice.sample));
+    try std.testing.expectEqual(.playing, driver.sample3DStatus(burner.sample));
+
+    game.main.pauseFlightVoices(sound, true);
+    frame.playAudio(speaker.listener, &.{}, 12, true);
+    try std.testing.expectEqual(.stopped, driver.sample3DStatus(burner.sample));
+    game.main.pauseFlightVoices(sound, false);
+    try std.testing.expectEqual(.playing, driver.sample3DStatus(burner.sample));
+
+    snapshot.tick += 1;
+    snapshot.ships[0].?.pod = true;
+    try frame.apply(&snapshot, admission, local, no_models);
+    frame.playAudio(speaker.listener, &.{}, 16, false);
+    try std.testing.expect(engine_voice.isFree() and burner.isFree());
+    try std.testing.expectEqual(.idle, sound.effects.engine);
+
+    snapshot.tick += 1;
+    snapshot.ships[0] = .{ .generation = 1, .reuse = 2, .fighter = .naginata, .position = @splat(0) };
+    try frame.apply(&snapshot, admission, local, no_models);
+    frame.playAudio(speaker.listener, &.{}, 20, false);
+    try std.testing.expectEqual(@backingInt(game.sound3d.engineSound(.of(.naginata))), engine_voice.sound);
+    try std.testing.expect(burner.isFree());
+    frame.endAudio();
+    try std.testing.expect(engine_voice.isFree());
 }
 
 test "the target panel opens and closes as flight snapshots advance" {

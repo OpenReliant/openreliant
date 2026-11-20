@@ -10,6 +10,15 @@ import socket
 import subprocess
 import tempfile
 
+STOCK_TRACKS = {
+    "dark-reign": "new_sim02.wav",
+    "nuclear-threat": "new_sim03.wav",
+    "tag-bomb": "new_sim04.wav",
+    "hunt-the-shadow": "new_sim08.wav",
+    "asteroid-field": "new_sim09.wav",
+    "vampires": "new_sim10.wav",
+}
+
 
 class Session:
     def __init__(self, process):
@@ -17,6 +26,7 @@ class Session:
         self.admission = None
         self.views = {}
         self.beacon_changes = {}
+        self.music = []
         self.finished = None
         self.receipts = None
         self.last_line = ""
@@ -40,6 +50,8 @@ class Session:
                     self.receipts = int(parts[2])
             elif parts and parts[0] == "beacon" and parts[2] == "0":
                 self.beacon_changes[int(parts[1])] = tuple(parts[3:])
+            elif self.last_line.startswith("mission music "):
+                self.music.append(self.last_line.removeprefix("mission music "))
             await self.messages.put(self.last_line)
         await self.messages.put(None)
 
@@ -376,17 +388,25 @@ async def check_full_arena(binary, credentials, seed, mode="training", game_dir=
             host = await game.start("--headless", str(config))
             await host.expect("listening ")
             paths = ("left", "straight", "right")
-            pilots = await asyncio.gather(*(game.join_target(game.address, paths[slot % len(paths)]) for slot in range(count)))
+            first = await asyncio.gather(*(game.join_target(game.address, path) for path in paths[:2]))
+            track = STOCK_TRACKS.get(mode)
+            if track:
+                await asyncio.gather(*(peer.expect(f"mission music now {track}") for peer in first))
+            rest = await asyncio.gather(*(game.join_target(game.address, paths[slot % len(paths)]) for slot in range(2, count)))
+            pilots = [*first, *rest]
             admissions = {peer.admission[0]: peer.admission[1] for peer in pilots}
             require(set(admissions) == set(range(count)), "the arena did not admit eight pilots")
             end = await finish(host, pilots)
             generations = tuple(admissions[slot] for slot in range(count))
             for peer in pilots:
+                if track:
+                    require(peer.music == [f"now {track}"], f"{mode}: pilot {peer.admission[0]} received {peer.music}")
                 live_views = sum(tuple(ship[0] for ship in view) == generations
                                  for tick, view in peer.views.items() if tick < end)
                 require(live_views >= end // 3, f"{mode}: pilot {peer.admission[0]} saw only {live_views} full-roster views")
                 require(tuple(ship[0] for ship in peer.views[end]) == generations, "the final view lost an admitted pilot")
-            print(f"{mode}: eight pilots saw the full roster in flight and agreed on tick {end}.")
+            music = f", received the cue for {track}," if track else ""
+            print(f"{mode}: eight pilots saw the full roster in flight{music} and agreed on tick {end}.")
 
 
 async def send_key(pilot, key):
@@ -407,6 +427,10 @@ async def check_coop(binary, credentials, seed, game_dir):
             lead = pilots[0]
             for decision, following in (("r", 1), ("n", 2)):
                 await asyncio.gather(*(pilot.expect("mission 1 lead 0 jump true") for pilot in pilots))
+                launches = 1 if decision == "r" else 2
+                for pilot in pilots:
+                    require(pilot.music.count("fade new_launch.wav") == launches,
+                            f"Mission 1 attempt {launches}: pilot {pilot.admission[0]} received {pilot.music}")
                 await asyncio.gather(*(send_key(pilot, "e") for pilot in pilots[1:]))
                 running = max(lead.views)
                 await lead.expect("view ", lambda line: int(line.split()[1]) > running + 20)

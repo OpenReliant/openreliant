@@ -56,12 +56,24 @@ pub const Sample = struct {
     waits: bool = false,
 };
 
+/// A mission's request to start a piece, either now or after the current piece fades.
+pub const Music = struct {
+    piece: hog_snd.Music.Piece,
+    when: Sound.When,
+
+    pub const Sink = struct {
+        context: *anyopaque,
+        send: *const fn (*anyopaque, Music) void,
+    };
+};
+
 /// What the game frames ask of the sound.
 pub const Command = union(enum) {
     /// A 3D sound, placed as the game frame found it (`sound3d.playIn`).
     effect: sound3d.Effect,
     /// The player's engine, unless it plays already (`sound3d.hearEngine`).
     engine: sound3d.Effect,
+    engine_ended,
     /// The missile in a record ended, and the sound that follows it with it: the record, and how
     /// often it had been reused (`missiles.end`).
     missile_ended: struct { record: u16, reuse: u32 },
@@ -74,7 +86,7 @@ pub const Command = union(enum) {
     /// A positional sound gathered for the drawn frame (`Sound.bufferAt`).
     buffered: struct { index: u8, at: Vector, volume: f32 },
     /// A piece of music (`Sound.playMusic`).
-    music: struct { piece: hog_snd.Music.Piece, when: Sound.When },
+    music: Music,
     /// A line of speech played on the speech sample (`cbox.Player.start`): the line's file, which
     /// the commands own, and how it sounds.
     speech: struct { bytes: []u8, style: cbox.Style },
@@ -100,8 +112,26 @@ pub const Commands = struct {
 
     /// Lets go of what the game frames asked for, and ends the line of speech playing.
     pub fn deinit(commands: *Commands, sound: *Sound) void {
-        for (commands.list.items) |command| commands.letGo(command);
+        commands.clear();
         commands.list.deinit(commands.gpa);
+        commands.line.stop(commands.gpa, sound);
+    }
+
+    fn clear(commands: *Commands) void {
+        for (commands.list.items) |command| commands.letGo(command);
+        commands.list.clearRetainingCapacity();
+    }
+
+    /// `mission_end` (0x004942B0) ends foreground voices, music, 3D voices and speech in order.
+    /// Drop queued requests too, since their sounds belong to the flight just left.
+    pub fn endFlight(commands: *Commands, sound: *Sound) void {
+        commands.clear();
+        commands.kept = .initFill(.{});
+        sound.endAll();
+        sound.stopMusic();
+        sound3d.endAll(sound);
+        sound3d.endEngine(sound);
+        sound.flybys = @splat(null);
         commands.line.stop(commands.gpa, sound);
     }
 
@@ -147,6 +177,7 @@ pub const Commands = struct {
             switch (command) {
                 .effect => |effect| _ = sound3d.startEffect(sound, listener, effect),
                 .engine => |effect| sound3d.startEngineEffect(sound, listener, effect),
+                .engine_ended => sound3d.endEngine(sound),
                 .missile_ended => |ended| if (sound.missileVoice(ended.record, ended.reuse)) |voice| sound.end3D(voice),
                 .effects_ended => sound3d.endAll(sound),
                 .sample => |sample| commands.playSample(sound, sample),
@@ -227,4 +258,26 @@ test Commands {
 
     // What isn't played when the commands go is let go of.
     commands.speak("not a line", .{});
+}
+
+test "ending a network flight drops queued voices and deferred music" {
+    const bytes = comptime hog_snd.testing.bank(4);
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(2, &bytes);
+    defer speaker.deinit();
+    const sound = &speaker.sound;
+    const commands = &speaker.asked;
+
+    commands.add(.{ .sample = .{ .bank = .stdsmp, .index = 1, .loops = hog_snd.forever, .kept = .scanner } });
+    speaker.heard();
+    try std.testing.expect(speaker.playing());
+    commands.speak("old speech", .{});
+    sound.playMusic("music\\old.wav", 0, 80, .{ .after_fade = 42 });
+    try std.testing.expect(sound.music.queued != null);
+    commands.endFlight(sound);
+
+    try std.testing.expect(!speaker.playing());
+    try std.testing.expectEqual(null, sound.music.queued);
+    try std.testing.expectEqual(null, commands.kept.get(.scanner).voice);
+    try std.testing.expectEqual(0, commands.list.items.len);
 }

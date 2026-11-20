@@ -409,6 +409,20 @@ pub fn start(all: *create.Objects, index: u16) void {
     if (all.slots[index].firstOrder(.launch)) |entry| entry.data.launch.go = true;
 }
 
+/// Whether the launch has reached the step that runs the fighter's engine. The Reliant starts
+/// it at 0x0041B2AE and the Yamato at 0x00419A50. Other styles use the normal release from the
+/// carrier (`update`). This lets each co-op pilot hear their own launch.
+pub fn engineReady(slot: *create.Slot) bool {
+    if (slot.firstOrder(.launch) == null) return true;
+    if (slot.running(.launch) == null or slot.object.order_starting) return false;
+    const state = &slot.state.launch;
+    return switch (state.style) {
+        .reliant => state.step.reached(reliant.Step.lower),
+        .yamato => state.step.reached(yamato.Step.accelerate),
+        else => state.step.isStyled() and !state.attached,
+    };
+}
+
 /// Whether the ship in slot `index` is dropping out of the Reliant, or about to: its current order
 /// is Launch in the Reliant's style, at `reliant.Step.drop` or later. `camera_frame` reads this for
 /// the bay's view.
