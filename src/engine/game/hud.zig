@@ -1032,8 +1032,14 @@ fn glyphImage(opened: *Opened, gpa: Allocator, code: u8) Allocator.Error!?*srtex
     errdefer gpa.free(rgba);
     for (glyph.pixels, 0..) |index, at| {
         const pixel = rgba[at * 4 ..][0..4];
+        // A transparent palette entry can contain magenta, as in BLK2ORNG.FNT.
+        // Keep its colour out of the neighbouring texels when the GPU filters the glyph.
+        if (!opened.draws(index)) {
+            pixel.* = @splat(0);
+            continue;
+        }
         if (palette) |colours| pixel[0..3].* = paletteColour(colours, index) else @memset(pixel[0..3], opened.level(index));
-        pixel[3] = if (opened.draws(index)) 255 else 0;
+        pixel[3] = 255;
     }
     var image: srtexture.Image = try .single(gpa, glyph.width, opened.font.header.height, rgba);
     // **Improvement:** text in one colour, such as the menus', magnified from its coverage
@@ -2070,6 +2076,24 @@ test "a ramp font's glyphs are levels of grey" {
     }
 }
 
+test "a transparent font palette entry contributes no colour when filtered" {
+    const gpa = std.testing.allocator;
+    const palette = comptime palette: {
+        var colours: [spr.palette_size]u8 = @splat(0);
+        colours[1 * 3 ..][0..3].* = .{ 63, 0, 61 };
+        colours[2 * 3 ..][0..3].* = .{ 24, 12, 0 };
+        break :palette colours;
+    };
+    var opened: Opened = .open(try .parse(comptime outline.testing.fontInked(.{ 1, 2, 2 }, palette)), null);
+    defer opened.deinit(gpa);
+    opened.transparent_index = 1;
+    const clear = (try glyphImage(&opened, gpa, '#')).?.levels[0].texels;
+    const ink = (try glyphImage(&opened, gpa, 'A')).?.levels[0].texels;
+    const first_inked_pixel = (2 * 6 + 1) * 4;
+    try std.testing.expectEqual([4]u8{ 0, 0, 0, 0 }, clear[first_inked_pixel..][0..4].*);
+    try std.testing.expectEqual([4]u8{ 97, 48, 0, 255 }, ink[first_inked_pixel..][0..4].*);
+}
+
 test typeInto {
     const opened: Opened = .open(try fnt.Font.parse(comptime fnt.testing.font(true)), null);
     const width: u32 = opened.widths[1];
@@ -2335,7 +2359,7 @@ pub const Resources = struct {
         return if (resources.arena_shapes) |*shapes| &shapes.art else null;
     }
 
-    fn standingsArt(resources: *Resources, gpa: Allocator) !?*Art {
+    pub fn standingsArt(resources: *Resources, gpa: Allocator) !?*Art {
         if (resources.standings_art == null) {
             const icons = resources.arenaIcons(gpa) orelse return null;
             const palette = icons.set.paletteAt(standings.palette_block);

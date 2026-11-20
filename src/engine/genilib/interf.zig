@@ -192,6 +192,7 @@ pub const Resources = struct {
     paging_shapes: ?canvas.Shapes = null,
     tried_paging_shapes: bool = false,
     itac_strings: language.Language = .{ .strings = &.{} },
+    outlines: ?*hud.outline.Outlines = null,
     debrief_background: matmanager.Background = .{},
     debrief_large: ?hud.FontFile = null,
     debrief_small: ?hud.FontFile = null,
@@ -229,6 +230,7 @@ pub const Resources = struct {
             .large = large,
             .small = small,
             .developer = developer,
+            .outlines = outlines,
             .dialog = try openShapes(gpa, archive, files.get(.dialog), names.get(.dialog)),
             .about = undefined,
         };
@@ -276,8 +278,8 @@ pub const Resources = struct {
         resources.tried_debrief = true;
         resources.debrief_background.show(resources.gpa, resources.archive, "mpdebr.tga");
         resources.debrief_shapes = canvas.Shapes.read(resources.gpa, &resources.archive, "interface\\mpdebr.spr");
-        resources.debrief_large = hud.FontFile.open(resources.gpa, resources.archive, game.itac.large_font_name, null) catch null;
-        resources.debrief_small = hud.FontFile.open(resources.gpa, resources.archive, game.itac.small_font_name, null) catch null;
+        resources.debrief_large = .read(resources.gpa, resources.archive, game.itac.large_font_name, resources.outlines);
+        resources.debrief_small = .read(resources.gpa, resources.archive, game.itac.small_font_name, resources.outlines);
     }
 
     fn dropShapes(resources: *Resources) void {
@@ -848,10 +850,17 @@ pub const Interface = struct {
         if (front.scripted_shown != null) return;
         switch (front.screen) {
             .main_menu => try front.main_menu.draw(drawn, art, &resources.dialog, &resources.developer.font),
-            .connection => try front.connection.draw(drawn, art, &resources.dialog, if (front.connection.lobby != null) resources.pagingArt() else null, .{
-                .pictures = if (resources.fighter_pictures) |*pictures| pictures else null,
-                .strings = resources.itac_strings,
-            }, front.ticks, if (resources.debrief_shapes) |*stock| &stock.art else null, &resources.small.font),
+            .connection => {
+                if (front.connection.debrief) |*debrief| {
+                    const stock = if (resources.debrief_shapes) |*shapes| &shapes.art else null;
+                    try debrief.draw(drawn, &resources.small.font, stock);
+                } else {
+                    try front.connection.draw(drawn, art, &resources.dialog, if (front.connection.lobby != null) resources.pagingArt() else null, .{
+                        .pictures = if (resources.fighter_pictures) |*pictures| pictures else null,
+                        .strings = resources.itac_strings,
+                    }, front.ticks);
+                }
+            },
             .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about),
             .audio, .controls, .video => try front.settings.draw(drawn, art, &resources.dialog, shown),
             .mods => try front.mod_manager.draw(drawn, art),

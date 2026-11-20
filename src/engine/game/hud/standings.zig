@@ -17,8 +17,9 @@ const row_shape = 0x16;
 const half_width = 233;
 const width = 2 * half_width;
 const rise = 110;
-const first_row = 21;
-const row_height = 17;
+pub const paused_rise = rise - 50;
+pub const first_row = 21;
+pub const row_height = 17;
 const scroll_footer = 24;
 const bottom_margin = 12;
 const rank_x = 6;
@@ -26,6 +27,8 @@ const pilot_x = 20;
 const kills_x = 223;
 const deaths_x = 321;
 const ping_x = 418;
+const reject_x = 515;
+pub const reject_offset = reject_x - half_width;
 const pilot_width = 150;
 const tally_width = 90;
 const heading_colour = hud.rgb(0xFFFFFF);
@@ -77,7 +80,7 @@ pub fn scrollPage(scroll: *Scroll, way: ui.Arrow) void {
 
 /// **Improvement:** Fit complete rows and keep room at the bottom for the scroll range.
 pub fn visibleRows(screen: [2]u32, scale: f32) usize {
-    const layout: Layout = .fit(screen, scale);
+    const layout: Layout = .fit(screen, scale, rise);
     if (layout.scale <= 0) return 1;
     const available = (@as(f32, @floatFromInt(screen[1])) - layout.top) / layout.scale;
     return @intFromFloat(@min(max_pilots, @max(1, @floor((available - first_row - scroll_footer - bottom_margin) / row_height))));
@@ -90,9 +93,15 @@ pub fn draw(pen: hud.Pen, all: *const Objects, art: ?*hud.Art, labels: *hud.Open
     const rows = rowsOf(all, &buffer);
     const count = rows.len;
     if (count == 0) return;
-
-    const placement: Layout = .fit(pen.screen, pen.scale);
     const scroll = scrollWindow(first, count, visibleRows(pen.screen, pen.scale));
+    try drawRows(pen, rows, art, labels, scroll, .flight);
+}
+
+pub const Mode = enum { flight, paused_arena, paused_campaign };
+
+/// The in-flight and paused panels share sprites, columns, and ordering in `mp_draw_scoreboard`.
+pub fn drawRows(pen: hud.Pen, rows: []const Row, art: ?*hud.Art, labels: *hud.Opened, scroll: Scroll, mode: Mode) !void {
+    const placement: Layout = .fit(pen.screen, pen.scale, if (mode == .flight) rise else paused_rise);
     const visible = rows[scroll.first..scroll.end()];
     const footer: f32 = @floatFromInt(first_row + visible.len * row_height);
     if (art) |icons| {
@@ -113,8 +122,9 @@ pub fn draw(pen: hud.Pen, all: *const Objects, art: ?*hud.Art, labels: *hud.Open
     const pilot_label = pen.strings.string(0xBF) orelse "Pilot";
     try placement.text(headings, pilot_x, 0, pilot_label, heading_colour, .left, pilot_width);
     try placement.text(headings, kills_x, 0, pen.strings.string(0x308) orelse "Kills", heading_colour, .centre, tally_width);
-    try placement.text(headings, deaths_x, 0, pen.strings.string(0x307) orelse "Deaths", heading_colour, .centre, tally_width);
+    if (mode != .paused_campaign) try placement.text(headings, deaths_x, 0, pen.strings.string(0x307) orelse "Deaths", heading_colour, .centre, tally_width);
     try placement.text(headings, ping_x, 0, pen.strings.string(0x559) orelse "Ping", heading_colour, .centre, tally_width);
+    if (mode != .flight) try placement.text(pen, reject_x, 0, pen.strings.string(0x5F2) orelse "Reject", heading_colour, .centre, tally_width);
     for (visible, 0..) |row, position| {
         const y: f32 = @floatFromInt(first_row - 1 + position * row_height);
         var fallback: [64]u8 = undefined;
@@ -123,16 +133,16 @@ pub fn draw(pen: hud.Pen, all: *const Objects, art: ?*hud.Art, labels: *hud.Open
         try placement.number(headings, rank_x, y, scroll.first + position + 1, heading_colour);
         try placement.text(pen, pilot_x, y, label, row_colour, .left, pilot_width);
         try placement.number(pen, kills_x, y, row.pilot.kills.count, row_colour);
-        try placement.number(pen, deaths_x, y, row.pilot.deaths, row_colour);
+        if (mode != .paused_campaign) try placement.number(pen, deaths_x, y, row.pilot.deaths, row_colour);
         if (row.pilot.ping_ms) |ping| {
             try placement.number(pen, ping_x, y, ping, row_colour);
         } else {
             try placement.text(pen, ping_x, y, "-", row_colour, .centre, tally_width);
         }
     }
-    if (count > scroll.shown) {
+    if (scroll.count > scroll.shown and mode == .flight) {
         var buffer_range: [32]u8 = undefined;
-        const range = std.fmt.bufPrint(&buffer_range, "{d}-{d}/{d}", .{ scroll.first + 1, scroll.end(), count }) catch unreachable;
+        const range = std.fmt.bufPrint(&buffer_range, "{d}-{d}/{d}", .{ scroll.first + 1, scroll.end(), scroll.count }) catch unreachable;
         try placement.text(headings, half_width, footer + row_height, range, heading_colour, .centre, tally_width);
     }
 }
@@ -142,11 +152,11 @@ const Layout = struct {
     top: f32,
     scale: f32,
 
-    fn fit(screen: [2]u32, requested: f32) Layout {
+    fn fit(screen: [2]u32, requested: f32, rank_rise: f32) Layout {
         const screen_w: f32 = @floatFromInt(screen[0]);
         const screen_h: f32 = @floatFromInt(screen[1]);
         const scale = @min(requested, screen_w / width, screen_h / (2 * rise));
-        return .{ .left = screen_w * 0.5 - half_width * scale, .top = screen_h * 0.5 - rise * scale, .scale = scale };
+        return .{ .left = screen_w * 0.5 - half_width * scale, .top = screen_h * 0.5 - rank_rise * scale, .scale = scale };
     }
 
     fn point(layout: Layout, x: f32, y: f32) [2]i32 {

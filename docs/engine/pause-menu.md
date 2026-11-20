@@ -227,11 +227,12 @@ plus the action for a list row, or -1. **Not traced line by line:** how the wait
 
 ### Multiplayer (9)
 
-OpenReliant uses its multiplayer menu style and shares the lobby chat editor and the flight
-standings' ordering. Escape opens the match menu. Continue or Escape returns to flight. Leave
-Mission leaves the session. SEND COMMS MESSAGE or the chat field opens a broadcast draft.
-The connection-loss dialog holds the last scene until the pilot acknowledges it. It uses the
-installed host-departure or connection-failure message.
+OpenReliant uses the stock pause buttons, the orange flight standings, and the HUD message log.
+Campaign standings omit the Deaths column. Escape opens the match menu. Continue or Escape
+returns to flight when the pilot can resume. Leave Mission leaves the session. SEND COMMS MESSAGE
+opens a broadcast draft. The connection-loss dialog holds the last
+scene until the pilot acknowledges it. It uses the installed host-departure or connection-failure
+message. The retail PC recording shows the [shared pause at 7:20](https://www.youtube.com/watch?v=NMQA1ay0ZKE&t=440s).
 
 **Improvement:** Only the player hosting a LAN game can pause or resume the shared simulation.
 Guests and dedicated-server pilots open the match menu locally. A guest can chat or leave
@@ -245,9 +246,9 @@ threshold or whose input has stalled for the same time. The host checks the pilo
 admission again before dropping them. The affected pilot sees a distinct session-ended
 message, and the rest of the session stays open.
 
-The standings panel grows with the roster and stays above chat. The wheel and arrow keys scroll
-further rows. The settings screen's paging buttons and Page Up and Page Down move a page at
-a time. The list keeps its place as pilots come and go.
+The standings panel fits all eight stock arena seats above the message log. For larger rosters,
+the wheel and arrow keys scroll further rows. The settings screen's paging buttons and Page Up
+and Page Down move a page at a time. The list keeps its place as pilots come and go.
 
 #### Original behaviour
 

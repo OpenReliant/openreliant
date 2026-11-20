@@ -261,6 +261,7 @@ pub fn menuView(pilot: *Graphical, strings: game.language.Language) ?Multiplayer
     return .{ .match = .{
         .all = pilot.flight.?.drawn.objects,
         .history = &pilot.flight_history,
+        .arena = client.latest.?.mission == null,
         .players = &pilot.pause_players,
         .paused_by = if (shared) pilotName(&pilot.pause_name, strings, if (host.*) |*peer| &peer.name else &.{}, 0) else null,
         .can_continue = !shared or pilot.hosted != null,

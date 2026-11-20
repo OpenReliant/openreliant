@@ -84,6 +84,14 @@ Automatic discovery and internet joining for player hosts are tracked in
 
 The retail front end draws in a 640 by 480 coordinate space. OpenReliant fits that space
 and its backdrop together in a 4:3 frame. The minimum supported window is 800 by 600.
+OpenReliant uses sharper outline fonts where they are available. The original font metrics
+still set the positions and line breaks.
+
+The retail PC recording shows the [connection screen at 0:10](https://www.youtube.com/watch?v=NMQA1ay0ZKE&t=10s),
+the [co-op host lobby at 8:20](https://www.youtube.com/watch?v=NMQA1ay0ZKE&t=500s),
+the [host debrief at 20:00](https://www.youtube.com/watch?v=NMQA1ay0ZKE&t=1200s),
+and the [guest debrief after a pilot is killed at 41:10](https://www.youtube.com/watch?v=NMQA1ay0ZKE&t=2470s).
+Use the stills to check the display and the executable's draw functions for the coordinates and palettes.
 
 | Screen | Retail reference | OpenReliant behavior and remaining differences |
 |---|---|---|
@@ -92,7 +100,7 @@ and its backdrop together in a 4:3 frame. The minimum supported window is 800 by
 | Deathmatch setup | `session_loadout_screen` (`0x0044B950`) and `session_loadout_draw` (`0x0044CB60`) | The mode description and ITAC fighter picker are deliberate additions to the lobby. The original setup has separate game options, pilot readiness and team selection. Stock setup details are tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404) and team rules in [#1400](https://github.com/OpenReliant/openreliant/issues/1400). |
 | Co-op briefing and loadout | `WinMain` (`0x004A9AB0`) and `interface_briefing` (`0x00437010`) | The existing campaign briefing and loadout code supplies the rooms, ship and rack views. The host coordinates launch and the crew's choices over the current network protocol. |
 | Co-op debrief | `multiplayer_debrief_render` (`0x00429DC0`), `multiplayer_debrief_text` (`0x00425240`), and `multiplayer_chat_panel` variant 1 (`0x004AE2D0`) | The retail backdrop, letter, two scroll controls, chat, figures, roster, and buttons use the original art and coordinates. The save action is tracked in [#475](https://github.com/OpenReliant/openreliant/issues/475), and the profile values that carry between sessions in [#804](https://github.com/OpenReliant/openreliant/issues/804). |
-| Pause, session loss, and standings | `pause_screen_multiplayer` (`0x0048E510`), `pause_session_lost` (`0x0048E370`), and `mp_draw_scoreboard` (`0x004AF650`) | Flight standings use the stock sprites. The custom pause panel and loss dialog still differ from retail. Host-only shared pause and scrolling beyond stock capacity are deliberate changes. See [Pause menu](pause-menu.md#multiplayer-9). |
+| Pause, session loss, and standings | `pause_screen_multiplayer` (`0x0048E510`), `pause_session_lost` (`0x0048E370`), and `mp_draw_scoreboard` (`0x004AF650`) | The pause and flight standings use the stock sprites. The pause controls and connection-loss dialog use the original pause art. Host-only shared pause and scrolling beyond stock capacity are deliberate changes. See [Pause menu](pause-menu.md#multiplayer-9). |
 
 Retail tooltips for the multiplayer front end are tracked in
 [#813](https://github.com/OpenReliant/openreliant/issues/813).

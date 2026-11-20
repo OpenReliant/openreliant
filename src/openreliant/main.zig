@@ -1153,8 +1153,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .typed = &typed,
                 .window = size,
                 .scale = display.ui_scale,
-                .elapsed = elapsed,
                 .standings_scale = display.placements.get(.standings).scale,
+                .menu_art = &display.resources.art,
             }, presentation, strings, &display.resources.font, app.active and !console_up);
             if (network_enabled) if (network_pilot.takeCampaignResult()) |result| {
                 if (front.connection.debrief) |*debrief| debrief.setNarrative(strings, itac_strings);
@@ -1562,12 +1562,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         display.network_pause = if (network_frame != null) paused: {
             const shown = network_pilot.menuView(strings) orelse break :paused null;
             const front_art = &front_resources.?;
-            const art = if (front_art.shapes) |*loaded| loaded else break :paused null;
             break :paused .{
                 .view = shown,
                 .state = &network_pilot.pause_menu,
                 .fonts = .{ .large = &front_art.large.font, .small = &front_art.small.font },
-                .art = art,
                 .paging_art = if (shown == .match) front_art.pagingArt() else null,
             };
         } else null;
@@ -2775,7 +2773,6 @@ const Display = struct {
         view: game.hudoptions.multiplayer.View,
         state: *const game.hudoptions.multiplayer.State,
         fonts: game.interface.canvas.Fonts,
-        art: *game.hud.Art,
         paging_art: ?*game.hud.Art,
     } = null,
     /// What drawing hands the game (`game.main.Handed`), here what the player aimed at as the
@@ -2834,9 +2831,16 @@ const Display = struct {
                 .fonts = menu.fonts,
                 .strings = display.strings,
             };
-            try menu.state.draw(menu.view, canvas, menu.art, menu.paging_art);
+            const art = game.hudoptions.multiplayer.Art{
+                .menu = &display.resources.art,
+                .flight_font = &display.resources.font,
+                .scoreboard = if (menu.view == .match) try display.resources.standingsArt(display.gpa) else null,
+                .scoreboard_font = if (display.resources.standings_font) |*font| font else &display.resources.font,
+                .paging = menu.paging_art,
+            };
+            try menu.state.draw(menu.view, canvas, art);
             if (display.presentation) |scripts| try scripts.draw(.ui, display.device, null);
-            return menu.state.drawPointer(canvas, menu.art);
+            return menu.state.drawPointer(canvas, art);
         }
         if (display.pause_menu.isOpen()) {
             const frame = display.pauseFrame();

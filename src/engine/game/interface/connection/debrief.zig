@@ -169,6 +169,7 @@ pub fn draw(debrief: *const Debrief, canvas: ui.Canvas, panel_font: *hud.Opened,
     for (std.enums.values(Control)) |control| {
         if (control == .leave or !debrief.visible(control)) continue;
         const button = buttons.get(control);
+        // Next, Replay and Save use the same square sprite pair (0x0042A0EE, 0x0042A129, 0x0042A1CB).
         if (original) |stock| try canvas.shape(stock, if (debrief.hover == control) 0x1A else 0x1B, button.anchor);
         try canvas.text(font, .{ 517, button.text_y }, button.label.text(strings), itac.text_colour, .right);
     }
@@ -222,7 +223,8 @@ fn drawFigures(debrief: *const Debrief, canvas: ui.Canvas, font: *hud.Opened) !v
 
 fn drawCrew(debrief: *const Debrief, canvas: ui.Canvas, font: *hud.Opened) !void {
     const strings = canvas.strings.*;
-    try canvas.text(font, .{ 225, 364 }, strings.stringOr(0x141, "PLAYERS"), menu_blue, .left);
+    // multiplayer_debrief_render selects the ITAC orange ramp before drawing the roster (0x0042A2DA).
+    try canvas.text(font, .{ 225, 364 }, strings.stringOr(0x141, "PLAYERS"), itac.text_colour, .left);
     const roster = canvas.within(.{ .x = 225, .y = 381, .width = 155, .height = 57 });
     var seats = debrief.crew.present.iterator(.{});
     var y: i32 = 381;
@@ -233,13 +235,13 @@ fn drawCrew(debrief: *const Debrief, canvas: ui.Canvas, font: *hud.Opened) !void
         var label: [64]u8 = undefined;
         const state = if (slot == debrief.crew.lead or debrief.crew.ready.isSet(slot)) state: {
             const text = if (debrief.crew.eligible.isSet(slot)) strings.stringOr(0x145, "READY") else restart;
-            break :state std.ascii.lowerString(&label, text[0..@min(label.len, text.len)]);
+            break :state std.ascii.upperString(&label, text[0..@min(label.len, text.len)]);
         } else "";
         const reserved = @as(i32, @intCast(font.textWidth(restart)));
         var shortened = words;
         while (shortened.len > 0 and @as(i32, @intCast(font.textWidth(shortened))) >= 145 - reserved)
             shortened = shortened[0 .. shortened.len - 1];
-        try roster.text(font, .{ 225, y }, shortened, menu_blue, .left);
-        if (state.len != 0) try roster.text(font, .{ 379, y }, state, menu_blue, .right);
+        try roster.text(font, .{ 225, y }, shortened, itac.text_colour, .left);
+        if (state.len != 0) try roster.text(font, .{ 379, y }, state, itac.text_colour, .right);
     }
 }
