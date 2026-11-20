@@ -6,6 +6,7 @@ const Host = @import("server.zig");
 const session = @import("session.zig");
 const Invite = @import("identity.zig").Invite;
 const wire = @import("wire.zig");
+const LaunchWait = @import("launch_wait.zig");
 const ArenaOptions = @import("openreliant").engine.game.deathmatch.Options;
 
 const default_config = "server.ini";
@@ -18,6 +19,8 @@ const Config = struct {
     mission: ?u16,
     game_directory: []const u8,
     players: u8,
+    launch_wait: LaunchWait,
+    metrics: ?std.Io.net.IpAddress,
     ticks: ?u32,
     teams: bool,
     arena_options: ArenaOptions,
@@ -52,19 +55,37 @@ const Config = struct {
             std.fmt.parseInt(u8, value, 10) catch return error.InvalidPlayerLimit
         else if (mission != null) Host.pilots_to_start else crew_limit;
         if (players < Host.pilots_to_start or players > crew_limit) return error.InvalidPlayerLimit;
-        const ticks = if (profile.value("Server", "RoundTicks")) |limit|
-            std.fmt.parseInt(u32, limit, 10) catch return error.InvalidRoundTicks
-        else
-            null;
+        const minimum = if (profile.value("Server", "MinPlayers")) |value|
+            std.fmt.parseInt(u8, value, 10) catch return error.InvalidMinimumPlayers
+        else if (mission != null) players else Host.pilots_to_start;
+        if (minimum < Host.pilots_to_start or minimum > players) return error.InvalidMinimumPlayers;
+        const start_delay: u32 = if (profile.value("Server", "StartDelaySeconds")) |value|
+            std.fmt.parseInt(u32, value, 10) catch return error.InvalidStartDelay
+        else if (mode.scenario() != null) 30 else 0;
+        const metrics = if (profile.value("Metrics", "Port")) |value| address: {
+            const metrics_port = std.fmt.parseInt(u16, value, 10) catch return error.InvalidMetricsPort;
+            if (metrics_port == 0 or metrics_port == port) return error.InvalidMetricsPort;
+            const host = profile.value("Metrics", "BindAddress") orelse "127.0.0.1";
+            break :address std.Io.net.IpAddress.parse(host, metrics_port) catch return error.InvalidMetricsBindAddress;
+        } else null;
+        const round_seconds = profile.value("Server", "RoundSeconds");
+        const ticks = if (profile.value("Server", "RoundTicks")) |limit| raw: {
+            if (round_seconds != null) return error.ConflictingRoundLimits;
+            break :raw std.fmt.parseInt(u32, limit, 10) catch return error.InvalidRoundTicks;
+        } else if (round_seconds) |limit| seconds: {
+            const seconds = std.fmt.parseInt(u32, limit, 10) catch return error.InvalidRoundSeconds;
+            if (seconds == 0) return error.InvalidRoundSeconds;
+            break :seconds std.math.cast(u32, @as(u64, seconds) * std.time.us_per_s / wire.step_us) orelse return error.InvalidRoundSeconds;
+        } else null;
         if (ticks == 0) return error.InvalidRoundTicks;
         const teams = try optionalSwitch(profile, "Teams", false);
-        const repeat_rounds = try optionalSwitch(profile, "RepeatRounds", false);
+        const repeat_rounds = try optionalSwitch(profile, "RepeatRounds", mode.scenario() != null);
         const arena_options: ArenaOptions = if (mode.scenario() != null) .{
             .ai_turrets = try optionalSwitch(profile, "AiTurrets", false),
             .target_players = try optionalSwitch(profile, "TargetPlayers", true),
         } else .{};
         if (teams and (mode.scenario() == null or mode.scenario().?.record().teams == .none)) return error.InvalidTeamArena;
-        if (repeat_rounds and (mode.scenario() == null or ticks == null)) return error.InvalidRepeatRounds;
+        if (repeat_rounds and mode.scenario() == null) return error.InvalidRepeatRounds;
         const root = profile.value("Identity", "RootPublicKey");
         const certificate = profile.value("Identity", "Certificate");
         const managed: ?session.Identity = if (root == null and certificate == null) null else identity: {
@@ -81,6 +102,8 @@ const Config = struct {
             .mission = mission,
             .game_directory = profile.value("Server", "GameDirectory") orelse ".",
             .players = players,
+            .launch_wait = .{ .minimum = minimum, .delay_us = @as(i64, start_delay) * std.time.us_per_s },
+            .metrics = metrics,
             .ticks = ticks,
             .teams = teams,
             .arena_options = arena_options,
@@ -117,6 +140,8 @@ pub fn run(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !void
         .mission = config.mission,
         .game_directory = game_directory,
         .players = config.players,
+        .launch_wait = config.launch_wait,
+        .metrics = config.metrics,
         .ticks = config.ticks,
         .teams = config.teams,
         .arena_options = config.arena_options,
@@ -158,4 +183,33 @@ test "headless settings share the game's INI syntax" {
     try std.testing.expect((try Config.parse(.{ .text = "[server]\nBindAddress=0.0.0.0" })).invite_address == null);
     const advertised = try Config.parse(.{ .text = "[server]\nBindAddress=0.0.0.0\nInviteAddress=192.0.2.1" });
     try std.testing.expect(advertised.invite_address.?.eql(&try std.Io.net.IpAddress.parseLiteral("192.0.2.1:27020")));
+}
+
+test "dedicated activation and metrics have independent settings" {
+    const defaults = try Config.parse(.empty);
+    try std.testing.expectEqual(2, defaults.launch_wait.minimum);
+    try std.testing.expectEqual(30 * std.time.us_per_s, defaults.launch_wait.delay_us);
+    try std.testing.expect(defaults.repeat_rounds);
+    try std.testing.expectEqual(null, defaults.metrics);
+
+    const server = try Config.parse(.{ .text =
+        \\[Server]
+        \\Players=8
+        \\MinPlayers=4
+        \\StartDelaySeconds=12
+        \\RoundSeconds=60
+        \\[Metrics]
+        \\Port=9100
+    });
+    try std.testing.expectEqual(4, server.launch_wait.minimum);
+    try std.testing.expectEqual(12 * std.time.us_per_s, server.launch_wait.delay_us);
+    try std.testing.expectEqual(60 * std.time.us_per_s / wire.step_us, server.ticks.?);
+    try std.testing.expect(server.metrics.?.eql(&try std.Io.net.IpAddress.parseLiteral("127.0.0.1:9100")));
+    try std.testing.expectError(error.InvalidMinimumPlayers, Config.parse(.{ .text = "[Server]\nPlayers=4\nMinPlayers=5" }));
+    try std.testing.expectError(error.InvalidMetricsPort, Config.parse(.{ .text = "[Metrics]\nPort=27020" }));
+    try std.testing.expectError(error.ConflictingRoundLimits, Config.parse(.{ .text = "[Server]\nRoundTicks=10\nRoundSeconds=1" }));
+    const coop = try Config.parse(.{ .text = "[Server]\nMission=1\nPlayers=4" });
+    try std.testing.expectEqual(4, coop.launch_wait.minimum);
+    try std.testing.expectEqual(0, coop.launch_wait.delay_us);
+    try std.testing.expect(!coop.repeat_rounds);
 }
