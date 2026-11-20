@@ -188,7 +188,7 @@ pub fn betweenMissions(arena: *const Arena, io: std.Io, directory: std.Io.Dir) !
 }
 
 /// Start a campaign mission from the installed data and bind its created ships to the lobby crew.
-pub fn prepareCampaign(staging: *const Arena, number: u16, io: std.Io, directory: std.Io.Dir, checkpoint: *const game.gameflow.Campaign) !*Arena {
+pub fn prepareCampaign(staging: *const Arena, number: u16, io: std.Io, directory: std.Io.Dir, checkpoint: *const game.gameflow.Campaign, wingmen: *const game.pilots.Wingmen) !*Arena {
     const gpa = staging.mission.objects.gpa;
     const arena = try create(gpa, .training, io, directory);
     errdefer arena.destroy();
@@ -207,6 +207,7 @@ pub fn prepareCampaign(staging: *const Arena, number: u16, io: std.Io, directory
     arena.campaign = campaign;
     arena.carryAdmissions(staging);
     const all = arena.mission.objects;
+    all.wingmen = wingmen.*;
     all.players = 0;
     for (arena.pilots, 0..) |entry, slot| {
         if (entry) |pilot| {

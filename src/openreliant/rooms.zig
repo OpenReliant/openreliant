@@ -776,7 +776,7 @@ pub const Driver = struct {
         };
         const gpa = driver.movies.gpa;
         const opening = saved_games.opening(.in_game_options);
-        _ = try driver.movies.play(opening.movie, .over_screen) orelse return null;
+        _ = try driver.movies.play(opening.movie.?, .over_screen) orelse return null;
         const saves: saved_games.Saves = .{ .gpa = gpa, .folder = driver.saves, .game = flown, .strings = driver.strings, .local_time = driver.local_time };
         var screen: SavesScreen = .{ .backdrop = .read(driver, opening.background, saved_games.shapes_name) };
         defer screen.close(gpa);

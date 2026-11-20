@@ -14,7 +14,7 @@ const Crew = @import("debrief_crew.zig");
 const Pilot = @import("lobby.zig").Pilot;
 const Debrief = @This();
 
-pub const Action = union(enum) { choice: Crew.Choice, leave, message: @import("../../chat.zig").Line };
+pub const Action = union(enum) { choice: Crew.Choice, leave, save, message: @import("../../chat.zig").Line };
 pub const History = hud.MessageList(30);
 const Control = enum { leave, ready, replay, advance, save };
 
@@ -25,8 +25,11 @@ ending: Ending,
 objectives_met: bool,
 record: game.MissionRecord,
 overall_kills: i32,
+rank: game.Rank = 0,
+tier: u2 = 0,
 pilots: *const [Crew.size]?Pilot,
 notices: *const History,
+can_save: bool = false,
 editor: chat.Editor = .{ .focused = true },
 letter_strings: language.Language = .{ .strings = &.{} },
 history_text: [4096]u8 = undefined,
@@ -130,8 +133,7 @@ pub fn frame(debrief: *Debrief, pointer: ui.Pointer, keys: *input.Keyboard, type
     const control = debrief.hover orelse return null;
     const choice: Crew.Choice = switch (control) {
         .leave => return .leave,
-        // The save screen and the co-op save format are tracked in #475.
-        .save => return null,
+        .save => return if (debrief.can_save) .save else null,
         .ready => .ready,
         .replay => .replay,
         .advance => .advance,
@@ -204,15 +206,13 @@ fn drawFigures(debrief: *const Debrief, canvas: ui.Canvas, font: *hud.Opened) !v
         .{ .english = "Rank", .installed = 0x1DC },
         .{ .english = "Level", .installed = 0x1DD },
     };
-    var pilot: input.Player = .{ .kills = .{ .count = debrief.overall_kills } };
-    _ = game.promote(&pilot);
     var mission_kills: [16]u8 = undefined;
     var overall_kills: [16]u8 = undefined;
     const values = [_][]const u8{
         std.fmt.bufPrint(&mission_kills, "{d}", .{debrief.record.kills}) catch unreachable,
         std.fmt.bufPrint(&overall_kills, "{d}", .{debrief.overall_kills}) catch unreachable,
-        strings.stringOr(game.rank_names[pilot.rank], "2nd Lieutenant"),
-        strings.stringOr(game.tier_names[game.campaignField(debrief.number, .tier) orelse 0], "Bronze"),
+        strings.stringOr(game.rank_names[debrief.rank], "2nd Lieutenant"),
+        strings.stringOr(game.tier_names[debrief.tier], "Bronze"),
     };
     for (labels, values, 0..) |label, value, row| {
         const y = 376 + @as(i32, @intCast(row)) * 17;

@@ -12,7 +12,7 @@ OpenReliant opens in the front end unless `--mission` names a mission. The pilot
 
 Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GAME OPTIONS ([GAME OPTIONS](#game-options)), the audio, the controls and the video, on OpenReliant's settings screen ([The settings screen](#the-settings-screen)), the mods screen ([The mods screen](#the-mods-screen)), the pilot roster with SET GAME DIFFICULTY, the saved games ([The saved games](#the-saved-games)), the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, the movies around a mission ([Movies](movies.md)), and the restart screen. Not yet:
 
-- Loading a saved co-op campaign into a lobby ([#475](https://github.com/OpenReliant/openreliant/issues/475)) and the remaining multiplayer setup controls ([#404](https://github.com/OpenReliant/openreliant/issues/404)).
+- The remaining multiplayer setup controls ([#404](https://github.com/OpenReliant/openreliant/issues/404)).
 - The movies between the screens not yet ported, which come with their screens ([Movies](movies.md)).
 
 **Fix:** a screen takes no press until the button held as it was entered comes up. The movie between two screens gives the press that chose the second time to end; where the transitions are off, the game lets it go on to what lies under the pointer on the new screen.
@@ -75,8 +75,11 @@ and team-play notes from the installed language file. The ship selector shows th
 ITAC fighter pictures, class, armament and special abilities. Pilots joining a dedicated
 server or a match already in progress can open the same selector from the browser. The lobby
 uses the pilot's profile callsign and the original translated New Session name.
-The host opens a fresh campaign when choosing Co-op. Loading a saved campaign is tracked in
-[#475](https://github.com/OpenReliant/openreliant/issues/475), remaining setup controls in
+The host opens a fresh campaign when choosing Co-op. **New** resets the selection and **Load**
+opens the saved game screen over the lobby (0x0043D555 and 0x0043D586). Loading selects the
+saved mission and checkpoint on the host. The host sends the selected mission to the waiting crew
+through the roster, as the original does with message 8 (`net_send_coop_session`, 0x004BA2D0).
+Remaining setup controls are tracked in
 [#404](https://github.com/OpenReliant/openreliant/issues/404), and team and arena rules in
 [#1400](https://github.com/OpenReliant/openreliant/issues/1400).
 
@@ -114,10 +117,10 @@ Use the stills to check the display and the executable's draw functions for the 
 | Screen | Retail reference | OpenReliant behavior and remaining differences |
 |---|---|---|
 | Connection | `multiplayer_connection_screen` (`0x00432FC0`) | The Internet and LAN lists, IP and invite entry and hologram backdrop are deliberate replacements for the legacy provider choices. The browser uses installed button art and labels. |
-| Co-op setup | `multiplayer_sessions_draw` (`0x0043DA40`) | The host and guest have the stock field and roster positions, Ready, chat and navigation. The roster uses host-validated readiness. The host can remove the selected guest. The Load button stays dim pending [#475](https://github.com/OpenReliant/openreliant/issues/475). |
+| Co-op setup | `multiplayer_sessions_draw` (`0x0043DA40`) | The host and guest have the stock field and roster positions, Ready, chat and navigation. The host can remove the selected guest, select New or load a campaign. |
 | Deathmatch setup | `session_loadout_screen` (`0x0044B950`) and `session_loadout_draw` (`0x0044CB60`) | The mode list, description, ship field, roster, chat and navigation use the stock layout. The detailed mode and ITAC fighter pickers remain deliberate additions. The original's extra game options are tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404) and team rules in [#1400](https://github.com/OpenReliant/openreliant/issues/1400). |
 | Co-op briefing and loadout | `WinMain` (`0x004A9AB0`) and `interface_briefing` (`0x00437010`) | The existing campaign briefing and loadout code supplies the rooms, ship and rack views. The host coordinates launch and the crew's choices over the current network protocol. |
-| Co-op debrief | `multiplayer_debrief_render` (`0x00429DC0`), `multiplayer_debrief_text` (`0x00425240`), and `multiplayer_chat_panel` variant 1 (`0x004AE2D0`) | The retail backdrop, letter, two scroll controls, chat, figures, roster, and buttons use the original art and coordinates. The save action is tracked in [#475](https://github.com/OpenReliant/openreliant/issues/475), and the profile values that carry between sessions in [#804](https://github.com/OpenReliant/openreliant/issues/804). |
+| Co-op debrief | `multiplayer_debrief_render` (`0x00429DC0`), `multiplayer_debrief_text` (`0x00425240`), and `multiplayer_chat_panel` variant 1 (`0x004AE2D0`) | The retail backdrop, letter, two scroll controls, chat, figures, roster and buttons use the original art and coordinates. Save Game opens the existing save screen over the stock in-game-options backdrop. |
 | Pause, session loss, and standings | `pause_screen_multiplayer` (`0x0048E510`), `pause_session_lost` (`0x0048E370`), and `mp_draw_scoreboard` (`0x004AF650`) | The pause and flight standings use the stock sprites. The pause controls and connection-loss dialog use the original pause art. Host-only shared pause and scrolling beyond stock capacity are deliberate changes. See [Pause menu](pause-menu.md#multiplayer-9). |
 
 The lobby uses the installed tooltip strings and the ITAC tooltip art, as registered by
@@ -590,7 +593,16 @@ Each pass, Escape leaves, and Down and Up scroll the list a row while held, wher
 
 **Improvement:** the day's and the month's names in the date are English, where the game takes the system's language's.
 
-Not ported: what the multiplayer games do with the saved games: the co-op host's load, the multiplayer debriefing's save, and a load sent to the other players ([#475](https://github.com/OpenReliant/openreliant/issues/475)).
+The co-op host opens the same screen from **Load** in the lobby
+(`multiplayer_sessions_screen`, 0x0043D586). The lobby background stays visible and the
+connection keeps running. **Save Game** in the co-op debrief uses the in-game-options backdrop
+and hides Main Menu and Quit (`multiplayer_debriefing`, 0x00429C56 to 0x00429C73).
+The save uses the original IFF format. It keeps the shared flags and wing data supplied by
+the host and the pilot's own record. A result that advances the campaign saves the next mission.
+The pilot's mission record goes into `profile.bin` (`mission_end_record`, 0x00475C2D);
+the network path skips the solo autosave (0x00475BF4).
+**Improvement:** co-op keeps the attempt's restart point in memory, so replay uses the
+starting record and the solo restart file can still be used for the single-player campaign.
 
 ## Backgrounds
 

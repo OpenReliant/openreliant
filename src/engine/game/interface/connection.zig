@@ -32,7 +32,7 @@ const chat = @import("../chat.zig");
 pub const Debrief = @import("connection/debrief.zig");
 pub const DebriefCrew = @import("connection/debrief_crew.zig");
 
-pub const Action = union(enum) { send_chat: chat.Line, back, quit, host_lan: HostChoice.Kind, leave_session, launch_session, lobby_ready: bool, remove_lobby_pilot: Lobby.Admission, debrief_choice: DebriefCrew.Choice, choose_ship: scenarios.Fighter, join: []const u8 };
+pub const Action = union(enum) { send_chat: chat.Line, back, quit, host_lan: HostChoice.Kind, leave_session, launch_session, new_campaign, load_campaign, save_campaign, lobby_ready: bool, remove_lobby_pilot: Lobby.Admission, debrief_choice: DebriefCrew.Choice, choose_ship: scenarios.Fighter, join: []const u8 };
 pub const Label = widgets.Label;
 
 address: language.Text(128) = .{},
@@ -116,6 +116,7 @@ pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, type
     }
     if (screen.debrief) |*debrief| return switch (debrief.frame(mouse, keys, typed) orelse return null) {
         .leave => .leave_session,
+        .save => .save_campaign,
         .choice => |choice| .{ .debrief_choice = choice },
         .message => |line| .{ .send_chat = line },
     };
@@ -127,6 +128,8 @@ pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, type
             break :ask null;
         },
         .launch => .launch_session,
+        .new_campaign => .new_campaign,
+        .load_campaign => .load_campaign,
         .ready => |ready| .{ .lobby_ready = ready },
         .remove => |pilot| .{ .remove_lobby_pilot = pilot },
         .send_chat => |line| .{ .send_chat = line },

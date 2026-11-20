@@ -21,9 +21,9 @@ pub const History = chat_panel.History;
 const Crew = @import("debrief_crew.zig");
 pub const Pilot = struct { generation: u64, name: CallSign = .{} };
 pub const Admission = @import("../../players.zig").ParticipantRef;
-pub const Action = union(enum) { leave, main_menu, quit, launch, ready: bool, remove: Admission, choose_ship, send_chat: chat.Line };
+pub const Action = union(enum) { leave, main_menu, quit, launch, new_campaign, load_campaign, ready: bool, remove: Admission, choose_ship, send_chat: chat.Line };
 const Role = union(enum) { host: struct { can_launch: bool = false, port: u16 }, guest };
-const Control = enum { back, main_menu, quit, launch, ready, remove, ship, mode };
+const Control = enum { back, main_menu, quit, launch, new_campaign, load_campaign, ready, remove, ship, mode };
 
 role: Role,
 roster: []const ?Pilot,
@@ -36,6 +36,7 @@ local_slot: usize,
 ready: Crew.Pilots = .empty,
 scenario: scenarios.Scenario = .nuclear_threat,
 mission: ?u16 = null,
+loaded_campaign: bool = false,
 ship: scenarios.Fighter = .predator,
 hover: ?Control = null,
 mode_open: bool = false,
@@ -162,12 +163,14 @@ pub fn updateHelp(lobby: *Lobby, at: ?[2]i32, ticks: u32) void {
         start_help,
         .{ .rect = coop_game.box, .string = 0x59C, .fallback = "Displays the session name." },
         .{ .rect = coop_remove.box, .string = 0x595, .fallback = "Click to remove the player currently selected in Players box from the session." },
+        .{ .rect = coop_new.box, .string = 0x596, .fallback = "Click to start a new game" },
+        .{ .rect = coop_load.box, .string = 0x597, .fallback = "Click to bring up a list of saved games." },
     };
     const arena = [_]tooltips.Tooltip{
         .{ .rect = ship_arrow.box, .string = 0x5A3, .fallback = "Click to select a list of ships to fly" },
         if (host) help_start else .{ .rect = arena_lead.box, .string = 0x592, .fallback = help_lead },
     };
-    const help = if (lobby.mission == null) &arena else if (host) coop[0..] else coop[0 .. coop.len - 1];
+    const help = if (lobby.mission == null) &arena else if (host) coop[0..] else coop[0..4];
     if (lobby.help.update(help, pointer, ticks)) |index| lobby.shown_help = help[index];
 }
 
@@ -218,6 +221,10 @@ fn controlAt(lobby: *const Lobby, at: [2]i32) ?Control {
         if (coop and lobby.role == .guest and lobby.local_slot < Crew.size) return .ready;
     }
     if (coop and lobby.role == .host and coop_remove.box.holds(at) and lobby.selectedPilot() != null) return .remove;
+    if (coop and lobby.role == .host) {
+        if (coop_new.box.holds(at)) return .new_campaign;
+        if (coop_load.box.holds(at)) return .load_campaign;
+    }
     if (!coop and (ship_field.box.holds(at) or ship_arrow.box.holds(at))) return .ship;
     if (!coop and lobby.role == .host and mode_list.holds(at)) return .mode;
     return null;
@@ -319,6 +326,8 @@ pub fn frame(lobby: *Lobby, mouse: ui.Pointer, keys: *input.Keyboard, typed: *Ty
         .main_menu => .main_menu,
         .quit => .quit,
         .launch => .launch,
+        .new_campaign => .new_campaign,
+        .load_campaign => .load_campaign,
         .ready => .{ .ready = !lobby.isReady(lobby.local_slot) },
         .remove => .{ .remove = lobby.selectedPilot().? },
         .ship => .choose_ship,
@@ -405,12 +414,10 @@ fn drawCoop(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
     const lit = lobby.hover == .launch or lobby.hover == .ready;
     try coop_start.draw(canvas, art, lit, !host or lobby.role.host.can_launch);
     if (host) {
-        // The connection flow starts a new campaign when hosting. The retail Load button is
-        // present but stays dim until saved campaigns can be hosted (#475).
-        try coop_new.draw(canvas, art, true, true);
+        try coop_new.draw(canvas, art, !lobby.loaded_campaign or lobby.hover == .new_campaign, true);
         try write(canvas, .{ 499, 300 }, .{ .english = "NEW", .installed = 0x148 }, ui.blue, .left);
-        try coop_load.draw(canvas, art, false, false);
-        try write(canvas.dimmedUnless(false), .{ 499, 343 }, .{ .english = "LOAD", .installed = 0x149 }, ui.blue, .left);
+        try coop_load.draw(canvas, art, lobby.loaded_campaign or lobby.hover == .load_campaign, true);
+        try write(canvas, .{ 499, 343 }, .{ .english = "LOAD", .installed = 0x149 }, ui.blue, .left);
         try coop_remove.draw(canvas, art, lobby.hover == .remove, lobby.selectedPilot() != null);
         try write(canvas, .{ 563, 237 }, .{ .english = "REMOVE", .installed = 0x2C5 }, ui.blue, .right);
         try write(canvas, .{ 563, 249 }, fallback_player, ui.blue, .right);

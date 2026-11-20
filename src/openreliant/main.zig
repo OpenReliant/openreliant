@@ -34,6 +34,7 @@ const save = game.gameflow.save;
 const camera = game.camera;
 const network_enabled = @import("network_options").enabled;
 const NetworkPilot = @import("network/graphical.zig");
+const CoopSave = @import("network/coop_save.zig");
 // The program's own files are `pub`, so that the test block at the end runs their tests.
 pub const debug_command = @import("debug.zig");
 pub const help = @import("help.zig");
@@ -843,6 +844,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .default_name = strings.string(@backingInt(game.interface.pilot_roster.String.player)) orelse "",
     };
     pilot_profile.open(&front.pilot.call_sign);
+    var coop_saving: CoopSave = .init(front.pilot);
     // The mission `--mission` names, read once from the game's files, or for mission 0, where the
     // game has none, from the copy `openreliant` carries, and started; it starts again as each
     // attempt ends. Without it, the front end picks the mission.
@@ -930,6 +932,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .own = own.interface(),
         .video = video_settings,
         .saves = .{ .gpa = gpa, .folder = saving.folder, .game = saving.gameOf(&flow.loading), .strings = &strings, .local_time = localDate },
+        .coop_saves = if (network_enabled) .{ .gpa = gpa, .folder = .{ .io = io, .dir = directory }, .game = coop_saving.saveGame(), .strings = &strings, .local_time = localDate } else null,
         // The mods screen, which stays shut with `--no-mods`, and with `--mods`, so that it can't
         // save the chosen mods as the list in the settings file.
         .mods = if (options.mods and chosen_mods.len == 0) .{ .loaded = &mods, .gpa = gpa, .io = io, .game = directory, .version = version.semantic, .pages = option_pages.pages() } else null,
@@ -1158,7 +1161,20 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .menu_art = &display.resources.art,
             }, presentation, strings, &display.resources.font, app.active and !console_up);
             if (network_enabled) if (network_pilot.takeCampaignResult()) |result| {
-                if (front.connection.debrief) |*debrief| debrief.setNarrative(strings, itac_strings);
+                if (front.connection.debrief) |*debrief| {
+                    const finished_view = &network_pilot.client.?.latest.?;
+                    const checkpoint = finished_view.campaign_checkpoint.?;
+                    const earned = finished_view.ships[debrief.local_slot].?.kills;
+                    if (coop_saving.record(result, earned, checkpoint)) |record| {
+                        pilot_profile.profile.keep(record);
+                        pilot_profile.save();
+                    }
+                    debrief.overall_kills = coop_saving.player.kills.count;
+                    debrief.rank = coop_saving.player.rank;
+                    debrief.tier = coop_saving.tier;
+                    debrief.can_save = true;
+                    debrief.setNarrative(strings, itac_strings);
+                }
                 var service: NetworkPilot.Briefing = .{ .pilot = &network_pilot, .io = io };
                 const shared_debrief = network_pilot.client != null;
                 if (shared_debrief) movies.service = .{ .context = &service, .tick = NetworkPilot.Briefing.service };
@@ -1185,6 +1201,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 continue;
             };
             if (network_enabled) if (network_pilot.upcomingBriefing()) |number| {
+                if (front.screen == .saved_games) {
+                    front.saved_games.cancel(front_context.coop_saves.?);
+                    front.screen = .connection;
+                }
+                coop_saving.begin(number, &pilot_profile.profile);
+                network_pilot.coop_kept_kills = coop_saving.player.kept_kills;
+                network_pilot.coop_rank = coop_saving.player.rank;
                 var service: NetworkPilot.Briefing = .{ .pilot = &network_pilot, .io = io };
                 const briefed = briefed: {
                     movies.service = .{ .context = &service, .tick = NetworkPilot.Briefing.service };
@@ -1197,8 +1220,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 }
                 const result = briefed orelse return;
                 switch (result) {
-                    .fly => |flown| network_pilot.finishBriefing(flown.result) catch
-                        network_pilot.returnToBrowser(&front.connection, presentation, .{ .english = "Could not submit the co-op loadout" }),
+                    .fly => |flown| {
+                        if (flown.result) |fit| coop_saving.keepLoadout(fit);
+                        network_pilot.finishBriefing(flown.result) catch
+                            network_pilot.returnToBrowser(&front.connection, presentation, .{ .english = "Could not submit the co-op loadout" });
+                    },
                     .main_menu, .simulator => network_pilot.leave(&front.connection, presentation),
                 }
                 continue;
@@ -1225,11 +1251,15 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         through.mode_saved = .unchosen;
                         try game_scripts.start();
                     },
-                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .lobby_ready, .remove_lobby_pilot, .debrief_choice, .choose_ship, .send_chat => {},
+                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .new_coop_campaign, .loaded_coop_campaign, .lobby_ready, .remove_lobby_pilot, .debrief_choice, .choose_ship, .send_chat => {},
                 }
                 flow.next = switch (outcome) {
                     .host_lan => |kind| {
-                        if (network_enabled) network_pilot.hostLan(io, gpa, directory, &front.connection, &front.pilot.call_sign, kind);
+                        if (network_enabled) {
+                            coop_saving = .init(front.pilot);
+                            pilot_profile.saveWith(front.pilot.call_sign.slice());
+                            network_pilot.hostLan(io, gpa, directory, &front.connection, &front.pilot.call_sign, kind);
+                        }
                         continue;
                     },
                     .leave_session => {
@@ -1238,6 +1268,18 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     },
                     .launch_session => {
                         if (network_enabled) network_pilot.launch(&front.connection);
+                        continue;
+                    },
+                    .new_coop_campaign, .loaded_coop_campaign => {
+                        if (network_enabled) if (network_pilot.hosted) |hosted| {
+                            const loaded = outcome == .loaded_coop_campaign;
+                            if (!loaded) coop_saving = .init(front.pilot);
+                            coop_saving.pilot = front.pilot;
+                            if (hosted.host.selectCampaign(&coop_saving.campaign, &coop_saving.wingmen)) {
+                                front.connection.lobby.?.mission = coop_saving.campaign.mission;
+                                front.connection.lobby.?.loaded_campaign = loaded;
+                            }
+                        };
                         continue;
                     },
                     .debrief_choice => |choice| {
@@ -1261,7 +1303,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         continue;
                     },
                     .join_server => |target| {
-                        if (network_enabled) network_pilot.start(io, target, &front.connection, &front.pilot.call_sign) else front.connection.message = .{ .english = "Multiplayer is unavailable in this build" };
+                        if (network_enabled) {
+                            coop_saving = .init(front.pilot);
+                            pilot_profile.saveWith(front.pilot.call_sign.slice());
+                            network_pilot.start(io, target, &front.connection, &front.pilot.call_sign);
+                        } else front.connection.message = .{ .english = "Multiplayer is unavailable in this build" };
                         continue;
                     },
                     .quit => return,
@@ -2923,6 +2969,7 @@ const Display = struct {
 
 test {
     _ = NetworkPilot;
+    _ = CoopSave;
     _ = @import("network/wire.zig");
     _ = @import("network/chat_budget.zig");
     _ = @import("network/flight_chat.zig");

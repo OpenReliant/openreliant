@@ -17,7 +17,8 @@ pub const campaignNumber = campaign.campaignNumber;
 pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
-pub const revision: u16 = 22;
+pub const CampaignCheckpoint = campaign.Checkpoint;
+pub const revision: u16 = 23;
 pub const slots = engine.game.deathmatch.spawn.positions;
 pub const cooperative_slots = campaign.Crew.size;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
@@ -43,7 +44,7 @@ const power_capacity = @sizeOf(powerups.Pickups.Mask) + 1 + @sizeOf(i32);
 const arena_capacity = snapshot_header + @max(DarkReign.encoded_size, Blast.encoded_size) + power_capacity;
 const snapshot_capacity = @max(beacon_snapshot_capacity, arena_capacity, snapshot_header + MissionView.capacity);
 const roster_capacity = 7 + slots * (@sizeOf(u64) + 1 + @as(CallSign, .{}).bytes.len);
-pub const capacity = @max(snapshot_capacity + ordnance.Status.capacity, roster_capacity, PilotPage.capacity, Combat.capacity, ordnance.Page.capacity, ScenePage.capacity, Scenery.capacity);
+pub const capacity = @max(snapshot_capacity + ordnance.Status.capacity + CampaignCheckpoint.capacity, roster_capacity, PilotPage.capacity, Combat.capacity, ordnance.Page.capacity, ScenePage.capacity, Scenery.capacity);
 comptime {
     std.debug.assert(capacity < 1200);
     std.debug.assert(slots <= PilotPage.width * (PilotPage.max_extra + 1));
@@ -570,6 +571,8 @@ pub const Snapshot = struct {
     power: ?Power = null,
     blast: ?Blast = null,
     mission: ?MissionView = null,
+    /// The host sends the shared checkpoint once with the reliable mission result.
+    campaign_checkpoint: ?CampaignCheckpoint = null,
 
     fn mode(view: *const Snapshot) Mode {
         return .{ .scenario = view.scenario, .mission = view.mission != null };
@@ -1013,6 +1016,10 @@ pub const Message = union(enum(u8)) {
                 }
                 try w.writeByte(@intFromBool(view.weapons != null));
                 if (view.weapons) |*status| try status.write(&w);
+                if (message == .campaign_result) {
+                    const checkpoint = view.campaign_checkpoint orelse return error.InvalidDebrief;
+                    try checkpoint.write(&w);
+                }
             },
             .leave => {},
             .received_final, .campaign_end => |tick| try w.writeInt(u32, tick, .little),
@@ -1189,7 +1196,11 @@ pub const Message = union(enum(u8)) {
                 break :snapshot switch (tag) {
                     .view => .{ .view = view },
                     .finished => .{ .finished = view },
-                    .campaign_result => if (view.mission != null) .{ .campaign_result = view } else return error.InvalidDebrief,
+                    .campaign_result => result: {
+                        if (view.mission == null) return error.InvalidDebrief;
+                        view.campaign_checkpoint = try .read(&r);
+                        break :result .{ .campaign_result = view };
+                    },
                     else => unreachable,
                 };
             },
@@ -1352,6 +1363,24 @@ test "campaign views name a present lead and carry the mission's readiness" {
     view.mission.?.lead = 3;
     view.ships[4] = .{ .generation = 8, .position = @splat(0) };
     try std.testing.expectError(error.InvalidMissionView, Message.decode(try (Message{ .view = view }).encode(&bytes)));
+}
+
+test "only the reliable campaign result carries the shared checkpoint" {
+    var view: Snapshot = .{
+        .tick = 24,
+        .ships = @splat(null),
+        .mission = .{ .number = 1, .pilot_slots = 1, .lead = 0 },
+    };
+    view.ships[0] = .{ .generation = 9, .position = @splat(0) };
+    const variables: engine.vm.Variables = .{ .reliant_alive = 1, .warp_gate_alive = 3 };
+    const wingmen: engine.game.pilots.Wingmen = .{};
+    view.campaign_checkpoint = .capture(&variables, &wingmen);
+    var buffer: [capacity]u8 = undefined;
+    const result = try (Message{ .campaign_result = view }).encode(&buffer);
+    try std.testing.expectEqualDeep(view, (try Message.decode(result)).campaign_result);
+    try std.testing.expectError(error.EndOfStream, Message.decode(result[0 .. result.len - 1]));
+    const regular_view = try (Message{ .view = view }).encode(&buffer);
+    try std.testing.expectEqual(null, (try Message.decode(regular_view)).view.campaign_checkpoint);
 }
 
 test "versions compare by protocol and snapshots retain slot identities" {
