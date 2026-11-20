@@ -32,7 +32,7 @@ const chat = @import("../chat.zig");
 pub const Debrief = @import("connection/debrief.zig");
 pub const DebriefCrew = @import("connection/debrief_crew.zig");
 
-pub const Action = union(enum) { send_chat: chat.Line, back, quit, host_lan: HostChoice.Kind, leave_session, launch_session, new_campaign, load_campaign, save_campaign, lobby_ready: bool, remove_lobby_pilot: Lobby.Admission, debrief_choice: DebriefCrew.Choice, choose_ship: scenarios.Fighter, join: []const u8 };
+pub const Action = union(enum) { send_chat: chat.Line, back, quit, host_lan: HostChoice.Kind, leave_session, launch_session, new_campaign, load_campaign, save_campaign, lobby_ready: bool, remove_lobby_pilot: Lobby.Admission, debrief_choice: DebriefCrew.Choice, choose_ship: scenarios.Fighter, choose_team: Lobby.Team, team_play: bool, join: []const u8 };
 pub const Label = widgets.Label;
 
 address: language.Text(128) = .{},
@@ -133,6 +133,8 @@ pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, type
         .ready => |ready| .{ .lobby_ready = ready },
         .remove => |pilot| .{ .remove_lobby_pilot = pilot },
         .send_chat => |line| .{ .send_chat = line },
+        .choose_team => |team| .{ .choose_team = team },
+        .team_play => |playing| .{ .team_play = playing },
         .choose_ship => open: {
             screen.ship_picker = .{ .preview = lobby.ship };
             break :open null;

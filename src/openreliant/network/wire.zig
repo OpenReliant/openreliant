@@ -19,7 +19,12 @@ pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
 pub const CampaignCheckpoint = campaign.Checkpoint;
-pub const revision: u16 = 26;
+pub const revision: u16 = 27;
+pub const Team = engine.game.players.ArenaTeam;
+
+fn readTeam(reader: *std.Io.Reader) !Team {
+    return std.enums.fromInt(Team, try reader.takeByte()) orelse error.InvalidTeam;
+}
 pub const slots = engine.game.deathmatch.spawn.positions;
 pub const cooperative_slots = campaign.Crew.size;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
@@ -29,8 +34,11 @@ const guns = engine.game.guns;
 const powerups = engine.game.deathmatch.powerups;
 pub const Combat = struct {
     pub const max = 8;
+
     const largest_effect = 1 + 1 + @sizeOf(u16) + 1 + 2 * @sizeOf(i32) + 6 * @sizeOf(f32);
-    pub const capacity = 1 + 1 + max * largest_effect;
+    pub const capacity = 1 + @sizeOf(u32) + 1 + max * largest_effect;
+
+    arena_floor: u32 = 0,
     entries: [max]guns.FlightEffect = undefined,
     count: usize = 0,
 
@@ -41,11 +49,12 @@ pub const Combat = struct {
 // A tag, mode, tick, pilot ships, and the largest mode payload.
 const inline_pilots = @min(slots, PilotPage.width);
 const snapshot_header = 2 + @sizeOf(u32) + 1 + inline_pilots * Ship.encoded_size + 1 + 1;
-const beacon_snapshot_capacity = snapshot_header - inline_pilots + beacon_count * (1 + 3 * @sizeOf(f32)) + Blast.encoded_size;
+const beacon_snapshot_capacity = snapshot_header - inline_pilots + 1 + beacon_count * (1 + 3 * @sizeOf(f32)) + Blast.encoded_size;
 const power_capacity = @sizeOf(powerups.Pickups.Mask) + 1 + @sizeOf(i32);
-const arena_capacity = snapshot_header + @max(DarkReign.encoded_size, Blast.encoded_size) + power_capacity;
+const team_scores_capacity = 1 + std.enums.values(Team).len * (@sizeOf(i32) + @sizeOf(u32));
+const arena_capacity = snapshot_header + team_scores_capacity + @max(DarkReign.encoded_size, Blast.encoded_size) + power_capacity;
 const campaign_capacity = snapshot_header - (inline_pilots - cooperative_slots) * (Ship.encoded_size - @sizeOf(u64)) + MissionView.capacity + CampaignCheckpoint.capacity;
-const roster_capacity = 7 + slots * (@sizeOf(u64) + 1 + @as(CallSign, .{}).bytes.len);
+const roster_capacity = 8 + @sizeOf(u32) + slots * (@sizeOf(u64) + 2 + @as(CallSign, .{}).bytes.len);
 pub const capacity = @max(@max(beacon_snapshot_capacity, arena_capacity, campaign_capacity) + ordnance.Status.capacity, roster_capacity, PilotPage.capacity, Combat.capacity, ordnance.Page.capacity, ScenePage.capacity, Scenery.capacity);
 comptime {
     std.debug.assert(capacity < 1200);
@@ -61,6 +70,7 @@ fn compactRocks(scenario: ?Scenario) bool {
 pub const Input = struct {
     sequence: u32,
     command: flight.Command,
+    arena_floor: u32 = 0,
     /// A held trigger names the ship the player saw when they pressed it.
     fire_for: ?u32 = null,
 
@@ -71,6 +81,23 @@ pub const Input = struct {
     }
 };
 pub const Admission = struct { slot: u8, generation: u64 };
+pub const Joined = struct {
+    admission: Admission,
+    /// A late join needs the round clock before its first snapshot arrives.
+    arena_floor: u32 = 0,
+};
+
+fn writeAdmission(writer: *std.Io.Writer, admission: Admission) !void {
+    try writer.writeByte(admission.slot);
+    try writer.writeInt(u64, admission.generation, .little);
+}
+
+fn readAdmission(reader: *std.Io.Reader) !Admission {
+    const slot = try reader.takeByte();
+    const generation = try reader.takeInt(u64, .little);
+    if (slot >= slots or generation == 0) return error.InvalidAdmission;
+    return .{ .slot = slot, .generation = generation };
+}
 pub const chat = engine.game.chat;
 pub const ChatScope = enum(u8) { lobby, flight, private };
 pub const ChatRequest = struct {
@@ -106,6 +133,8 @@ pub const Roster = struct {
     mission: ?u16 = null,
     paused: bool = false,
     briefing: bool = false,
+    arena_floor: u32 = 0,
+    teams: bool = false,
     limit: u8 = slots,
     ready: engine.game.interface.Connection.DebriefCrew.Pilots = .empty,
     pilots: [slots]?Pilot = @splat(null),
@@ -598,6 +627,7 @@ pub const Snapshot = struct {
     scenario: ?Scenario = null,
     ships: [slots]?Ship,
     pilot_pages: u8 = 0,
+    teams: ?Teams = null,
     objectives: Objectives = .none,
     weapons: ?ordnance.Status = null,
     pickups: powerups.Pickups.Mask = 0,
@@ -657,6 +687,30 @@ pub const Snapshot = struct {
         }
     }
 };
+
+pub const Teams = std.EnumArray(Team, engine.game.deathmatch.TeamScore);
+
+fn writeTeams(writer: *std.Io.Writer, teams: ?Teams) !void {
+    try writer.writeByte(@intFromBool(teams != null));
+    if (teams) |scores| for (scores.values) |score| {
+        try writer.writeInt(i32, score.kills, .little);
+        try writer.writeInt(u32, score.deaths, .little);
+    };
+}
+
+fn readTeams(reader: *std.Io.Reader, scenario: Scenario) !?Teams {
+    switch (try reader.takeByte()) {
+        0 => return null,
+        1 => if (scenario.record().teams == .none) return error.InvalidTeam,
+        else => return error.InvalidTeam,
+    }
+    var teams: Teams = undefined;
+    for (&teams.values) |*score| score.* = .{
+        .kills = try reader.takeInt(i32, .little),
+        .deaths = try reader.takeInt(u32, .little),
+    };
+    return teams;
+}
 
 fn writeBeacon(w: *std.Io.Writer, beacon: Beacon) !void {
     try w.writeByte(@backingInt(std.meta.activeTag(beacon)));
@@ -843,6 +897,7 @@ fn readObject(r: *std.Io.Reader) !engine.game.gameobj.ObjectRef {
 }
 
 fn writeCombat(w: *std.Io.Writer, combat: *const Combat) !void {
+    try w.writeInt(u32, combat.arena_floor, .little);
     try w.writeByte(@intCast(combat.count));
     for (combat.items()) |effect| {
         try w.writeByte(@backingInt(std.meta.activeTag(effect)));
@@ -883,7 +938,7 @@ fn writeCombat(w: *std.Io.Writer, combat: *const Combat) !void {
 }
 
 fn readCombat(r: *std.Io.Reader) !Combat {
-    var combat: Combat = .{ .count = try r.takeByte() };
+    var combat: Combat = .{ .arena_floor = try r.takeInt(u32, .little), .count = try r.takeByte() };
     if (combat.count == 0 or combat.count > Combat.max) return error.InvalidCombat;
     for (combat.entries[0..combat.count]) |*entry| {
         entry.* = switch (try r.takeEnum(std.meta.Tag(guns.FlightEffect), .little)) {
@@ -953,7 +1008,7 @@ fn readCombat(r: *std.Io.Reader) !Combat {
 pub const Message = union(enum(u8)) {
     join: Version,
     wrong_protocol: Version,
-    joined: Admission,
+    joined: Joined,
     input: Input,
     view: Snapshot,
     finished: Snapshot,
@@ -963,6 +1018,7 @@ pub const Message = union(enum(u8)) {
     roster: Roster,
     call_sign: CallSign,
     pick_ship: Fighter,
+    pick_team: Team,
     beacon_notice: BeaconNotice,
     combat: Combat,
     weapon_order: ordnance.Order,
@@ -1005,12 +1061,14 @@ pub const Message = union(enum(u8)) {
                 try w.writeByte(@intCast(peer.release.len));
                 try w.writeAll(peer.release);
             },
-            .joined, .campaign_seat => |id| {
-                try w.writeByte(id.slot);
-                try w.writeInt(u64, id.generation, .little);
+            .joined => |entry| {
+                try writeAdmission(&w, entry.admission);
+                try w.writeInt(u32, entry.arena_floor, .little);
             },
+            .campaign_seat => |id| try writeAdmission(&w, id),
             .input => |input| {
                 try w.writeInt(u32, input.sequence, .little);
+                try w.writeInt(u32, input.arena_floor, .little);
                 try flight_input.write(&w, input.command);
                 if (input.fire_for) |reuse| try w.writeInt(u32, reuse, .little);
             },
@@ -1020,6 +1078,7 @@ pub const Message = union(enum(u8)) {
                 try writeMode(&w, view.scenario, view.mission != null);
                 try w.writeByte(view.pilot_pages);
                 try writeShips(&w, view.ships[0..inline_pilots], view.mode());
+                if (view.scenario != null) try writeTeams(&w, view.teams);
                 if (!acceptsObjectives(view.scenario, std.meta.activeTag(view.objectives))) return error.InvalidSnapshot;
                 try w.writeByte(@backingInt(std.meta.activeTag(view.objectives)));
                 switch (view.objectives) {
@@ -1067,14 +1126,20 @@ pub const Message = union(enum(u8)) {
                 try w.writeByte(if (roster.briefing) 2 else @intFromBool(roster.paused));
                 try w.writeByte(roster.limit);
                 try w.writeByte(roster.ready.mask);
+                try w.writeInt(u32, roster.arena_floor, .little);
+                try w.writeByte(@intFromBool(roster.teams));
                 for (roster.pilots) |entry| {
                     try w.writeInt(u64, if (entry) |pilot| pilot.generation else 0, .little);
-                    if (entry) |pilot| try writeCallSign(&w, &pilot.name);
+                    if (entry) |pilot| {
+                        try writeCallSign(&w, &pilot.name);
+                        if (roster.teams) try w.writeByte(@backingInt(pilot.team));
+                    }
                 }
             },
             .call_sign => |name| try writeCallSign(&w, &name),
             .lobby_ready => |ready| try w.writeByte(@intFromBool(ready)),
             .pick_ship => |fighter| try w.writeByte(@backingInt(fighter)),
+            .pick_team => |team| try w.writeByte(@backingInt(team)),
             .scenery => |scenery| try scenery.write(&w),
             .pilot_page => |page| try page.write(&w),
             .debrief => |state| try state.write(&w),
@@ -1161,15 +1226,11 @@ pub const Message = union(enum(u8)) {
                 const peer: Version = .{ .protocol = protocol, .release = release };
                 break :pair if (tag == .join) .{ .join = peer } else .{ .wrong_protocol = peer };
             },
-            .joined, .campaign_seat => admitted: {
-                const slot = try r.takeByte();
-                const generation = try r.takeInt(u64, .little);
-                if (slot >= slots or generation == 0) return error.InvalidAdmission;
-                const id: Admission = .{ .slot = slot, .generation = generation };
-                break :admitted if (tag == .joined) .{ .joined = id } else .{ .campaign_seat = id };
-            },
+            .joined => .{ .joined = .{ .admission = try readAdmission(&r), .arena_floor = try r.takeInt(u32, .little) } },
+            .campaign_seat => .{ .campaign_seat = try readAdmission(&r) },
             .input => .{ .input = .{
                 .sequence = try r.takeInt(u32, .little),
+                .arena_floor = try r.takeInt(u32, .little),
                 .command = try flight_input.read(&r),
                 .fire_for = if (r.bufferedLen() == 0) null else try r.takeInt(u32, .little),
             } },
@@ -1181,6 +1242,7 @@ pub const Message = union(enum(u8)) {
                 if (view.pilot_pages > max_pilot_pages or (session_mode.mission and view.pilot_pages != 0))
                     return error.InvalidSnapshot;
                 try readShips(&r, view.ships[0..inline_pilots], session_mode);
+                if (view.scenario) |scenario| view.teams = try readTeams(&r, scenario);
                 const objectives = try r.takeEnum(std.meta.Tag(Objectives), .little);
                 if (!acceptsObjectives(view.scenario, objectives)) return error.InvalidSnapshot;
                 view.objectives = switch (objectives) {
@@ -1272,6 +1334,13 @@ pub const Message = union(enum(u8)) {
                 if (ready >= @as(u16, 1) << @as(u4, @intCast(@min(view.limit, cooperative_slots))) or
                     (ready != 0 and (view.mission == null or view.briefing))) return error.InvalidRoster;
                 view.ready.mask = @intCast(ready);
+                view.arena_floor = try r.takeInt(u32, .little);
+                view.teams = switch (try r.takeByte()) {
+                    0 => false,
+                    1 => true,
+                    else => return error.InvalidRoster,
+                };
+                if (view.teams and (view.mission != null or (view.lobby != null and view.lobby.?.record().teams == .none))) return error.InvalidRoster;
                 for (&view.pilots, 0..) |*entry, slot| {
                     const generation = try r.takeInt(u64, .little);
                     if (generation == 0) {
@@ -1279,7 +1348,11 @@ pub const Message = union(enum(u8)) {
                         continue;
                     }
                     if (slot >= view.limit) return error.InvalidRoster;
-                    entry.* = .{ .generation = generation, .name = try readCallSign(&r) };
+                    entry.* = .{
+                        .generation = generation,
+                        .name = try readCallSign(&r),
+                        .team = if (view.teams) try readTeam(&r) else .first,
+                    };
                 }
                 if (view.paused and view.pilots[0] == null) return error.InvalidRoster;
                 break :roster .{ .roster = view };
@@ -1291,6 +1364,7 @@ pub const Message = union(enum(u8)) {
                 else => return error.InvalidRoster,
             } },
             .pick_ship => .{ .pick_ship = try r.takeEnum(Fighter, .little) },
+            .pick_team => .{ .pick_team = try readTeam(&r) },
             .scenery => .{ .scenery = try .read(&r) },
             .pilot_page => .{ .pilot_page = try .read(&r) },
             .debrief => .{ .debrief = try .read(&r) },
@@ -1539,7 +1613,7 @@ test "combat batches carry visual effects with bounded counts and pool indices" 
     try std.testing.expectEqualDeep(effects.items(), decoded.items());
     effects.entries[0].shot.index = guns.max_bullets;
     try std.testing.expectError(error.InvalidCombat, Message.decode(try (Message{ .combat = effects }).encode(&buffer)));
-    try std.testing.expectError(error.InvalidCombat, Message.decode(&.{ @backingInt(std.meta.Tag(Message).combat), Combat.max + 1 }));
+    try std.testing.expectError(error.InvalidCombat, Message.decode(&.{ @backingInt(std.meta.Tag(Message).combat), 0, 0, 0, 0, Combat.max + 1 }));
 }
 
 test "a lobby preserves occupied slots and treats callsigns as bounded display text" {
@@ -1582,7 +1656,7 @@ test "a final receipt names the applied tick" {
 }
 
 test "flight updates fit the direct-IP payload budget" {
-    const input_bytes = 25;
+    const input_bytes = 29;
     // A fighter byte and a ship reuse count distinguish a respawn from a new admission.
     const full_snapshot_bytes = 9 + 83 * inline_pilots;
     const objective_snapshot_budget = full_snapshot_bytes + 79;
@@ -1604,6 +1678,28 @@ test "flight updates fit the direct-IP payload budget" {
     var with_objectives = view;
     with_objectives.view.objectives = .{ .six_beacons = @splat(.{ .loose = .{ 1, 2, 3 } }) };
     try std.testing.expect((try with_objectives.encode(&buffer)).len <= objective_snapshot_budget);
+}
+
+test "stock team scores and a new lobby preserve the round boundary" {
+    var buffer: [capacity]u8 = undefined;
+    const admitted: Message = .{ .joined = .{ .admission = .{ .slot = 0, .generation = 3 }, .arena_floor = 155 } };
+    try std.testing.expectEqualDeep(admitted, try Message.decode(try admitted.encode(&buffer)));
+    var roster: Message = .{ .roster = .{ .lobby = .dark_reign, .teams = true, .arena_floor = 155 } };
+    roster.roster.pilots[0] = .{ .generation = 3, .team = .fourth };
+    try std.testing.expectEqualDeep(roster, try Message.decode(try roster.encode(&buffer)));
+    roster.roster.lobby = .vampires;
+    try std.testing.expectError(error.InvalidRoster, Message.decode(try roster.encode(&buffer)));
+
+    var scores: Teams = .initFill(.{});
+    scores.set(.fourth, .{ .kills = 3, .deaths = 1 });
+    const view: Message = .{ .view = .{
+        .tick = 156,
+        .scenario = .dark_reign,
+        .ships = @splat(.{ .generation = 3, .position = @splat(0) }),
+        .objectives = .{ .dark_reign = .{ .relay = .{ .carried = 0 }, .yaw = 0 } },
+        .teams = scores,
+    } };
+    try std.testing.expectEqualDeep(view, try Message.decode(try view.encode(&buffer)));
 }
 
 test "pilot continuation datagrams retain every ship in a twenty-four pilot view" {

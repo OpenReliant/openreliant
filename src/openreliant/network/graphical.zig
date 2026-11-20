@@ -273,8 +273,10 @@ pub fn menuView(pilot: *Graphical, strings: game.language.Language) ?Multiplayer
         } else null;
     }
     const host = &client.roster.pilots[0];
+    const all = pilot.flight.?.drawn.objects;
     return .{ .match = .{
-        .all = pilot.flight.?.drawn.objects,
+        .all = all,
+        .teams = .collect(all),
         .history = &pilot.flight_history,
         .arena = client.latest.?.mission == null,
         .players = &pilot.pause_players,
@@ -291,6 +293,13 @@ fn menuAction(pilot: *Graphical, action: MultiplayerMenu.Action, screen: *Connec
             if (pilot.hosted) |hosted| hosted.host.setPaused(false);
         },
         .leave_match => {
+            if (pilot.hosted) |hosted| if (hosted.host.arena.mode.scenario() != null) {
+                hosted.host.returnToArenaLobby() catch |err| {
+                    std.log.warn("could not return to the deathmatch lobby: {s}", .{@errorName(err)});
+                    return;
+                };
+                return;
+            };
             if (pilot.session_lost) |reason| pilot.returnToBrowser(screen, presentation, reason) else pilot.leave(screen, presentation);
         },
         .send_chat => |line| pilot.client.?.sendChat(.{ .to = .flight, .text = line }),
@@ -385,7 +394,8 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             for (client.roster.pilots) |entry| if (entry != null) {
                 count += 1;
             };
-            const shown = standings.visibleRows(controls.window, controls.scale.of(controls.window) * controls.standings_scale);
+            const teams: standings.TeamBoard = .collect(flight.drawn.objects);
+            const shown = standings.visibleTeamRows(controls.window, controls.scale.of(controls.window) * controls.standings_scale, teams);
             var scroll = standings.scrollWindow(pilot.standings_first orelse 0, count, shown);
             if (count > shown) {
                 standings.scrollWheel(&scroll, devices.mouse.notches());
@@ -495,7 +505,17 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 front.connection.lobby = null;
                 front.connection.ship_picker = null;
             },
-            .lobby => {
+            .lobby, .arena_returned => {
+                if (event == .arena_returned) {
+                    pilot.stopFlight(presentation);
+                    pilot.pause_menu = .{};
+                    pilot.standings_first = null;
+                    pilot.lobby_notices = .{};
+                    front.connection.lobby = null;
+                    front.connection.ship_picker = null;
+                    front.connection.message = .{};
+                    controls.typed.clear();
+                }
                 if (client.result_tick == null and !client.roster.briefing) {
                     if (front.connection.lobby) |lobby| {
                         if (lobby.mission != null) {
@@ -507,11 +527,12 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 pilot.roster = client.roster.pilots;
                 if (client.result_tick != null) continue;
                 if (front.connection.lobby == null) front.connection.lobby = .{
-                    .role = .guest,
+                    .role = if (pilot.hosted != null) .{ .host = .{ .port = session.default_port } } else .guest,
                     .roster = pilot.roster[0..client.roster.limit],
                     .notices = &pilot.lobby_notices,
                     .local_slot = client.joined.?.slot,
                     .mission = client.roster.mission,
+                    .scenario = client.roster.lobby orelse .asteroid_field,
                     .ship = client.fighter,
                 };
                 if (front.connection.lobby.?.role == .guest) {
@@ -520,6 +541,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 }
                 front.connection.lobby.?.mission = client.roster.mission;
                 front.connection.lobby.?.ready = client.roster.ready;
+                front.connection.lobby.?.teams = client.roster.teams;
             },
             .uber_kill => |notice| pilot.queueNotice(.{ .uber_kill = notice }),
             .beacon_notice => |notice| pilot.queueNotice(.{ .beacon = notice }),
@@ -679,7 +701,7 @@ pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Obje
     const flight = try FlightFrame.create(gpa, local, tables);
     errdefer flight.destroy();
     flight.beginAudio(combat_assets.audio);
-    flight.round_start = client.campaign_floor;
+    flight.round_start = @max(client.campaign_floor, client.roster.arena_floor);
     if (client.latest.?.scenario) |scenario| {
         try flight.loadArena(files, scenario, types);
     }

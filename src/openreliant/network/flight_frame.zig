@@ -368,11 +368,18 @@ pub fn loadArena(frame: *FlightFrame, files: stock.Files, scenario: wire.Scenari
 }
 
 pub fn applyRoster(frame: *FlightFrame, roster: wire.Roster) void {
+    const all = frame.drawn.objects;
+    const local_team = if (roster.pilots[all.player]) |local| local.team else null;
     for (roster.pilots, 0..) |entry, index| {
-        const membership = &frame.drawn.objects.player_states[index].membership;
+        const membership = &all.player_states[index].membership;
         if (membership.* != .joined) continue;
         const peer = entry orelse continue;
-        if (peer.generation == membership.joined.generation) membership.joined.name.set(peer.name.slice());
+        if (peer.generation != membership.joined.generation) continue;
+        membership.joined.name.set(peer.name.slice());
+        if (all.arena_scores == .teams) {
+            membership.joined.team = peer.team;
+            all.slots[index].object.side = if (local_team == peer.team) .friendly else .hostile;
+        }
     }
 }
 
@@ -753,6 +760,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         if (slot.model) |*model| model.place(slot.drawn.position, slot.drawn.orientation);
         frame.respawns.clip(slot, index, &frame.drawn.portals, ship.respawn);
     }
+    all.arena_scores = if (snapshot.teams) |teams| .{ .teams = teams } else .free_for_all;
     const local_ship = snapshot.ships[admission.slot];
     const sounding = if (local_ship) |ship| !ship.pod and !ship.dying and !ship.engine_waiting else false;
     frame.setEngineShip(scene, if (sounding) .of(all, admission.slot) else null);

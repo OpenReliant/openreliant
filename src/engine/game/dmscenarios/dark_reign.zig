@@ -146,7 +146,9 @@ test "the carrier is immune to targeting, drops the relay on death and leaves it
     const all = mission.objects;
     const first = try mission.add(.of(.predator), .{ 1000, 0, 0 });
     const second = try mission.add(.of(.predator), .{ 40000, 0, 0 });
-    all.players = 2;
+    const teammate = try mission.add(.of(.predator), .{ 20000, 0, 0 });
+    all.players = 3;
+    all.arena_scores = .{ .teams = .initFill(.{}) };
     const relay = try mission.add(.of(.comms_relay), mission.slot(first).drawn.position);
     const tower = try mission.add(.of(.darkreign), .{ 80000, 0, 0 });
     mission.slot(relay).object.radius = 40;
@@ -154,6 +156,7 @@ test "the carrier is immune to targeting, drops the relay on death and leaves it
     var round = try Round.start(all);
     const owner = all.joinParticipant(first).?;
     _ = all.bindParticipant(owner, .of(all, first)).?;
+    _ = all.setParticipantTeam(owner, .first);
     var world = mission.world();
     world.damage_rules = .{ .arena = null };
     round.collect(world, relay);
@@ -161,6 +164,10 @@ test "the carrier is immune to targeting, drops the relay on death and leaves it
 
     const target = all.joinParticipant(second).?;
     _ = all.bindParticipant(target, .of(all, second)).?;
+    _ = all.setParticipantTeam(target, .second);
+    const allied = all.joinParticipant(teammate).?;
+    _ = all.bindParticipant(allied, .of(all, teammate)).?;
+    _ = all.setParticipantTeam(allied, .first);
     round.frame(world);
     try std.testing.expectEqual(owner, round.carrier.?.participant);
     try std.testing.expect(mission.slot(relay).object.flags.disabled);

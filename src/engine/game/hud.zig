@@ -2886,6 +2886,8 @@ pub const Instrument = enum {
     shadow_badge,
     /// The local vampire's role badge.
     vampire_badge,
+    /// The team scores above the arena standings.
+    team_standings,
 
     /// The instrument a window is; null for the frames alone, which show nothing.
     pub fn ofWindow(window: windows.Window) ?Instrument {
@@ -3006,6 +3008,7 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
                 .speaker = speaker,
                 .beacons = beacons,
                 .pilot_badge = badge,
+                .team_icons = arena_icons,
             };
             lead = try drawTarget(drawing, state, placing.pen(pen, .target_markers), &resources.target_fonts, scene, frame.edge_line);
         }
@@ -3054,7 +3057,9 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
     if (frame.standings_first) |first| {
         const art = try resources.standingsArt(pen.gpa);
         const labels = if (resources.standings_font) |*font| font else pen.font;
-        try standings.draw(placing.pen(pen, .standings), frame.all, art, labels, first);
+        const teams: standings.TeamBoard = .collect(frame.all);
+        try teams.draw(placing.pen(pen, .team_standings), art, labels, .flight);
+        try standings.draw(placing.pen(pen, .standings), frame.all, art, labels, first, teams);
     }
     drawing.aim.under_reticle = if (frame.sight) |sight| underReticle(frame.all, .{ .sight = sight, .scale = pen.scale }) else null;
 }
@@ -6246,6 +6251,7 @@ pub const TargetScene = struct {
     sight: Sight,
     beacons: ?six_beacons.Hud = null,
     pilot_badge: ?PilotBadge = null,
+    team_icons: ?*Art = null,
     all: *const create.Objects,
     mode: camera.CockpitMode,
     /// The ship whose line the radio's window names, where it shows
@@ -6448,6 +6454,10 @@ pub fn drawTarget(drawing: *Drawing, state: *const State, pen: Pen, fonts: *Targ
             const name_offset: [2]i32 = .{ -12, -24 }; // 0x0048AD39, 0x0048AD70
             const name = &all.player_states[index].membership.joined.name;
             _ = try pen.textIn(&fonts.new, pen.moved(corner, name_offset), name.slice(), .left);
+            // mp_draw_target_badge (0x004B1650) draws the team before the arena objective.
+            if (scene.team_icons) |art| if (all.player_states[index].membership.joined.team) |team| {
+                try pen.drawing(.{ .art = art, .gpa = pen.gpa }).partShape(.target_markers_team_badge, standings.teamBadge(team), pen.moved(corner, .{ -26, -19 }));
+            };
             if (scene.beacons) |beacons| try beacons.drawTarget(pen, &fonts.new, pilot, corner);
             if (scene.pilot_badge) |badge| {
                 if (badge.includes(pilot.participant)) {

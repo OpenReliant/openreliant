@@ -32,6 +32,7 @@ pub const Match = struct {
     all: *const Objects,
     history: *const History,
     arena: bool = true,
+    teams: hud.standings.TeamBoard = .{},
     players: []const ?Player,
     paused_by: ?[]const u8 = null,
     can_continue: bool = true,
@@ -42,10 +43,10 @@ const scores_y = @as(comptime_int, ui.size[1]) / 2 - hud.standings.paused_rise;
 const first_row = scores_y + hud.standings.first_row - 1;
 const row_height = hud.standings.row_height;
 const reject_x = ui.size[0] / 2 + hud.standings.reject_offset;
-const chat_y = 396;
-const score_area: ui.Rect = .{ .x = 87, .y = scores_y, .width = 522, .height = chat_y - scores_y };
+const chat_rise = 84;
+// Leave room for the bottom edge of the score panel and the gap above the chat text.
+const score_bottom_gap = 7;
 const loss_box: ui.Rect = .{ .x = 80, .y = 180, .width = 480, .height = 120 };
-const available_rows = @divTrunc(chat_y - first_row - 10, row_height);
 const buttons = [_]menu.Item{
     .{ .anchor = .{ 0.5, 1 }, .offset = .{ 16, -32 }, .shape = .button, .lit = .button_lit, .font = .small, .string = .leave_mission, .text_offset = .{ 25, -5 } },
     .{ .anchor = .{ 0.5, 1 }, .offset = .{ -16, -32 }, .shape = .button, .lit = .button_lit, .font = .small, .string = .continue_game, .text_offset = .{ -25, -5 }, .style = .{ .alignment = .right } },
@@ -59,7 +60,6 @@ const session_lost_button: menu.Item = .{
     .string = .ok,
     .text_offset = .{ 25, -5 },
 };
-const pager: settings.Line = .withArrowsAt(.{ 524, 156 });
 const paused: menu.String = @fromBackingInt(@intCast(0xA9));
 const pause_notice: Label = .{ .english = "Player has paused the game", .installed = 0x53E };
 
@@ -123,13 +123,18 @@ pub const State = struct {
                     controls.typed.clear();
                     state.editor.focused = controls.devices.active(.send_comms_message, true);
                 }
-                var scroll = hud.standings.scrollWindow(state.first_score, count, available_rows);
-                if (count > available_rows) {
+                const teams = game.teams;
+                const chat_y = foot - chat_rise;
+                const shown = scoreRows(teams, chat_y);
+                var scroll = hud.standings.scrollWindow(state.first_score, count, shown);
+                if (count > shown) {
+                    const score_height = std.math.clamp(chat_y - scores_y, 0, std.math.maxInt(i16) - scores_y);
+                    const score_area: ui.Rect = .{ .x = 87, .y = scores_y, .width = 522, .height = @intCast(score_height) };
                     if (score_area.holds(pointer.at)) hud.standings.scrollWheel(&scroll, pointer.wheel);
                     if (!state.editor.focused) {
                         if (keys.pressed(input.scan.up, .none, true)) scroll.scroll(.up);
                         if (keys.pressed(input.scan.down, .none, true)) scroll.scroll(.down);
-                        const clicked = if (pointer.down) pager.arrowAt(pointer.at) else null;
+                        const clicked = if (pointer.down) scorePager(teams).arrowAt(pointer.at) else null;
                         if (clicked == .back or keys.pressed(@backingInt(input.Key.page_up), .none, true)) hud.standings.scrollPage(&scroll, .up);
                         if (clicked == .on or keys.pressed(@backingInt(input.Key.page_down), .none, true)) hud.standings.scrollPage(&scroll, .down);
                     }
@@ -142,7 +147,7 @@ pub const State = struct {
                 var scores: Scores = undefined;
                 const rows = scores.collect(game);
                 for (rows[scroll.first..scroll.end()], 0..) |row, index| {
-                    if (game.players[row.slot].?.can_drop and buttonAt(controls.menu_art, .{ reject_x, rowY(index) + 7 }).holds(pointer.at))
+                    if (game.players[row.slot].?.can_drop and buttonAt(controls.menu_art, .{ reject_x, rowY(index, teams) + 7 }).holds(pointer.at))
                         return .{ .drop = .{ .slot = @intCast(row.slot), .generation = row.pilot.generation } };
                 }
                 return null;
@@ -166,7 +171,10 @@ pub const State = struct {
                     std.fmt.bufPrint(&notice, "{s}: {s}", .{ name, pause_notice.text(canvas.strings.*) }) catch pause_notice.text(canvas.strings.*)
                 else
                     "Match in progress";
-                try canvas.text(canvas.fonts.large, .{ 320, rule + 32 }, context, menu.orange, .centre);
+                // The team table begins higher than the pilot table. Keep the pause notice
+                // in the space between the rule and the team header.
+                const notice_y = rule + @as(i32, if (game.teams.count != 0) 3 else 32);
+                try canvas.text(canvas.fonts.large, .{ 320, notice_y }, context, menu.orange, .centre);
                 try state.drawScores(game, canvas, art);
                 try state.drawChat(game.history, canvas, art.flight_font);
             },
@@ -186,7 +194,9 @@ pub const State = struct {
     fn drawScores(state: *const State, game: Match, canvas: ui.Canvas, art: Art) !void {
         var scores: Scores = undefined;
         const rows = scores.collect(game);
-        const scroll = hud.standings.scrollWindow(state.first_score, rows.len, available_rows);
+        const teams = game.teams;
+        const shown = scoreRows(teams, screenRow(canvas.window, canvas.share, 1) - chat_rise);
+        const scroll = hud.standings.scrollWindow(state.first_score, rows.len, shown);
         const pen: hud.Pen = .{
             .art = art.menu,
             .font = art.flight_font,
@@ -197,15 +207,17 @@ pub const State = struct {
             .colour = @splat(1),
             .scale = canvas.scale(),
         };
-        try hud.standings.drawRows(pen, rows, art.scoreboard, art.scoreboard_font, scroll, if (game.arena) .paused_arena else .paused_campaign);
+        const mode: hud.standings.Mode = if (game.arena) .paused_arena else .paused_campaign;
+        try teams.draw(pen, art.scoreboard, art.scoreboard_font, mode);
+        try hud.standings.drawRows(pen, rows, art.scoreboard, art.scoreboard_font, scroll, mode, teams);
         for (rows[scroll.first..scroll.end()], 0..) |row, index| {
             if (!game.players[row.slot].?.can_drop) continue;
-            const at = [2]i32{ reject_x, rowY(index) + 7 };
+            const at = [2]i32{ reject_x, rowY(index, teams) + 7 };
             const lit = buttonAt(art.menu, at).holds(state.pointer.at);
             const box = buttonAt(art.menu, at);
             try canvas.shape(art.menu, if (lit) @backingInt(menu.Shape.button_lit) else @backingInt(menu.Shape.button), .{ box.x, box.y });
         }
-        if (rows.len > available_rows) try state.drawScroll(canvas, scroll, art.paging);
+        if (rows.len > shown) try state.drawScroll(canvas, scroll, art.paging, teams);
     }
 
     fn drawChat(state: *const State, history: *const History, canvas: ui.Canvas, font: *hud.Opened) !void {
@@ -214,7 +226,7 @@ pub const State = struct {
         for (first..history.count) |index| {
             var line: [History.line_size + 2]u8 = undefined;
             const text = std.fmt.bufPrint(&line, "- {s}", .{history.line(index)}) catch unreachable;
-            const y = bottom - 84 + hud.Messages.spacing * @as(i32, @intCast(index - first));
+            const y = bottom - chat_rise + hud.Messages.spacing * @as(i32, @intCast(index - first));
             try canvas.text(font, .{ 210, y }, text, menu.orange, .left);
         }
         if (!state.editor.focused) return;
@@ -224,7 +236,8 @@ pub const State = struct {
         try canvas.text(font, .{ 320 + @as(i32, @intCast(font.textWidth(draft) / 2)), draft_y }, "_", menu.orange, .left);
     }
 
-    fn drawScroll(state: *const State, canvas: ui.Canvas, scroll: hud.standings.Scroll, paging_art: ?*hud.Art) !void {
+    fn drawScroll(state: *const State, canvas: ui.Canvas, scroll: hud.standings.Scroll, paging_art: ?*hud.Art, teams: hud.standings.TeamBoard) !void {
+        const pager = scorePager(teams);
         if (paging_art) |art| {
             try pager.drawArrows(canvas, art);
             if (pager.arrowAt(state.pointer.at)) |under| {
@@ -236,12 +249,12 @@ pub const State = struct {
             }
         } else {
             for ([_]settings.Step{ .back, .on }, [_][]const u8{ "<", ">" }) |step, glyph| {
-                try canvas.text(canvas.fonts.small, .{ pager.arrow(step).centre()[0], 156 }, glyph, menu.orange, .centre);
+                try canvas.text(canvas.fonts.small, .{ pager.arrow(step).centre()[0], pager.y - 1 }, glyph, menu.orange, .centre);
             }
         }
         var buffer: [32]u8 = undefined;
         const text = std.fmt.bufPrint(&buffer, "{d}-{d}/{d}", .{ scroll.first + 1, scroll.end(), scroll.count }) catch unreachable;
-        try canvas.text(canvas.fonts.small, .{ 500, 161 }, text, menu.orange, .right);
+        try canvas.text(canvas.fonts.small, .{ 500, pager.y + 4 }, text, menu.orange, .right);
     }
 };
 
@@ -273,8 +286,17 @@ fn buttonAt(art: ?*const hud.Art, at: [2]i32) ui.Rect {
     return .{ .x = @as(i16, @intCast(at[0])) + x - @divTrunc(width, 2), .y = @as(i16, @intCast(at[1])) + y - @divTrunc(height, 2), .width = width, .height = height };
 }
 
-fn rowY(index: usize) i32 {
-    return first_row + @as(i32, @intCast(index)) * row_height;
+fn scoreRows(teams: hud.standings.TeamBoard, chat_y: i32) usize {
+    return @intCast(@max(1, @divTrunc(chat_y - rowY(0, teams) - score_bottom_gap, row_height)));
+}
+
+fn scorePager(teams: hud.standings.TeamBoard) settings.Line {
+    const y = if (teams.count == 0) 156 else scores_y + teams.offset(.paused_arena) - settings.Line.arrows_height - 3;
+    return .withArrowsAt(.{ 524, y });
+}
+
+fn rowY(index: usize, teams: hud.standings.TeamBoard) i32 {
+    return first_row + teams.offset(.paused_arena) + @as(i32, @intCast(index)) * row_height;
 }
 
 fn drawLossBox(canvas: ui.Canvas) void {
@@ -337,12 +359,18 @@ test "standings discard a score belonging to an earlier admission" {
 }
 
 test "paused standings show all stock slots and stop their paging before chat" {
-    const count = 20;
-    const last = hud.standings.scrollWindow(count, count, available_rows);
-    try std.testing.expect(available_rows >= 8);
-    try std.testing.expectEqual(count - available_rows, last.first);
-    try std.testing.expectEqual(count, last.end());
-    try std.testing.expect(rowY(available_rows - 1) + row_height <= chat_y);
+    const teams: hud.standings.TeamBoard = .{ .count = 4 };
+    for ([_]f32{ 0.8, 1 }) |share| {
+        const chat_y = screenRow(.{ 800, 600 }, share, 1) - chat_rise;
+        const available = scoreRows(teams, chat_y);
+        const stock = hud.standings.scrollWindow(0, 8, available);
+        try std.testing.expectEqual(stock.count, stock.end());
+        const count = 20;
+        const last = hud.standings.scrollWindow(count, count, available);
+        try std.testing.expectEqual(count - available, last.first);
+        try std.testing.expectEqual(count, last.end());
+        try std.testing.expect(rowY(available - 1, teams) + row_height <= chat_y);
+    }
 }
 
 test "a shared pause guest cannot resume the simulation by pressing Escape" {

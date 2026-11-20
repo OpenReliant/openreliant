@@ -19,11 +19,12 @@ const Lobby = @This();
 pub const History = chat_panel.History;
 
 const Crew = @import("debrief_crew.zig");
-pub const Pilot = struct { generation: u64, name: CallSign = .{} };
+pub const Team = @import("../../players.zig").ArenaTeam;
+pub const Pilot = struct { generation: u64, name: CallSign = .{}, team: Team = .first };
 pub const Admission = @import("../../players.zig").ParticipantRef;
-pub const Action = union(enum) { leave, main_menu, quit, launch, new_campaign, load_campaign, ready: bool, remove: Admission, choose_ship, send_chat: chat.Line };
+pub const Action = union(enum) { leave, main_menu, quit, launch, new_campaign, load_campaign, ready: bool, remove: Admission, choose_ship, choose_team: Team, team_play: bool, send_chat: chat.Line };
 const Role = union(enum) { host: struct { can_launch: bool = false, port: u16 }, guest };
-const Control = enum { back, main_menu, quit, launch, new_campaign, load_campaign, ready, remove, ship, mode };
+const Control = enum { back, main_menu, quit, launch, new_campaign, load_campaign, ready, remove, ship, team, teams, mode };
 
 role: Role,
 roster: []const ?Pilot,
@@ -34,14 +35,16 @@ older_chat: usize = 0,
 chat_hover: ?ui.Arrow = null,
 local_slot: usize,
 ready: Crew.Pilots = .empty,
-scenario: scenarios.Scenario = .nuclear_threat,
+scenario: scenarios.Scenario = .asteroid_field,
 mission: ?u16 = null,
 loaded_campaign: bool = false,
 ship: scenarios.Fighter = .predator,
+teams: bool = false,
+team_open: bool = false,
 hover: ?Control = null,
 mode_open: bool = false,
 option_under: ?usize = null,
-preview: scenarios.Scenario = .nuclear_threat,
+preview: scenarios.Scenario = .asteroid_field,
 first_pilot: usize = 0,
 page_under: ?pager_widgets.Step = null,
 selected: ?Admission = null,
@@ -70,6 +73,7 @@ const cancel: Label = .{ .english = "BACK", .installed = 0xF7 };
 const change_mode: Label = .{ .english = "GAME TYPE", .installed = 0x139 };
 const select_mode: Label = .{ .english = "OK", .installed = 0x316 };
 const team_play: Label = .{ .english = "TEAM PLAY", .installed = 0x2C6 };
+const teams_label: Label = .{ .english = "TEAMPLAY", .installed = 0x30C };
 const control_height = 20;
 const modal_rows: ui.Rect = .{ .x = 72, .y = 168, .width = 168, .height = choices.height * scenario_options.len };
 const details_y = 194;
@@ -134,6 +138,25 @@ const coop_load: ArtButton = .{ .at = .{ 469, 343 }, .box = .{ .x = 468, .y = 34
 const arena_start: ArtButton = .{ .at = .{ 463, 388 }, .box = coop_start.box, .shapes = large };
 const ship_arrow: ArtButton = .{ .at = .{ 399, 168 }, .box = .{ .x = 398, .y = 164, .width = 27, .height = 21 }, .shapes = dropdown };
 const ship_field: Field = .{ .box = .{ .x = 201, .y = 164, .width = 192, .height = 21 }, .label = ship_label };
+const team_field: Field = .{ .box = .{ .x = 201, .y = 126, .width = 59, .height = 21 }, .label = .{ .english = "TEAM", .installed = 0x2C2 } };
+const team_arrow: ArtButton = .{ .at = .{ 266, 130 }, .box = .{ .x = 264, .y = 126, .width = 29, .height = 21 }, .shapes = dropdown };
+// session_loadout_draw draws the stock checkbox and mark at 0x0044D898 and 0x0044D91A.
+const teams_toggle: ArtButton = .{ .at = .{ 578, 356 }, .box = .{ .x = 463, .y = 352, .width = 133, .height = 23 }, .shapes = .{ .off = 0x1C, .lit = 0x1C } };
+const team_step = 22; // 0x0044DC18
+const team_colours: std.EnumArray(Team, [3]f32) = .init(.{
+    .first = hud.rgb(0xAD0000),
+    .second = hud.rgb(0x2AC900),
+    .third = hud.rgb(0xFFF600),
+    .fourth = hud.rgb(0x004AC4),
+}); // RGB triples at 0x0044CC58 to 0x0044CC8F.
+
+fn teamOption(team: Team) ui.Rect {
+    return .{ .x = 201, .y = 148 + @as(i16, @backingInt(team)) * team_step, .width = 59, .height = 21 };
+}
+
+fn drawSwatch(canvas: ui.Canvas, team: Team, box: ui.Rect, inset: i16) void {
+    canvas.wipe(.{ box.x + inset, box.y + inset }, .{ box.x + box.width - inset, box.y + box.height - inset }, team_colours.get(team));
+}
 const coop_lead: Field = .{ .box = .{ .x = 45, .y = 179, .width = 149, .height = 21 }, .label = role_label };
 const coop_game: Field = .{ .box = .{ .x = 45, .y = 217, .width = 149, .height = 21 }, .label = game_label };
 const coop_mission: Field = .{ .box = .{ .x = 201, .y = 217, .width = 84, .height = 21 }, .label = .{ .english = "MISSION", .installed = 0xE5 } };
@@ -226,6 +249,8 @@ fn controlAt(lobby: *const Lobby, at: [2]i32) ?Control {
         if (coop_load.box.holds(at)) return .load_campaign;
     }
     if (!coop and (ship_field.box.holds(at) or ship_arrow.box.holds(at))) return .ship;
+    if (!coop and lobby.teams and (team_field.box.holds(at) or team_arrow.box.holds(at))) return .team;
+    if (!coop and lobby.role == .host and lobby.scenario.record().teams != .none and teams_toggle.box.holds(at)) return .teams;
     if (!coop and lobby.role == .host and mode_list.holds(at)) return .mode;
     return null;
 }
@@ -241,6 +266,7 @@ fn modeFrame(lobby: *Lobby, pointer: ui.Pointer, escape: bool) void {
             lobby.mode_open = false;
         } else if (modal_select.holds(pointer.at)) {
             lobby.scenario = lobby.preview;
+            if (lobby.scenario.record().teams == .none) lobby.teams = false;
             lobby.mode_open = false;
         }
     }
@@ -307,6 +333,15 @@ pub fn frame(lobby: *Lobby, mouse: ui.Pointer, keys: *input.Keyboard, typed: *Ty
         lobby.modeFrame(pointer, escape);
         return null;
     }
+    if (lobby.team_open) {
+        const chosen = for (std.enums.values(Team)) |team| {
+            if (teamOption(team).holds(pointer.at)) break team;
+        } else null;
+        if (escape or !lobby.teams) lobby.team_open = false;
+        if (!pointer.down or !lobby.team_open) return null;
+        lobby.team_open = false;
+        return if (chosen) |team| .{ .choose_team = team } else null;
+    }
     lobby.scrollPlayers(pointer);
     const setup = lobby.sceneChat();
     setup.frame(lobby.notices, &lobby.older_chat, pointer, &lobby.chat_hover);
@@ -331,6 +366,12 @@ pub fn frame(lobby: *Lobby, mouse: ui.Pointer, keys: *input.Keyboard, typed: *Ty
         .ready => .{ .ready = !lobby.isReady(lobby.local_slot) },
         .remove => .{ .remove = lobby.selectedPilot().? },
         .ship => .choose_ship,
+        .teams => .{ .team_play = !lobby.teams },
+        .team => open: {
+            lobby.team_open = true;
+            lobby.option_under = null;
+            break :open null;
+        },
         .mode => mode: {
             // The original list and description remain visible. Use the approved picker for
             // expanded descriptions and confirmation.
@@ -393,7 +434,9 @@ fn drawPlayers(lobby: *const Lobby, canvas: ui.Canvas, paging_art: ?*hud.Art) !v
         const status: Label = if (coop) ready_label else .{ .english = "N/A", .installed = 0x310 };
         const available: i16 = if (coop) 167 else 118;
         try widgets.fittedLabel(canvas, .{ left, y }, available, pilotName(canvas, slot, &pilot.name, &fallback), colour, .left);
-        if (!coop or lobby.isReady(slot)) try write(canvas, .{ right, y }, status, ui.blue, .right);
+        if (lobby.teams) {
+            drawSwatch(canvas, pilot.team, .{ .x = right - 28, .y = y, .width = 28, .height = 11 }, 0);
+        } else if (!coop or lobby.isReady(slot)) try write(canvas, .{ right, y }, status, ui.blue, .right);
     }
 }
 
@@ -448,8 +491,18 @@ fn drawArena(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
         try arena_lead.draw(canvas, lobby.nameAt(0), false);
         try selected.draw(canvas, scenario_options[@backingInt(lobby.scenario)].text(canvas.strings.*), false);
     }
-    const team: Field = .{ .box = .{ .x = 201, .y = 126, .width = 59, .height = 21 }, .label = .{ .english = "TEAM", .installed = 0x2C2 } };
-    try team.draw(canvas, canvas.strings.stringOr(0x310, "N/A"), false);
+    const member = if (lobby.local_slot < lobby.roster.len) lobby.roster[lobby.local_slot] else null;
+    const team = if (member) |pilot| pilot.team else .first;
+    try team_field.draw(canvas, if (lobby.teams) "" else canvas.strings.stringOr(0x310, "N/A"), lobby.hover == .team);
+    if (lobby.teams) {
+        drawSwatch(canvas, team, team_field.box, 2);
+        try team_arrow.draw(canvas, art, lobby.hover == .team or lobby.team_open, true);
+    }
+    if (host and lobby.scenario.record().teams != .none) {
+        try teams_toggle.draw(canvas, art, false, true);
+        if (lobby.teams) try canvas.shape(art, 0x1D, .{ 581, 359 });
+        try write(canvas, .{ 572, 355 }, teams_label, if (lobby.hover == .teams) ui.white else ui.blue, .right);
+    }
     try ship_field.draw(canvas, ShipPicker.label(lobby.ship).text(canvas.strings.*), lobby.hover == .ship);
     try ship_arrow.draw(canvas, art, lobby.hover == .ship, true);
     try write(canvas, .{ 205, 185 }, .{ .english = "GAME DESCRIPTION", .installed = 0x2C4 }, ui.blue, .left);
@@ -483,6 +536,11 @@ pub fn draw(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art, paging_art: ?
         try canvas.text(canvas.fonts.small, .{ 460, 441 }, std.fmt.bufPrint(&port, "UDP {d}", .{lobby.role.host.port}) catch unreachable, ui.blue, .left);
     }
     if (lobby.mode_open) try lobby.drawModes(canvas, art);
+    if (lobby.team_open and lobby.teams) for (std.enums.values(Team)) |team| {
+        const box = teamOption(team);
+        outline(canvas, box);
+        drawSwatch(canvas, team, box, 2);
+    };
 }
 
 fn description(mode: scenarios.Scenario) Label {

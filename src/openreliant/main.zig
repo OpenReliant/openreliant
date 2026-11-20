@@ -1289,7 +1289,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         through.mode_saved = .unchosen;
                         try game_scripts.start();
                     },
-                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .new_coop_campaign, .loaded_coop_campaign, .lobby_ready, .remove_lobby_pilot, .debrief_choice, .choose_ship, .send_chat => {},
+                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .new_coop_campaign, .loaded_coop_campaign, .lobby_ready, .remove_lobby_pilot, .debrief_choice, .choose_ship, .choose_team, .team_play, .send_chat => {},
                 }
                 flow.next = switch (outcome) {
                     .host_lan => |kind| {
@@ -1334,6 +1334,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     },
                     .send_chat => |line| {
                         if (network_enabled) network_pilot.sendLobbyChat(line);
+                        continue;
+                    },
+                    .choose_team => |team| {
+                        if (network_enabled) if (network_pilot.client) |*client| client.selectTeam(team);
+                        continue;
+                    },
+                    .team_play => |enabled| {
+                        if (network_enabled) if (network_pilot.hosted) |hosted| hosted.host.setArenaTeams(enabled);
                         continue;
                     },
                     .choose_ship => |ship| {

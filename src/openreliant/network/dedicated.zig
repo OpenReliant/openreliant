@@ -18,6 +18,8 @@ const Config = struct {
     game_directory: []const u8,
     players: u8,
     ticks: ?u32,
+    teams: bool,
+    repeat_rounds: bool,
     identity: ?session.Identity,
 
     fn parse(profile: Profile) !Config {
@@ -53,6 +55,10 @@ const Config = struct {
         else
             null;
         if (ticks == 0) return error.InvalidRoundTicks;
+        const teams = try optionalSwitch(profile, "Teams");
+        const repeat_rounds = try optionalSwitch(profile, "RepeatRounds");
+        if (teams and (mode.scenario() == null or mode.scenario().?.record().teams == .none)) return error.InvalidTeamArena;
+        if (repeat_rounds and (mode.scenario() == null or ticks == null)) return error.InvalidRepeatRounds;
         const root = profile.value("Identity", "RootPublicKey");
         const certificate = profile.value("Identity", "Certificate");
         const managed: ?session.Identity = if (root == null and certificate == null) null else identity: {
@@ -70,10 +76,20 @@ const Config = struct {
             .game_directory = profile.value("Server", "GameDirectory") orelse ".",
             .players = players,
             .ticks = ticks,
+            .teams = teams,
+            .repeat_rounds = repeat_rounds,
             .identity = managed,
         };
     }
 };
+
+fn optionalSwitch(profile: Profile, key: []const u8) !bool {
+    const value = profile.value("Server", key) orelse return false;
+    return switch (std.fmt.parseInt(u1, value, 10) catch return error.InvalidServerSwitch) {
+        0 => false,
+        1 => true,
+    };
+}
 
 pub fn run(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
     if (args.len > 1) return error.InvalidServerArguments;
@@ -95,6 +111,8 @@ pub fn run(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !void
         .game_directory = game_directory,
         .players = config.players,
         .ticks = config.ticks,
+        .teams = config.teams,
+        .repeat_rounds = config.repeat_rounds,
         .invite_address = config.invite_address,
     });
 }

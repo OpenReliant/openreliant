@@ -56,6 +56,8 @@ pub const HostOptions = struct {
     mission: ?u16 = null,
     players: u8 = wire.slots,
     ticks: ?u32,
+    teams: bool = false,
+    repeat_rounds: bool = false,
     invite_address: ?std.Io.net.IpAddress = null,
 };
 
@@ -94,6 +96,7 @@ pub const LocalGame = struct {
             .arena = arena,
             .signer = &game.server,
             .lan_only = true,
+            .arena_directory = if (mission == null) directory else null,
             .start = .{ .lobby = .{ .mission = mission } },
             .player_limit = if (mission != null) wire.cooperative_slots else wire.slots,
         };
@@ -113,15 +116,12 @@ pub const LocalGame = struct {
 
     pub fn launch(game: *LocalGame) !void {
         if (!game.host.canLaunch()) return;
-        const staging = game.host.arena;
         const lobby = game.host.start.lobby;
         if (lobby.mission) |mission| {
             game.host.beginBriefing(mission, game.directory);
             return;
         }
-        game.host.arena = try staging.prepareStock(lobby.scenario, game.host.io, game.directory);
-        staging.destroy();
-        game.host.launch();
+        try game.host.startArena();
     }
 
     pub fn detachPilot(client: *Client) void {
@@ -155,11 +155,17 @@ pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity
     const host = try gpa.create(Host);
     defer gpa.destroy(host);
     const game_directory = options.game_directory orelse directory;
-    const arena = try Arena.create(gpa, options.mode, io, game_directory);
+    const scenario = options.mode.scenario();
+    const wait_in_lobby = scenario != null and (options.teams or options.repeat_rounds);
+    const arena = try Arena.create(gpa, if (wait_in_lobby) .training else options.mode, io, game_directory);
     host.* = .{
         .io = io,
         .arena = arena,
         .player_limit = options.players,
+        .arena_directory = if (scenario != null) game_directory else null,
+        .arena_teams = options.teams,
+        .repeat_rounds = options.repeat_rounds,
+        .start = if (wait_in_lobby) .{ .lobby = .{ .scenario = scenario.? } } else .automatic,
         .signer = if (server) |*automatic| automatic else null,
         .campaign_start = if (options.mission) |mission| .{ .number = mission, .directory = game_directory } else null,
     };
