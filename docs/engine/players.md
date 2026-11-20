@@ -275,7 +275,15 @@ the pilot uses it, or the ship is destroyed or leaves.
 
 The host applies those rules to its simulated ships. The client gets the map's pickup mask,
 the active mine slots and its own power-up. Mine ownership follows the admission and ship
-that placed it. Team selection is tracked in [#55](https://github.com/OpenReliant/openreliant/issues/55).
+that placed it. Team play uses four colours and the scenario's stock team flag. The host copies
+the lobby teams at launch (`mp_arena_init`, `0x004AE860`). A team kill counts as a death and awards
+no ordinary frag. A team keeps its tally until its last pilot leaves (`mp_player_departed`,
+`0x004B6890`). A pilot who joins an arena in progress gets the least populated team.
+
+The Dark Reign tower skips the relay carrier's whole team on its next target choice
+(`0x004B3ED3`). Picking up the relay also cancels an active shot at its new carrier
+(`0x004B3F70`). The team panel orders occupied teams by most kills, then fewest deaths.
+The target brackets and both panels use the same badge table at `0x0050C31C`.
 
 ### Six Beacons
 
@@ -356,7 +364,7 @@ The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/95
   participant outcomes and game mode rules for ship disposition and respawn.
 - [#1368](https://github.com/OpenReliant/openreliant/issues/1368): wingman loss, target feedback,
   device notifications and the remaining local combat rules.
-- [#55](https://github.com/OpenReliant/openreliant/issues/55) covers the stock team rules, standings and badges.
+- [#55](https://github.com/OpenReliant/openreliant/issues/55) tracks the remaining stock multiplayer rules.
 
 This state split does not add a network session or change mission files. Single player remains
 one participant running the existing simulation and presentation paths.

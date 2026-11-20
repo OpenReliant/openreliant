@@ -91,6 +91,8 @@ pub const Outcome = union(enum) {
     remove_lobby_pilot: interface.Connection.Lobby.Admission,
     debrief_choice: game.interface.Connection.DebriefCrew.Choice,
     choose_ship: game.dmscenarios.Fighter,
+    choose_team: game.interface.Connection.Lobby.Team,
+    team_play: bool,
     send_chat: game.chat.Line,
     /// QUIT, answered YES: 3.
     quit,
@@ -537,6 +539,8 @@ pub const Interface = struct {
                     .debrief_choice => |choice| return .{ .debrief_choice = choice },
                     .send_chat => |line| return .{ .send_chat = line },
                     .choose_ship => |ship| return .{ .choose_ship = ship },
+                    .choose_team => |team| return .{ .choose_team = team },
+                    .team_play => |enabled| return .{ .team_play = enabled },
                     .back => {
                         front.screen = .main_menu;
                         return null;

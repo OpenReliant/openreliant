@@ -3339,3 +3339,8 @@ address	kind	name	type	comment
 0044cb30	function	mp_update_team_option	void (void)	Reads the selected scenario at 0x00524978, copies its team flag to 0x00524A64 and clears mp_team_game_option when teams are unavailable
 00524978	data	mp_lobby_scenario	int	The zero-based scenario selected for the deathmatch lobby
 00524a64	data	mp_lobby_allows_teams	byte	The selected scenario supports teams. The lobby tests this before changing mp_team_game_option
+00524d70	data	mp_lobby_team	int	The local pilot's selected team colour, zero through three
+0050c31c	data	mp_team_badges	short[4]	The DMICONS sprite index for each team, in team order
+004aea70	function	mp_set_team_sides	void (void)	Sets the local pilot's team and each other pilot's friendly or hostile side before arena flight
+004bc9a0	function	DPSession_Finish	void (void)	Closes the DirectPlay session and removes its lobby players. The deathmatch return at 0x004A99B2 calls it before Main Menu
+004b6220	function	net_release_directplay	void (void)	Releases DirectPlay, clears the network session flag and resets the connected-player count

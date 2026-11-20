@@ -63,6 +63,7 @@ pub const Mode = enum {
 const Pilot = struct {
     participant: game.players.ParticipantRef,
     fighter: wire.Fighter,
+    team: game.players.ArenaTeam = .first,
     loadout: ?wire.CampaignLoadout = null,
     // Keep the last pose while an admitted pilot waits for a free spawn marker.
     last_ship: ?wire.Ship = null,
@@ -163,11 +164,14 @@ fn loadAssets(arena: *Arena, io: std.Io, directory: std.Io.Dir) !*stock.Assets {
 }
 
 /// Prepare a stock arena with the lobby's admissions. Its objects hold pointers to its ship tables.
-pub fn prepareStock(arena: *const Arena, scenario: wire.Scenario, io: std.Io, directory: std.Io.Dir) !*Arena {
+pub fn prepareStock(arena: *const Arena, scenario: wire.Scenario, teams: bool, io: std.Io, directory: std.Io.Dir) !*Arena {
     const gpa = arena.mission.objects.gpa;
     const next = try create(gpa, .stockMode(scenario), io, directory);
     errdefer next.destroy();
     next.carryAdmissions(arena);
+    next.setTeams(teams);
+    const all = next.mission.objects;
+    @memcpy(all.reuses[0..wire.slots], arena.mission.objects.reuses[0..wire.slots]);
     for (next.pilots) |entry| {
         const pilot = entry orelse continue;
         try next.spawnPilot(pilot, true);
@@ -179,8 +183,11 @@ fn carryAdmissions(next: *Arena, staging: *const Arena) void {
     const all = next.mission.objects;
     all.participant_generation = staging.mission.objects.participant_generation;
     next.pilots = staging.pilots;
-    for (next.pilots, all.player_states[0..wire.slots]) |entry, *state| {
-        if (entry) |pilot| state.* = .{ .membership = .{ .joined = .{ .generation = pilot.participant.generation } } };
+    for (&next.pilots, all.player_states[0..wire.slots]) |*entry, *state| {
+        if (entry.*) |*pilot| {
+            pilot.last_ship = null;
+            state.* = .{ .membership = .{ .joined = .{ .generation = pilot.participant.generation } } };
+        }
     }
 }
 
@@ -188,7 +195,37 @@ fn carryAdmissions(next: *Arena, staging: *const Arena) void {
 pub fn betweenMissions(arena: *const Arena, io: std.Io, directory: std.Io.Dir) !*Arena {
     const staging = try create(arena.mission.objects.gpa, .training, io, directory);
     staging.carryAdmissions(arena);
+    @memcpy(staging.mission.objects.reuses[0..wire.slots], arena.mission.objects.reuses[0..wire.slots]);
     return staging;
+}
+
+pub fn setTeams(arena: *Arena, enabled: bool) void {
+    const all = arena.mission.objects;
+    all.arena_scores = if (enabled) .{ .teams = .initFill(.{}) } else .free_for_all;
+    if (enabled) for (arena.pilots) |entry| {
+        const pilot = entry orelse continue;
+        _ = all.setParticipantTeam(pilot.participant, pilot.team);
+    };
+}
+
+pub fn pickTeam(arena: *Arena, slot: u8, team: wire.Team) void {
+    const pilot = &arena.pilots[slot].?;
+    pilot.team = team;
+    const all = arena.mission.objects;
+    if (all.arena_scores == .teams) _ = all.setParticipantTeam(pilot.participant, team);
+}
+
+pub fn leastPopulatedTeam(arena: *const Arena, joining: u8) wire.Team {
+    var counts: std.EnumArray(wire.Team, u8) = .initFill(0);
+    for (arena.pilots, 0..) |entry, slot| {
+        const pilot = entry orelse continue;
+        if (slot != joining) counts.getPtr(pilot.team).* += 1;
+    }
+    var smallest: wire.Team = .first;
+    for (std.enums.values(wire.Team)) |team| {
+        if (counts.get(team) < counts.get(smallest)) smallest = team;
+    }
+    return smallest;
 }
 
 /// Start a campaign mission from the installed data and bind its created ships to the lobby crew.
@@ -495,6 +532,7 @@ fn campaignPresentation(arena: *Arena, campaign: *Campaign) void {
 pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
     const all = arena.mission.objects;
     var view: wire.Snapshot = .{ .tick = tick, .scenario = arena.mode.scenario(), .ships = @splat(null) };
+    if (all.arena_scores == .teams) view.teams = all.arena_scores.teams;
     if (arena.campaign) |campaign| {
         view.mission = .{
             .number = all.mission_number,

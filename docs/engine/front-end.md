@@ -70,6 +70,18 @@ The deathmatch description uses the original scroll arrows and appends the mode'
 Its text shares the ship field's inset, so the outline glyphs clear the frame on every side.
 The mouse wheel can also scroll the description when the pointer is over it.
 
+Asteroid Field is the default for a new deathmatch lobby (`0x0044C18E`). The host can enable
+TEAMPLAY on Asteroid Field, Dark Reign, Tag Bomb and Hunt the Shadow. The option follows the
+scenario table (`mp_update_team_option`, `0x0044CB30`). The four team colours and the field's
+dropdown follow `session_loadout_draw` (`0x0044CC58`, `0x0044DB5E`).
+
+The original ends deathmatch by unloading the arena, closing DirectPlay and opening Main Menu
+(`0x004A999E` to `0x004A99C7`). **Improvement:** when the LAN host chooses Leave Mission, all
+pilots in that session return to its deathmatch setup screen. The host can pick a different
+arena and start again. Fighter choices, team choices and callsigns stay with their admissions.
+The next match starts with fresh ships, scores and objectives. A guest choosing Leave Mission
+leaves that session. Back from the host's setup screen closes the session.
+
 **Improvement:** clicking the mode list opens the detailed mode picker with the descriptions
 and team-play notes from the installed language file. The ship selector shows the installed
 ITAC fighter pictures, class, armament and special abilities. Pilots joining a dedicated
@@ -79,9 +91,8 @@ The host opens a fresh campaign when choosing Co-op. **New** resets the selectio
 opens the saved game screen over the lobby (0x0043D555 and 0x0043D586). Loading selects the
 saved mission and checkpoint on the host. The host sends the selected mission to the waiting crew
 through the roster, as the original does with message 8 (`net_send_coop_session`, 0x004BA2D0).
-Remaining setup controls are tracked in
-[#404](https://github.com/OpenReliant/openreliant/issues/404), and team and arena rules in
-[#55](https://github.com/OpenReliant/openreliant/issues/55).
+The original's AI Turrets and Target Players switches are tracked in
+[#404](https://github.com/OpenReliant/openreliant/issues/404).
 
 The co-op lobby shows nine chat lines and the deathmatch lobby six, as variants 0 and 2 of
 `multiplayer_chat_panel` (0x004AE2D0) do. The stock arrows scroll the last 30 lines. Click the
@@ -120,7 +131,7 @@ Use the stills to check the display and the executable's draw functions for the 
 |---|---|---|
 | Connection | `multiplayer_connection_screen` (`0x00432FC0`) | The Internet and LAN lists, IP and invite entry and hologram backdrop are deliberate replacements for the legacy provider choices. The browser uses installed button art and labels. |
 | Co-op setup | `multiplayer_sessions_draw` (`0x0043DA40`) | The host and guest have the stock field and roster positions, Ready, chat and navigation. The host can remove the selected guest, select New or load a campaign. |
-| Deathmatch setup | `session_loadout_screen` (`0x0044B950`) and `session_loadout_draw` (`0x0044CB60`) | The mode list, description, ship field, roster, chat and navigation use the stock layout. The detailed mode and ITAC fighter pickers remain deliberate additions. The original's extra game options are tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404) and team rules in [#55](https://github.com/OpenReliant/openreliant/issues/55). |
+| Deathmatch setup | `session_loadout_screen` (`0x0044B950`) and `session_loadout_draw` (`0x0044CB60`) | The mode list, team controls, description, ship field, roster, chat and navigation use the stock layout. The detailed mode and ITAC fighter pickers and the return to setup for a rematch are deliberate additions. |
 | Co-op briefing and loadout | `WinMain` (`0x004A9AB0`) and `interface_briefing` (`0x00437010`) | The existing campaign briefing and loadout code supplies the rooms, ship and rack views. The host coordinates launch and the crew's choices over the current network protocol. |
 | Co-op debrief | `multiplayer_debrief_render` (`0x00429DC0`), `multiplayer_debrief_text` (`0x00425240`), and `multiplayer_chat_panel` variant 1 (`0x004AE2D0`) | The retail backdrop, letter, two scroll controls, chat, figures, roster and buttons use the original art and coordinates. Save Game opens the existing save screen over the stock in-game-options backdrop. |
 | Pause, session loss, and standings | `pause_screen_multiplayer` (`0x0048E510`), `pause_session_lost` (`0x0048E370`), and `mp_draw_scoreboard` (`0x004AF650`) | The pause and flight standings use the stock sprites. The pause controls and connection-loss dialog use the original pause art. Host-only shared pause and scrolling beyond stock capacity are deliberate changes. See [Pause menu](pause-menu.md#multiplayer-9). |

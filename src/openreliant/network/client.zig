@@ -138,6 +138,7 @@ pub const Event = union(enum) {
     campaign_end,
     campaign_retired,
     campaign_movie,
+    arena_returned,
     snapshot,
     finished,
     closed,
@@ -195,6 +196,11 @@ pub fn selectShip(client: *Client, ship: wire.Fighter) !void {
     client.fighter = ship;
 }
 
+pub fn selectTeam(client: *Client, team: wire.Team) void {
+    if (client.joined == null or client.leaving or client.roster.lobby == null or !client.roster.teams) return;
+    net.send(client.conn, .{ .pick_team = team }) catch return;
+}
+
 pub fn chooseDebrief(client: *Client, action: @FieldType(wire.DebriefChoice, "action")) void {
     const state = client.debrief orelse return;
     const slot = (client.joined orelse return).slot;
@@ -208,6 +214,13 @@ fn startNextMission(client: *Client, next: wire.NextMission) void {
     client.campaign_floor = next.after;
     client.next_mission = next.number;
     client.second_part = next.second_part;
+    client.clearFlightView();
+    client.briefed = next.second_part;
+    client.roster.briefing = false;
+    client.roster.mission = next.number;
+}
+
+fn clearFlightView(client: *Client) void {
     client.latest = null;
     client.pending_view = null;
     client.pilot_pages = @splat(null);
@@ -215,10 +228,8 @@ fn startNextMission(client: *Client, next: wire.NextMission) void {
     client.scene = @splat(null);
     client.scenery = null;
     client.music.count = 0;
-    client.briefed = next.second_part;
-    client.roster.briefing = false;
-    client.roster.mission = next.number;
     client.releaseFlight();
+    client.flight_command = .{};
     client.weapons = null;
     client.sent_aim = null;
 }
@@ -261,6 +272,7 @@ pub fn poll(client: *Client, io: Io) !Event {
     if (client.joined != null and !client.leaving and now >= client.next_input) {
         try net.send(client.conn, .{ .input = .{
             .sequence = client.sequence,
+            .arena_floor = client.roster.arena_floor,
             .command = client.flight_command,
             .fire_for = if (client.fire_primary and client.latest != null)
                 if (client.latest.?.ships[client.joined.?.slot]) |ship| ship.reuse else null
@@ -285,9 +297,10 @@ pub fn poll(client: *Client, io: Io) !Event {
     var buffer: [wire.capacity]u8 = undefined;
     const message = try net.receive(client.conn, &buffer) orelse return .idle;
     switch (message) {
-        .joined => |admission| {
+        .joined => |entry| {
             if (!client.sent_join or client.joined != null) return error.UnexpectedAdmission;
-            client.joined = admission;
+            client.joined = entry.admission;
+            client.roster.arena_floor = entry.arena_floor;
             try net.send(client.conn, .{ .call_sign = client.call_sign orelse .{} });
             client.deadline = now + timeout;
             return .admitted;
@@ -309,9 +322,13 @@ pub fn poll(client: *Client, io: Io) !Event {
             if (client.leaving) return .idle;
             if (roster.pilots[admission.slot] == null or roster.pilots[admission.slot].?.generation != admission.generation)
                 return error.UnexpectedMessage;
+            if (roster.arena_floor < client.roster.arena_floor) return error.UnexpectedMessage;
+            const returned = roster.lobby != null and roster.arena_floor > client.roster.arena_floor;
+            if (returned) client.clearFlightView();
             client.roster = roster;
             // A paused session sends roster heartbeats while simulation snapshots are stopped.
-            if (roster.paused) client.deadline = now + timeout;
+            if (roster.paused or returned) client.deadline = now + timeout;
+            if (returned) return .arena_returned;
             if (client.latest == null and !client.second_part and (roster.lobby != null or roster.mission != null)) return .lobby;
             return .idle;
         },
@@ -329,10 +346,10 @@ pub fn poll(client: *Client, io: Io) !Event {
         },
         .chat_line => |line| return if (client.joined != null and !client.leaving) .{ .chat_line = line } else .idle,
         .wreck => |wreck| return if (client.joined != null and !client.leaving) .{ .wreck = wreck } else .idle,
-        .combat => |effects| return if (client.latest != null and !client.leaving) .{ .combat = effects } else .idle,
+        .combat => |effects| return if (client.latest != null and !client.leaving and effects.arena_floor == client.roster.arena_floor) .{ .combat = effects } else .idle,
         .projectiles => |page| {
             const view = client.latest orelse return .idle;
-            if (client.leaving or !view.hasOrdnance() or page.tick > view.tick +| wire.ordnance.Page.max_age) return .idle;
+            if (client.leaving or !view.hasOrdnance() or page.tick <= client.roster.arena_floor or page.tick > view.tick +| wire.ordnance.Page.max_age) return .idle;
             const entry = &client.projectiles[page.index()];
             if (entry.* == null or page.tick > entry.*.?.tick) entry.* = page;
             return .projectiles;
@@ -346,7 +363,7 @@ pub fn poll(client: *Client, io: Io) !Event {
             return .scene_page;
         },
         .scenery => |scenery| {
-            if (client.joined == null or client.leaving) return .idle;
+            if (client.joined == null or client.leaving or scenery.tick <= client.roster.arena_floor) return .idle;
             if (client.latest) |view| {
                 if (view.scenario != scenery.scenario or scenery.tick > view.tick +| wire.ordnance.Page.max_age) return .idle;
             }
@@ -419,7 +436,7 @@ pub fn poll(client: *Client, io: Io) !Event {
                 // Flight updates can arrive before the reliable admission.
                 return if (message == .view) .idle else error.UnexpectedMessage;
             }
-            if (client.leaving or client.result_tick != null or view.tick <= client.campaign_floor) return .idle;
+            if (client.leaving or client.result_tick != null or client.roster.lobby != null or view.tick <= @max(client.campaign_floor, client.roster.arena_floor)) return .idle;
             if (client.latest) |latest| if (view.tick <= latest.tick) return .idle;
             if (client.next_mission) |number| {
                 if (!client.briefed or view.mission == null or view.mission.?.number != number or view.mission.?.second_part != client.second_part) return .idle;
@@ -501,11 +518,13 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
     var views: u32 = 0;
     var objectives: wire.Objectives = .none;
     var mission_view: ?wire.MissionView = null;
+    var arena_floor: ?u32 = null;
     while (true) {
         if (controls == .keyboard and client.joined != null and !client.leaving) switch (net.session_key()) {
             'a', 'A' => steering = .left,
             's', 'S' => steering = .straight,
             'd', 'D' => steering = .right,
+            '1'...'4' => |key| client.selectTeam(@fromBackingInt(@as(u2, @intCast(key - '1')))),
             'j', 'J' => client.requestCrewAction(.jump),
             'l', 'L' => client.requestCrewAction(.land),
             'e', 'E' => client.requestCrewAction(.eject),
@@ -530,7 +549,10 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
                 std.debug.print("mission music {s} {s}\n", .{ if (cue.now) "now" else "fade", cue.track.slice() });
             },
             .chat_line => |line| std.debug.print("chat {t} {d} {s}\n", .{ line.scope, line.sender, line.text.slice() }),
-            .lobby => if (client.roster.briefing) try client.finishBriefing(null),
+            .lobby => {
+                if (client.roster.briefing) try client.finishBriefing(null);
+                if (client.roster.lobby != null and client.roster.teams) std.debug.print("arena setup {d}\n", .{client.roster.arena_floor});
+            },
             .tag_bomb_notice => |notice| std.debug.print("notice {s} {d} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot, notice.event.other.slot }),
             .shadow_notice => |notice| std.debug.print("shadow-notice {s} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot }),
             .uber_kill => |notice| std.debug.print("nuclear-strike {d} {d}\n", .{ notice.event.owner.slot, notice.event.victim.slot }),
@@ -556,6 +578,10 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
                 std.debug.print("debrief-crew {d} {d} {d} {d}\n", .{ crew.lead, crew.present.mask, crew.eligible.mask, crew.ready.mask });
             },
             .campaign_next => std.debug.print("{s} {d}\n", .{ if (client.second_part) "second part" else "briefing", client.next_mission.? }),
+            .arena_returned => {
+                objectives = .none;
+                std.debug.print("arena lobby {d} {t}\n", .{ client.roster.arena_floor, client.roster.lobby.? });
+            },
             .campaign_retired => {
                 std.debug.print("campaign retired\n", .{});
                 return;
@@ -567,6 +593,13 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
             },
             .snapshot, .finished => {
                 const view = client.latest.?;
+                if (view.scenario) |scenario| if (arena_floor != client.roster.arena_floor) {
+                    const team = if (view.teams != null) client.roster.pilots[client.joined.?.slot] else null;
+                    if (view.teams == null or team != null) {
+                        arena_floor = client.roster.arena_floor;
+                        std.debug.print("arena flight {d} {t} {s}\n", .{ arena_floor.?, scenario, if (team) |pilot| @tagName(pilot.team) else "free-for-all" });
+                    }
+                };
                 views += 1;
                 std.debug.print("view {d}", .{view.tick});
                 for (view.ships) |entry| {

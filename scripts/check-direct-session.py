@@ -414,6 +414,45 @@ async def send_key(pilot, key):
     await pilot.process.stdin.drain()
 
 
+async def check_team_cycle(binary, credentials, seed, game_dir):
+    async with Loopback(binary, credentials, seed, vary_by_direction=True) as game:
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "server.ini"
+            settings = {"Port": game.port, "GameDirectory": game_dir, "Arena": "dark-reign",
+                        "Players": 8, "Teams": 1, "RoundTicks": 125, "RepeatRounds": 1}
+            config.write_text("[Server]\n" + "".join(f"{key}={value}\n" for key, value in settings.items()), encoding="utf-8")
+            host = await game.start("--headless", str(config))
+            await host.expect("listening ")
+            pilots = sorted(await asyncio.gather(*(game.join_target(game.address, "keyboard") for _ in range(8))),
+                            key=lambda pilot: pilot.admission)
+            admissions = tuple(pilot.admission[1] for pilot in pilots)
+            await asyncio.gather(*(pilot.expect("arena setup 0") for pilot in pilots))
+            teams = ("first", "second", "third", "fourth")
+            await asyncio.gather(*(send_key(pilot, str(slot % len(teams) + 1)) for slot, pilot in enumerate(pilots)))
+            for floor in (0, settings["RoundTicks"]):
+                await asyncio.gather(*(pilot.expect(f"arena flight {floor} dark_reign {teams[slot % len(teams)]}")
+                                       for slot, pilot in enumerate(pilots)))
+                tick = floor + settings["RoundTicks"] // 2
+                await asyncio.gather(*(pilot.expect("view ", lambda line: int(line.split()[1]) >= tick) for pilot in pilots))
+                for pilot in pilots:
+                    require(tuple(ship[0] for ship in pilot.views[max(pilot.views)]) == admissions,
+                            "the team lobby changed an admission")
+                await asyncio.gather(*(pilot.expect(f"arena lobby {floor + settings['RoundTicks']} dark_reign") for pilot in pilots))
+            empty_team = (pilots[2], pilots[6])
+            await asyncio.gather(*(send_key(pilot, "q") for pilot in empty_team))
+            await asyncio.gather(*(pilot.wait() for pilot in empty_team))
+            floor = settings["RoundTicks"] * 2
+            await pilots[0].expect(f"arena flight {floor} dark_reign first")
+            first = await game.join_target(game.address, "keyboard")
+            second = await game.join_target(game.address, "keyboard")
+            await asyncio.gather(*(pilot.expect(f"arena flight {floor} dark_reign third") for pilot in (first, second)))
+            require({first.admission[0], second.admission[0]} == {2, 6}, "late joins changed the open seats")
+            for pilot in (first, second):
+                slot, generation = pilot.admission
+                require(generation > admissions[slot], "late join inherited a former pilot's admission")
+            print("Team Deathmatch: eight pilots kept their seats and teams through two rounds. Two late joins filled the empty team in the next round.")
+
+
 async def check_coop(binary, credentials, seed, game_dir):
     async with Loopback(binary, credentials, seed) as game:
         with tempfile.TemporaryDirectory() as directory:
@@ -462,6 +501,7 @@ async def run(binary, credentials, seed, game_dir):
             print("Stock arenas independently vary each direction of each link, with 3 to 9% loss and 8 to 80 ms latency.")
         for index, mode in enumerate(("nuclear-threat", "asteroid-field", "dark-reign", "tag-bomb", "hunt-the-shadow", "vampires")):
             await asyncio.wait_for(check_full_arena(binary, credentials, None if seed is None else seed + index, mode, game_dir), 45)
+        await asyncio.wait_for(check_team_cycle(binary, credentials, seed, game_dir), 45)
         await asyncio.wait_for(check_coop(binary, credentials, seed, game_dir), 180)
 
 

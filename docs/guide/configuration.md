@@ -307,6 +307,8 @@ your pilots can reach. Allow incoming UDP on `Port` and use the same port if you
 | `GameDirectory` | `.` | Installed game folder, relative to `server.ini` or an absolute path. Used by stock arenas and co-op missions |
 | `Players` | `8` for arenas, `2` for co-op | Arenas accept up to this many pilots, from 2 to 8, and start once two are admitted. Co-op starts the briefing when this many pilots, from 2 to 4, have joined |
 | `RoundTicks` | Unset | Keep the host running until stopped. Set a positive tick count to end a test round at that tick |
+| `Teams` | `0` | Set to `1` for team play in Asteroid Field, Dark Reign, Tag Bomb or Hunt the Shadow. After two pilots join, the lobby gives them five seconds to choose teams before the server launches |
+| `RepeatRounds` | `0` | With a stock arena and `RoundTicks` set, use `1` to return to the lobby and start another round on the same server |
 
 ### Optional managed identity
 

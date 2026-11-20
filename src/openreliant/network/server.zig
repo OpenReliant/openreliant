@@ -34,6 +34,8 @@ const paused_roster_interval = std.time.us_per_s;
 const slow_round_trip = 100 * std.time.ms_per_s / game.main.ticks_per_second;
 const packets_per_tick = 4;
 const scene_pages_per_tick = 3;
+// A dedicated team room gives pilots a moment to pick a side before launch.
+const arena_intermission = 5 * std.time.us_per_s;
 const max_identity = 32;
 pub const pilots_to_start = 2;
 
@@ -63,9 +65,14 @@ arena: *Arena,
 signer: ?*const identity.Server = null,
 player_limit: u8 = wire.slots,
 lan_only: bool = false,
+arena_directory: ?Io.Dir = null,
+arena_floor: u32 = 0,
+arena_teams: bool = false,
+repeat_rounds: bool = false,
+restart_at: ?i64 = null,
 start: union(enum) {
     automatic,
-    lobby: struct { scenario: wire.Scenario = .nuclear_threat, mission: ?u16 = null },
+    lobby: struct { scenario: wire.Scenario = .asteroid_field, mission: ?u16 = null },
     launched,
 } = .automatic,
 listener: u32 = 0,
@@ -309,18 +316,62 @@ fn seatCampaignCrew(host: *Host) !void {
 /// Only the local host's menu calls this. Pilots can join an arena after it starts.
 pub fn launch(host: *Host) void {
     if (!host.canLaunch()) return;
+    host.enterFlight();
+}
+
+fn enterFlight(host: *Host) void {
     // Loading the stock mission can take longer than the idle timeout on a slow machine.
     const expires = host.now() + timeout;
     for (&host.peers) |*entry| if (entry.*) |*peer| {
         if (peer.state == .playing) peer.expires = expires;
     };
     host.start = .launched;
+    host.restart_at = null;
     host.roster_dirty = true;
 }
 
 pub fn selectScenario(host: *Host, scenario: wire.Scenario) void {
     if (host.start != .lobby or host.start.lobby.scenario == scenario) return;
     host.start.lobby.scenario = scenario;
+    if (scenario.record().teams == .none) host.arena_teams = false;
+    host.roster_dirty = true;
+}
+
+pub fn setArenaTeams(host: *Host, enabled: bool) void {
+    if (!host.localInLobby() or host.start.lobby.mission != null) return;
+    if (enabled and host.start.lobby.scenario.record().teams == .none) return;
+    host.arena_teams = enabled;
+    host.roster_dirty = true;
+}
+
+pub fn startArena(host: *Host) !void {
+    if (host.start != .lobby or host.start.lobby.mission != null or (host.lan_only and !host.canLaunch())) return;
+    const directory = host.arena_directory orelse return;
+    const staging = host.arena;
+    host.arena = try staging.prepareStock(host.start.lobby.scenario, host.arena_teams, host.io, directory);
+    staging.destroy();
+    host.enterFlight();
+}
+
+/// Retail unloads the arena at 0x004A99A8. Keep the OpenReliant room available for a rematch.
+pub fn returnToArenaLobby(host: *Host) !void {
+    const directory = host.arena_directory orelse return;
+    const scenario = host.arena.mode.scenario() orelse return;
+    const flown = host.arena;
+    host.arena = try flown.betweenMissions(host.io, directory);
+    flown.destroy();
+    host.start = .{ .lobby = .{ .scenario = scenario } };
+    host.arena_floor = host.tick;
+    host.restart_at = null;
+    host.paused = false;
+    host.paused_view_pending = false;
+    host.projectile_pages = @splat(false);
+    host.clearFlightControls();
+    for (&host.peers) |*entry| if (entry.*) |*peer| {
+        peer.flight_command = .{};
+        peer.weapons = null;
+        peer.announce_join = false;
+    };
     host.roster_dirty = true;
 }
 
@@ -331,7 +382,7 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
             if (slot != null) return;
             if (host.final_tick == null and host.arena.campaign == null and !host.campaign_briefing and host.acceptsRemote(conn)) {
                 // A player-hosted game keeps slot zero for the local connection even if it closes.
-                const first_remote: usize = @intFromBool(host.start != .automatic);
+                const first_remote: usize = @intFromBool(host.lan_only);
                 for (host.peers[first_remote..host.player_limit]) |*entry| {
                     if (entry.* != null) continue;
                     const time = host.now();
@@ -377,7 +428,7 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
 
 /// The player's local LAN host alone can stop the simulation. The network keeps running.
 pub fn setPaused(host: *Host, paused: bool) void {
-    if (!host.lan_only or host.start != .launched or host.tick == 0 or host.final_tick != null or host.paused == paused) return;
+    if (!host.lan_only or host.start != .launched or host.tick == host.arena_floor or host.final_tick != null or host.paused == paused) return;
     host.paused = paused;
     host.paused_view_pending = paused;
     host.roster_dirty = true;
@@ -451,9 +502,10 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                 else => return err,
             };
             peer.state = .playing;
-            peer.announce_join = host.tick != 0;
+            peer.announce_join = host.start != .lobby and host.tick != host.arena_floor;
             peer.expires = time + timeout;
-            try net.send(peer.conn, .{ .joined = admitted });
+            try net.send(peer.conn, .{ .joined = .{ .admission = admitted, .arena_floor = host.arena_floor } });
+            if (host.arena_teams and host.start != .lobby) host.arena.pickTeam(slot, host.arena.leastPopulatedTeam(slot));
             if (host.tick != 0) if (host.arena.last_music) |last| {
                 var cue = last;
                 cue.now = true;
@@ -487,7 +539,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                     if (!input.follows(peer.sequence)) return true;
                     peer.sequence = input.sequence;
                     peer.expires = time + timeout;
-                    if (host.acceptsFlight()) {
+                    if (host.acceptsFlight() and input.arena_floor == host.arena_floor) {
                         peer.flight_command = input.command;
                         peer.fire_for = input.fire_for;
                     }
@@ -525,6 +577,10 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                 },
                 .pick_ship => |fighter| if (host.start == .lobby) {
                     host.arena.pilots[slot].?.fighter = fighter;
+                },
+                .pick_team => |team| if (host.start == .lobby and host.arena_teams) {
+                    host.arena.pickTeam(slot, team);
+                    host.roster_dirty = true;
                 },
                 else => return false,
             }
@@ -582,9 +638,15 @@ fn playingCount(host: *const Host) usize {
 }
 
 fn publishRoster(host: *Host) !void {
-    if (!host.roster_dirty or (host.start == .lobby and !host.localInLobby())) return;
+    if (!host.roster_dirty or (host.lan_only and host.start == .lobby and !host.localInLobby())) return;
     host.roster_dirty = false;
-    var roster: wire.Roster = .{ .paused = host.paused, .briefing = host.campaign_briefing, .limit = host.player_limit };
+    var roster: wire.Roster = .{
+        .paused = host.paused,
+        .briefing = host.campaign_briefing,
+        .limit = host.player_limit,
+        .arena_floor = host.arena_floor,
+        .teams = host.arena_teams,
+    };
     if (host.start == .lobby) {
         if (host.start.lobby.mission) |number| roster.mission = number else roster.lobby = host.start.lobby.scenario;
     } else if (host.campaign_start) |pending| roster.mission = pending.number;
@@ -592,7 +654,7 @@ fn publishRoster(host: *Host) !void {
         const peer = entry orelse continue;
         const pilot = participant orelse continue;
         if (peer.state != .playing) continue;
-        listed.* = .{ .generation = pilot.participant.generation, .name = peer.call_sign orelse .{} };
+        listed.* = .{ .generation = pilot.participant.generation, .name = peer.call_sign orelse .{}, .team = pilot.team };
         if (roster.mission != null and !roster.briefing and (slot == 0 or peer.lobby_ready)) roster.ready.set(slot);
     }
     var buffer: [wire.capacity]u8 = undefined;
@@ -771,7 +833,7 @@ fn broadcastNotices(host: *Host) void {
 fn broadcastCombat(host: *Host) !void {
     var remaining = host.arena.combat[0..host.arena.combat_count];
     while (remaining.len > 0) {
-        var batch: wire.Combat = .{ .count = @min(remaining.len, wire.Combat.max) };
+        var batch: wire.Combat = .{ .arena_floor = host.arena_floor, .count = @min(remaining.len, wire.Combat.max) };
         @memcpy(batch.entries[0..batch.count], remaining[0..batch.count]);
         remaining = remaining[batch.count..];
         var buffer: [wire.capacity]u8 = undefined;
@@ -1041,7 +1103,16 @@ pub fn pump(host: *Host) !enum { running, finished } {
         host.start = .launched;
         host.roster_dirty = true;
     } else switch (host.start) {
-        .lobby => return .running,
+        .lobby => {
+            if (!host.lan_only) {
+                if (host.playingCount() < pilots_to_start) {
+                    host.restart_at = null;
+                } else if (host.restart_at) |ready| {
+                    if (time >= ready) try host.startArena();
+                } else host.restart_at = time + arena_intermission;
+            }
+            return .running;
+        },
         .automatic => if (host.tick == 0) {
             const needed = if (host.campaign_start != null) host.player_limit else pilots_to_start;
             if (host.playingCount() < needed) return .running;
@@ -1074,10 +1145,20 @@ pub fn pump(host: *Host) !enum { running, finished } {
     }
     host.applyControls(time);
     host.tick += 1;
-    const view = try host.arena.step(host.tick);
+    const view = host.arena.step(host.tick) catch |err| switch (err) {
+        error.ArenaEnded => if (host.arena_directory != null and host.arena.mode.scenario() != null) {
+            try host.returnToArenaLobby();
+            return .running;
+        } else return err,
+        else => return err,
+    };
     host.broadcastNotices();
     for (host.arena.wrecks) |entry| if (entry) |wreck| host.sendPlaying(.{ .wreck = wreck }, null);
-    const capped = host.tick == host.last_tick;
+    const capped = host.tick - host.arena_floor == host.last_tick;
+    if (capped and host.repeat_rounds) {
+        try host.returnToArenaLobby();
+        return .running;
+    }
     const mission_ended = if (host.arena.campaign) |campaign| campaign.finished else false;
     const delivery: Delivery = if (capped) .final else if (mission_ended) .debrief else .flight;
     if (delivery == .final) {

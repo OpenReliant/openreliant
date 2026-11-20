@@ -2,6 +2,7 @@
 const std = @import("std");
 const hud = @import("../hud.zig");
 const players = @import("../players.zig");
+const deathmatch = @import("../deathmatch.zig");
 const Objects = @import("../create.zig").Objects;
 const ui = @import("../interface/canvas.zig");
 pub const max_pilots = @import("../gameobj.zig").max_objects;
@@ -35,6 +36,78 @@ const tally_width = 90;
 const heading_colour = hud.rgb(0xFFFFFF);
 const row_colour = hud.rgb(0xFFFFFF);
 const pane_colour: [4]f32 = .{ 0.015, 0.033, 0.048, 0.9 };
+const team_rise = 205;
+const team_pause_rise = 155;
+const team_first_row = 22;
+const team_gap = 8;
+const badge_x = half_width + 217;
+const team_shapes: std.EnumArray(players.ArenaTeam, u8) = .init(.{ .first = 23, .second = 25, .third = 24, .fourth = 26 }); // 0x0050C31C
+
+pub fn teamBadge(team: players.ArenaTeam) u8 {
+    return team_shapes.get(team);
+}
+
+const TeamRow = struct {
+    team: players.ArenaTeam,
+    score: deathmatch.TeamScore,
+
+    fn before(_: void, a: TeamRow, b: TeamRow) bool {
+        if (a.score.kills != b.score.kills) return a.score.kills > b.score.kills;
+        return a.score.deaths < b.score.deaths;
+    }
+};
+
+pub const TeamBoard = struct {
+    rows: [std.enums.values(players.ArenaTeam).len]TeamRow = undefined,
+    count: usize = 0,
+
+    /// `mp_draw_scoreboard` (0x004AF650) lists only occupied teams, ordered by kills and deaths.
+    pub fn collect(all: *const Objects) TeamBoard {
+        var board: TeamBoard = .{};
+        if (all.arena_scores != .teams) return board;
+        var present: std.EnumSet(players.ArenaTeam) = .empty;
+        for (all.player_states[0..all.players]) |*state| {
+            if (state.membership == .joined) {
+                if (state.membership.joined.team) |team| present.insert(team);
+            }
+        }
+        var occupied = present.iterator();
+        while (occupied.next()) |team| {
+            board.rows[board.count] = .{ .team = team, .score = all.arena_scores.teams.get(team) };
+            board.count += 1;
+        }
+        std.mem.sort(TeamRow, board.rows[0..board.count], {}, TeamRow.before);
+        return board;
+    }
+
+    pub fn offset(board: TeamBoard, mode: Mode) i32 {
+        if (board.count == 0) return 0;
+        const separation: i32 = if (mode == .flight) team_rise - rise else team_pause_rise - paused_rise - 50;
+        return team_first_row + @as(i32, @intCast(board.count)) * row_height + team_gap - separation;
+    }
+
+    pub fn draw(board: TeamBoard, pen: hud.Pen, art: ?*hud.Art, labels: *hud.Opened, mode: Mode) !void {
+        if (board.count == 0) return;
+        const placement: Layout = .fit(pen.screen, pen.scale, if (mode == .flight) team_rise else team_pause_rise);
+        try drawFrame(pen, placement, art, board.count, team_first_row);
+        var headings = pen;
+        headings.font = labels;
+        try placement.text(headings, pilot_x, 0, pen.strings.stringOr(0x2C2, "Team"), heading_colour, .left, pilot_width);
+        try placement.text(headings, kills_x, 0, pen.strings.stringOr(0x308, "Kills"), heading_colour, .centre, tally_width);
+        try placement.text(headings, deaths_x, 0, pen.strings.stringOr(0x307, "Deaths"), heading_colour, .centre, tally_width);
+        for (board.rows[0..board.count], 0..) |row, index| {
+            const y: f32 = @floatFromInt(team_first_row - 1 + index * row_height);
+            var name: [64]u8 = undefined;
+            const team_word = pen.strings.stringOr(0x309, "Team");
+            const title = std.fmt.bufPrint(&name, "{s} {d}", .{ team_word, @as(u8, @backingInt(row.team)) + 1 }) catch team_word;
+            try placement.number(headings, rank_x, y, index + 1, heading_colour);
+            try placement.text(pen, pilot_x, y, title, row_colour, .left, pilot_width);
+            try placement.number(pen, kills_x, y, row.score.kills, row_colour);
+            try placement.number(pen, deaths_x, y, row.score.deaths, row_colour);
+            if (art) |icons| try drawTeamBadge(pen, placement, icons, row.team, y + 3, .team_standings_badge);
+        }
+    }
+};
 
 pub const Row = struct {
     slot: usize,
@@ -81,43 +154,55 @@ pub fn scrollPage(scroll: *Scroll, way: ui.Arrow) void {
 
 /// **Improvement:** Fit complete rows and keep room at the bottom for the scroll range.
 pub fn visibleRows(screen: [2]u32, scale: f32) usize {
-    const layout: Layout = .fit(screen, scale, rise);
+    return visibleTeamRows(screen, scale, .{});
+}
+
+pub fn visibleTeamRows(screen: [2]u32, scale: f32, teams: TeamBoard) usize {
+    const layout: Layout = .fit(screen, scale, rise - @as(f32, @floatFromInt(teams.offset(.flight))));
     if (layout.scale <= 0) return 1;
     const available = (@as(f32, @floatFromInt(screen[1])) - layout.top) / layout.scale;
     return @intFromFloat(@min(max_pilots, @max(1, @floor((available - first_row - scroll_footer - bottom_margin) / row_height))));
 }
 
-/// `mp_draw_scoreboard` (0x004AF650) shows the stock free-for-all standings in the flight HUD.
-/// Team standings need the team setup and rules ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
-pub fn draw(pen: hud.Pen, all: *const Objects, art: ?*hud.Art, labels: *hud.Opened, first: usize) !void {
+/// `mp_draw_scoreboard` (0x004AF650) shows the pilot standings in the flight HUD.
+pub fn draw(pen: hud.Pen, all: *const Objects, art: ?*hud.Art, labels: *hud.Opened, first: usize, teams: TeamBoard) !void {
     var buffer: [max_pilots]Row = undefined;
     const rows = rowsOf(all, &buffer);
     const count = rows.len;
     if (count == 0) return;
-    const scroll = scrollWindow(first, count, visibleRows(pen.screen, pen.scale));
-    try drawRows(pen, rows, art, labels, scroll, .flight);
+    const scroll = scrollWindow(first, count, visibleTeamRows(pen.screen, pen.scale, teams));
+    try drawRows(pen, rows, art, labels, scroll, .flight, teams);
 }
 
 pub const Mode = enum { flight, paused_arena, paused_campaign };
 
 /// The in-flight and paused panels share sprites, columns, and ordering in `mp_draw_scoreboard`.
-pub fn drawRows(pen: hud.Pen, rows: []const Row, art: ?*hud.Art, labels: *hud.Opened, scroll: Scroll, mode: Mode) !void {
-    const placement: Layout = .fit(pen.screen, pen.scale, if (mode == .flight) rise else paused_rise);
-    const visible = rows[scroll.first..scroll.end()];
-    const footer: f32 = @floatFromInt(first_row + visible.len * row_height);
+fn drawFrame(pen: hud.Pen, placement: Layout, art: ?*hud.Art, count: usize, begins: usize) !void {
+    const footer: f32 = @floatFromInt(begins + count * row_height);
     if (art) |icons| {
         var shapes = pen;
         shapes.art = icons;
         shapes.scale = placement.scale;
         shapes.colour = @splat(1);
         try shapes.shape(header_shape, placement.point(0, 0));
-        for (0..visible.len) |row| {
-            try shapes.shape(row_shape, placement.point(0, @floatFromInt(first_row + row * row_height)));
+        for (0..count) |row| {
+            try shapes.shape(row_shape, placement.point(0, @floatFromInt(begins + row * row_height)));
         }
         try shapes.shape(footer_shape, placement.point(0, footer));
     } else {
         hud.drawFilled(pen.device, .{ .left = placement.left, .top = placement.top, .right = placement.left + width * placement.scale, .bottom = placement.top + footer * placement.scale }, pane_colour);
     }
+}
+
+fn drawTeamBadge(pen: hud.Pen, layout: Layout, icons: *hud.Art, team: players.ArenaTeam, y: f32, part: hud.parts.Part) !void {
+    try pen.drawing(.{ .art = icons, .gpa = pen.gpa }).sized(layout.scale).partShape(part, teamBadge(team), layout.point(badge_x, y));
+}
+
+pub fn drawRows(pen: hud.Pen, rows: []const Row, art: ?*hud.Art, labels: *hud.Opened, scroll: Scroll, mode: Mode, teams: TeamBoard) !void {
+    const base: f32 = if (mode == .flight) rise else paused_rise;
+    const placement: Layout = .fit(pen.screen, pen.scale, base - @as(f32, @floatFromInt(teams.offset(mode))));
+    const visible = rows[scroll.first..scroll.end()];
+    try drawFrame(pen, placement, art, visible.len, first_row);
     var headings = pen;
     headings.font = labels;
     const pilot_label = pen.strings.string(0xBF) orelse "Pilot";
@@ -140,11 +225,14 @@ pub fn drawRows(pen: hud.Pen, rows: []const Row, art: ?*hud.Art, labels: *hud.Op
         } else {
             try placement.text(pen, ping_x, y, "-", row_colour, .centre, tally_width);
         }
+        if (teams.count != 0) if (row.pilot.team) |team| {
+            if (art) |icons| try drawTeamBadge(pen, placement, icons, team, y + 3, .standings_team_badge);
+        };
     }
     if (scroll.count > scroll.shown and mode == .flight) {
         var buffer_range: [32]u8 = undefined;
         const range = std.fmt.bufPrint(&buffer_range, "{d}-{d}/{d}", .{ scroll.first + 1, scroll.end(), scroll.count }) catch unreachable;
-        try placement.text(headings, half_width, footer + row_height, range, heading_colour, .centre, tally_width);
+        try placement.text(headings, half_width, @floatFromInt(first_row + (visible.len + 1) * row_height), range, heading_colour, .centre, tally_width);
     }
 }
 
