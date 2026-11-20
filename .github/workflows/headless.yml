@@ -65,6 +65,7 @@ jobs:
           mkdir -p dist
           mv artifacts/headless-amd64 dist/amd64
           mv artifacts/headless-arm64 dist/arm64
+          chmod +x dist/amd64/openreliant dist/arm64/openreliant
       - name: Publish the multi-architecture image
         env:
           GH_TOKEN: ${{ github.token }}
