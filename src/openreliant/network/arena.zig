@@ -98,6 +98,8 @@ decoys: ?game.cloak.Countermeasures = null,
 waves: ?game.shockwave.Shockwaves = null,
 cannons: ?game.aiioncan.Cannons = null,
 campaign: ?*Campaign = null,
+music: wire.MissionMusic.Queue = .{},
+last_music: ?wire.MissionMusic = null,
 
 pub fn create(gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory: std.Io.Dir) !*Arena {
     const arena = try gpa.create(Arena);
@@ -122,6 +124,8 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
     arena.waves = null;
     arena.cannons = null;
     arena.campaign = null;
+    arena.music = .{};
+    arena.last_music = null;
     errdefer arena.deinit();
     switch (mode) {
         .training => {
@@ -278,7 +282,6 @@ fn world(arena: *Arena) game.gameobj.World {
         scene.touchdown = .original;
         scene.gates = &campaign.gates;
         scene.display = &campaign.display;
-        // Radio has a network sink. Scripted music cues are tracked in #1491.
         scene.radio = &campaign.radio;
         scene.environment = &campaign.environment;
         scene.cues = &campaign.cues;
@@ -294,10 +297,18 @@ fn world(arena: *Arena) game.gameobj.World {
     if (arena.waves) |*waves| scene.shockwaves = waves;
     if (arena.cannons) |*cannons| scene.ion_cannons = cannons;
     if (arena.assets != null) {
+        scene.music_output = .{ .context = arena, .send = noteMusic };
         scene.gun_effects = .{ .context = arena, .send = noteCombat };
         scene.arena_wrecks = .{ .context = arena, .send = noteWreck };
     }
     return scene;
+}
+
+fn noteMusic(context: *anyopaque, command: game.hog_snd.commands.Music) void {
+    const arena: *Arena = @ptrCast(@alignCast(context));
+    const cue = wire.MissionMusic.capture(command) orelse return;
+    arena.music.add(cue);
+    arena.last_music = cue;
 }
 
 fn noteWreck(context: *anyopaque, wreck: wire.Wreck) void {
@@ -517,7 +528,8 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
             };
             continue;
         }
-        const object = &all.slots[index].object;
+        const slot = &all.slots[index];
+        const object = &slot.object;
         const score = all.player_states[index].membership.joined;
         const pod = arena.campaign != null and object.flags.ejected and all.slots[index].running(.eject) != null;
         ship.* = .{
@@ -539,6 +551,9 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
             .pod = pod,
             .pod_clear = pod and all.slots[index].state.eject.stage != .clearing,
             .kamov = object.type.base() == .kamov,
+            .engine_waiting = arena.campaign != null and !game.launch.engineReady(slot),
+            .afterburner = object.afterburner,
+            .reverse_thrust = object.reverse_thrust,
         };
         ship.*.?.face(object.root.next_orientation);
     }

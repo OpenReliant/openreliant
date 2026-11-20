@@ -1150,7 +1150,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             const elapsed = std.math.cast(i32, ticks -| front_ticks) orelse std.math.maxInt(i32);
             front_ticks = ticks;
             if (network_enabled and network_pilot.flying()) devices.read() else devices.keyboard.read();
-            sound.updateMusic();
+            if (!network_pilot.flying()) sound.updateMusic();
             front_context.window = size;
             front_context.elapsed = elapsed;
             // While the console is up, it takes the pass.
@@ -1167,7 +1167,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 var service: NetworkPilot.Briefing = .{ .pilot = &network_pilot, .io = io };
                 movies.service = .{ .context = &service, .tick = NetworkPilot.Briefing.service };
                 defer movies.service = null;
-                if (try movies.fostersLastStand(mission, &clock, sound, &sound_commands.line)) {
+                if (try movies.fostersLastStand(mission, &clock, sound, &online_sounds.line)) {
                     client.finishMovie(tick) catch {
                         service.failed = true;
                     };
@@ -1205,7 +1205,6 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 if (summary.record(result.number)) |record| record.* = .{ .rating = result.rating, .kills = result.kills };
                 // WinMain (0x004A8B10) plays the co-op return movie after a rescue too.
                 if (if (shared_debrief) game.winmain.landsAfter(result.ending, result.number, result.second_part) else result.landed) {
-                    sound.end3DAll();
                     if (game.xtrabits.landing.landing(result.number, result.second_part, result.ending, &summary.variables)) |landed| {
                         if (!try movies.land(landed, &resources, sound) and !service.failed) return;
                     }
@@ -1617,7 +1616,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .images = explosions.images,
                 .ordnance_models = .{ .mounts = effects_models.mounts(), .glows = &glows },
                 .trails = trails.images,
-                .sounds = if (output != null) &online_sounds else null,
+                .audio = if (output != null) .{ .commands = &online_sounds, .sound = sound } else null,
                 .explosions = explosions.settings,
                 .particles = particles.settings,
             }) catch |err| frame: {
@@ -1631,12 +1630,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         if (network_voices_paused != network_pause_voices) {
             network_voices_paused = network_pause_voices;
             game.main.pauseFlightVoices(sound, network_voices_paused);
+            // The ordinary shared pause leaves music playing but holds the radio sample.
+            // game_pause stops speech at 0x00491E82 and resumes it at 0x00491F41.
+            online_sounds.line.pause(sound, network_voices_paused);
         }
         const changed_world = display.multiplayer != (network_frame != null);
         if (changed_world) {
             if (display.multiplayer) {
                 display.drawing.warnOfLock(sound, false, false);
-                online_sounds.play(sound, view.place);
             }
             display.drawing = .{};
         }
@@ -1755,9 +1756,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 const viewing = &flight.player.viewing;
                 const place = network_pilot.cameraPlace(flight);
                 viewing.seen_from = place;
-                if (!network_voices_paused) online_sounds.play(sound, place);
-                context.camera = .{ .position = place.position, .orientation = place.orientation };
                 const online = network_pilot.flight.?;
+                if (online.audio != null) {
+                    sound.runTimer(&clock, platform.window.ticks());
+                    const music = if (network_pilot.client) |*client| client.music.take() else &.{};
+                    online.playAudio(place, music, clock.game_ticks, network_voices_paused);
+                }
+                context.camera = .{ .position = place.position, .orientation = place.orientation };
                 const projection_camera: camera.Camera = .{ .bars = if (online.director) |director| director.bars else 0 };
                 context.projection = projection_camera.projection(viewing.view, size[0], size[1], field_of_view);
                 display.device = gpu.interface();

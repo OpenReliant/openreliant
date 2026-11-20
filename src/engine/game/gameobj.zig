@@ -2150,6 +2150,8 @@ pub const World = struct {
     /// What the game frames ask of the sound, which the main thread plays after them; null where
     /// nothing is heard.
     sounds: ?*@import("hog_snd.zig").commands.Commands = null,
+    /// A headless host forwards scripted music without opening a mixer or building 3D sounds.
+    music_output: ?@import("hog_snd.zig").commands.Music.Sink = null,
     /// What the explosions leave for the frames after them (`explode.cpp`); null where nothing
     /// explodes.
     explosions: ?*@import("explode.zig").Explosions = null,

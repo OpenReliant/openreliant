@@ -12,13 +12,14 @@ const campaign = @import("campaign_wire.zig");
 pub const MissionView = campaign.MissionView;
 pub const CampaignLoadout = campaign.CampaignLoadout;
 pub const CampaignLine = campaign.CampaignLine;
+pub const MissionMusic = @import("mission_music.zig");
 pub const CrewRequest = campaign.CrewRequest;
 pub const campaignNumber = campaign.campaignNumber;
 pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
 pub const CampaignCheckpoint = campaign.Checkpoint;
-pub const revision: u16 = 25;
+pub const revision: u16 = 26;
 pub const slots = engine.game.deathmatch.spawn.positions;
 pub const cooperative_slots = campaign.Crew.size;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
@@ -320,6 +321,9 @@ pub const Ship = struct {
     pod: bool = false,
     pod_clear: bool = false,
     kamov: bool = false,
+    engine_waiting: bool = false,
+    afterburner: bool = false,
+    reverse_thrust: bool = false,
     ping_ms: ?u16 = null,
 
     pub const unknown_ping = std.math.maxInt(u16);
@@ -456,6 +460,17 @@ const Mode = struct {
     }
 };
 
+const ShipFlags = packed struct(u8) {
+    at_wall: bool,
+    dying: bool,
+    pod: bool,
+    pod_clear: bool,
+    kamov: bool,
+    engine_waiting: bool,
+    afterburner: bool,
+    reverse_thrust: bool,
+};
+
 fn writeShips(w: *std.Io.Writer, ships: []const ?Ship, mode: Mode) !void {
     for (ships) |entry| {
         const ship = entry orelse {
@@ -476,12 +491,17 @@ fn writeShips(w: *std.Io.Writer, ships: []const ?Ship, mode: Mode) !void {
         try w.writeInt(u32, ship.deaths, .little);
         if (mode.hasOrdnance()) {
             try w.writeInt(u16, ship.respawn, .little);
-            const wall: u8 = @intFromBool(ship.at_wall);
-            const dying: u8 = @intFromBool(ship.dying);
-            const pod: u8 = @intFromBool(ship.pod);
-            const clear: u8 = @intFromBool(ship.pod_clear);
-            const kamov: u8 = @intFromBool(ship.kamov);
-            try w.writeByte(wall | (dying << 1) | (pod << 2) | (clear << 3) | (kamov << 4));
+            const flags: ShipFlags = .{
+                .at_wall = ship.at_wall,
+                .dying = ship.dying,
+                .pod = ship.pod,
+                .pod_clear = ship.pod_clear,
+                .kamov = ship.kamov,
+                .engine_waiting = ship.engine_waiting,
+                .afterburner = ship.afterburner,
+                .reverse_thrust = ship.reverse_thrust,
+            };
+            try w.writeByte(@bitCast(flags));
             try w.writeInt(u16, ship.ping_ms orelse Ship.unknown_ping, .little);
         }
         if (mode.scenario != null and mode.scenario.?.hasPowerUps()) try w.writeByte(@intFromBool(ship.cloaked));
@@ -504,13 +524,17 @@ fn readShips(r: *std.Io.Reader, ships: []?Ship, mode: Mode) !void {
         if (mode.hasOrdnance()) {
             ship.respawn = try r.takeInt(u16, .little);
             if (ship.respawn > engine.game.deathmatch.respawn.duration) return error.InvalidSnapshot;
-            const flags = try r.takeByte();
-            if (flags > 0b11111 or (!mode.mission and flags & 0b11100 != 0) or flags & 0b1100 == 0b1000) return error.InvalidSnapshot;
-            ship.at_wall = flags & 1 != 0;
-            ship.dying = flags & 2 != 0;
-            ship.pod = flags & 4 != 0;
-            ship.pod_clear = flags & 8 != 0;
-            ship.kamov = flags & 16 != 0;
+            const flags: ShipFlags = @bitCast(try r.takeByte());
+            if (!mode.mission and (flags.pod or flags.kamov or flags.engine_waiting)) return error.InvalidSnapshot;
+            if (flags.pod_clear and !flags.pod) return error.InvalidSnapshot;
+            ship.at_wall = flags.at_wall;
+            ship.dying = flags.dying;
+            ship.pod = flags.pod;
+            ship.pod_clear = flags.pod_clear;
+            ship.kamov = flags.kamov;
+            ship.engine_waiting = flags.engine_waiting;
+            ship.afterburner = flags.afterburner;
+            ship.reverse_thrust = flags.reverse_thrust;
             const ping = try r.takeInt(u16, .little);
             ship.ping_ms = if (ping == Ship.unknown_ping) null else ping;
         }
@@ -969,6 +993,7 @@ pub const Message = union(enum(u8)) {
     campaign_retired: u32,
     campaign_movie: u32,
     campaign_movie_done: u32,
+    mission_music: MissionMusic,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -1063,6 +1088,7 @@ pub const Message = union(enum(u8)) {
                 try w.writeByte(@intFromBool(next.second_part));
             },
             .campaign_line => |line| try line.write(&w),
+            .mission_music => |cue| try cue.write(&w),
             .briefed => |selected| if (selected) |fit| {
                 try w.writeByte(@backingInt(fit.ship));
                 for (fit.racks) |rack| try w.writeInt(i16, @backingInt(rack), .little);
@@ -1282,6 +1308,7 @@ pub const Message = union(enum(u8)) {
                 },
             } },
             .campaign_line => .{ .campaign_line = try .read(&r) },
+            .mission_music => .{ .mission_music = try .read(&r) },
             .briefed => ready: {
                 if (r.bufferedLen() == 0) break :ready .{ .briefed = null };
                 var fit: CampaignLoadout = .{ .ship = try r.takeEnum(Fighter, .little), .racks = undefined };

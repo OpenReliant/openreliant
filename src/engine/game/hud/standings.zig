@@ -88,7 +88,7 @@ pub fn visibleRows(screen: [2]u32, scale: f32) usize {
 }
 
 /// `mp_draw_scoreboard` (0x004AF650) shows the stock free-for-all standings in the flight HUD.
-/// Team standings need the team setup and rules ([#1400](https://github.com/OpenReliant/openreliant/issues/1400)).
+/// Team standings need the team setup and rules ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn draw(pen: hud.Pen, all: *const Objects, art: ?*hud.Art, labels: *hud.Opened, first: usize) !void {
     var buffer: [max_pilots]Row = undefined;
     const rows = rowsOf(all, &buffer);

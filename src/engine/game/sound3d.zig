@@ -290,6 +290,14 @@ pub fn endAll(sound: *Sound) void {
     for (0..sound.voice_3d_count) |v| sound.end3D(@intCast(v));
 }
 
+/// The fighter has been lost or replaced. End both of its loops and reset the throttle fade.
+pub fn endEngine(sound: *Sound) void {
+    if (sound.engine_voice) |voice| sound.end3D(voice);
+    if (sound.burner_voice) |voice| sound.end3D(voice);
+    sound.effects.engine = .idle;
+    sound.effects.engine_changed_at = -1;
+}
+
 /// `sound3d_play` (`0x0049D360`): plays a sound, placed by what its definition follows: `owner`'s
 /// shot or object, or `at` and `facing` for a point. `owner` is null for none, which the game
 /// passes, and keeps in the voice, as -1. `volume` is its share of the definition's volume. It is
@@ -820,8 +828,8 @@ fn flybys(sound: *Sound, scene: Scene) void {
         const cosine = math.dot(velocity, looking) / @sqrt(math.dot(velocity, velocity) * math.dot(looking, looking));
         const hostile = object.side == .hostile;
         if (cosine > (if (hostile) hostile_flyby_cosine else friendly_flyby_cosine)) continue;
-        // In a multiplayer game every ship sounds as a friendly one; OpenReliant has none.
-        const which: sounds.Sound = if (hostile) .pass01 else .pass02;
+        // Deathmatch still uses the hostile angle, but every flyby sounds like a friendly one.
+        const which: sounds.Sound = if (hostile and !scene.deathmatch) .pass01 else .pass02;
         if (play(sound, scene, null, null, @as(u16, @intCast(index)), which, 1, .flyby) != null) sound.flybys[index] = .{ .value = scene.clock.frame_start, .reuse = reuse };
     }
 }

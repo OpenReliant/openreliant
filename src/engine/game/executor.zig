@@ -728,21 +728,23 @@ const music_level = 80;
 pub const music_forever = 0;
 
 /// The room the game gives a piece's path (`cmd_PlayMusic`'s buffer, `0x00458DF0`).
-const music_path_size = 128;
+pub const music_path_size = 128;
 
 /// The folder the pieces are in (`cmd_PlayMusic`'s format, `0x004F5C14`).
-const music_folder = "music\\";
+pub const music_folder = "music\\";
 
 /// `cmd_PlayMusic` (`0x00458DF0`, command `0x23`): plays the piece named by the first argument from
 /// the game's music folder, looping forever, as the game frames ask for it (`hog_snd.commands`). It
 /// starts at once if the second argument is 1, and otherwise after the current music fades out
 /// (`hog_snd.Sound.When.of`, `playPiece`).
 fn playMusic(call: Call, game: aigeneric.Context) void {
-    const asked = game.world.sounds orelse return;
+    if (game.world.sounds == null and game.world.music_output == null) return;
     const name = argumentText(call, 0) orelse return;
     var buffer: [music_path_size]u8 = undefined;
     const path = musicPath(&buffer, name) orelse return;
-    asked.add(.{ .music = .{ .piece = .of(path, music_forever, music_level), .when = .of(call.args[1], game.world.clock.game_ticks) } });
+    const cue: hog_snd.commands.Music = .{ .piece = .of(path, music_forever, music_level), .when = .of(call.args[1], game.world.clock.game_ticks) };
+    if (game.world.sounds) |asked| asked.add(.{ .music = cue });
+    if (game.world.music_output) |output| output.send(output.context, cue);
 }
 
 /// Plays the piece `name` from the game's music folder `loops` times (0 loops forever), as
@@ -756,7 +758,7 @@ pub fn playPiece(sound: *hog_snd.Sound, name: []const u8, loops: u32, when: hog_
 /// The path of the piece `name` in the game's music folder, made in `buffer`.
 ///
 /// **Fix:** the game writes a path longer than its buffer past it; OpenReliant plays nothing.
-fn musicPath(buffer: *[music_path_size]u8, name: []const u8) ?[]const u8 {
+pub fn musicPath(buffer: *[music_path_size]u8, name: []const u8) ?[]const u8 {
     return std.mem.print(buffer, music_folder ++ "{s}", .{name}) catch {
         log.warn("the music {s} is left out: its path is too long", .{name});
         return null;

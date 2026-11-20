@@ -478,6 +478,7 @@ pub const Scene = struct {
     camera: camera.Place,
     view: camera.View,
     clock: *const Clock,
+    deathmatch: bool = false,
 };
 
 /// What the main thread hears a world through: the sound, the camera it is heard from, placed each

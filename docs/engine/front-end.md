@@ -81,7 +81,7 @@ saved mission and checkpoint on the host. The host sends the selected mission to
 through the roster, as the original does with message 8 (`net_send_coop_session`, 0x004BA2D0).
 Remaining setup controls are tracked in
 [#404](https://github.com/OpenReliant/openreliant/issues/404), and team and arena rules in
-[#1400](https://github.com/OpenReliant/openreliant/issues/1400).
+[#55](https://github.com/OpenReliant/openreliant/issues/55).
 
 The co-op lobby shows nine chat lines and the deathmatch lobby six, as variants 0 and 2 of
 `multiplayer_chat_panel` (0x004AE2D0) do. The stock arrows scroll the last 30 lines. Click the
@@ -120,7 +120,7 @@ Use the stills to check the display and the executable's draw functions for the 
 |---|---|---|
 | Connection | `multiplayer_connection_screen` (`0x00432FC0`) | The Internet and LAN lists, IP and invite entry and hologram backdrop are deliberate replacements for the legacy provider choices. The browser uses installed button art and labels. |
 | Co-op setup | `multiplayer_sessions_draw` (`0x0043DA40`) | The host and guest have the stock field and roster positions, Ready, chat and navigation. The host can remove the selected guest, select New or load a campaign. |
-| Deathmatch setup | `session_loadout_screen` (`0x0044B950`) and `session_loadout_draw` (`0x0044CB60`) | The mode list, description, ship field, roster, chat and navigation use the stock layout. The detailed mode and ITAC fighter pickers remain deliberate additions. The original's extra game options are tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404) and team rules in [#1400](https://github.com/OpenReliant/openreliant/issues/1400). |
+| Deathmatch setup | `session_loadout_screen` (`0x0044B950`) and `session_loadout_draw` (`0x0044CB60`) | The mode list, description, ship field, roster, chat and navigation use the stock layout. The detailed mode and ITAC fighter pickers remain deliberate additions. The original's extra game options are tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404) and team rules in [#55](https://github.com/OpenReliant/openreliant/issues/55). |
 | Co-op briefing and loadout | `WinMain` (`0x004A9AB0`) and `interface_briefing` (`0x00437010`) | The existing campaign briefing and loadout code supplies the rooms, ship and rack views. The host coordinates launch and the crew's choices over the current network protocol. |
 | Co-op debrief | `multiplayer_debrief_render` (`0x00429DC0`), `multiplayer_debrief_text` (`0x00425240`), and `multiplayer_chat_panel` variant 1 (`0x004AE2D0`) | The retail backdrop, letter, two scroll controls, chat, figures, roster and buttons use the original art and coordinates. Save Game opens the existing save screen over the stock in-game-options backdrop. |
 | Pause, session loss, and standings | `pause_screen_multiplayer` (`0x0048E510`), `pause_session_lost` (`0x0048E370`), and `mp_draw_scoreboard` (`0x004AF650`) | The pause and flight standings use the stock sprites. The pause controls and connection-loss dialog use the original pause art. Host-only shared pause and scrolling beyond stock capacity are deliberate changes. See [Pause menu](pause-menu.md#multiplayer-9). |

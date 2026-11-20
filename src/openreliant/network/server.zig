@@ -454,6 +454,11 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
             peer.announce_join = host.tick != 0;
             peer.expires = time + timeout;
             try net.send(peer.conn, .{ .joined = admitted });
+            if (host.tick != 0) if (host.arena.last_music) |last| {
+                var cue = last;
+                cue.now = true;
+                try net.send(peer.conn, .{ .mission_music = cue });
+            };
             if (host.paused) {
                 var view = try host.arena.snapshot(host.tick);
                 host.fillPings(&view, false);
@@ -1095,6 +1100,7 @@ pub fn pump(host: *Host) !enum { running, finished } {
         host.beginMovie(time);
     } else try host.broadcast(view, delivery);
     if (delivery == .flight) {
+        for (host.arena.music.take()) |cue| host.sendPlaying(.{ .mission_music = cue }, null);
         if (host.arena.campaign) |campaign| {
             for (campaign.lines[0..campaign.line_count]) |line| host.sendPlaying(.{ .campaign_line = line }, null);
             campaign.line_count = 0;

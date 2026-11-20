@@ -2,10 +2,6 @@
 
 How the game plays its sounds through the Miles Sound System (`MSS32.DLL`): the banks' sounds on voices of their own, the effects placed in 3D around the camera, and the music. OpenReliant's code is [`game/hog_snd.zig`](../../src/engine/game/hog_snd.zig) and [`game/sound3d.zig`](../../src/engine/game/sound3d.zig); what stands in for Miles is in [Sound in OpenReliant](../port/sound.md). The banks are [`.fat` files](../formats/fat.md).
 
-Multiplayer reuses the radio and sound playback for effects such as gunfire and pickups.
-In-flight mission music and the local fighter's engine and afterburner loops are tracked in
-[#1491](https://github.com/OpenReliant/openreliant/issues/1491).
-
 ## Start-up
 
 `WinMain` calls `sound_init` (`0x00481440`) with 10 voices. It starts Miles, opens a digital driver at 22,050 Hz in 16-bit stereo, or at 11,025 Hz where that fails (`sound_driver_open`, `0x00482D10`), allocates a sample for each voice, and starts the 100 Hz timer, `tick_timer` (`0x004827C0`). Asked for them, it also opens the CD's audio and sets aside two more samples and a double buffer for the radio's speech. `sound_3d_providers` (`0x004817E0`) lists Miles's 3D providers and `sound_3d_open` (`0x00481900`) opens the one the settings name, else the first of `Miles Fast 2D Positional Audio`, `Aureal A3D Interactive (TM)`, `Creative Labs EAX (TM)` and `RAD Game Tools RSX 3D Audio`, with `Dolby Surround` for one of them where asked. It allocates a 3D voice for each sample the provider supports, up to 64, and sets the effects up on them (`sound3d_init`). That sets the provider's room to EAX's generic one (`AIL_set_3D_room_type`, 0), with a damping of 1 and an effect volume and decay time of 0, and each 3D sound it plays gets an effects level of 0, with no obstruction or occlusion: the room's reverb is never heard.
@@ -198,6 +194,15 @@ sounds, then the music, then every 3D sound (`sound_3d_end_all`, `0x00481BA0`, c
 `0x0049436B`), so the engine stops with the mission. OpenReliant does the same as it lets the
 mission go.
 
+In multiplayer, each client runs the same engine update for its own fighter, using throttle and
+burner state from the host. In co-op the launch reaches the Reliant's or Yamato's engine cue before
+the engine can start. In deathmatch a respawn starts the new ship's engine with the spawn effect
+(`0x004B0DF2`). Ejection and destruction end the old engine and burner. Leaving flight clears
+queued sounds and the current radio and music so they cannot play in the next mission.
+The co-op client plays `EJECT01` from the pod when it first sees separation. The original plays
+it from the abandoned fighter (`0x00415808`). The remaining effect routing is tracked in
+[#1368](https://github.com/OpenReliant/openreliant/issues/1368).
+
 **Fix:** a player whose ship starts in space, or launches from any other carrier, flies the whole
 mission without the engine's sound or the afterburner's, since the update does nothing until the
 engine has a voice. The campaign launches the player from the Reliant or the Yamato, but missions 81
@@ -217,6 +222,7 @@ ship sounds `PASS01`, another `PASS02`, on a voice of class 7, no more than once
 200 for the player's own, which is not heard in views 0 to 3, 12 and 15. The game keeps the frame it
 was heard in the object (`+0x67C`); OpenReliant's sound keeps it itself, by the object's slot and
 the slot's reuse count (`hog_snd.Sound.flybys`).
+Deathmatch keeps the same angle test and plays `PASS02` for both sides (`0x0049E291`).
 
 ## Music
 
@@ -232,6 +238,24 @@ closes, and `music_update` (`0x00482C30`) then starts the piece waiting. `WinMai
 out by 15 before the hangar's movie of a mission it flies ([Movies](movies.md#the-hangar)). Mission 1 plays `new_launch.wav` as its
 wing launches, and `new_searching mission 09.wav` once it is out. The CD player in the rooms plays
 the pieces of its lists, and turns their level ([The CD player](cd-player.md)).
+
+In hosted games the mission script runs on the host and sends its music requests reliably to the
+clients. Each client opens its own installed recording at the original level and applies the
+original fade when asked. A late deathmatch join starts the current track. The six maps read their
+opening tracks from their mission scripts.
+
+| Mission | Arena | Opening track |
+| --- | --- | --- |
+| 81 | Dark Reign | `new_sim02.wav` |
+| 82 | Nuclear Threat | `new_sim03.wav` |
+| 83 | Tag Bomb | `new_sim04.wav` |
+| 84 | Hunt The Shadow | `new_sim08.wav` |
+| 85 | Asteroid Field | `new_sim09.wav` |
+| 87 | Vampires | `new_sim10.wav` |
+
+The ordinary shared pause stops the 2D and 3D voices and radio speech, while music continues
+(`game_pause`, `0x00491E20`). Foster's Last Stand also pauses music and plays the movie's own
+audio track ([Movies](movies.md#in-a-mission)).
 
 ## Script sounds
 

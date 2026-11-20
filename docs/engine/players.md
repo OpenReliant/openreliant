@@ -275,7 +275,7 @@ the pilot uses it, or the ship is destroyed or leaves.
 
 The host applies those rules to its simulated ships. The client gets the map's pickup mask,
 the active mine slots and its own power-up. Mine ownership follows the admission and ship
-that placed it. Team selection is tracked in [#1400](https://github.com/OpenReliant/openreliant/issues/1400).
+that placed it. Team selection is tracked in [#55](https://github.com/OpenReliant/openreliant/issues/55).
 
 ### Six Beacons
 
@@ -356,7 +356,7 @@ The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/95
   participant outcomes and game mode rules for ship disposition and respawn.
 - [#1368](https://github.com/OpenReliant/openreliant/issues/1368): wingman loss, target feedback,
   device notifications and the remaining local combat rules.
-- [#1400](https://github.com/OpenReliant/openreliant/issues/1400): team rules, standings and badges.
+- [#55](https://github.com/OpenReliant/openreliant/issues/55) covers the stock team rules, standings and badges.
 
 This state split does not add a network session or change mission files. Single player remains
 one participant running the existing simulation and presentation paths.

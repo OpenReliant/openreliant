@@ -44,6 +44,7 @@ next_mission: ?u16 = null,
 second_part: bool = false,
 movie_tick: ?u32 = null,
 movie_pending: bool = false,
+music: wire.MissionMusic.Queue = .{},
 pending_view: ?PendingView = null,
 pilot_pages: [wire.PilotPage.max_extra]?wire.PilotPage = @splat(null),
 scenery: ?wire.Scenery = null,
@@ -130,6 +131,7 @@ pub const Event = union(enum) {
     scene_page,
     scenery,
     campaign_line: wire.CampaignLine,
+    mission_music: wire.MissionMusic,
     campaign_result,
     debrief,
     campaign_next,
@@ -212,6 +214,7 @@ fn startNextMission(client: *Client, next: wire.NextMission) void {
     client.projectiles = @splat(null);
     client.scene = @splat(null);
     client.scenery = null;
+    client.music.count = 0;
     client.briefed = next.second_part;
     client.roster.briefing = false;
     client.roster.mission = next.number;
@@ -356,6 +359,11 @@ pub fn poll(client: *Client, io: Io) !Event {
                 if (view.mission == null or line.tick > (view.tick -| client.campaign_floor) *| game.gameobj.ticks_per_step +| 100) return .idle;
             }
             return .{ .campaign_line = line };
+        },
+        .mission_music => |cue| {
+            if (client.joined == null or client.leaving or client.result_tick != null) return .idle;
+            client.music.add(cue);
+            return .{ .mission_music = cue };
         },
         .pilot_page => |page| {
             if (client.joined == null or client.leaving or page.number > wire.max_pilot_pages) return .idle;
@@ -517,6 +525,10 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
         const event = try client.poll(io);
         switch (event) {
             .idle, .combat, .projectiles, .scene_page, .scenery, .campaign_line => {},
+            .mission_music => |cue| {
+                _ = client.music.take();
+                std.debug.print("mission music {s} {s}\n", .{ if (cue.now) "now" else "fade", cue.track.slice() });
+            },
             .chat_line => |line| std.debug.print("chat {t} {d} {s}\n", .{ line.scope, line.sender, line.text.slice() }),
             .lobby => if (client.roster.briefing) try client.finishBriefing(null),
             .tag_bomb_notice => |notice| std.debug.print("notice {s} {d} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot, notice.event.other.slot }),
