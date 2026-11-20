@@ -149,3 +149,20 @@ jobs:
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes "$note
 
           $changelog"
+
+  announce:
+    needs: [release-please, attach]
+    if: github.repository == 'OpenReliant/openreliant'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Post the release to Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_RELEASES_WEBHOOK }}
+          TAG: ${{ needs.release-please.outputs.tag }}
+        run: python3 scripts/discord-notify.py release

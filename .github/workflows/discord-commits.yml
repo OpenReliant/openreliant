@@ -1,0 +1,24 @@
+name: Discord commits
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    if: github.repository == 'OpenReliant/openreliant' && !github.event.created && !github.event.deleted
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Post new commits to Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_MAIN_COMMITS_WEBHOOK }}
+          BEFORE: ${{ github.event.before }}
+        run: python3 scripts/discord-notify.py commits
