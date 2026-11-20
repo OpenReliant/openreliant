@@ -21,7 +21,6 @@ const gate_distance: f32 = 2500;
 const blast_radius_share: f32 = 0.22;
 pub const blast_ticks = 1000;
 const repair_interval = 25; // six_beacons_frame, 0x004B339B
-const wait_notice_gap = 30; // pickup_frame, 0x004B24A0
 const boundary_interval = 50; // six_beacons_frame, 0x004B3316
 const boundary_margin: f32 = 500; // 0x004DC4A8
 
@@ -37,9 +36,21 @@ pub const Notice = struct {
         send: *const fn (*anyopaque, Notice) void,
     };
 
+    /// pickup_frame (0x004B24A0) repeats the warning only after the pilot has moved away.
+    pub fn waiting(world: gameobj.World, pilot: players.ParticipantRef, last_contact: *i32) void {
+        const gap = 30;
+        const now = world.clock.frame_start;
+        if (now -| last_contact.* > gap) post(world, pilot, .waiting_for_players);
+        last_contact.* = now;
+    }
+
     pub fn present(notice: Notice, messages: *hud.Messages, strings: language.Language, viewer: players.ParticipantRef, pilot_name: []const u8) void {
         if (notice.kind == .waiting_for_players and !std.meta.eql(viewer, notice.pilot)) return;
-        const format = strings.string(@backingInt(notice.kind)) orelse return;
+        const format = strings.stringOr(@backingInt(notice.kind), switch (notice.kind) {
+            .all_collected => "%s has all six beacons!",
+            .triggered => "%s triggered the nuke!",
+            .waiting_for_players => "Can't pick up anything until more players join",
+        });
         deathmatch.addMessage(messages, notice.tick, format, &.{pilot_name});
     }
 
@@ -130,7 +141,7 @@ pub const LabelBuffer = [language.max_length + 4]u8;
 pub fn targetText(buffer: *LabelBuffer, strings: language.Language, total: u8) ?[]const u8 {
     const singular = 0x2D6;
     const plural = 0x2D7;
-    const noun = strings.string(if (total == 1) singular else plural) orelse return null;
+    const noun = if (total == 1) strings.stringOr(singular, "beacon") else strings.stringOr(plural, "beacons");
     return std.fmt.bufPrint(buffer, "{d} {s}", .{ total, noun }) catch null;
 }
 
@@ -143,7 +154,7 @@ test "the target window uses the installed singular and plural beacon names" {
     try std.testing.expectEqualStrings("0 balises", targetText(&buffer, strings, 0).?);
     try std.testing.expectEqualStrings("1 balise", targetText(&buffer, strings, 1).?);
     try std.testing.expectEqualStrings("6 balises", targetText(&buffer, strings, 6).?);
-    try std.testing.expectEqual(null, targetText(&buffer, .{ .strings = &.{} }, 1));
+    try std.testing.expectEqualStrings("1 beacon", targetText(&buffer, .{ .strings = &.{} }, 1).?);
 }
 
 pub const Round = struct {
@@ -282,8 +293,7 @@ pub const Round = struct {
                 const item = &all.slots[beacon.object.slot];
                 if (math.distance(ship.drawn.position, item.drawn.position) >= ship.object.radius + item.object.radius) continue;
                 if (waiting) {
-                    if (world.clock.frame_start -| round.last_wait > wait_notice_gap) Notice.post(world, binding.participant, .waiting_for_players);
-                    round.last_wait = world.clock.frame_start;
+                    Notice.waiting(world, binding.participant, &round.last_wait);
                     break;
                 }
                 round.take(world, beacon, binding);

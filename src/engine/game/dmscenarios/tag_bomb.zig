@@ -8,8 +8,8 @@ const hud = @import("../hud.zig");
 const language = @import("../language.zig");
 const players = @import("../players.zig");
 
-pub const fuse = 4500;
-const detonation_frags = 3;
+pub const fuse = @import("../dmscenarios.zig").Scenario.tag_bomb.record().rules.tag_bomb.fuse;
+const detonation_frags = @import("../dmscenarios.zig").Scenario.tag_bomb.record().rules.tag_bomb.detonation_frags;
 
 pub const Notice = struct {
     kind: Kind,
@@ -30,13 +30,13 @@ pub const Notice = struct {
 
     pub fn present(notice: Notice, messages: *hud.Messages, strings: language.Language, viewer: players.ParticipantRef, name: []const u8, other_name: []const u8) void {
         switch (notice.kind) {
-            .passed => deathmatch.addMessage(messages, notice.tick, strings.string(0x305) orelse "%s passed the bomb to %s", &.{ name, other_name }),
+            .passed => deathmatch.addMessage(messages, notice.tick, strings.stringOr(0x305, "%s passed the bomb to %s"), &.{ name, other_name }),
             .detonated => {
                 const suffix = if (notice.awarded and std.meta.eql(notice.pilot, viewer))
-                    strings.string(0x5B8) orelse "(+3)"
+                    strings.stringOr(0x5B8, "(+3)")
                 else
                     "";
-                deathmatch.addMessage(messages, notice.tick, strings.string(0x2E1) orelse "%s laughs as %s explodes %s", &.{ name, other_name, suffix });
+                deathmatch.addMessage(messages, notice.tick, strings.stringOr(0x2E1, "%s laughs as %s explodes %s"), &.{ name, other_name, suffix });
             },
         }
     }
@@ -56,7 +56,7 @@ pub const Hud = struct {
         const anchor = pen.placed(.{ -25, 0 }, 0.5, 0);
         if (icons) |art| try pen.drawing(.{ .art = art, .gpa = pen.gpa }).shape(0x0A, anchor);
         var buffer: [language.max_length + 5]u8 = undefined;
-        const units = pen.strings.string(0x2D5) orelse "secs";
+        const units = pen.strings.stringOr(0x2D5, "secs");
         const text = std.fmt.bufPrint(&buffer, "{d} {s}", .{ view.remaining / 100 + 1, units }) catch return;
         _ = try pen.partText(.tag_bomb_countdown, pen.moved(anchor, .{ 21, 40 }), text, .centre);
     }

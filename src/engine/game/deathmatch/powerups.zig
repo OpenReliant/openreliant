@@ -4,6 +4,7 @@ const math = @import("../../surrender/math.zig");
 const aigeneric = @import("../aigeneric.zig");
 const cloak = @import("../cloak.zig");
 const create = @import("../create.zig");
+const deathmatch = @import("../deathmatch.zig");
 const gameobj = @import("../gameobj.zig");
 const main = @import("../main.zig");
 const six_beacons = @import("../dmscenarios/six_beacons.zig");
@@ -131,24 +132,18 @@ pub const Round = struct {
     pub fn frame(round: *Round, world: gameobj.World) void {
         const all = world.objects;
         const states = all.player_states[0..all.playerSlotCount()];
-        var joined: usize = 0;
-        for (states) |*state| {
-            if (state.membership == .joined) joined += 1;
-        }
-        for (states, 0..) |*state, at| {
+        const waiting = deathmatch.onlyOnePilot(all);
+        for (0..states.len) |at| {
             const index: u16 = @intCast(at);
-            if (!all.hasBoundPlayerShip(index)) continue;
+            const pilot = deathmatch.pickupPilot(world, index) orelse continue;
             if (shadow.isShadow(all, index) or vampires.isVampire(all, index)) continue;
             const slot = &all.slots[index];
-            if (slot.object.power_up != .none or world.clock.frame_start < state.membership.joined.pickups_after or
-                slot.running(.deathmatch_respawn_effect) != null) continue;
+            if (slot.object.power_up != .none) continue;
             for (round.pickups.slots[0..round.pickups.count]) |reference| {
                 const item = &all.slots[reference.resolve(all) orelse continue];
                 if (item.object.flags.disabled or math.distance(slot.drawn.position, item.drawn.position) >= slot.object.radius + item.object.radius) continue;
-                if (joined < 2) {
-                    if (world.clock.frame_start -| round.last_wait > 30)
-                        six_beacons.Notice.post(world, all.playerBinding(index).?.participant, .waiting_for_players);
-                    round.last_wait = world.clock.frame_start;
+                if (waiting) {
+                    six_beacons.Notice.waiting(world, pilot.participant, &round.last_wait);
                     break;
                 }
                 round.take(world, index, reference, choose(world.random.fraction())) catch |err|

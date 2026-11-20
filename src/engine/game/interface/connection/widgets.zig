@@ -1,5 +1,4 @@
 //! Shared controls for OpenReliant's multiplayer browser and lobby.
-const std = @import("std");
 const ui = @import("../canvas.zig");
 const hud = @import("../../hud.zig");
 const language = @import("../../language.zig");
@@ -10,8 +9,7 @@ pub const Label = struct {
     installed: u16 = 0,
 
     pub fn text(label: Label, strings: language.Language) []const u8 {
-        const value = strings.string(label.installed) orelse return label.english;
-        return if (std.mem.trim(u8, value, " \t\r\n").len == 0) label.english else value;
+        return strings.stringOr(label.installed, label.english);
     }
 };
 

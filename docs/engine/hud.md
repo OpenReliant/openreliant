@@ -532,11 +532,11 @@ gives it, rounded (`sr_round`). It shows no range.
 `hud_ship_status` (`0x00489350`) draws a ship's schematic, its type's own sprite's first shape
 (`type_data`), with the quadrants hits have worn flashing on it, and round it the ship's shields and
 armour as two rings of four arcs, the shields outside. Each arc is five shapes, drawn by its level:
-the shields' `0x99` to `0xAC`, the armour's `0x85` to `0x98`. A level is the quadrant's shield over
-the ship's `shield_power`, or its armour over its `armor_class`, cut down to a whole number, less
-one; an arc of 0 or less is left out. An invulnerable ship's armour levels are each
-`(2 * level + 6) / 3`, which leaves at least two arcs of it. A comms relay and a deathmatch beacon
-have no rings.
+the shields' `0x99` to `0xAC`, the armour's `0x85` to `0x98`. The renderer divides the quadrant's shield strength by its `shield_power`, or its
+armour by its `armor_class`, drops the fraction and subtracts one. It skips an empty arc.
+Invulnerable ships use `(2 * level + 6) / 3` for armour. Comms relays and deathmatch beacons
+have no rings. **Fix:** strength above the stock range draws the full arc. The original can
+select sprites from another instrument. HUD scripts still receive the calculated levels.
 
 `object_armor_damage` marks the quadrant each hit on the armour wears: `ship_status_hits`
 (`0x00563160`) for the player's own ship, `target_status_hits` (`0x005635D4`) for the target of its

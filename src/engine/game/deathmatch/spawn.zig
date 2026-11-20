@@ -20,13 +20,14 @@ fn position(world: gameobj.World, first: ?u16) ?math.Place {
     for (all.slots[@min(all.players, all.count)..all.count]) |*slot| {
         if (!slot.object.created or slot.object.type.base() != .spawn_player) continue;
         const place = slot.object.placeAt(.now);
-        if (first == index) return place;
+        const preferred = first == index;
         index += 1;
         if (count == free.len) continue;
         for (all.slots[0..all.players], 0..) |*pilot, at| {
             if (all.playerBinding(@intCast(at)) == null) continue;
             if (math.distance(pilot.object.position(), place.position) < occupied_margin * (pilot.object.radius + slot.object.radius)) break;
         } else {
+            if (preferred) return place;
             free[count] = place;
             count += 1;
         }
@@ -37,6 +38,7 @@ fn position(world: gameobj.World, first: ?u16) ?math.Place {
 
 /// `multiplayer_reset_ship` (`0x004AF1D0`) rebuilds the selected fighter and moves it to a
 /// free spawn marker. The host publishes the result through the normal ship snapshots.
+/// **Improvement:** a pilot joining mid-round also checks whether their preferred marker is free.
 pub fn reset(world: gameobj.World, pilot: players.ParticipantRef, fighter: gameobj.Type, first: ?u16) !void {
     const spawn = world.spawn orelse return error.MissingShipTables;
     const place = position(world, first) orelse return error.NoFreeSpawn;
@@ -44,7 +46,6 @@ pub fn reset(world: gameobj.World, pilot: players.ParticipantRef, fighter: gameo
     const index = pilot.slot;
     const slot = &all.slots[index];
     const power = if (slot.object.created) slot.object.power_setting else null;
-    all.arena_scenario.releaseShip(all, index);
     create.resetSlot(.of(world), index);
     all.loadout_ships[index] = fighter;
     all.loadout_racks[index] = @splat(.of(.none));
@@ -77,7 +78,8 @@ test "a second admitted fighter spawns clear of the first" {
     const first = all.joinParticipant(0).?;
     const second = all.joinParticipant(1).?;
     try reset(world, first, .of(.predator), 0);
-    try reset(world, second, .of(.shroud), null);
+    // Slot zero's preferred marker is occupied. A returning pilot must use a free one.
+    try reset(world, second, .of(.shroud), 0);
     try std.testing.expectEqual(first_place, all.slots[0].drawn.position);
     try std.testing.expectEqual(second_place, all.slots[1].drawn.position);
     try std.testing.expectEqual(gameobj.Type.of(.shroud), all.slots[1].object.type);

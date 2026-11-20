@@ -7,7 +7,7 @@ pub const ordnance = @import("ordnance.zig");
 const flight = engine.input.flight;
 pub const Fighter = engine.game.dmscenarios.Fighter;
 pub const Scenario = engine.game.dmscenarios.Scenario;
-pub const revision: u16 = 18;
+pub const revision: u16 = 19;
 pub const slots = 3;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
@@ -102,6 +102,34 @@ fn readParticipant(r: *std.Io.Reader) !ParticipantRef {
     if (slot >= slots or generation == 0) return error.InvalidParticipant;
     return .{ .slot = slot, .generation = generation };
 }
+
+pub const UberKillNotice = struct {
+    event: engine.game.deathmatch.UberKill,
+    owner_name: CallSign,
+    victim_name: CallSign,
+
+    fn write(notice: UberKillNotice, w: *std.Io.Writer) !void {
+        try writeParticipant(w, notice.event.owner);
+        try writeParticipant(w, notice.event.victim);
+        try w.writeInt(i32, notice.event.tick, .little);
+        try w.writeByte(@intFromBool(notice.event.awarded));
+        try writeCallSign(w, &notice.owner_name);
+        try writeCallSign(w, &notice.victim_name);
+    }
+
+    fn read(r: *std.Io.Reader) !UberKillNotice {
+        const owner = try readParticipant(r);
+        const victim = try readParticipant(r);
+        const tick = try r.takeInt(i32, .little);
+        const award = try r.takeByte();
+        if (tick < 0 or award > 1) return error.InvalidBlastNotice;
+        return .{
+            .event = .{ .owner = owner, .victim = victim, .tick = tick, .awarded = award != 0 },
+            .owner_name = try readCallSign(r),
+            .victim_name = try readCallSign(r),
+        };
+    }
+};
 
 pub const TagBombNotice = struct {
     event: engine.game.deathmatch.tag_bomb.Notice,
@@ -288,6 +316,15 @@ pub const Objectives = union(enum(u8)) {
     hunt_the_shadow: ?u8,
     vampires: vampires.Roles,
 };
+
+fn acceptsObjectives(scenario: ?Scenario, tag: std.meta.Tag(Objectives)) bool {
+    const mode = scenario orelse return tag == .none or tag == .six_beacons;
+    const expected: std.meta.Tag(Objectives) = switch (std.meta.activeTag(mode.record().rules)) {
+        .deathmatch, .asteroid_field => .none,
+        inline else => |rules| @field(std.meta.Tag(Objectives), @tagName(rules)),
+    };
+    return tag == expected;
+}
 
 pub const ActiveBomb = struct {
     carrier: u8,
@@ -681,6 +718,7 @@ pub const Message = union(enum(u8)) {
     tag_bomb_notice: TagBombNotice,
     shadow_notice: ShadowNotice,
     vampires_notice: VampiresNotice,
+    uber_kill: UberKillNotice,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -730,12 +768,12 @@ pub const Message = union(enum(u8)) {
                     }
                     if (view.scenario != null and view.scenario.?.hasPowerUps()) try w.writeByte(@intFromBool(ship.cloaked));
                 }
+                if (!acceptsObjectives(view.scenario, std.meta.activeTag(view.objectives))) return error.InvalidSnapshot;
                 try w.writeByte(@backingInt(std.meta.activeTag(view.objectives)));
                 switch (view.objectives) {
                     .none => {},
                     .six_beacons => |beacons| for (beacons) |beacon| try writeBeacon(&w, beacon),
                     .dark_reign => |mode| {
-                        if (view.scenario != .dark_reign) return error.InvalidSnapshot;
                         try writeBeacon(&w, mode.relay);
                         try w.writeInt(i16, mode.yaw, .little);
                         try w.writeByte(if (mode.shot) |shot| @intCast(shot.target) else slots);
@@ -745,16 +783,13 @@ pub const Message = union(enum(u8)) {
                         }
                     },
                     .tag_bomb => |active| {
-                        if (view.scenario != .tag_bomb) return error.InvalidSnapshot;
                         try w.writeByte(if (active) |bomb| bomb.carrier else slots);
                         if (active) |bomb| try w.writeInt(u16, bomb.remaining, .little);
                     },
                     .hunt_the_shadow => |shadow| {
-                        if (view.scenario != .hunt_the_shadow) return error.InvalidSnapshot;
                         try w.writeByte(shadow orelse slots);
                     },
                     .vampires => |roles| {
-                        if (view.scenario != .vampires) return error.InvalidSnapshot;
                         try w.writeByte(roles.mask);
                     },
                 }
@@ -788,6 +823,7 @@ pub const Message = union(enum(u8)) {
             },
             .tag_bomb_notice => |notice| try notice.write(&w),
             .shadow_notice => |notice| try notice.write(&w),
+            .uber_kill => |notice| try notice.write(&w),
             .vampires_notice => |notice| try notice.write(&w),
             .combat => |combat| try writeCombat(&w, &combat),
             .weapon_order => |order| try ordnance.writeOrder(&w, order),
@@ -886,7 +922,9 @@ pub const Message = union(enum(u8)) {
                         return error.InvalidSnapshot;
                     entry.* = ship;
                 }
-                view.objectives = switch (try r.takeEnum(std.meta.Tag(Objectives), .little)) {
+                const objectives = try r.takeEnum(std.meta.Tag(Objectives), .little);
+                if (!acceptsObjectives(view.scenario, objectives)) return error.InvalidSnapshot;
+                view.objectives = switch (objectives) {
                     .none => .none,
                     .six_beacons => objectives: {
                         var beacons: [beacon_count]Beacon = undefined;
@@ -894,7 +932,6 @@ pub const Message = union(enum(u8)) {
                         break :objectives .{ .six_beacons = beacons };
                     },
                     .dark_reign => objectives: {
-                        if (view.scenario != .dark_reign) return error.InvalidSnapshot;
                         var mode: DarkReign = .{ .relay = try readBeacon(&r, &view.ships), .yaw = try r.takeInt(i16, .little) };
                         const target = try r.takeByte();
                         if (target != slots) {
@@ -907,7 +944,6 @@ pub const Message = union(enum(u8)) {
                         break :objectives .{ .dark_reign = mode };
                     },
                     .tag_bomb => objectives: {
-                        if (view.scenario != .tag_bomb) return error.InvalidSnapshot;
                         const slot = try r.takeByte();
                         if (slot == slots) break :objectives .{ .tag_bomb = null };
                         const remaining = try r.takeInt(u16, .little);
@@ -916,14 +952,12 @@ pub const Message = union(enum(u8)) {
                         break :objectives .{ .tag_bomb = .{ .carrier = slot, .remaining = remaining } };
                     },
                     .hunt_the_shadow => shadow: {
-                        if (view.scenario != .hunt_the_shadow) return error.InvalidSnapshot;
                         const slot = try r.takeByte();
                         if (slot == slots) break :shadow .{ .hunt_the_shadow = null };
                         if (slot >= slots or view.ships[slot] == null) return error.InvalidSnapshot;
                         break :shadow .{ .hunt_the_shadow = slot };
                     },
                     .vampires => roles: {
-                        if (view.scenario != .vampires) return error.InvalidSnapshot;
                         const infected: vampires.Roles = .{ .mask = try r.takeByte() };
                         if (infected.mask >> slots != 0) return error.InvalidSnapshot;
                         for (&view.ships, 0..) |*ship, slot| {
@@ -932,10 +966,6 @@ pub const Message = union(enum(u8)) {
                         break :roles .{ .vampires = infected };
                     },
                 };
-                if (view.scenario == .dark_reign and view.objectives != .dark_reign) return error.InvalidSnapshot;
-                if (view.scenario == .tag_bomb and view.objectives != .tag_bomb) return error.InvalidSnapshot;
-                if (view.scenario == .hunt_the_shadow and view.objectives != .hunt_the_shadow) return error.InvalidSnapshot;
-                if (view.scenario == .vampires and view.objectives != .vampires) return error.InvalidSnapshot;
                 if (view.scenario != null and view.scenario.?.hasPowerUps()) {
                     view.rocks = try .read(&r, compactRocks(view.scenario));
                     try readArena(&r, &view);
@@ -982,6 +1012,7 @@ pub const Message = union(enum(u8)) {
             },
             .tag_bomb_notice => .{ .tag_bomb_notice = try .read(&r) },
             .shadow_notice => .{ .shadow_notice = try .read(&r) },
+            .uber_kill => .{ .uber_kill = try .read(&r) },
             .vampires_notice => .{ .vampires_notice = try .read(&r) },
             .combat => .{ .combat = try readCombat(&r) },
             .weapon_order => .{ .weapon_order = try ordnance.readOrder(&r, slots) },
@@ -1434,4 +1465,21 @@ test "Vampires notices carry a last human or a departure without a pilot" {
     try std.testing.expectError(error.EndOfStream, Message.decode(sent[0 .. sent.len - 1]));
     const left: Message = .{ .vampires_notice = .{ .event = .{ .tick = 500, .change = .round_left } } };
     try std.testing.expectEqualDeep(left, try Message.decode(try left.encode(&buffer)));
+}
+
+test "stock objectives belong to their mission and the small headless arena can carry beacons" {
+    try std.testing.expect(!acceptsObjectives(.nuclear_threat, .none));
+    try std.testing.expect(!acceptsObjectives(.asteroid_field, .six_beacons));
+    try std.testing.expect(acceptsObjectives(null, .six_beacons));
+    try std.testing.expect(!acceptsObjectives(null, .vampires));
+}
+
+test "a nuclear strike carries both admissions and its scorer's award" {
+    var buffer: [capacity]u8 = undefined;
+    const message: Message = .{ .uber_kill = .{
+        .event = .{ .owner = .{ .slot = 0, .generation = 9 }, .victim = .{ .slot = 2, .generation = 3 }, .tick = 450, .awarded = true },
+        .owner_name = lobbyName("Falcon"),
+        .victim_name = lobbyName("Viper"),
+    } };
+    try std.testing.expectEqualDeep(message, try Message.decode(try message.encode(&buffer)));
 }

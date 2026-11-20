@@ -90,7 +90,28 @@ pub const PlayTime = struct {
     seconds: u16 = 0,
     minutes: u16 = 0,
     hours: u16 = 0,
+
+    /// tick_timer (0x004827C0) rolls from tick 100 to zero before advancing a second.
+    pub const ticks_per_display_second = ticks_per_second + 1;
+
+    pub fn fromTicks(ticks: u32) PlayTime {
+        const seconds = ticks / ticks_per_display_second;
+        return .{
+            .ticks = @intCast(ticks % ticks_per_display_second),
+            .seconds = @intCast(seconds % std.time.s_per_min),
+            .minutes = @intCast(seconds % std.time.s_per_hour / std.time.s_per_min),
+            .hours = @intCast(seconds / std.time.s_per_hour),
+        };
+    }
 };
+
+test "a late join reads the same play time as the running mission timer" {
+    var clock: Clock = .{};
+    for (0..PlayTime.ticks_per_display_second * std.time.s_per_min + 1) |tick| {
+        try std.testing.expectEqual(clock.play, PlayTime.fromTicks(@intCast(tick)));
+        clock.advanceTimer(1);
+    }
+}
 
 /// How the mission is ending (`0x00588394`), which its end and the debriefing go by. Nothing ends a
 /// mission while it is `playing`. An ejection is `ejecting` until the pilot's pod has drifted its

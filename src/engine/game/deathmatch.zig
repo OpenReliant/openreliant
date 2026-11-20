@@ -25,24 +25,22 @@ pub fn resetToSpawnPositions(world: gameobj.World) !void {
     if (world.damage_rules != .arena) return;
     const all = world.objects;
     const scenarios = @import("dmscenarios.zig");
-    if (!scenarios.isScenario(all.mission_number)) return;
+    const scenario = scenarios.Scenario.forMission(all.mission_number) orelse return;
     // The original leaves scenery guns off unless the host enables AI turrets.
     for (all.slots[@min(all.players, all.count)..all.count]) |*slot| slot.object.flags.guns_disabled = true;
     if (all.arena_scenario == .deathmatch) {
-        if (all.mission_number == scenarios.Scenario.nuclear_threat.mission())
-            try six_beacons.Round.start(world, .free_for_all);
-        if (all.mission_number == scenarios.Scenario.asteroid_field.mission())
-            all.arena_scenario = .{ .asteroid_field = try powerups.Round.start(all) };
-        if (all.mission_number == scenarios.Scenario.dark_reign.mission()) {
-            const round = try dark_reign.Round.start(all);
-            all.arena_scenario = .{ .dark_reign = .{ .relay = round, .powerups = try powerups.Round.start(all) } };
+        switch (std.meta.activeTag(scenario.record().rules)) {
+            .deathmatch => {},
+            .six_beacons => try six_beacons.Round.start(world, .free_for_all),
+            .asteroid_field => all.arena_scenario = .{ .asteroid_field = try powerups.Round.start(all) },
+            .dark_reign => all.arena_scenario = .{ .dark_reign = .{
+                .relay = try dark_reign.Round.start(all),
+                .powerups = try powerups.Round.start(all),
+            } },
+            inline .tag_bomb, .hunt_the_shadow, .vampires => |rules| {
+                all.arena_scenario = @unionInit(Scenario, @tagName(rules), .{ .powerups = try powerups.Round.start(all) });
+            },
         }
-        if (all.mission_number == scenarios.Scenario.tag_bomb.mission())
-            all.arena_scenario = .{ .tag_bomb = .{ .powerups = try powerups.Round.start(all) } };
-        if (all.mission_number == scenarios.Scenario.hunt_the_shadow.mission())
-            all.arena_scenario = .{ .hunt_the_shadow = .{ .powerups = try powerups.Round.start(all) } };
-        if (all.mission_number == scenarios.Scenario.vampires.mission())
-            all.arena_scenario = .{ .vampires = .{ .powerups = try powerups.Round.start(all) } };
         all.arena_boundary = .{ .bounds = switch (all.arena_scenario) {
             .six_beacons => |*round| round.bounds,
             else => .of(all),
@@ -97,7 +95,7 @@ pub const Bounds = struct {
 pub const Boundary = @import("deathmatch/boundary.zig");
 
 /// Rules selected by the host after loading an arena. Ordinary deathmatch has no objectives.
-pub const Scenario = union(enum) {
+pub const Scenario = union(std.meta.Tag(@import("dmscenarios.zig").Rules)) {
     deathmatch,
     asteroid_field: powerups.Round,
     six_beacons: six_beacons.Round,
@@ -109,10 +107,7 @@ pub const Scenario = union(enum) {
     pub fn powerUps(scenario: *Scenario) ?*powerups.Round {
         return switch (scenario.*) {
             .asteroid_field => |*round| round,
-            .dark_reign => |*round| &round.powerups,
-            .tag_bomb => |*round| &round.powerups,
-            .hunt_the_shadow => |*round| &round.powerups,
-            .vampires => |*round| &round.powerups,
+            inline .dark_reign, .tag_bomb, .hunt_the_shadow, .vampires => |*round| &round.powerups,
             else => null,
         };
     }
@@ -302,9 +297,9 @@ pub const UberKill = struct {
     /// Formats the installed language's kill line (0x301). Only the scorer sees the
     /// award suffix (0x2F4). The HUD keeps as much of the message as fits on one line.
     pub fn present(notice: UberKill, messages: *@import("hud.zig").Messages, strings: @import("language.zig").Language, viewer: players.ParticipantRef, owner_name: []const u8, victim_name: []const u8) void {
-        const format = strings.string(message_id) orelse return;
+        const format = strings.stringOr(message_id, "%s nuked %s %s");
         const scored = notice.awarded and std.meta.eql(notice.owner, viewer);
-        const suffix = if (scored) strings.string(award_suffix_id) orelse "" else "";
+        const suffix = if (scored) strings.stringOr(award_suffix_id, "(+1)") else "";
         addMessage(messages, notice.tick, format, &.{ owner_name, victim_name, suffix });
     }
 };

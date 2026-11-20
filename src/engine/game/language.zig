@@ -72,6 +72,12 @@ pub const Language = struct {
         if (id == 0 or id > language.strings.len) return null;
         return language.strings[id - 1];
     }
+
+    /// Some installed tables have blank entries. Use the supplied text for those and missing IDs.
+    pub fn stringOr(language: Language, id: u32, fallback: []const u8) []const u8 {
+        const found = language.string(id) orelse return fallback;
+        return if (std.mem.trim(u8, found, " \t\r\n").len == 0) fallback else found;
+    }
 };
 
 /// Words to show: a string of a language table, by its id, or a mod's own text in the game's code
@@ -226,6 +232,9 @@ test Language {
     try std.testing.expectEqualStrings("External Camera", language.string(3).?);
     try std.testing.expectEqual(null, language.string(0));
     try std.testing.expectEqual(null, language.string(5));
+    try std.testing.expectEqualStrings("English", language.stringOr(2, "English"));
+    try std.testing.expectEqualStrings("External Camera", language.stringOr(3, "English"));
+    try std.testing.expectEqualStrings("English", language.stringOr(5, "English"));
 }
 
 test fromUnicode {

@@ -9,7 +9,7 @@ const language = @import("../language.zig");
 const players = @import("../players.zig");
 
 /// The Shadow's killer gets this bonus (0x004B4A75) in addition to the normal frag (0x004085A2).
-const bonus_frags = 5;
+const bonus_frags = @import("../dmscenarios.zig").Scenario.hunt_the_shadow.record().rules.hunt_the_shadow.bonus_frags;
 
 pub const Round = struct {
     owner: ?players.ParticipantRef = null,
@@ -101,12 +101,12 @@ pub const Notice = struct {
         switch (notice.kind) {
             .claimed => {},
             .transferred => {
-                const bonus = if (scorer) strings.string(0x2F3) orelse "(+5)" else "";
-                deathmatch.addMessage(messages, notice.tick, strings.string(0x2E7) orelse "%s killed Shadow %s %s", &.{ name, other, bonus });
+                const bonus = if (scorer) strings.stringOr(0x2F3, "(+5)") else "";
+                deathmatch.addMessage(messages, notice.tick, strings.stringOr(0x2E7, "%s killed Shadow %s %s"), &.{ name, other, bonus });
             },
             .killed => {
-                const bonus = if (scorer) strings.string(0x2F4) orelse "(+1)" else "";
-                deathmatch.addMessage(messages, notice.tick, strings.string(0x2E6) orelse "%s the Shadow killed %s %s", &.{ name, other, bonus });
+                const bonus = if (scorer) strings.stringOr(0x2F4, "(+1)") else "";
+                deathmatch.addMessage(messages, notice.tick, strings.stringOr(0x2E6, "%s the Shadow killed %s %s"), &.{ name, other, bonus });
                 return;
             },
         }
@@ -117,9 +117,9 @@ pub const Notice = struct {
 /// shadow_init (0x004B48C0) announces the role on entry or resync.
 pub fn announce(messages: *hud.Messages, strings: language.Language, tick: i32, name: ?[]const u8) void {
     if (name) |pilot| {
-        deathmatch.addMessage(messages, tick, strings.string(0x2DD) orelse "%s is the new Shadow", &.{pilot});
+        deathmatch.addMessage(messages, tick, strings.stringOr(0x2DD, "%s is the new Shadow"), &.{pilot});
     } else {
-        messages.add(strings.string(0x2E5) orelse "No-one is the Shadow", tick);
+        messages.add(strings.stringOr(0x2E5, "No-one is the Shadow"), tick);
     }
 }
 
