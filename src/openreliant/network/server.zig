@@ -568,24 +568,14 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                 };
             }
             switch (message) {
-                .input => |input| {
-                    if (!input.follows(peer.sequence)) return true;
-                    peer.sequence = input.sequence;
-                    peer.expires = time + timeout;
-                    if (host.acceptsFlight() and input.arena_floor == host.arena_floor) {
-                        peer.flight_command = input.command;
-                        peer.fire_for = input.fire_for;
-                    }
-                },
+                .input => |input| host.acceptInput(peer, input, time),
                 .flight_press => |presses| if (host.acceptsFlight()) peer.presses.merge(presses),
                 .weapon_order => |order| if (host.acceptsFlight()) {
                     if (peer.weapons) |*pending| pending.merge(order) else peer.weapons = order;
                 },
                 .chat_request => |request| host.relayChat(slot, peer, request, time),
                 .debrief_choice => |choice| host.takeDebriefChoice(slot, choice),
-                .campaign_movie_done => |tick| if (host.campaign_movie) |*movie| {
-                    if (slot < wire.cooperative_slots and tick == host.tick) movie.waiting.unset(slot);
-                },
+                .campaign_movie_done => |tick| host.acknowledgeMovie(slot, tick),
                 .lobby_ready => |ready| host.markLobbyReady(slot, peer, ready),
                 .crew_jump => |request| if (host.acceptsFlight()) host.arena.crewJump(slot, host.tick, request),
                 .crew_land => |request| if (host.acceptsFlight()) host.arena.crewLand(slot, host.tick, request),
@@ -621,6 +611,21 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
         },
         .connecting, .closing => return false,
     }
+}
+
+fn acceptInput(host: *const Host, peer: *Peer, input: wire.Input, time: i64) void {
+    if (!input.follows(peer.sequence)) return;
+    peer.sequence = input.sequence;
+    peer.expires = time + timeout;
+    if (host.acceptsFlight() and input.arena_floor == host.arena_floor) {
+        peer.flight_command = input.command;
+        peer.fire_for = input.fire_for;
+    }
+}
+
+fn acknowledgeMovie(host: *Host, slot: u8, tick: u32) void {
+    if (slot >= wire.cooperative_slots or tick != host.tick) return;
+    if (host.campaign_movie) |*movie| movie.waiting.unset(slot);
 }
 
 fn service(host: *Host, slot: u8, time: i64) !void {
@@ -1052,15 +1057,23 @@ fn stageCampaign(host: *Host, time: i64, number: u16, second_part: bool, advance
         if (!second_part) kept.variables.last_success = kept.variables.mission_success;
         kept.mission = number;
         host.campaign_wing = host.arena.mission.objects.wingmen;
-    } else if (host.split_restart) |point| {
+    }
+    host.enterCampaignStage(staging, time, number, second_part, advance);
+    host.sendCampaignPhase(.{ .campaign_next = .{ .after = host.tick, .number = number, .second_part = second_part } });
+    if (second_part) try host.seatCampaignCrew();
+}
+
+fn enterCampaignStage(host: *Host, staging: *Arena, time: i64, number: u16, second_part: bool, advance: bool) void {
+    if (!advance) if (host.split_restart) |point| {
         host.campaign_record.?.variables = point.variables;
         host.campaign_wing = point.wing;
         host.split_restart = null;
-    }
+    };
+    const directory = host.debrief.?.directory;
     host.arena.destroy();
     host.arena = staging;
     host.debrief = null;
-    host.beginBriefing(number, results.directory);
+    host.beginBriefing(number, directory);
     host.campaign_start.?.second_part = second_part;
     host.campaign_briefing = !second_part;
     host.scene_pages = @splat(false);
@@ -1074,8 +1087,6 @@ fn stageCampaign(host: *Host, time: i64, number: u16, second_part: bool, advance
         peer.weapons = null;
         peer.expires = time + timeout;
     };
-    host.sendCampaignPhase(.{ .campaign_next = .{ .after = host.tick, .number = number, .second_part = second_part } });
-    if (second_part) try host.seatCampaignCrew();
 }
 
 fn beginMovie(host: *Host, time: i64) void {
@@ -1403,7 +1414,8 @@ test "replaying a split mission restores the first part's campaign and rescue co
     defer host.arena.destroy();
     host.campaign_record.?.variables.reliant_alive = 0;
     host.peers[0] = .{ .conn = 1, .expires = timeout, .rescues = 2, .attempt_rescues = 1 };
-    try host.stageCampaign(0, 25, false, false);
+    const staging = try host.arena.betweenMissions(host.io, host.debrief.?.directory);
+    host.enterCampaignStage(staging, 0, 25, false, false);
     try std.testing.expectEqual(1, host.campaign_record.?.variables.reliant_alive);
     try std.testing.expectEqual(1, host.peers[0].?.rescues);
     try std.testing.expectEqual(25, host.campaign_start.?.number);
@@ -1417,10 +1429,9 @@ test "movie receipts can release only the sending pilot at the held tick" {
     waiting.set(0);
     waiting.set(1);
     host.campaign_movie = .{ .waiting = waiting, .until = wire.campaign_movie_timeout };
-    var peer: Peer = .{ .conn = 2, .state = .playing, .expires = timeout };
-    try std.testing.expect(try host.receive(1, &peer, .{ .campaign_movie_done = 119 }, 0));
+    host.acknowledgeMovie(1, 119);
     try std.testing.expectEqual(waiting, host.campaign_movie.?.waiting);
-    try std.testing.expect(try host.receive(1, &peer, .{ .campaign_movie_done = 120 }, 0));
+    host.acknowledgeMovie(1, 120);
     try std.testing.expect(!host.campaign_movie.?.waiting.isSet(1));
     try std.testing.expect(host.campaign_movie.?.waiting.isSet(0));
     try std.testing.expect(!host.acceptsFlight());
@@ -1442,19 +1453,19 @@ test "a reordered command or a command for the previous round leaves other contr
     host.peers[0] = .{ .conn = 1, .state = .playing, .expires = 50, .flight_command = .{ .afterburner = true } };
     host.peers[1] = .{ .conn = 2, .state = .playing, .expires = 50, .sequence = 14 };
     const peer = &host.peers[1].?;
-    try std.testing.expect(try host.receive(1, peer, .{ .input = .{
+    host.acceptInput(peer, .{
         .sequence = 13,
         .arena_floor = 35,
         .command = .{ .reverse = true },
         .fire_for = 9,
-    } }, 25));
+    }, 25);
     try std.testing.expectEqual(50, peer.expires);
-    try std.testing.expect(try host.receive(1, peer, .{ .input = .{
+    host.acceptInput(peer, .{
         .sequence = 15,
         .arena_floor = 0,
         .command = .{ .reverse = true },
         .fire_for = 9,
-    } }, 25));
+    }, 25);
     try std.testing.expectEqualDeep(flight.Command{}, peer.flight_command);
     try std.testing.expectEqual(null, peer.fire_for);
     try std.testing.expect(host.peers[0].?.flight_command.afterburner);
