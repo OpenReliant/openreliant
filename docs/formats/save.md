@@ -31,6 +31,10 @@ after the call sign's terminator, which OpenReliant writes as zeros.
 - **Improvement:** OpenReliant keeps the restart point in memory, where the game writes it as slot
   100 and reads it back; and it makes the `saves` folder where the game's folder lacks it, which the
   game leaves to its installer, failing to save without it.
+- **Improvement:** a co-op save can have a `CRSC` chunk with the host's rescue totals for the saved
+  wing. Its four entries each hold a one-byte call sign length, 32 bytes for the name, and a
+  one-byte rescue count. A zero length marks an empty entry. The original skips this chunk and
+  reads the local pilot's rescue total from `MISS` as usual.
 - **Fixes:** each record takes no more of its chunk than it holds, where the game reads each chunk
   by the length the file gives, so that a longer one runs on into what follows the record in
   memory. A rank, a tier, a ship or a missile past those the game has is taken as the nearest it

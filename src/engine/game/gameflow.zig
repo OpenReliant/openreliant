@@ -344,14 +344,18 @@ pub const Campaign = struct {
     /// off the carrier. Otherwise the mission's record keeps the count (`0x00475A80`).
     pub fn pickedUp(campaign: *Campaign, mission: u16) bool {
         campaign.pickups +|= 1;
-        if (campaign.pickups > allowed_pickups) return true;
+        if (transferredAfterRescues(campaign.pickups)) return true;
         if (campaign.record(mission)) |kept_record| kept_record.pickups = campaign.pickups;
         return false;
     }
-
-    /// How many pickups the pilot is allowed (`0x00475A68`).
-    const allowed_pickups = 2;
 };
+
+/// `pickup_count` (0x00475A68) allows two recoveries. The next one transfers the pilot.
+pub const allowed_rescues = 2;
+
+pub fn transferredAfterRescues(count: u8) bool {
+    return count > allowed_rescues;
+}
 
 /// The game's variables as an attempt at a mission of a new campaign starts, as the first mission's
 /// do, and every mission's the front end flies outside the campaign.

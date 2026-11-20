@@ -245,6 +245,62 @@ pub const Save = struct {
     pilo: Replacement,
     alph: Wing,
     mods: Mods = .{},
+    coop_rescues: CoopRescues = .{},
+};
+
+/// OpenReliant keeps the host's rescue counts in an optional CRSC chunk. The original skips
+/// unknown chunks and still reads the local pilot's count from MISS.
+pub const CoopRescues = struct {
+    pub const size = 4;
+    const id: iff.Id = "CRSC".*;
+    const CallSign = @import("../players.zig").Name;
+    const name_size = @as(CallSign, .{}).bytes.len;
+    const entry_size = 1 + name_size + 1;
+    pub const capacity = size * entry_size;
+
+    entries: [size]Entry = @splat(.{}),
+
+    const Entry = struct { name: CallSign = .{}, count: u8 = 0 };
+
+    pub fn count(rescues: CoopRescues, name: []const u8) ?u8 {
+        if (name.len == 0) return null;
+        for (rescues.entries) |entry| {
+            if (std.ascii.eqlIgnoreCase(entry.name.slice(), name)) return entry.count;
+        }
+        return null;
+    }
+
+    pub fn set(rescues: *CoopRescues, slot: usize, name: []const u8, total: u8) void {
+        rescues.entries[slot].name.set(name);
+        rescues.entries[slot].count = if (name.len == 0) 0 else total;
+    }
+
+    pub fn encode(rescues: CoopRescues) [capacity]u8 {
+        var result: [capacity]u8 = @splat(0);
+        for (rescues.entries, 0..) |entry, index| {
+            const at = index * entry_size;
+            result[at] = @intCast(entry.name.len);
+            @memcpy(result[at + 1 ..][0..entry.name.len], entry.name.slice());
+            result[at + 1 + name_size] = entry.count;
+        }
+        return result;
+    }
+
+    pub fn decode(bytes: []const u8) ?CoopRescues {
+        if (bytes.len != capacity) return null;
+        var rescues: CoopRescues = .{};
+        for (&rescues.entries, 0..) |*entry, index| {
+            const at = index * entry_size;
+            const len = bytes[at];
+            const total = bytes[at + 1 + name_size];
+            if (len > name_size or total > gameflow.allowed_rescues + 1 or (len == 0 and total != 0)) return null;
+            const name = bytes[at + 1 ..][0..len];
+            if (std.mem.indexOfScalar(u8, name, 0) != null) return null;
+            entry.name.set(name);
+            entry.count = total;
+        }
+        return rescues;
+    }
 };
 
 /// OpenReliant's: what a saved game holds of the mods' records. The save's own records keep a mod's
@@ -475,6 +531,10 @@ fn writeFile(w: *std.Io.Writer, save: *const Save) std.Io.Writer.Error!void {
     name[save.name.len] = 0;
     try writeChunk(w, name_id, name[0 .. save.name.len + 1]);
     inline for (chunks) |chunk| try writeChunk(w, &chunk.id, std.mem.asBytes(&@field(save, chunk.field)));
+    for (save.coop_rescues.entries) |entry| if (entry.name.len != 0) {
+        try writeChunk(w, &CoopRescues.id, &save.coop_rescues.encode());
+        break;
+    };
 }
 
 /// `iff_write_dword` (`0x004759D0`) of an id, which it writes as it lies in memory.
@@ -512,6 +572,7 @@ pub fn read(bytes: []const u8, save: *Save) bool {
         const len = @min(body.len, into.len);
         @memcpy(into[0..len], body[0..len]);
     };
+    save.coop_rescues = if (reader.chunk(&CoopRescues.id)) |body| CoopRescues.decode(body) orelse .{} else .{};
     return true;
 }
 
@@ -526,6 +587,7 @@ pub const Game = struct {
     pilot: *pilot_roster.Pilot,
     saved: *loadout.Saved,
     wingmen: *pilots.Wingmen,
+    coop_rescues: ?*CoopRescues = null,
 
     /// `campaign_new`'s clearing of the pilot's tallies as START GAME begins a campaign
     /// (`0x004751DE` to `0x00475203`): the pilot's rank, the campaign's tier and the pilot's kills
@@ -546,6 +608,7 @@ pub const Game = struct {
             .vars = captureVariables(&game.campaign.variables),
             .pilo = game.wingmen.pool[0],
             .alph = game.wingmen.alpha,
+            .coop_rescues = if (game.coop_rescues) |counts| counts.* else .{},
         };
         save.name.set(name);
         save.mods = .{ .choice = .of(game.saved.*), .variables = .of(&game.campaign.variables) };
@@ -605,6 +668,7 @@ pub const Game = struct {
         save.mods.choice.apply(game.saved);
         game.wingmen.pool[0] = save.pilo;
         game.wingmen.alpha = save.alph;
+        if (game.coop_rescues) |counts| counts.* = save.coop_rescues;
         applyVariables(&campaign.variables, save.vars);
         save.mods.variables.apply(&campaign.variables);
     }
@@ -860,6 +924,27 @@ test write {
 /// Checks that `bytes` hold `expected` from `at` on.
 fn expectAt(bytes: []const u8, at: usize, expected: []const u8) !void {
     try std.testing.expectEqualSlices(u8, expected, bytes[at..][0..expected.len]);
+}
+
+test "the co-op rescue table loads with the ordinary IFF records and is optional" {
+    const gpa = std.testing.allocator;
+    const original = testSave("Wing Return");
+    var with_crew = original;
+    with_crew.coop_rescues.set(0, "Falcon", 1);
+    with_crew.coop_rescues.set(3, "Viper", 2);
+    const bytes = try write(gpa, &with_crew);
+    defer gpa.free(bytes);
+    var resumed = original;
+    try std.testing.expect(read(bytes, &resumed));
+    try std.testing.expectEqual(@as(?u8, 2), resumed.coop_rescues.count("viper"));
+    try std.testing.expectEqual(@as(?u8, 1), resumed.coop_rescues.count("Falcon"));
+    try std.testing.expectEqual(null, resumed.coop_rescues.count("Wingman"));
+    try std.testing.expectEqualDeep(original.miss, resumed.miss);
+
+    const legacy = try write(gpa, &original);
+    defer gpa.free(legacy);
+    try std.testing.expect(read(legacy, &resumed));
+    try std.testing.expectEqual(null, resumed.coop_rescues.count("Viper"));
 }
 
 test read {

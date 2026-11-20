@@ -608,6 +608,8 @@ connection keeps running. **Save Game** in the co-op debrief uses the in-game-op
 and hides Main Menu and Quit (`multiplayer_debriefing`, 0x00429C56 to 0x00429C73).
 The save uses the original IFF format. It keeps the shared flags and wing data supplied by
 the host and the pilot's own record. A result that advances the campaign saves the next mission.
+OpenReliant also saves the host's rescue totals for the named pilots in that wing. Use the same
+call signs when resuming to restore their totals. Older saves still restore the host pilot's total.
 The pilot's mission record goes into `profile.bin` (`mission_end_record`, 0x00475C2D);
 the network path skips the solo autosave (0x00475BF4).
 **Improvement:** co-op keeps the attempt's restart point in memory, so replay uses the

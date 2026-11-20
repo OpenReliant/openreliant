@@ -188,7 +188,7 @@ pub fn betweenMissions(arena: *const Arena, io: std.Io, directory: std.Io.Dir) !
 }
 
 /// Start a campaign mission from the installed data and bind its created ships to the lobby crew.
-pub fn prepareCampaign(staging: *const Arena, number: u16, io: std.Io, directory: std.Io.Dir, checkpoint: *const game.gameflow.Campaign, wingmen: *const game.pilots.Wingmen) !*Arena {
+pub fn prepareCampaign(staging: *const Arena, leg: wire.NextMission, io: std.Io, directory: std.Io.Dir, checkpoint: *const game.gameflow.Campaign, wingmen: *const game.pilots.Wingmen) !*Arena {
     const gpa = staging.mission.objects.gpa;
     const arena = try create(gpa, .training, io, directory);
     errdefer arena.destroy();
@@ -202,12 +202,14 @@ pub fn prepareCampaign(staging: *const Arena, number: u16, io: std.Io, directory
         .gates = gates,
         .radio = .openAt(gpa, io, directory, game.radio.speech_archive, game.hudmovie.archive_path),
         .cues = .{ .gpa = gpa },
+        .started_after = leg.after,
     };
     campaign.radio.output = .{ .context = campaign, .send = Campaign.say };
     arena.campaign = campaign;
     arena.carryAdmissions(staging);
     const all = arena.mission.objects;
     all.wingmen = wingmen.*;
+    all.mission25_second_part = leg.second_part;
     all.players = 0;
     for (arena.pilots, 0..) |entry, slot| {
         if (entry) |pilot| {
@@ -219,7 +221,7 @@ pub fn prepareCampaign(staging: *const Arena, number: u16, io: std.Io, directory
             }
         }
     }
-    const file = (try assets.files.readMission(gpa, number)) orelse return error.MissingCampaignMission;
+    const file = (try assets.files.readMission(gpa, leg.number, leg.second_part)) orelse return error.MissingCampaignMission;
     var seed: u64 = undefined;
     io.random(std.mem.asBytes(&seed));
     arena.loaded = try game.main.startMission(gpa, .{
@@ -230,11 +232,12 @@ pub fn prepareCampaign(staging: *const Arena, number: u16, io: std.Io, directory
         .display = &campaign.display,
         .campaign = checkpoint,
         .seed = seed,
-    }, file.image, number);
+    }, file.image, leg.number);
     for (&arena.pilots, 0..) |*entry, slot| {
         if (entry.*) |*pilot| {
             if (all.playerBinding(@intCast(slot)) == null) return error.MissingCampaignPilotShip;
-            pilot.fighter = std.enums.fromInt(wire.Fighter, all.slots[slot].object.type.base().untwinned().number()) orelse return error.UnsupportedCampaignPilotShip;
+            const kind = all.slots[slot].object.type.base().untwinned();
+            if (kind != .kamov) pilot.fighter = std.enums.fromInt(wire.Fighter, kind.number()) orelse return error.UnsupportedCampaignPilotShip;
         }
     }
     return arena;
@@ -275,6 +278,7 @@ fn world(arena: *Arena) game.gameobj.World {
         scene.touchdown = .original;
         scene.gates = &campaign.gates;
         scene.display = &campaign.display;
+        // Radio has a network sink. Scripted music cues are tracked in #1491.
         scene.radio = &campaign.radio;
         scene.environment = &campaign.environment;
         scene.cues = &campaign.cues;
@@ -483,6 +487,7 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
     if (arena.campaign) |campaign| {
         view.mission = .{
             .number = all.mission_number,
+            .second_part = all.mission25_second_part,
             .pilot_slots = @intCast(all.players),
             .lead = if (engine.input.missionLead(all)) |lead| @intCast(lead.participant.slot) else null,
             .travel = campaign.travel,
@@ -533,6 +538,7 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
             .dying = object.flags.exploding,
             .pod = pod,
             .pod_clear = pod and all.slots[index].state.eject.stage != .clearing,
+            .kamov = object.type.base() == .kamov,
         };
         ship.*.?.face(object.root.next_orientation);
     }

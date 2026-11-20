@@ -18,10 +18,11 @@ pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
 pub const CampaignCheckpoint = campaign.Checkpoint;
-pub const revision: u16 = 24;
+pub const revision: u16 = 25;
 pub const slots = engine.game.deathmatch.spawn.positions;
 pub const cooperative_slots = campaign.Crew.size;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
+pub const campaign_movie_timeout = 2 * std.time.s_per_min * std.time.us_per_s;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
 const guns = engine.game.guns;
 const powerups = engine.game.deathmatch.powerups;
@@ -42,12 +43,13 @@ const snapshot_header = 2 + @sizeOf(u32) + 1 + inline_pilots * Ship.encoded_size
 const beacon_snapshot_capacity = snapshot_header - inline_pilots + beacon_count * (1 + 3 * @sizeOf(f32)) + Blast.encoded_size;
 const power_capacity = @sizeOf(powerups.Pickups.Mask) + 1 + @sizeOf(i32);
 const arena_capacity = snapshot_header + @max(DarkReign.encoded_size, Blast.encoded_size) + power_capacity;
-const snapshot_capacity = @max(beacon_snapshot_capacity, arena_capacity, snapshot_header + MissionView.capacity);
+const campaign_capacity = snapshot_header - (inline_pilots - cooperative_slots) * (Ship.encoded_size - @sizeOf(u64)) + MissionView.capacity + CampaignCheckpoint.capacity;
 const roster_capacity = 7 + slots * (@sizeOf(u64) + 1 + @as(CallSign, .{}).bytes.len);
-pub const capacity = @max(snapshot_capacity + ordnance.Status.capacity + CampaignCheckpoint.capacity, roster_capacity, PilotPage.capacity, Combat.capacity, ordnance.Page.capacity, ScenePage.capacity, Scenery.capacity);
+pub const capacity = @max(@max(beacon_snapshot_capacity, arena_capacity, campaign_capacity) + ordnance.Status.capacity, roster_capacity, PilotPage.capacity, Combat.capacity, ordnance.Page.capacity, ScenePage.capacity, Scenery.capacity);
 comptime {
     std.debug.assert(capacity < 1200);
     std.debug.assert(slots <= PilotPage.width * (PilotPage.max_extra + 1));
+    std.debug.assert(cooperative_slots == engine.game.gameflow.save.CoopRescues.size);
 }
 const max_release = 96;
 
@@ -317,6 +319,7 @@ pub const Ship = struct {
     dying: bool = false,
     pod: bool = false,
     pod_clear: bool = false,
+    kamov: bool = false,
     ping_ms: ?u16 = null,
 
     pub const unknown_ping = std.math.maxInt(u16);
@@ -329,6 +332,10 @@ pub const Ship = struct {
 
     pub fn orientationMatrix(ship: Ship) engine.surrender.math.Matrix {
         return unpackFacing(ship.angles);
+    }
+
+    pub fn kind(ship: Ship) engine.game.gameobj.Type {
+        return if (ship.kamov) .of(.kamov) else ship.fighter.kind();
     }
 };
 pub const Beacon = union(enum(u8)) { loose: [3]f32, carried: u8 };
@@ -473,7 +480,8 @@ fn writeShips(w: *std.Io.Writer, ships: []const ?Ship, mode: Mode) !void {
             const dying: u8 = @intFromBool(ship.dying);
             const pod: u8 = @intFromBool(ship.pod);
             const clear: u8 = @intFromBool(ship.pod_clear);
-            try w.writeByte(wall | (dying << 1) | (pod << 2) | (clear << 3));
+            const kamov: u8 = @intFromBool(ship.kamov);
+            try w.writeByte(wall | (dying << 1) | (pod << 2) | (clear << 3) | (kamov << 4));
             try w.writeInt(u16, ship.ping_ms orelse Ship.unknown_ping, .little);
         }
         if (mode.scenario != null and mode.scenario.?.hasPowerUps()) try w.writeByte(@intFromBool(ship.cloaked));
@@ -497,11 +505,12 @@ fn readShips(r: *std.Io.Reader, ships: []?Ship, mode: Mode) !void {
             ship.respawn = try r.takeInt(u16, .little);
             if (ship.respawn > engine.game.deathmatch.respawn.duration) return error.InvalidSnapshot;
             const flags = try r.takeByte();
-            if (flags > 0b1111 or (!mode.mission and flags & 0b1100 != 0) or flags & 0b1100 == 0b1000) return error.InvalidSnapshot;
+            if (flags > 0b11111 or (!mode.mission and flags & 0b11100 != 0) or flags & 0b1100 == 0b1000) return error.InvalidSnapshot;
             ship.at_wall = flags & 1 != 0;
             ship.dying = flags & 2 != 0;
             ship.pod = flags & 4 != 0;
             ship.pod_clear = flags & 8 != 0;
+            ship.kamov = flags & 16 != 0;
             const ping = try r.takeInt(u16, .little);
             ship.ping_ms = if (ping == Ship.unknown_ping) null else ping;
         }
@@ -958,6 +967,8 @@ pub const Message = union(enum(u8)) {
     campaign_end: u32,
     lobby_ready: bool,
     campaign_retired: u32,
+    campaign_movie: u32,
+    campaign_movie_done: u32,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -1023,7 +1034,7 @@ pub const Message = union(enum(u8)) {
                 }
             },
             .leave => {},
-            .received_final, .campaign_end, .campaign_retired => |tick| try w.writeInt(u32, tick, .little),
+            .received_final, .campaign_end, .campaign_retired, .campaign_movie, .campaign_movie_done => |tick| try w.writeInt(u32, tick, .little),
             .flight_press => |presses| try w.writeByte(@bitCast(presses)),
             .roster => |roster| {
                 try writeMode(&w, roster.lobby, roster.mission != null);
@@ -1049,6 +1060,7 @@ pub const Message = union(enum(u8)) {
             .campaign_next => |next| {
                 try w.writeInt(u32, next.after, .little);
                 try w.writeInt(u16, next.number, .little);
+                try w.writeByte(@intFromBool(next.second_part));
             },
             .campaign_line => |line| try line.write(&w),
             .briefed => |selected| if (selected) |fit| {
@@ -1209,6 +1221,8 @@ pub const Message = union(enum(u8)) {
             .received_final => .{ .received_final = try r.takeInt(u32, .little) },
             .campaign_end => .{ .campaign_end = try r.takeInt(u32, .little) },
             .campaign_retired => .{ .campaign_retired = try r.takeInt(u32, .little) },
+            .campaign_movie => .{ .campaign_movie = try r.takeInt(u32, .little) },
+            .campaign_movie_done => .{ .campaign_movie_done = try r.takeInt(u32, .little) },
             .flight_press => presses: {
                 const value: flight_input.Presses = @bitCast(try r.takeByte());
                 if (value.reserved != 0 or !value.any()) return error.InvalidFlightInput;
@@ -1261,6 +1275,11 @@ pub const Message = union(enum(u8)) {
             .campaign_next => .{ .campaign_next = .{
                 .after = try r.takeInt(u32, .little),
                 .number = try campaign.readMissionNumber(&r),
+                .second_part = switch (try r.takeByte()) {
+                    0 => false,
+                    1 => true,
+                    else => return error.InvalidMissionView,
+                },
             } },
             .campaign_line => .{ .campaign_line = try .read(&r) },
             .briefed => ready: {
@@ -1377,12 +1396,28 @@ test "only the reliable campaign result carries the shared checkpoint" {
     const variables: engine.vm.Variables = .{ .reliant_alive = 1, .warp_gate_alive = 3 };
     const wingmen: engine.game.pilots.Wingmen = .{};
     view.campaign_checkpoint = .capture(&variables, &wingmen);
+    view.campaign_checkpoint.?.rescues.set(1, "Viper", 2);
     var buffer: [capacity]u8 = undefined;
     const result = try (Message{ .campaign_result = view }).encode(&buffer);
     try std.testing.expectEqualDeep(view, (try Message.decode(result)).campaign_result);
     try std.testing.expectError(error.EndOfStream, Message.decode(result[0 .. result.len - 1]));
     const regular_view = try (Message{ .view = view }).encode(&buffer);
     try std.testing.expectEqual(null, (try Message.decode(regular_view)).view.campaign_checkpoint);
+}
+
+test "the split campaign leg and in-flight movie use reliable phase records" {
+    var buffer: [capacity]u8 = undefined;
+    const phase: Message = .{ .campaign_next = .{ .after = 282, .number = 25, .second_part = true } };
+    try std.testing.expectEqualDeep(phase, try Message.decode(try phase.encode(&buffer)));
+    const movie: Message = .{ .campaign_movie = 294 };
+    try std.testing.expectEqualDeep(movie, try Message.decode(try movie.encode(&buffer)));
+    const ack: Message = .{ .campaign_movie_done = 294 };
+    try std.testing.expectEqualDeep(ack, try Message.decode(try ack.encode(&buffer)));
+
+    var view: Snapshot = .{ .tick = 284, .ships = @splat(null), .mission = .{ .number = 25, .pilot_slots = 1, .lead = 0, .second_part = true, .rescues = 2 } };
+    view.ships[0] = .{ .generation = 9, .position = @splat(0), .kamov = true };
+    const snapshot: Message = .{ .view = view };
+    try std.testing.expectEqualDeep(view, (try Message.decode(try snapshot.encode(&buffer))).view);
 }
 
 test "versions compare by protocol and snapshots retain slot identities" {

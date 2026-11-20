@@ -16,6 +16,7 @@ class Session:
         self.process = process
         self.admission = None
         self.views = {}
+        self.beacon_changes = {}
         self.finished = None
         self.receipts = None
         self.last_line = ""
@@ -24,7 +25,7 @@ class Session:
 
     async def read(self):
         async for line in self.process.stderr:
-            self.last_line = line.decode().rstrip()
+            self.last_line = line.decode().rstrip().removeprefix("info(network_host): ")
             parts = self.last_line.split()
             if len(parts) == 3 and parts[0] == "admitted":
                 self.admission = tuple(map(int, parts[1:]))
@@ -37,6 +38,8 @@ class Session:
                 self.finished = int(parts[1])
                 if len(parts) == 3:
                     self.receipts = int(parts[2])
+            elif parts and parts[0] == "beacon" and parts[2] == "0":
+                self.beacon_changes[int(parts[1])] = tuple(parts[3:])
             await self.messages.put(self.last_line)
         await self.messages.put(None)
 
@@ -53,6 +56,13 @@ class Session:
         await self.reader
         return status
 
+    def beacon_views(self):
+        state = None
+        for tick in sorted(self.views):
+            state = self.beacon_changes.get(tick, state)
+            if state is not None:
+                yield tick, state
+
 
 def require(condition, description):
     if not condition:
@@ -62,17 +72,23 @@ def require(condition, description):
 class ImpairedLink(asyncio.DatagramProtocol):
     """One loopback path with independent loss and jitter in both directions."""
 
-    def __init__(self, host, seed):
+    def __init__(self, host, seed, vary_by_direction):
         self.host = host
         self.random = random.Random(seed)
         self.loop = asyncio.get_running_loop()
         self.client = None
+        self.network = tuple(
+            (self.random.uniform(0.03, 0.09), self.random.uniform(0.008, 0.024), self.random.uniform(0.044, 0.080))
+            if vary_by_direction else (0.06, 0.008, 0.044)
+            for _ in range(2)
+        )
 
     def connection_made(self, transport):
         self.transport = transport
 
     def datagram_received(self, data, sender):
-        if sender == self.host:
+        from_host = sender == self.host
+        if from_host:
             if self.client is None:
                 return
             destination = self.client
@@ -82,8 +98,9 @@ class ImpairedLink(asyncio.DatagramProtocol):
             if sender != self.client:
                 return
             destination = self.host
-        if self.random.random() >= 0.06:
-            self.loop.call_later(self.random.uniform(0.008, 0.044), self.deliver, data, destination)
+        loss, low_delay, high_delay = self.network[from_host]
+        if self.random.random() >= loss:
+            self.loop.call_later(self.random.uniform(low_delay, high_delay), self.deliver, data, destination)
 
     def deliver(self, data, destination):
         if not self.transport.is_closing():
@@ -91,8 +108,9 @@ class ImpairedLink(asyncio.DatagramProtocol):
 
 
 class Loopback:
-    def __init__(self, binary, credentials, seed=None):
+    def __init__(self, binary, credentials, seed=None, *, vary_by_direction=False):
         self.seed = None if seed is None else random.Random(seed)
+        self.vary_by_direction = vary_by_direction
         self.links = []
         self.binary = binary
         self.credentials = credentials
@@ -138,7 +156,7 @@ class Loopback:
         loop = asyncio.get_running_loop()
         seed = self.seed.getrandbits(64)
         transport, _ = await loop.create_datagram_endpoint(
-            lambda: ImpairedLink((host_ip, int(port)), seed), local_addr=("127.0.0.1", 0))
+            lambda: ImpairedLink((host_ip, int(port)), seed, self.vary_by_direction), local_addr=("127.0.0.1", 0))
         self.links.append(transport)
         local_ip, local_port = transport.get_extra_info("sockname")
         local = f"{local_ip}:{local_port}"
@@ -235,7 +253,7 @@ def beacon(line, index, state):
 
 async def check_beacons(binary, credentials, seed):
     with tempfile.TemporaryDirectory() as directory:
-        async with Loopback(binary, credentials, seed) as game:
+        async with Loopback(binary, credentials, seed, vary_by_direction=True) as game:
             await six_beacons(game, Path(directory).resolve() / "server.ini")
 
 
@@ -304,8 +322,8 @@ async def six_beacons(game, config):
     config.write_text(f"""[Server]
 Port={game.port}
 Arena=six-beacons
-Players=3
-RoundTicks=175
+Players=8
+RoundTicks=225
 
 [Identity]
 RootPublicKey={root}
@@ -313,7 +331,7 @@ Certificate={certificate}
 """, encoding="utf-8")
     host = await game.start("--headless", cwd=config.parent)
     await host.expect("listening ")
-    first = await game.join("pilot1", "straight", "75")
+    first = await game.join("pilot1", "straight", "100")
     second = await game.join_target(game.address, "straight")
     slot, generation = first.admission
 
@@ -323,47 +341,52 @@ Certificate={certificate}
 
     await pickup(first)
     await pickup(second)
-    third = await game.join("pilot3", "straight")
-    await pickup(third)
+    late = await asyncio.gather(game.join("pilot3", "straight"),
+                                *(game.join_target(game.address, "straight") for _ in range(5)))
+    active = (second, *late)
+    await asyncio.gather(*(pickup(peer) for peer in late))
     await host.expect(f"left {slot} {generation}")
     require(await first.wait() == 0, "the carrier could not leave cleanly")
-    drops = await asyncio.gather(*(peer.expect("beacon ", lambda line: beacon(line, 0, "loose")) for peer in (second, third)))
-    position = drops[0].split()[4:]
-    require(drops[1].split()[4:] == position, "pilots saw different beacon drop positions")
+    drops = await asyncio.gather(*(peer.expect("beacon ", lambda line: beacon(line, 0, "loose")) for peer in active))
+    drop_tick = min(int(drop.split()[1]) for drop in drops)
 
     replacement = await game.join("pilot1", "straight")
     new_slot, new_generation = replacement.admission
     require(new_slot == slot and new_generation != generation, "the carrier's slot did not get a fresh admission")
-    restored = await replacement.expect("beacon ", lambda line: line.split()[2] == "0")
-    if beacon(restored, 0, "loose"):
-        require(restored.split()[4:] == position, "the returning pilot saw a different beacon position")
-    else:
-        # Packet delay can allow a new pickup before the returner's first flight view.
-        owner = [str(new_slot), str(new_generation)]
-        require(beacon(restored, 0, "carried") and restored.split()[4:] == owner,
-                "the returning pilot saw the wrong beacon carrier")
-        for peer in (second, third):
-            await peer.expect("beacon ", lambda line: beacon(line, 0, "carried") and line.split()[4:] == owner)
-
-    end = await finish(host, (second, third, replacement))
-    print(f"Six Beacons: a late pilot saw the pickup, both active pilots saw the drop, and the returning pilot confirmed tick {end}.")
+    end = await finish(host, (*active, replacement))
+    # Loss and jitter can hide different parts of the pickup history from each pilot.
+    # Compare what two pilots saw at the same host tick.
+    observed = dict(second.beacon_views())
+    for peer in (*late, replacement):
+        states = [(tick, state) for tick, state in peer.beacon_views() if tick >= drop_tick and tick in observed]
+        require(bool(states), "pilots had no overlapping beacon views after the drop")
+        require(all(state == observed[tick] for tick, state in states), "pilots disagreed about the beacon at the same tick")
+    print(f"Six Beacons: six late pilots saw the pickup, all seven remaining pilots saw the drop, and all eight confirmed tick {end}.")
 
 
 async def check_full_arena(binary, credentials, seed, mode="training", game_dir=None):
-    async with Loopback(binary, credentials, seed) as game:
+    async with Loopback(binary, credentials, seed, vary_by_direction=game_dir is not None) as game:
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "server.ini"
-            settings = f"[Server]\nPort={game.port}\nArena={mode}\nRoundTicks=125\n"
+            count = 8
+            settings = f"[Server]\nPort={game.port}\nArena={mode}\nPlayers={count}\nRoundTicks=175\n"
             if game_dir is not None:
                 settings += f"GameDirectory={game_dir}\n"
             config.write_text(settings, encoding="utf-8")
             host = await game.start("--headless", str(config))
             await host.expect("listening ")
-            pilots = await asyncio.gather(*(game.join_target(game.address, "straight") for _ in range(8)))
-            require({peer.admission[0] for peer in pilots} == set(range(8)), "the arena did not admit eight pilots")
+            paths = ("left", "straight", "right")
+            pilots = await asyncio.gather(*(game.join_target(game.address, paths[slot % len(paths)]) for slot in range(count)))
+            admissions = {peer.admission[0]: peer.admission[1] for peer in pilots}
+            require(set(admissions) == set(range(count)), "the arena did not admit eight pilots")
             end = await finish(host, pilots)
-            require(all(ship[0] for ship in pilots[0].views[end]), "the final view lost an admitted pilot")
-            print(f"{mode}: eight pilots confirmed tick {end}.")
+            generations = tuple(admissions[slot] for slot in range(count))
+            for peer in pilots:
+                live_views = sum(tuple(ship[0] for ship in view) == generations
+                                 for tick, view in peer.views.items() if tick < end)
+                require(live_views >= end // 3, f"{mode}: pilot {peer.admission[0]} saw only {live_views} full-roster views")
+                require(tuple(ship[0] for ship in peer.views[end]) == generations, "the final view lost an admitted pilot")
+            print(f"{mode}: eight pilots saw the full roster in flight and agreed on tick {end}.")
 
 
 async def send_key(pilot, key):
@@ -411,8 +434,10 @@ async def run(binary, credentials, seed, game_dir):
     for check in (check_training, check_beacons, check_invites, check_full_arena):
         await asyncio.wait_for(check(binary, credentials, seed), 40)
     if game_dir is not None:
-        for mode in ("nuclear-threat", "asteroid-field", "dark-reign", "tag-bomb", "hunt-the-shadow", "vampires"):
-            await asyncio.wait_for(check_full_arena(binary, credentials, seed, mode, game_dir), 40)
+        if seed is not None:
+            print("Stock arenas independently vary each direction of each link, with 3 to 9% loss and 8 to 80 ms latency.")
+        for index, mode in enumerate(("nuclear-threat", "asteroid-field", "dark-reign", "tag-bomb", "hunt-the-shadow", "vampires")):
+            await asyncio.wait_for(check_full_arena(binary, credentials, None if seed is None else seed + index, mode, game_dir), 45)
         await asyncio.wait_for(check_coop(binary, credentials, seed, game_dir), 180)
 
 

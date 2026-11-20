@@ -41,6 +41,9 @@ result_tick: ?u32 = null,
 retired: bool = false,
 campaign_floor: u32 = 0,
 next_mission: ?u16 = null,
+second_part: bool = false,
+movie_tick: ?u32 = null,
+movie_pending: bool = false,
 pending_view: ?PendingView = null,
 pilot_pages: [wire.PilotPage.max_extra]?wire.PilotPage = @splat(null),
 scenery: ?wire.Scenery = null,
@@ -132,6 +135,7 @@ pub const Event = union(enum) {
     campaign_next,
     campaign_end,
     campaign_retired,
+    campaign_movie,
     snapshot,
     finished,
     closed,
@@ -153,7 +157,7 @@ pub fn requestCrewAction(client: *Client, action: enum { jump, land, eject }) vo
     const view = &(client.latest orelse return);
     const mission = view.mission orelse return;
     const ship = view.ships[admission.slot] orelse return;
-    if (client.leaving or client.result_tick != null or client.roster.paused) return;
+    if (client.leaving or client.result_tick != null or client.roster.paused or client.movie_tick != null) return;
     if (action != .eject and mission.lead != admission.slot) return;
     const request: wire.CrewRequest = .{ .view_tick = view.tick, .reuse = ship.reuse };
     const message: wire.Message = switch (action) {
@@ -201,18 +205,29 @@ fn startNextMission(client: *Client, next: wire.NextMission) void {
     client.debrief = null;
     client.campaign_floor = next.after;
     client.next_mission = next.number;
+    client.second_part = next.second_part;
     client.latest = null;
     client.pending_view = null;
     client.pilot_pages = @splat(null);
     client.projectiles = @splat(null);
     client.scene = @splat(null);
     client.scenery = null;
-    client.briefed = false;
+    client.briefed = next.second_part;
     client.roster.briefing = false;
     client.roster.mission = next.number;
     client.releaseFlight();
     client.weapons = null;
     client.sent_aim = null;
+}
+
+pub fn takeMovie(client: *Client) ?u32 {
+    if (!client.movie_pending) return null;
+    client.movie_pending = false;
+    return client.movie_tick;
+}
+
+pub fn finishMovie(client: *Client, tick: u32) !void {
+    try net.send(client.conn, .{ .campaign_movie_done = tick });
 }
 
 pub fn finishBriefing(client: *Client, fit: ?wire.CampaignLoadout) !void {
@@ -276,7 +291,7 @@ pub fn poll(client: *Client, io: Io) !Event {
         },
         .campaign_seat => |admission| {
             const previous = client.joined orelse return error.UnexpectedAdmission;
-            if (client.latest != null or !client.briefed or !client.roster.briefing or
+            if (client.latest != null or !client.briefed or (!client.roster.briefing and !client.second_part) or
                 admission.slot >= previous.slot or admission.slot >= wire.cooperative_slots or
                 admission.generation <= previous.generation) return error.UnexpectedAdmission;
             client.joined = admission;
@@ -294,7 +309,7 @@ pub fn poll(client: *Client, io: Io) !Event {
             client.roster = roster;
             // A paused session sends roster heartbeats while simulation snapshots are stopped.
             if (roster.paused) client.deadline = now + timeout;
-            if (client.latest == null and (roster.lobby != null or roster.mission != null)) return .lobby;
+            if (client.latest == null and !client.second_part and (roster.lobby != null or roster.mission != null)) return .lobby;
             return .idle;
         },
         .tag_bomb_notice => |notice| return if (client.joined != null and !client.leaving) .{ .tag_bomb_notice = notice } else .idle,
@@ -357,9 +372,26 @@ pub fn poll(client: *Client, io: Io) !Event {
             return .debrief;
         },
         .campaign_next => |next| {
-            if (next.after != client.result_tick) return error.UnexpectedMessage;
+            if (next.second_part) {
+                const current = client.latest orelse return error.UnexpectedMessage;
+                const mission = current.mission orelse return error.UnexpectedMessage;
+                if (client.result_tick != null or mission.second_part or mission.number != next.number or next.after < current.tick)
+                    return error.UnexpectedMessage;
+            } else if (next.after != client.result_tick) return error.UnexpectedMessage;
             client.startNextMission(next);
             return .campaign_next;
+        },
+        .campaign_movie => |tick| {
+            const current = client.latest orelse return error.UnexpectedMessage;
+            if (current.mission == null or tick != current.tick or client.result_tick != null or client.movie_tick != null)
+                return error.UnexpectedMessage;
+            client.movie_tick = tick;
+            client.movie_pending = true;
+            client.deadline = now + wire.campaign_movie_timeout + timeout;
+            client.releaseFlight();
+            client.weapons = null;
+            client.sent_aim = null;
+            return .campaign_movie;
         },
         .campaign_end => |tick| {
             if (tick != client.result_tick) return error.UnexpectedMessage;
@@ -382,7 +414,7 @@ pub fn poll(client: *Client, io: Io) !Event {
             if (client.leaving or client.result_tick != null or view.tick <= client.campaign_floor) return .idle;
             if (client.latest) |latest| if (view.tick <= latest.tick) return .idle;
             if (client.next_mission) |number| {
-                if (!client.briefed or view.mission == null or view.mission.?.number != number) return .idle;
+                if (!client.briefed or view.mission == null or view.mission.?.number != number or view.mission.?.second_part != client.second_part) return .idle;
             }
             if (client.pending_view) |*pending| if (view.tick < pending.view.tick) return .idle;
             client.pending_view = .{ .view = view, .delivery = switch (message) {
@@ -412,20 +444,27 @@ fn acceptView(client: *Client, now: i64) !Event {
     if (view.pilot_pages != 0) try view.checkObjectivePilots(true);
     const admission = client.joined.?;
     // A flight view can overtake the reliable campaign seat update.
-    if (delivery == .flight and view.mission != null and client.latest == null and client.roster.briefing) {
+    if (delivery == .flight and view.mission != null and client.latest == null and (client.roster.briefing or client.next_mission != null)) {
         const ship = view.ships[admission.slot] orelse return .idle;
         if (ship.generation != admission.generation) return .idle;
     }
+    if (client.latest) |*last| {
+        const Leg = struct { number: u16, second_part: bool };
+        const mission: ?Leg = if (view.mission) |state| .{ .number = state.number, .second_part = state.second_part } else null;
+        const previous: ?Leg = if (last.mission) |state| .{ .number = state.number, .second_part = state.second_part } else null;
+        if (last.scenario != view.scenario) return error.UnexpectedMessage;
+        // The first moving view can overtake the reliable split transition.
+        if (!std.meta.eql(previous, mission)) return if (delivery == .flight) .idle else error.UnexpectedMessage;
+    }
     const ship = view.ships[admission.slot] orelse return error.MissingShip;
     if (ship.generation != admission.generation) return error.WrongShip;
-    if (client.latest) |*last| {
-        const mission = if (view.mission) |state| state.number else null;
-        const previous = if (last.mission) |state| state.number else null;
-        if (last.scenario != view.scenario or previous != mission) return error.UnexpectedMessage;
-    }
     client.latest = view.*;
     client.next_mission = null;
     client.deadline = now + timeout;
+    if (client.movie_tick) |tick| if (view.tick > tick) {
+        client.movie_tick = null;
+        client.movie_pending = false;
+    };
     if (delivery == .debrief) {
         client.result_tick = view.tick;
         client.releaseFlight();
@@ -487,12 +526,24 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
             .beacon_notice => |notice| std.debug.print("notice {s} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot }),
             .pilot_notice => |notice| std.debug.print("pilot-notice {s} {d} {d}\n", .{ @tagName(notice.kind), notice.pilot.slot, notice.pilot.generation }),
             .wreck => |wreck| std.debug.print("wreck {d} {d} {d}\n", .{ wreck.pilot.participant.slot, wreck.pilot.ship.reuse, wreck.tick }),
-            .campaign_result => std.debug.print("debrief {d} {d} {t}\n", .{ client.latest.?.tick, client.latest.?.mission.?.number, client.latest.?.mission.?.rating }),
+            .campaign_result => {
+                const result = client.latest.?.mission.?;
+                std.debug.print("debrief {d} {d} {t}\n", .{ client.latest.?.tick, result.number, result.rating });
+                if (result.finale()) {
+                    std.debug.print("campaign finale\n", .{});
+                    try client.leave(io);
+                }
+            },
+            .campaign_movie => {
+                const tick = client.takeMovie().?;
+                std.debug.print("campaign movie {d}\n", .{tick});
+                try client.finishMovie(tick);
+            },
             .debrief => {
                 const crew = client.debrief.?.crew;
                 std.debug.print("debrief-crew {d} {d} {d} {d}\n", .{ crew.lead, crew.present.mask, crew.eligible.mask, crew.ready.mask });
             },
-            .campaign_next => std.debug.print("briefing {d}\n", .{client.next_mission.?}),
+            .campaign_next => std.debug.print("{s} {d}\n", .{ if (client.second_part) "second part" else "briefing", client.next_mission.? }),
             .campaign_retired => {
                 std.debug.print("campaign retired\n", .{});
                 return;

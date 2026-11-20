@@ -295,7 +295,8 @@ fn drawList(screen: *const Connection, canvas: ui.Canvas, layout: Layout) !void 
         const chosen = i == screen.selected;
         if (chosen) canvas.highlightRow(layout.list.framedRow(y, Layout.row_height));
         var counts: [16]u8 = undefined;
-        var ping: [5]u8 = undefined;
+        const Latency = @typeInfo(@FieldType(Server, "ping_ms")).optional.child;
+        var ping: [std.fmt.count("{d}", .{std.math.maxInt(Latency)})]u8 = undefined;
         const population = std.fmt.bufPrint(&counts, "{d} / {d}", .{ server.players, server.capacity }) catch unreachable;
         const latency = if (server.ping_ms) |ms| std.fmt.bufPrint(&ping, "{d}", .{ms}) catch unreachable else "?";
         try cells(canvas, layout, y, .{ server.name, server.mode, population, latency }, if (chosen) ui.white else ui.blue, text_offset);

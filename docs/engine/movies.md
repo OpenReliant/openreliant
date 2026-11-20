@@ -138,8 +138,18 @@ The co-op loadout plays the same rotating hangar movies before flight. At the en
 the client uses the host's campaign flags and mission rating to choose the return scene, story
 thread and news reports. A rescued pilot sees the return films as well. The transport keeps
 running during playback, so a pilot who skips a film can still wait for the rest of the crew.
-The Mission 25 transition, Foster's Last Stand and the third rescue are tracked together in
-[#1489](https://github.com/OpenReliant/openreliant/issues/1489).
+
+Co-op loads `mission251.dte` directly when the host finishes Mission 25's first part with a
+result that allows it to continue. `WinMain` sets `mission25_second_part` at `0x004A9FA9`,
+skips briefing and launch at `0x004A9B12`, and plays the return sequence after the second
+part (`0x004A9ED3`). The host carries the eligible wing, its loadouts and the shared campaign
+flags across the split. Replay starts again with the first part's starting state
+(`0x004A9AC6`).
+
+`WinMain` calls `pickup_count` at `0x004A9EFE`. A third rescue plays the pilot's transfer
+movie and marks that pilot as unable to advance. Replay restores the rescue count from the
+start of the attempt. After the last mission, pilots who can advance see the end briefing,
+the story films and credits before leaving the campaign (`0x004AA027` to `0x004AA037`).
 
 ### How a mission ended
 
@@ -234,6 +244,10 @@ voices, the voices and the music go on, and the game with them.
 OpenReliant's driver plays it once the frame's controls have run (`hud.MovieHold`). With
 `--mission`, which flies the mission without the hangar's movie, no disc's archive is open yet, so
 the movie opens the disc of the mission's carrier.
+
+In co-op the host holds the mission tick at the cue. Each client plays the same movie while the
+network keeps running. The host resumes when all connected pilots have finished or skipped
+it, with a two-minute wall-clock limit if a client stalls.
 
 ## The movies played
 

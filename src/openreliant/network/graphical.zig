@@ -58,6 +58,7 @@ combat_count: usize = 0,
 campaign_lines: [game.radio.queue_size + game.radio.report_count]wire.CampaignLine = undefined,
 campaign_line_count: usize = 0,
 campaign_result: ?wire.MissionView = null,
+finishing_campaign: bool = false,
 coop_kept_kills: i32 = 0,
 coop_rank: game.gameflow.Rank = 0,
 stick: [2]i16 = @splat(0),
@@ -187,6 +188,13 @@ pub fn takeCampaignResult(pilot: *Graphical) ?wire.MissionView {
     const result = pilot.campaign_result;
     pilot.campaign_result = null;
     return result;
+}
+
+pub fn finishCampaign(pilot: *Graphical, io: std.Io, screen: *Connection) !void {
+    try pilot.client.?.leave(io);
+    pilot.finishing_campaign = true;
+    screen.debrief = null;
+    screen.message = campaign_complete;
 }
 
 pub fn leave(pilot: *Graphical, screen: *Connection, presentation: ?*Presentation) void {
@@ -343,7 +351,9 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
         if (!pilot.ending_pending) pilot.retirePilot(&front.connection, client, presentation);
         return;
     }
-    if (ending) |scene| {
+    if (client.movie_tick != null) {
+        client.releaseFlight();
+    } else if (ending) |scene| {
         if (reads_controls) scene.controls = controls.devices.*;
         client.releaseFlight();
     } else if (pilot.flight) |flight| {
@@ -449,7 +459,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
         };
         switch (event) {
             .idle => break,
-            .projectiles, .scene_page, .scenery => {},
+            .projectiles, .scene_page, .scenery, .campaign_movie => {},
             .campaign_result => {
                 const mission = client.latest.?.mission.?;
                 if (mission.ending_scene != .none) {
@@ -457,11 +467,13 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                     break;
                 }
                 pilot.showCampaignResult(front, client, presentation, strings);
+                break;
             },
             .debrief => pilot.showDebriefCrew(&front.connection, client, strings),
             .campaign_next => {
+                if (client.second_part) pilot.stopFlight(presentation);
                 front.connection.debrief = null;
-                front.connection.message = .{ .english = "Waiting for the briefing" };
+                front.connection.message = if (client.second_part) .{} else .{ .english = "Waiting for the briefing" };
             },
             .campaign_end => {
                 if (pilot.hosted != null) return;
@@ -556,6 +568,11 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 }
             },
             .closed => {
+                if (pilot.finishing_campaign) {
+                    pilot.retirePilot(&front.connection, client, presentation);
+                    front.connection.message = campaign_complete;
+                    return;
+                }
                 // The local transport can acknowledge the final view before remote pilots get it.
                 if (pilot.hosted) |hosted| if (hosted.host.final_tick != null) return;
                 pilot.returnToBrowser(&front.connection, presentation, front.connection.message);
@@ -601,6 +618,7 @@ fn showCampaignResult(pilot: *Graphical, front: *engine.genilib.interf.Interface
     pilot.campaign_result = mission;
     pilot.debrief_notices = .{};
     const local = client.joined.?.slot;
+    if (mission.finale()) return;
     front.connection.debrief = .{
         .local_slot = local,
         .number = mission.number,
