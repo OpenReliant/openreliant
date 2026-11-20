@@ -11,6 +11,7 @@ pub const Scroll = ui.Scrolled(usize);
 pub const palette_block = 0x13;
 pub const font_name = "blk2orng.fnt"; // 0x00508EEC
 pub const font_transparent_index = 1; // arena_scoreboard_font_remap, 0x005DAD30
+pub const font_background_index = 15; // The orange fill behind the headings and ranks.
 const header_shape = 0x14;
 const footer_shape = 0x15;
 const row_shape = 0x16;

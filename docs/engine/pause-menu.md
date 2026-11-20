@@ -228,6 +228,8 @@ plus the action for a list row, or -1. **Not traced line by line:** how the wait
 ### Multiplayer (9)
 
 OpenReliant uses the stock pause buttons, the orange flight standings, and the HUD message log.
+Newtown fits the original headings and ranks to their stock metrics. Bitmap font mode keeps
+the original glyphs and palette.
 Campaign standings omit the Deaths column. Escape opens the match menu. Continue or Escape
 returns to flight when the pilot can resume. Leave Mission leaves the session. SEND COMMS MESSAGE
 opens a broadcast draft. The connection-loss dialog holds the last
@@ -237,9 +239,10 @@ message. The retail PC recording shows the [shared pause at 7:20](https://www.yo
 **Improvement:** Only the player hosting a LAN game can pause or resume the shared simulation.
 Guests and dedicated-server pilots open the match menu locally. A guest can chat or leave
 while the LAN host has paused the match. During a shared pause, the host stops simulation
-ticks and continues to service admissions, chat and disconnects. The roster carries the
-pause state and keeps the connection alive. A pilot joining during the pause receives the
-current arena view. The menu suppresses local flight commands on both host types.
+ticks and continues to service admissions, chat and disconnects. It sends the frozen view
+reliably at the pause transition and to any pilot joining during the pause. The roster carries
+the pause state and keeps the connection alive. The menu suppresses local flight commands
+on both host types.
 
 The LAN host can drop a pilot whose measured round trip exceeds the original 100-tick
 threshold or whose input has stalled for the same time. The host checks the pilot's current

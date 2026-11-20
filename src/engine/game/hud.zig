@@ -397,6 +397,10 @@ pub const Opened = struct {
     /// if there is one, fitted and drawn as `fitting` says.
     pub fn standIn(opened: *Opened, outlines: *outline.Outlines, name: []const u8) Allocator.Error!void {
         const ink = opened.fitting() orelse return;
+        try opened.standInWith(outlines, name, ink);
+    }
+
+    fn standInWith(opened: *Opened, outlines: *outline.Outlines, name: []const u8, ink: Ink) Allocator.Error!void {
         opened.outline = try outlines.of(name, opened.font, &ink.cover) orelse return;
         opened.ink = ink.colour;
         opened.own_colours = ink.own_colours;
@@ -1051,13 +1055,26 @@ fn glyphImage(opened: *Opened, gpa: Allocator, code: u8) Allocator.Error!?*srtex
 
 /// How an outline font is fitted over a bitmap font and drawn (`Opened.fitting`).
 pub const Ink = struct {
-    /// The brightest colour the font's digits and letters are drawn in; none for a font drawn in
-    /// levels of one colour, whose outline is drawn in the text's colour.
+    /// The colour of the outline's strokes. None uses the caller's text colour.
     colour: ?[3]u8,
     /// How much each byte of the bitmap covers a pixel: how close its colour comes to the ink.
     cover: outline.Cover,
     /// The codes drawn in colours its digits and letters aren't.
     own_colours: std.bit_set.Static(cached_codes),
+
+    /// The scoreboard's bitmap has black strokes with edges already blended against the orange
+    /// panel. Recover the coverage from how far each palette entry darkens that background.
+    fn blackOn(opened: Opened, background: [3]u8) ?Ink {
+        const palette = opened.colours() orelse return null;
+        const full = colourDot(background, background);
+        if (full == 0) return null;
+        var ink: Ink = .{ .colour = @splat(0), .cover = @splat(0), .own_colours = .empty };
+        for (&ink.cover, 0..) |*share, index| {
+            if (index == opened.transparent_index) continue;
+            share.* = std.math.clamp(1 - colourDot(paletteColour(palette, index), background) / full, 0, 1);
+        }
+        return ink;
+    }
 
     /// The ink of `font` drawn through `palette`; none where its digits and letters are all
     /// black.
@@ -1260,7 +1277,8 @@ pub fn drawTextIn(
     const outlined = if (opened.outline) |shown| try shown.at(scale) else null;
     const outline_tint = device.pack(if (opened.ink) |ink| inked(colour, ink) else colour);
     // The edge its outline glyphs stand on, first, under every glyph of the line (`edge_width`).
-    if (outlined != null) {
+    const dark_ink = if (opened.ink) |ink| std.mem.eql(u8, &ink, &.{ 0, 0, 0 }) else false;
+    if (outlined != null and !dark_ink) {
         const edge_tint = device.pack(.{ 0, 0, 0, colour[3] });
         const reach = edge_width * scale;
         var line: Line = .{ .opened = opened, .text = text, .scale = scale, .x = left };
@@ -2087,6 +2105,11 @@ test "a transparent font palette entry contributes no colour when filtered" {
     var opened: Opened = .open(try .parse(comptime outline.testing.fontInked(.{ 1, 2, 2 }, palette)), null);
     defer opened.deinit(gpa);
     opened.transparent_index = 1;
+    const against_orange = Ink.blackOn(opened, .{ 97, 48, 0 }).?;
+    try std.testing.expectEqual([3]u8{ 0, 0, 0 }, against_orange.colour.?);
+    try std.testing.expectEqual(1, against_orange.cover[0]);
+    try std.testing.expectEqual(0, against_orange.cover[1]);
+    try std.testing.expectEqual(0, against_orange.cover[2]);
     const clear = (try glyphImage(&opened, gpa, '#')).?.levels[0].texels;
     const ink = (try glyphImage(&opened, gpa, 'A')).?.levels[0].texels;
     const first_inked_pixel = (2 * 6 + 1) * 4;
@@ -2288,6 +2311,7 @@ pub const Resources = struct {
     art: Art,
     /// Read the arena sprites when the HUD first needs them.
     arena_archive: ?bigfile.Hog = null,
+    outlines: ?*outline.Outlines = null,
     arena_shapes: ?@import("interface/canvas.zig").Shapes = null,
     standings_art: ?Art = null,
     standings_font: ?Opened = null,
@@ -2328,7 +2352,7 @@ pub const Resources = struct {
         defer picture.deinit(gpa);
         const ball: *power.Ball = try .create(gpa, picture);
         errdefer ball.destroy(gpa);
-        return .{ .art = art, .arena_archive = archive, .font = font, .target_fonts = .{ .small = small, .new = new }, .ball = ball, .scripts_ball = try .create(gpa, picture) };
+        return .{ .art = art, .arena_archive = archive, .outlines = outlines, .font = font, .target_fonts = .{ .small = small, .new = new }, .ball = ball, .scripts_ball = try .create(gpa, picture) };
     }
 
     /// Frees what `load` made in `gpa`, and the images made of its shapes and its fonts' glyphs.
@@ -2353,7 +2377,17 @@ pub const Resources = struct {
             if (resources.arena_shapes) |*shapes| shapes.art.global = resources.art.global;
             if (archive.has(standings.font_name)) {
                 resources.standings_font = openFont(gpa, archive, standings.font_name, resources.art.global, null) catch null;
-                if (resources.standings_font) |*font| font.transparent_index = standings.font_transparent_index;
+                if (resources.standings_font) |*font| {
+                    font.transparent_index = standings.font_transparent_index;
+                    if (resources.outlines) |made| if (resources.arena_shapes) |*shapes| {
+                        if (shapes.art.set.paletteAt(standings.palette_block)) |palette| {
+                            const background = paletteColour(palette, standings.font_background_index);
+                            if (Ink.blackOn(font.*, background)) |ink| font.standInWith(made, standings.font_name, ink) catch |err| {
+                                log.warn("using the bitmap scoreboard font: {s}", .{@errorName(err)});
+                            };
+                        }
+                    };
+                }
             }
         }
         return if (resources.arena_shapes) |*shapes| &shapes.art else null;

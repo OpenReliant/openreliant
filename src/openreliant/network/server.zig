@@ -64,6 +64,7 @@ listener: u32 = 0,
 peers: [wire.slots]?Peer = @splat(null),
 roster_dirty: bool = false,
 paused: bool = false,
+paused_view_pending: bool = false,
 next_paused_roster: i64 = 0,
 projectile_pages: [ProjectilePage.pages]bool = @splat(false),
 scene_pages: [wire.ScenePage.count]bool = @splat(false),
@@ -319,6 +320,7 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
 pub fn setPaused(host: *Host, paused: bool) void {
     if (!host.lan_only or host.start != .launched or host.tick == 0 or host.final_tick != null or host.paused == paused) return;
     host.paused = paused;
+    host.paused_view_pending = paused;
     host.roster_dirty = true;
     for (&host.peers) |*entry| if (entry.*) |*peer| {
         peer.flight_command = flight_input.release(peer.flight_command);
@@ -397,7 +399,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                 try pilots.encode(&view);
                 try pilots.send(peer.conn, true);
                 var buffer: [wire.capacity]u8 = undefined;
-                try host.sendView(&view, slot, .paused_join, &buffer);
+                try host.sendView(&view, slot, .paused, &buffer);
                 if (host.arena.scenery(host.tick)) |scenery| try net.send(peer.conn, .{ .scenery = scenery });
             }
             host.roster_dirty = true;
@@ -539,7 +541,7 @@ fn applyControls(host: *Host, time: i64) void {
 }
 
 fn broadcast(host: *Host, view: wire.Snapshot, delivery: Delivery) !void {
-    const final = delivery != .flight;
+    const reliable = delivery != .flight;
     var buffer: [wire.capacity]u8 = undefined;
     var outgoing = view;
     host.fillPings(&outgoing, host.tick == 1 or host.tick % (game.main.ticks_per_second / game.gameobj.ticks_per_step) == 0);
@@ -549,18 +551,18 @@ fn broadcast(host: *Host, view: wire.Snapshot, delivery: Delivery) !void {
     for (&host.peers, 0..) |*entry, slot| {
         const peer = if (entry.*) |*peer| peer else continue;
         if (peer.state != .playing) continue;
-        pilots.send(peer.conn, final) catch {
-            if (final) host.release(@intCast(slot));
+        pilots.send(peer.conn, reliable) catch {
+            if (reliable) host.release(@intCast(slot));
             continue;
         };
         host.sendView(&outgoing, @intCast(slot), delivery, &buffer) catch |err| switch (err) {
             error.SendFailed => {
-                if (final) host.release(@intCast(slot));
+                if (reliable) host.release(@intCast(slot));
                 continue;
             },
             else => return err,
         };
-        if (final) peer.expires = host.now() + timeout;
+        if (reliable) peer.expires = host.now() + timeout;
     }
 }
 
@@ -595,9 +597,9 @@ fn fillPings(host: *Host, view: *wire.Snapshot, refresh: bool) void {
     }
 }
 
-const Delivery = enum { flight, paused_join, final, debrief };
+const Delivery = enum { flight, paused, final, debrief };
 
-/// A pilot gets the same private cockpit readings on admission during a pause as in flight.
+/// A pilot gets the same private cockpit readings during a pause as in flight.
 fn sendView(host: *const Host, view: *wire.Snapshot, slot: u8, delivery: Delivery, buffer: []u8) !void {
     const all = host.arena.mission.objects;
     if (view.mission) |*mission| {
@@ -613,7 +615,7 @@ fn sendView(host: *const Host, view: *wire.Snapshot, slot: u8, delivery: Deliver
     view.weapons = if (ship) wire.ordnance.Status.capture(all, slot) else null;
     view.power = if (ship and view.scenario != null and view.scenario.?.hasPowerUps()) wire.Power.capture(&all.slots[slot].object) else null;
     const message: wire.Message = switch (delivery) {
-        .flight, .paused_join => .{ .view = view.* },
+        .flight, .paused => .{ .view = view.* },
         .final => .{ .finished = view.* },
         .debrief => .{ .campaign_result = view.* },
     };
@@ -851,6 +853,11 @@ pub fn pump(host: *Host) !enum { running, finished } {
         }
     }
     try host.servicePeers(time);
+    if (host.paused_view_pending) {
+        // The last flight view may have been lost. Deliver the frozen tick before the pause roster.
+        try host.broadcast(try host.arena.snapshot(host.tick), .paused);
+        host.paused_view_pending = false;
+    }
     if (host.paused and time >= host.next_paused_roster) {
         host.roster_dirty = true;
         host.next_paused_roster = time + paused_roster_interval;
@@ -1017,11 +1024,13 @@ test "only a launched local LAN host pauses and drops stale flight commands" {
     };
     host.setPaused(true);
     try std.testing.expect(!host.paused);
+    try std.testing.expect(!host.paused_view_pending);
     try std.testing.expect(host.acceptsFlight());
 
     host.lan_only = true;
     host.setPaused(true);
     try std.testing.expect(host.paused);
+    try std.testing.expect(host.paused_view_pending);
     try std.testing.expect(host.roster_dirty);
     try std.testing.expect(!host.acceptsFlight());
     try std.testing.expectEqual(null, host.peers[0].?.fire_for);
@@ -1029,6 +1038,7 @@ test "only a launched local LAN host pauses and drops stale flight commands" {
 
     host.setPaused(false);
     try std.testing.expect(host.acceptsFlight());
+    try std.testing.expect(!host.paused_view_pending);
     try std.testing.expectEqual(8, host.tick);
 }
 
