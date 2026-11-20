@@ -3,6 +3,8 @@ const std = @import("std");
 const Io = std.Io;
 const Arena = @import("arena.zig");
 const Traffic = @import("transport.zig").Traffic;
+const slow_step_us = 2 * @import("wire.zig").step_us;
+const payload_capacity = 8192;
 const Exporter = @This();
 const log = std.log.scoped(.network_metrics);
 
@@ -17,10 +19,17 @@ pub const Stats = struct {
     rounds: std.EnumArray(Arena.Mode, Rounds) = .initFill(.{}),
     cooperative: Rounds = .{},
     ticks: u64 = 0,
+    slow_ticks: u64 = 0,
     step_us: u64 = 0,
     traffic: Traffic = .{},
 
     pub const Rounds = struct { started: u64 = 0, completed: u64 = 0 };
+
+    pub fn recordStep(stats: *Stats, duration_us: u64) void {
+        stats.ticks += 1;
+        stats.step_us += duration_us;
+        if (duration_us > slow_step_us) stats.slow_ticks += 1;
+    }
 
     fn write(stats: *const Stats, out: *Io.Writer) Io.Writer.Error!void {
         try out.writeAll(
@@ -31,6 +40,7 @@ pub const Stats = struct {
                 "# TYPE openreliant_rounds_started_total counter\n" ++
                 "# TYPE openreliant_rounds_completed_total counter\n" ++
                 "# TYPE openreliant_simulation_tick_duration_seconds summary\n" ++
+                "# TYPE openreliant_simulation_slow_ticks_total counter\n" ++
                 "# TYPE openreliant_game_messages_total counter\n" ++
                 "# TYPE openreliant_game_bytes_total counter\n",
         );
@@ -45,8 +55,9 @@ pub const Stats = struct {
         try writeRounds(out, "cooperative", stats.cooperative);
         try out.print(
             "openreliant_simulation_tick_duration_seconds_count {d}\n" ++
-                "openreliant_simulation_tick_duration_seconds_sum {d}.{d:0>6}\n",
-            .{ stats.ticks, stats.step_us / std.time.us_per_s, stats.step_us % std.time.us_per_s },
+                "openreliant_simulation_tick_duration_seconds_sum {d}.{d:0>6}\n" ++
+                "openreliant_simulation_slow_ticks_total {d}\n",
+            .{ stats.ticks, stats.step_us / std.time.us_per_s, stats.step_us % std.time.us_per_s, stats.slow_ticks },
         );
         try writeTraffic(out, "received", stats.traffic.received);
         try writeTraffic(out, "sent", stats.traffic.sent);
@@ -140,7 +151,8 @@ fn serve(exporter: *Exporter) Io.Cancelable!void {
 
 fn respond(exporter: *Exporter, stream: Io.net.Stream) void {
     var input: [4096]u8 = undefined;
-    var output: [1024]u8 = undefined;
+    // Leave room for the entire sample and the HTTP response headers.
+    var output: [payload_capacity + 1024]u8 = undefined;
     var reader = stream.reader(exporter.io, &input);
     var writer = stream.writer(exporter.io, &output);
     var server: std.http.Server = .init(&reader.interface, &writer.interface);
@@ -154,11 +166,23 @@ fn respond(exporter: *Exporter, stream: Io.net.Stream) void {
         return;
     }
     const stats = exporter.copyStats() catch return;
-    var payload: [8192]u8 = undefined;
+    var payload: [payload_capacity]u8 = undefined;
     var data: Io.Writer = .fixed(&payload);
     stats.write(&data) catch return;
     request.respond(data.buffered(), .{
         .keep_alive = false,
         .extra_headers = &.{.{ .name = "content-type", .value = "text/plain; version=0.0.4; charset=utf-8" }},
     }) catch {};
+}
+
+test "only steps over twice the budget count as slow" {
+    var stats: Stats = .{ .capacity = 8 };
+    stats.recordStep(slow_step_us);
+    stats.recordStep(slow_step_us + 1);
+    var payload: [payload_capacity]u8 = undefined;
+    var writer: Io.Writer = .fixed(&payload);
+    try stats.write(&writer);
+    try std.testing.expectEqual(2, stats.ticks);
+    try std.testing.expectEqual(1, stats.slow_ticks);
+    try std.testing.expect(std.mem.indexOf(u8, writer.buffered(), "openreliant_simulation_slow_ticks_total 1\n") != null);
 }

@@ -331,7 +331,9 @@ Port=9100
 `BindAddress` defaults to `127.0.0.1`. Set it to the private address your Prometheus server can
 reach if it runs on another machine. Scrape `/metrics`. The exporter reports current occupancy,
 admission and departure outcomes, rounds by mode, simulation tick count and duration, and the
-game message payload bytes sent and received. It handles scrapes outside the simulation loop.
+game message payload bytes sent and received. `openreliant_simulation_slow_ticks_total` counts steps
+that took more than twice the normal tick budget. The exporter handles scrapes outside the
+simulation loop.
 
 ### Optional managed identity
 
