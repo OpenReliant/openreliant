@@ -59,7 +59,9 @@ jobs:
           GNS_PREFIX: ${{ steps.transport.outputs.prefix }}
         run: |
           args=()
-          if [ -n "$GNS_PREFIX" ]; then args+=(-Dgns-prefix="$GNS_PREFIX"); fi
+          if [ -n "$GNS_PREFIX" ]; then
+            args+=(-Dgns-prefix="$GNS_PREFIX" -Dtarget=x86_64-linux-gnu.2.31)
+          fi
           zig build --summary all "${args[@]}"
       - name: Check the headless multiplayer session
         if: steps.transport_changes.outputs.changed == 'true'
