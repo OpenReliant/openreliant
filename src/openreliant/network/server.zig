@@ -114,22 +114,33 @@ fn sendPlaying(host: *const Host, message: wire.Message, except: ?u8) void {
     }
 }
 
+const ChatRoute = union(enum) { broadcast, private: net.Connection };
+
+fn chatRoute(host: *Host, slot: u8, peer: *Peer, to: @FieldType(wire.ChatRequest, "to"), time: i64) ?ChatRoute {
+    const in_lobby = host.start == .lobby;
+    if ((to == .lobby) != in_lobby or (!in_lobby and host.tick == 0)) return null;
+    if (!peer.chat_budget.take(time, ChatBudget.pilot)) return null;
+    const route: ChatRoute = switch (to) {
+        .lobby, .flight => .broadcast,
+        .private => |target| route: {
+            const recipient = host.peers[target.slot] orelse return null;
+            const pilot = host.arena.pilots[target.slot] orelse return null;
+            if (target.slot == slot or recipient.state != .playing or pilot.participant.generation != target.generation) return null;
+            break :route .{ .private = recipient.conn };
+        },
+    };
+    return if (host.chat_budget.take(time, ChatBudget.session)) route else null;
+}
+
 // Requests carry only text and a destination. The connection supplies the sender.
 fn relayChat(host: *Host, slot: u8, peer: *Peer, request: wire.ChatRequest, time: i64) void {
     const name = peer.call_sign orelse return;
-    const scope = std.meta.activeTag(request.to);
-    const in_lobby = host.start == .lobby;
-    if ((scope == .lobby) != in_lobby or (!in_lobby and host.tick == 0)) return;
-    if (!peer.chat_budget.take(time, ChatBudget.pilot)) return;
-    const message: wire.Message = .{ .chat_line = .{ .scope = scope, .sender = slot, .name = name, .text = request.text } };
-    switch (request.to) {
-        .lobby, .flight => if (host.chat_budget.take(time, ChatBudget.session)) host.sendPlaying(message, null),
-        .private => |to| {
-            const recipient = host.peers[to.slot] orelse return;
-            const pilot = host.arena.pilots[to.slot] orelse return;
-            if (to.slot == slot or recipient.state != .playing or pilot.participant.generation != to.generation) return;
-            if (!host.chat_budget.take(time, ChatBudget.session)) return;
-            net.send(recipient.conn, message) catch return;
+    const route = host.chatRoute(slot, peer, request.to, time) orelse return;
+    const message: wire.Message = .{ .chat_line = .{ .scope = std.meta.activeTag(request.to), .sender = slot, .name = name, .text = request.text } };
+    switch (route) {
+        .broadcast => host.sendPlaying(message, null),
+        .private => |recipient| {
+            net.send(recipient, message) catch return;
             net.send(peer.conn, message) catch return;
         },
     }
@@ -726,9 +737,10 @@ test "only a launched local LAN host pauses and drops stale flight commands" {
 test "an undeliverable private message spends only the sender's allowance" {
     var host: Host = .{ .io = std.testing.io, .arena = undefined, .tick = 1 };
     host.peers[0] = .{ .conn = 1, .expires = timeout, .state = .playing, .call_sign = wire.lobbyName("Rook") };
-    var request: wire.ChatRequest = .{ .to = .{ .private = .{ .slot = 1, .generation = 2 } }, .text = .{} };
-    request.text.set("Hello");
-    host.relayChat(0, &host.peers[0].?, request, 0);
-    try std.testing.expect(host.peers[0].?.chat_budget.ready_at != null);
+    const peer = &host.peers[0].?;
+    try std.testing.expectEqual(null, host.chatRoute(0, peer, .{ .private = .{ .slot = 1, .generation = 2 } }, 0));
+    try std.testing.expect(peer.chat_budget.ready_at != null);
     try std.testing.expectEqual(null, host.chat_budget.ready_at);
+    try std.testing.expect(host.chatRoute(0, peer, .flight, 0).? == .broadcast);
+    try std.testing.expect(host.chat_budget.ready_at != null);
 }
