@@ -198,6 +198,9 @@ pub const Resources = struct {
     debrief_background: matmanager.Background = .{},
     lobby_background: matmanager.Background = .{},
     tried_lobby_background: bool = false,
+    lobby_help_font: ?hud.FontFile = null,
+    lobby_help_shapes: ?canvas.Shapes = null,
+    tried_lobby_help: bool = false,
     debrief_large: ?hud.FontFile = null,
     debrief_small: ?hud.FontFile = null,
     debrief_shapes: ?canvas.Shapes = null,
@@ -275,6 +278,20 @@ pub const Resources = struct {
         return if (resources.paging_shapes) |*loaded| &loaded.art else null;
     }
 
+    fn drawLobbyHelp(resources: *Resources, drawn: canvas.Canvas, lobby: *const interface.Connection.Lobby) canvas.Error!void {
+        const tip = lobby.shown_help orelse return;
+        if (!resources.tried_lobby_help) {
+            resources.tried_lobby_help = true;
+            resources.lobby_help_font = .read(resources.gpa, resources.archive, game.itac.tooltips.font_name, resources.outlines);
+            resources.lobby_help_shapes = canvas.Shapes.read(resources.gpa, &resources.archive, game.itac.shapes_name);
+        }
+        if (resources.lobby_help_font) |*font| {
+            if (resources.lobby_help_shapes) |*shapes| {
+                try lobby.help.draw(drawn, &font.font, shapes, drawn.strings.stringOr(tip.string, tip.fallback));
+            }
+        }
+    }
+
     /// The separate co-op debrief uses the installed ITAC fonts and mpdebr backdrop
     /// (multiplayer_debriefing, 0x004297B8 to 0x00429863).
     fn debriefResources(resources: *Resources) void {
@@ -299,6 +316,8 @@ pub const Resources = struct {
         resources.background.deinit(gpa);
         resources.debrief_background.deinit(gpa);
         resources.lobby_background.deinit(gpa);
+        if (resources.lobby_help_font) |*font| font.deinit(gpa);
+        if (resources.lobby_help_shapes) |*shapes| shapes.deinit(gpa);
         if (resources.debrief_large) |*font| font.deinit(gpa);
         if (resources.debrief_small) |*font| font.deinit(gpa);
         if (resources.debrief_shapes) |*art| art.deinit(gpa);
@@ -479,8 +498,11 @@ pub const Interface = struct {
                 };
             },
             .connection => {
-                if (front.connection.ship_picker == null and front.connection.quit_prompt == null) {
-                    if (front.connection.lobby) |*lobby| if (context.resources) |resources| {
+                if (front.connection.lobby) |*lobby| {
+                    lobby.caret.update(front.ticks);
+                    const uncovered = !lobby.mode_open and front.connection.ship_picker == null and front.connection.quit_prompt == null;
+                    lobby.updateHelp(if (uncovered) pointer.at else null, front.ticks);
+                    if (uncovered) if (context.resources) |resources| {
                         lobby.scrollDescription(pointer, &resources.small.font, context.strings);
                     };
                 }
@@ -881,6 +903,10 @@ pub const Interface = struct {
                         .pictures = if (resources.fighter_pictures) |*pictures| pictures else null,
                         .strings = resources.itac_strings,
                     }, front.ticks);
+                    if (front.connection.lobby) |*lobby| {
+                        if (!lobby.mode_open and front.connection.ship_picker == null and front.connection.quit_prompt == null)
+                            try resources.drawLobbyHelp(drawn, lobby);
+                    }
                 }
             },
             .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about),

@@ -3,12 +3,10 @@
 //! game ticks (`tooltips_update`, `0x00440C40`; `tooltip_draw`, `0x00440D80`). OpenReliant shows the
 //! ITAC's, which name its buttons (`itac_tooltips_add`, `0x00440EB0`).
 //!
-//! Not ported: the tooltips of the other screens that show them, which are the multiplayer front
-//! end's: the connection (`multiplayer_connection_screen`), the sessions
-//! (`multiplayer_sessions_screen`) and a session's loadout (`session_loadout_screen`). They show the
-//! game's strings (`tooltips_init` with 1), and come with those screens
-//! ([#813](https://github.com/OpenReliant/openreliant/issues/813),
-//! [#404](https://github.com/OpenReliant/openreliant/issues/404)).
+//! Multiplayer setup uses the same tooltips with the game's strings (`tooltips_init` with 1).
+//! Help for the redesigned connection browser is tracked in
+//! [#813](https://github.com/OpenReliant/openreliant/issues/813). The remaining setup controls and
+//! their tooltips are tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404).
 //!
 //! **Fix:** the game adds ten of the ITAC's tooltips, the tenth read from the start of the table
 //! after the nine. Its rectangle lies far off the screen, so it never shows. OpenReliant adds the
@@ -28,7 +26,7 @@ const Rect = canvas_module.Rect;
 pub const font_name = "newfont.fnt";
 
 /// A tooltip: the rectangle the pointer rests on, and its string.
-pub const Tooltip = struct { rect: Rect, string: u16 };
+pub const Tooltip = struct { rect: Rect, string: u16, fallback: []const u8 = "" };
 
 /// How long the pointer rests on a button before its tooltip shows, in game ticks, unless a
 /// tooltip showed within `recent` of them (`0x00440CB2`, `0x00440CAF`).

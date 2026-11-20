@@ -2922,6 +2922,7 @@ const Display = struct {
 };
 
 test {
+    _ = NetworkPilot;
     _ = @import("network/wire.zig");
     _ = @import("network/chat_budget.zig");
     _ = @import("network/flight_chat.zig");

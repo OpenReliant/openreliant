@@ -3199,6 +3199,7 @@ address	kind	name	type	comment
 005db5b4	data	six_beacons_join_positions	Vec3[6]	World positions restored to the six beacon objects on a joining client
 004b2ef0	function	dm_scenario_for_mission	int __fastcall (int mission)	Finds the arena scenario by its mission number or returns minus one
 004ae2d0	function	multiplayer_chat_panel		Draws chat history and edits the outgoing line in the multiplayer front end, including the session and loadout screens; Enter sends the text with the pilot call sign
+004ae1d0	function	multiplayer_chat_reset	void __fastcall (int fewer_blank_lines)	Clears the multiplayer chat history, draft and focus, resets the caret timer and appends four or seven blank lines
 004ae270	function	multiplayer_chat_append		Scrolls the multiplayer front end chat history and appends a line
 004b9f60	function	net_send_chat		Sends a DirectPlay chat message to all players or to one selected pilot
 004b1760	function	mp_arena_prepare_pickups	void (void)	Prepares arena pickups and fills mp_powerup_weights from the cumulative weights of the original power-up records
@@ -3249,7 +3250,7 @@ address	kind	name	type	comment
 004b5600	function	mp_add_lobby_player	void __fastcall (int network_id, char *name)	Appends the new player's name and ID to the lobby and starts their ping timers
 004b5740	function	mp_bind_lobby_player	void __fastcall (int slot, int lobby_index)	Copies a lobby admission into a vacant flight slot and zeros the arena scores
 004b5900	function	mp_remove_lobby_player	void __fastcall (int network_id)	Removes a player's lobby and flight entries and frees the flight entry's message buffers
-004b6f80	function	net_receive_game_message	void (void)	Dispatches gameplay messages, including case 6, which binds a joining pilot and adds the flight HUD line
+004b6f80	function	net_receive_game_message	void (void)	Dispatches gameplay messages, announces changes to lobby readiness and binds pilots joining during flight
 004b9df0	function	mp_send_join_request	void (void)	Queues and sends the join request when a new player appears during an arena mission
 004ba610	function	mp_send_player_slot	void __fastcall (int network_id, int slot)	Sends the player slot to the joining pilot and includes the slot count in a co-op mission
 0050de30	data	mp_joined_flight_format	char[23]	Format string for the HUD notice when a pilot joins a mission already in flight
@@ -3259,6 +3260,7 @@ address	kind	name	type	comment
 005d761c	data	lobby_chat_focused	int	Set when the pilot clicks the multiplayer lobby or pause chat field
 005d7620	data	lobby_chat_input	char[80]	The draft typed in the multiplayer chat panel
 005d7670	data	lobby_chat_caret	int	The chat panel toggles this every 25 ticks to blink the entry caret
+005d6cb0	data	lobby_chat_caret_due	int	The next game tick after which the chat panel toggles the caret
 005dc0d4	data	received_chat_line		The formatted callsign and message passed to the flight HUD by net_handle_system_message
 004bb950	function	net_send_drop_player	void __fastcall (int slot)	Queues packet 0x4C with the slot of the pilot selected for removal in the pause menu
 004b2420	function	dark_reign_collect	void __fastcall (int pilot, int pickup)	Hides the relay, gives it to the pilot, updates their target if it was the relay and plays the pickup sound

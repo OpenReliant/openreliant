@@ -58,9 +58,13 @@ opens `session_loadout_screen` (`0x0044B950`). Both screens open the network ses
 for the host (`directplay_create_session`, `0x004BC550`). The deathmatch screen combines setup
 and the waiting roster. Its Start Game action returns to `WinMain` to launch (`0x0044CAC2`).
 The co-op screen has a ready check and needs at least two pilots before launch (`0x0043D680`).
+These setup screens are the lobbies. Co-op opens the campaign briefing and deathmatch starts
+the selected arena from its setup screen.
 Both screens use `interface\\mulfade.tga` and the controls from `interface\\frntend3.spr`.
 The co-op roster starts at (355, 179) and spaces its four rows 13 pixels apart. The
 deathmatch roster starts at (431, 126) and spaces its eight rows 14 pixels apart.
+The co-op draw function uses string `0xC0` both above the game name and on the second line
+of **Start Game**. The French disc translates that entry as **OPTIONS**.
 
 The deathmatch description uses the original scroll arrows and appends the mode's team rules.
 Its text shares the ship field's inset, so the outline glyphs clear the frame on every side.
@@ -80,6 +84,10 @@ The co-op lobby shows nine chat lines and the deathmatch lobby six, as variants 
 `multiplayer_chat_panel` (0x004AE2D0) do. The stock arrows scroll the last 30 lines. Click the
 field or press Enter to start typing, then press Enter to send. Escape leaves the field. The
 host supplies the sender's callsign and the lobby shows the original `%s: %s` format (0x00503184).
+The cursor blinks every 25 game ticks (`0x004AE652`). When a co-op guest changes readiness,
+chat shows the installed system message for that callsign (`0x004B7160` and `0x004B721A`).
+**Improvement:** readiness notices have a separate display budget so repeated toggles cannot
+fill the chat history. The host still applies every readiness change.
 
 The browser reads matching labels from the installed language table, with English fallbacks.
 A pilot returns to the browser with the host-departure message (string `0x3B7` from the
@@ -112,8 +120,9 @@ Use the stills to check the display and the executable's draw functions for the 
 | Co-op debrief | `multiplayer_debrief_render` (`0x00429DC0`), `multiplayer_debrief_text` (`0x00425240`), and `multiplayer_chat_panel` variant 1 (`0x004AE2D0`) | The retail backdrop, letter, two scroll controls, chat, figures, roster, and buttons use the original art and coordinates. The save action is tracked in [#475](https://github.com/OpenReliant/openreliant/issues/475), and the profile values that carry between sessions in [#804](https://github.com/OpenReliant/openreliant/issues/804). |
 | Pause, session loss, and standings | `pause_screen_multiplayer` (`0x0048E510`), `pause_session_lost` (`0x0048E370`), and `mp_draw_scoreboard` (`0x004AF650`) | The pause and flight standings use the stock sprites. The pause controls and connection-loss dialog use the original pause art. Host-only shared pause and scrolling beyond stock capacity are deliberate changes. See [Pause menu](pause-menu.md#multiplayer-9). |
 
-Retail tooltips for the multiplayer front end are tracked in
-[#813](https://github.com/OpenReliant/openreliant/issues/813).
+The lobby uses the installed tooltip strings and the ITAC tooltip art, as registered by
+`multiplayer_sessions_screen` and `session_loadout_screen`. Help for the redesigned browser
+is tracked in [#813](https://github.com/OpenReliant/openreliant/issues/813).
 
 ## The screens
 

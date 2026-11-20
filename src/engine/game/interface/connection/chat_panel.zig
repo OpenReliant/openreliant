@@ -10,6 +10,20 @@ const widgets = @import("widgets.zig");
 pub const History = hud.MessageList(30);
 const chat_label: widgets.Label = .{ .english = "CHAT", .installed = 0x140 };
 
+pub const Caret = struct {
+    on: bool = false,
+    /// Initialised by `multiplayer_chat_reset` (0x004AE1DD).
+    due: u32 = 1,
+    const interval = 25;
+
+    /// `multiplayer_chat_panel` toggles once and schedules the next blink (0x004AE63E).
+    pub fn update(caret: *Caret, ticks: u32) void {
+        if (ticks <= caret.due) return;
+        caret.due = ticks +| interval;
+        caret.on = !caret.on;
+    }
+};
+
 pub const Editor = struct {
     line: chat.Line = .{},
     focused: bool = false,
@@ -64,7 +78,7 @@ pub const Setup = struct {
         older.* = count -| list.end();
     }
 
-    pub fn draw(setup: Setup, canvas: ui.Canvas, art: *hud.Art, history: ?*const History, older: usize, hover: ?ui.Arrow, editor: *const Editor) !void {
+    pub fn draw(setup: Setup, canvas: ui.Canvas, art: *hud.Art, history: ?*const History, older: usize, hover: ?ui.Arrow, editor: *const Editor, caret: Caret) !void {
         const log = setup.history;
         const input_box = setup.entry();
         canvas.box(.{ log.x, log.y }, .{ log.width, log.height });
@@ -82,7 +96,7 @@ pub const Setup = struct {
             }
         }
         const draft: ui.Rect = .{ .x = input_box.x + inset, .y = input_box.y + 2, .width = input_box.width - 2 * inset, .height = input_box.height - 2 };
-        try drawDraft(canvas, draft, font, editor, editor.focused, if (editor.focused) ui.white else ui.blue);
+        try drawDraft(canvas, draft, font, editor, editor.focused and caret.on, if (editor.focused) ui.white else ui.blue);
     }
 };
 
@@ -110,4 +124,15 @@ test "Escape leaves the editor and Enter sends the shared draft" {
     try std.testing.expectEqualStrings("Ready", line.slice());
     try std.testing.expectEqual(null, editor.frameIn(panel, .{}, &keys, &typed, true));
     try std.testing.expect(!editor.focused);
+}
+
+test "the lobby caret switches once even after a slow frame" {
+    var caret: Caret = .{};
+    caret.update(2);
+    try std.testing.expect(caret.on);
+    caret.update(27);
+    try std.testing.expect(caret.on);
+    caret.update(90);
+    try std.testing.expect(!caret.on);
+    try std.testing.expectEqual(115, caret.due);
 }
