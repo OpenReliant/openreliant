@@ -57,6 +57,7 @@ pub const HostOptions = struct {
     players: u8 = wire.slots,
     ticks: ?u32,
     teams: bool = false,
+    arena_options: @import("openreliant").engine.game.deathmatch.Options = .{},
     repeat_rounds: bool = false,
     invite_address: ?std.Io.net.IpAddress = null,
 };
@@ -157,13 +158,14 @@ pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity
     const game_directory = options.game_directory orelse directory;
     const scenario = options.mode.scenario();
     const wait_in_lobby = scenario != null and (options.teams or options.repeat_rounds);
-    const arena = try Arena.create(gpa, if (wait_in_lobby) .training else options.mode, io, game_directory);
+    const arena = try Arena.createWithOptions(gpa, if (wait_in_lobby) .training else options.mode, options.arena_options, io, game_directory);
     host.* = .{
         .io = io,
         .arena = arena,
         .player_limit = options.players,
         .arena_directory = if (scenario != null) game_directory else null,
         .arena_teams = options.teams,
+        .arena_options = options.arena_options,
         .repeat_rounds = options.repeat_rounds,
         .start = if (wait_in_lobby) .{ .lobby = .{ .scenario = scenario.? } } else .automatic,
         .signer = if (server) |*automatic| automatic else null,

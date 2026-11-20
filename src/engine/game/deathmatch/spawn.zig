@@ -58,6 +58,7 @@ pub fn reset(world: gameobj.World, pilot: players.ParticipantRef, fighter: gameo
     if (!try aigeneric.push(.of(world), index, .multiplayer_control, .none)) return error.OrderFailed;
     if (!try aigeneric.push(.of(world), index, .deathmatch_respawn_effect, .none)) return error.OrderFailed;
     _ = all.bindParticipant(pilot, .of(all, index)) orelse return error.BindFailed;
+    slot.object.flags.targetable = @import("respawn.zig").targetable(world, index);
     const shadow = @import("../dmscenarios/hunt_the_shadow.zig");
     if (shadow.isShadow(all, index)) shadow.cloakShip(world, index);
 }
@@ -79,7 +80,10 @@ test "a second admitted fighter spawns clear of the first" {
     const second = all.joinParticipant(1).?;
     try reset(world, first, .of(.predator), 0);
     // Slot zero's preferred marker is occupied. A returning pilot must use a free one.
+    world.arena_options.target_players = false;
     try reset(world, second, .of(.shroud), 0);
+    try std.testing.expect(all.slots[0].object.flags.targetable);
+    try std.testing.expect(!all.slots[1].object.flags.targetable);
     try std.testing.expectEqual(first_place, all.slots[0].drawn.position);
     try std.testing.expectEqual(second_place, all.slots[1].drawn.position);
     try std.testing.expectEqual(gameobj.Type.of(.shroud), all.slots[1].object.type);
@@ -96,4 +100,5 @@ test "a second admitted fighter spawns clear of the first" {
     try std.testing.expect(all.slots[1].running(.multiplayer_control) != null);
     try std.testing.expect(!all.slots[1].object.flags.no_collisions);
     try std.testing.expect(all.slots[1].object.invulnerable == .none);
+    try std.testing.expect(!all.slots[1].object.flags.targetable);
 }

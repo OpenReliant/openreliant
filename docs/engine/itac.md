@@ -393,6 +393,5 @@ the screen's right edge (`tooltip_draw`, `0x00440D80`). The tooltips show while 
 
 The multiplayer front end's screens show the same tooltips, with the game's strings rather than the
 ITAC's (`tooltips_init`, `0x00440B30`, with 1): the connection, the sessions and a session's
-loadout ([Front end](front-end.md)). They come with those screens, which OpenReliant doesn't have yet
-([#813](https://github.com/OpenReliant/openreliant/issues/813),
-[#404](https://github.com/OpenReliant/openreliant/issues/404)).
+loadout ([Front end](front-end.md)). OpenReliant uses these tooltips in the redesigned browser,
+the host game chooser and the setup screens.

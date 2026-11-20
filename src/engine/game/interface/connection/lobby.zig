@@ -16,15 +16,16 @@ const pager_widgets = @import("../settings/widgets.zig");
 const tooltips = @import("../../itac/tooltips.zig");
 const Label = widgets.Label;
 const Lobby = @This();
+const ArenaOptions = @import("../../deathmatch.zig").Options;
 pub const History = chat_panel.History;
 
 const Crew = @import("debrief_crew.zig");
 pub const Team = @import("../../players.zig").ArenaTeam;
 pub const Pilot = struct { generation: u64, name: CallSign = .{}, team: Team = .first };
 pub const Admission = @import("../../players.zig").ParticipantRef;
-pub const Action = union(enum) { leave, main_menu, quit, launch, new_campaign, load_campaign, ready: bool, remove: Admission, choose_ship, choose_team: Team, team_play: bool, send_chat: chat.Line };
+pub const Action = union(enum) { leave, main_menu, quit, launch, new_campaign, load_campaign, ready: bool, remove: Admission, choose_ship, choose_team: Team, team_play: bool, arena_option: ArenaOptions.Setting, send_chat: chat.Line };
 const Role = union(enum) { host: struct { can_launch: bool = false, port: u16 }, guest };
-const Control = enum { back, main_menu, quit, launch, new_campaign, load_campaign, ready, remove, ship, team, teams, mode };
+const Control = enum { back, main_menu, quit, launch, new_campaign, load_campaign, ready, remove, ship, team, ai_turrets, target_players, teams, mode };
 
 role: Role,
 roster: []const ?Pilot,
@@ -40,6 +41,7 @@ mission: ?u16 = null,
 loaded_campaign: bool = false,
 ship: scenarios.Fighter = .predator,
 teams: bool = false,
+options: ArenaOptions = .{},
 team_open: bool = false,
 hover: ?Control = null,
 mode_open: bool = false,
@@ -73,7 +75,6 @@ const cancel: Label = .{ .english = "BACK", .installed = 0xF7 };
 const change_mode: Label = .{ .english = "GAME TYPE", .installed = 0x139 };
 const select_mode: Label = .{ .english = "OK", .installed = 0x316 };
 const team_play: Label = .{ .english = "TEAM PLAY", .installed = 0x2C6 };
-const teams_label: Label = .{ .english = "TEAMPLAY", .installed = 0x30C };
 const control_height = 20;
 const modal_rows: ui.Rect = .{ .x = 72, .y = 168, .width = 168, .height = choices.height * scenario_options.len };
 const details_y = 194;
@@ -141,7 +142,49 @@ const ship_field: Field = .{ .box = .{ .x = 201, .y = 164, .width = 192, .height
 const team_field: Field = .{ .box = .{ .x = 201, .y = 126, .width = 59, .height = 21 }, .label = .{ .english = "TEAM", .installed = 0x2C2 } };
 const team_arrow: ArtButton = .{ .at = .{ 266, 130 }, .box = .{ .x = 264, .y = 126, .width = 29, .height = 21 }, .shapes = dropdown };
 // session_loadout_draw draws the stock checkbox and mark at 0x0044D898 and 0x0044D91A.
-const teams_toggle: ArtButton = .{ .at = .{ 578, 356 }, .box = .{ .x = 463, .y = 352, .width = 133, .height = 23 }, .shapes = .{ .off = 0x1C, .lit = 0x1C } };
+const ArenaSwitch = struct {
+    control: Control,
+    label: Label,
+    help_id: u16,
+    help_text: []const u8,
+    y: i16,
+
+    fn box(setting: ArenaSwitch) ui.Rect {
+        return .{ .x = 463, .y = setting.y - 4, .width = 133, .height = 22 };
+    }
+
+    fn visible(setting: ArenaSwitch, lobby: *const Lobby) bool {
+        return lobby.mission == null and lobby.role == .host and
+            (setting.control != .teams or lobby.scenario.record().teams != .none);
+    }
+
+    fn draw(setting: ArenaSwitch, lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
+        const checked = switch (setting.control) {
+            .ai_turrets => lobby.options.ai_turrets,
+            .target_players => lobby.options.target_players,
+            .teams => lobby.teams,
+            else => unreachable,
+        };
+        // Retail draws a 17-pixel frame with an 11-pixel mark inset by three pixels.
+        const factor = canvas.scale();
+        const anchor = canvas.point(.{ 578, setting.y });
+        const overhang = hud.round(factor);
+        const corner = [2]i32{ anchor[0] - overhang, anchor[1] - overhang };
+        const size_pixels = hud.round(17 * factor);
+        try canvas.squareShape(art, 0x1C, corner, size_pixels);
+        if (checked) {
+            const inset = hud.round(3 * factor);
+            try canvas.squareShape(art, 0x1D, .{ corner[0] + inset, corner[1] + inset }, size_pixels - 2 * inset);
+        }
+        try write(canvas, .{ 572, setting.y - 1 }, setting.label, if (lobby.hover == setting.control) ui.white else ui.blue, .right);
+    }
+};
+
+const arena_switches = [_]ArenaSwitch{
+    .{ .control = .ai_turrets, .label = .{ .english = "AI TURRETS", .installed = 0x30A }, .help_id = 0x5A0, .help_text = "Click to toggle AI turrets.", .y = 312 },
+    .{ .control = .target_players, .label = .{ .english = "TARGET PLAYERS", .installed = 0x30B }, .help_id = 0x5A1, .help_text = "Click to toggle player targeting.", .y = 334 },
+    .{ .control = .teams, .label = .{ .english = "TEAMPLAY", .installed = 0x30C }, .help_id = 0x5A2, .help_text = "Click to toggle team play.", .y = 356 },
+};
 const team_step = 22; // 0x0044DC18
 const team_colours: std.EnumArray(Team, [3]f32) = .init(.{
     .first = hud.rgb(0xAD0000),
@@ -192,6 +235,13 @@ pub fn updateHelp(lobby: *Lobby, at: ?[2]i32, ticks: u32) void {
     const arena = [_]tooltips.Tooltip{
         .{ .rect = ship_arrow.box, .string = 0x5A3, .fallback = "Click to select a list of ships to fly" },
         if (host) help_start else .{ .rect = arena_lead.box, .string = 0x592, .fallback = help_lead },
+        .{ .rect = if (lobby.teams) team_arrow.box else tooltips.Tooltip.no_rect, .string = 0x59F, .fallback = "Click to select a team colour." },
+    } ++ switches: {
+        var tips: [arena_switches.len]tooltips.Tooltip = undefined;
+        for (arena_switches, &tips) |setting, *tip| {
+            tip.* = .{ .rect = if (setting.visible(lobby)) setting.box() else tooltips.Tooltip.no_rect, .string = setting.help_id, .fallback = setting.help_text };
+        }
+        break :switches tips;
     };
     const help = if (lobby.mission == null) &arena else if (host) coop[0..] else coop[0..4];
     if (lobby.help.update(help, pointer, ticks)) |index| lobby.shown_help = help[index];
@@ -250,7 +300,9 @@ fn controlAt(lobby: *const Lobby, at: [2]i32) ?Control {
     }
     if (!coop and (ship_field.box.holds(at) or ship_arrow.box.holds(at))) return .ship;
     if (!coop and lobby.teams and (team_field.box.holds(at) or team_arrow.box.holds(at))) return .team;
-    if (!coop and lobby.role == .host and lobby.scenario.record().teams != .none and teams_toggle.box.holds(at)) return .teams;
+    for (arena_switches) |setting| {
+        if (setting.visible(lobby) and setting.box().holds(at)) return setting.control;
+    }
     if (!coop and lobby.role == .host and mode_list.holds(at)) return .mode;
     return null;
 }
@@ -367,6 +419,8 @@ pub fn frame(lobby: *Lobby, mouse: ui.Pointer, keys: *input.Keyboard, typed: *Ty
         .remove => .{ .remove = lobby.selectedPilot().? },
         .ship => .choose_ship,
         .teams => .{ .team_play = !lobby.teams },
+        .ai_turrets => .{ .arena_option = .ai_turrets },
+        .target_players => .{ .arena_option = .target_players },
         .team => open: {
             lobby.team_open = true;
             lobby.option_under = null;
@@ -498,10 +552,8 @@ fn drawArena(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
         drawSwatch(canvas, team, team_field.box, 2);
         try team_arrow.draw(canvas, art, lobby.hover == .team or lobby.team_open, true);
     }
-    if (host and lobby.scenario.record().teams != .none) {
-        try teams_toggle.draw(canvas, art, false, true);
-        if (lobby.teams) try canvas.shape(art, 0x1D, .{ 581, 359 });
-        try write(canvas, .{ 572, 355 }, teams_label, if (lobby.hover == .teams) ui.white else ui.blue, .right);
+    for (arena_switches) |setting| {
+        if (setting.visible(lobby)) try setting.draw(lobby, canvas, art);
     }
     try ship_field.draw(canvas, ShipPicker.label(lobby.ship).text(canvas.strings.*), lobby.hover == .ship);
     try ship_arrow.draw(canvas, art, lobby.hover == .ship, true);

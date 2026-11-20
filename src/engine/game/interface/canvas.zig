@@ -98,6 +98,18 @@ pub const Canvas = struct {
         try hud.drawShapeWith(art, canvas.gpa, canvas.target, index, canvas.point(at), hud.atBrightness(.{ 1, 1, 1 }, canvas.brightness), canvas.scale(), .{ .clip = canvas.cut() });
     }
 
+    /// Draw a square sprite on a shared pixel grid so an inset can have equal margins.
+    pub fn squareShape(canvas: Canvas, art: *hud.Art, index: usize, pixel: [2]i32, size_pixels: i32) Error!void {
+        const sprite = art.shape(index) orelse return;
+        if (size_pixels <= 0 or sprite.width() == 0) return;
+        const factor = @as(f32, @floatFromInt(size_pixels)) / @as(f32, @floatFromInt(sprite.width()));
+        const anchor: hud.Point = .{
+            hud.Clip.edge(@floatFromInt(pixel[0]), -@as(i32, sprite.header.x1), factor),
+            hud.Clip.edge(@floatFromInt(pixel[1]), -@as(i32, sprite.header.y1), factor),
+        };
+        try hud.drawShapeAt(art, canvas.gpa, canvas.target, index, anchor, hud.atBrightness(.{ 1, 1, 1 }, canvas.brightness), factor, .{ .clip = canvas.cut() });
+    }
+
     /// The canvas cut to the front end's screen, where the pointer is drawn: a pointer's shape
     /// stands off its point, and past the screen's edge the game's screen cut it off, where a
     /// window wider or taller than the screen would show it beside it.
@@ -207,6 +219,16 @@ pub const Canvas = struct {
     /// Writes `words` in `font` at `at`, ramped through `colour` (`hud_text`).
     pub fn text(canvas: Canvas, font: *hud.Opened, at: [2]i32, words: []const u8, colour: [3]f32, alignment: hud.Align) Allocator.Error!void {
         _ = try hud.drawTextIn(font, canvas.gpa, canvas.target, canvas.point(at), words, hud.atBrightness(colour, canvas.brightness), alignment, canvas.scale(), canvas.cut());
+    }
+
+    /// Centre the visible text in a band whose top is at `at[1]` and whose height is in canvas units.
+    pub fn centredText(canvas: Canvas, font: *hud.Opened, at: [2]i32, height: i32, words: []const u8, colour: [3]f32, alignment: hud.Align) Allocator.Error!void {
+        const factor = canvas.scale();
+        const ink = try hud.textInk(font, .{ 0, 0 }, words, alignment, factor) orelse return;
+        const pixels = @as(f32, @floatFromInt(height)) * factor;
+        var origin = canvas.point(at);
+        origin[1] += hud.round((pixels - ink.top - ink.bottom) / 2);
+        _ = try hud.drawTextIn(font, canvas.gpa, canvas.target, origin, words, hud.atBrightness(colour, canvas.brightness), alignment, factor, canvas.cut());
     }
 
     /// `hud_text_wrapped` (`0x00480FD0`): `words` broken into lines at most `lines.width` of the

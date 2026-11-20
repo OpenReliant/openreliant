@@ -3,10 +3,8 @@
 //! game ticks (`tooltips_update`, `0x00440C40`; `tooltip_draw`, `0x00440D80`). OpenReliant shows the
 //! ITAC's, which name its buttons (`itac_tooltips_add`, `0x00440EB0`).
 //!
-//! Multiplayer setup uses the same tooltips with the game's strings (`tooltips_init` with 1).
-//! Help for the redesigned connection browser is tracked in
-//! [#813](https://github.com/OpenReliant/openreliant/issues/813). The remaining setup controls and
-//! their tooltips are tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404).
+//! The multiplayer browser and setup screens use the same tooltip art and read text from the
+//! main language file, like `tooltips_init` with 1.
 //!
 //! **Fix:** the game adds ten of the ITAC's tooltips, the tenth read from the start of the table
 //! after the nine. Its rectangle lies far off the screen, so it never shows. OpenReliant adds the
@@ -26,7 +24,13 @@ const Rect = canvas_module.Rect;
 pub const font_name = "newfont.fnt";
 
 /// A tooltip: the rectangle the pointer rests on, and its string.
-pub const Tooltip = struct { rect: Rect, string: u16, fallback: []const u8 = "" };
+pub const Tooltip = struct {
+    rect: Rect,
+    string: u16,
+    fallback: []const u8 = "",
+
+    pub const no_rect: Rect = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+};
 
 /// How long the pointer rests on a button before its tooltip shows, in game ticks, unless a
 /// tooltip showed within `recent` of them (`0x00440CB2`, `0x00440CAF`).
@@ -45,12 +49,12 @@ const right_margin = 6;
 
 /// The box round the text, from `box_left` and `box_top` of it to `box_right` past its end and
 /// `box_bottom` below it, filled with palette entry `fill` and edged with `edge`, which the text is
-/// written in too, from `text_at` (`0x00440E0E` on).
+/// written in too (`0x00440E0E` on).
 const box_left = 1;
 const box_top = 3;
 const box_right = 5;
 const box_bottom = 15;
-const text_at: [2]i32 = .{ 2, -2 };
+const text_inset = 2;
 const fill = 0;
 const edge = 100;
 
@@ -117,7 +121,7 @@ pub const Tooltips = struct {
         canvas.line(.{ right, top }, .{ right, bottom }, edge_colour);
         canvas.line(.{ right, bottom }, .{ left, bottom }, edge_colour);
         canvas.line(.{ left, bottom }, .{ left, top }, edge_colour);
-        try canvas.text(font, .{ x + text_at[0], y + text_at[1] }, text, edge_colour, .left);
+        try canvas.centredText(font, .{ x + text_inset, top }, bottom - top, text, edge_colour, .left);
     }
 };
 

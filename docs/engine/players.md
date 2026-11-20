@@ -327,6 +327,14 @@ admitted pilot's fighter and chooses a free spawn marker (`0x004AF1D0`). The fir
 starts at the first marker. Later spawns use the original collision margin of 1.2 times the
 sum of the radii. The ship starts with half its afterburner fuel and empty missile racks.
 
+`mp_arena_init` (0x004AE860) copies the lobby's AI Turrets and Target Players settings into the round.
+With AI Turrets off, `multiplayer_list_spawns` (0x004AF5C0) disables guns on non-player objects
+during the initial scan. With it on, the mission's gun settings are used. The Dark Reign tower's
+scenario weapon is controlled separately. `order_deathmatch_respawn_effect_init` (0x004B0DB0)
+sets each new fighter's targetable flag from Target Players. The flag stays in place after the
+effect ends. Mode rules can still change it, as Hunt the Shadow does when the role changes hands.
+The host sends each fighter's current flag to clients.
+
 The client loads the arena scenery and reads beacon positions and carriers from the host.
 The shared HUD uses installed strings for collections, launches and blast kills, with English
 fallbacks. Only the scorer sees the bonus on the kill line. A pilot joining during a pause

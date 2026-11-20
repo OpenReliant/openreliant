@@ -2120,6 +2120,7 @@ pub const World = struct {
     difficulty: collision.Difficulty = .medium,
     /// The host selects these rules for the mission before stepping the simulation.
     damage_rules: collision.DamageRules = .campaign,
+    arena_options: @import("deathmatch.zig").Options = .{},
     /// How far the launch's hangar's beacons reach.
     hangar_beacons: objects.HangarBeacons = .to_the_ship,
     /// The Yamato launch steam's brightness, with the original emission behavior.

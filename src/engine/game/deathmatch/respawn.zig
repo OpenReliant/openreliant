@@ -19,9 +19,13 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
     slot.state.respawn_until = ctx.world.clock.frame_start + duration;
     slot.object.invulnerable = ._unknown_4;
     slot.object.flags.no_collisions = true;
-    // The original enables targeting with the default flag at 0x0050C2F0.
-    slot.object.flags.targetable = !@import("../dmscenarios/hunt_the_shadow.zig").isShadow(ctx.world.objects, index);
+    // This flag stays set through exit unless a scenario changes it.
+    slot.object.flags.targetable = targetable(ctx.world, index);
     sound(ctx.world, index);
+}
+
+pub fn targetable(world: @import("../gameobj.zig").World, index: u16) bool {
+    return world.arena_options.target_players and !@import("../dmscenarios/hunt_the_shadow.zig").isShadow(world.objects, index);
 }
 
 pub fn sound(world: @import("../gameobj.zig").World, index: u16) void {
