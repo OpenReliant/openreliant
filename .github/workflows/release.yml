@@ -146,12 +146,10 @@ jobs:
         run: |
           printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           docker buildx create --use --driver docker-container
-          tags=(--tag "$IMAGE:$TAG")
-          if [ "$GITHUB_REF_NAME" = main ]; then tags+=(--tag "$IMAGE:latest"); fi
           docker buildx build --platform linux/amd64,linux/arm64 --push -f Dockerfile.headless \
             --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --label "org.opencontainers.image.version=$TAG" \
-            "${tags[@]}" .
+            --tag "$IMAGE:$TAG" .
 
   attach:
     needs: [release-please, build]

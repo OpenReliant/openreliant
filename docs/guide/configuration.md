@@ -226,6 +226,7 @@ the current folder. Pass a different file as `openreliant --headless path/to/ser
 The host starts before the game opens a window or initializes sound.
 
 The Linux container `ghcr.io/openreliant/openreliant-headless` supports x86-64 and AArch64.
+The `latest` tag follows the development branch. Use a release tag to run a fixed version.
 GitHub creates a new container package as private. The organisation can make the package
 public after its first release so operators can pull it without signing in.
 Mount a writable folder at `/data`, with `server.ini` and the retail game files inside it.

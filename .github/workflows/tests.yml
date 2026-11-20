@@ -44,7 +44,7 @@ jobs:
             src/openreliant/network src/openreliant/main.zig src/openreliant/options.zig \
             scripts/build_transport.py scripts/check-direct-session.py scripts/transport_test_identities.py \
             scripts/transport-test-requirements.txt Dockerfile.headless .dockerignore .github/actions/build-transport \
-            .github/workflows/release.yml .github/workflows/tests.yml; then
+            .github/workflows/release.yml .github/workflows/headless.yml .github/workflows/tests.yml; then
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           fi
       - uses: ./.github/actions/build-transport
