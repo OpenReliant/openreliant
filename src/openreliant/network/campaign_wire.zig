@@ -70,7 +70,7 @@ pub const CampaignLoadout = struct {
 };
 const ObjectivesDisplay = engine.game.hud.Objectives;
 pub const MissionView = struct {
-    pub const capacity = @sizeOf(u16) + 7 * @sizeOf(u8) + 5 * @sizeOf(f32) + (ObjectivesDisplay.per_mission + 1) * @sizeOf(i16) + @sizeOf(Facing) + Guide.capacity;
+    pub const capacity = @sizeOf(u16) + 8 * @sizeOf(u8) + 5 * @sizeOf(f32) + (ObjectivesDisplay.per_mission + 1) * @sizeOf(i16) + @sizeOf(Facing) + Guide.capacity;
     number: u16,
     pilot_slots: u8,
     lead: ?u8,
@@ -79,6 +79,7 @@ pub const MissionView = struct {
     rating: engine.vm.Variables.Outcome = .failure,
     guide: Guide = .{},
     ending: engine.game.main.Ending = .playing,
+    ending_scene: engine.game.players.EndingScene = .none,
     kills: u16 = 0,
     landed: bool = false,
     objectives_met: bool = false,
@@ -160,6 +161,7 @@ pub const MissionView = struct {
         try w.writeInt(i32, @backingInt(mission.rating), .little);
         try mission.guide.write(w);
         try w.writeByte(@backingInt(mission.ending));
+        try w.writeByte(@backingInt(mission.ending_scene));
         try w.writeInt(u16, mission.kills, .little);
         const landed: u8 = @intFromBool(mission.landed);
         const met: u8 = @intFromBool(mission.objectives_met);
@@ -188,6 +190,7 @@ pub const MissionView = struct {
         const ending = try r.takeByte();
         if (ending > @backingInt(engine.game.main.Ending.ejecting)) return error.InvalidMissionView;
         mission.ending = @fromBackingInt(ending);
+        mission.ending_scene = try r.takeEnum(engine.game.players.EndingScene, .little);
         mission.kills = try r.takeInt(u16, .little);
         const flags = try r.takeByte();
         if (flags > 0b111) return error.InvalidMissionView;
@@ -211,6 +214,19 @@ pub const MissionView = struct {
         return mission;
     }
 };
+
+test "private campaign endings survive the mission view packet" {
+    const Scene = engine.game.players.EndingScene;
+    for (std.enums.values(Scene)) |ending_scene| {
+        const view: MissionView = .{ .number = 1, .pilot_slots = 4, .lead = 1, .ending_scene = ending_scene };
+        var buffer: [MissionView.capacity]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buffer);
+        try view.write(&writer);
+        var reader: std.Io.Reader = .fixed(writer.buffered());
+        const read = try MissionView.read(&reader);
+        try std.testing.expectEqual(ending_scene, read.ending_scene);
+    }
+}
 
 fn writeObjectRef(w: *std.Io.Writer, ref: ?engine.game.gameobj.ObjectRef) !void {
     try w.writeInt(u16, if (ref) |object| object.slot else engine.game.gameobj.max_objects, .little);

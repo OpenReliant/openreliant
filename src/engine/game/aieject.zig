@@ -318,6 +318,7 @@ pub fn update(ctx: Context, index: u16) void {
             if (participant) |pilot| {
                 const fate = ctx.world.player.rescue_odds.fate(ctx.world.random.rand());
                 pilot.ending = fate.ending();
+                pilot.ending_scene = .pickup(fate);
                 pilot.lost_at = ctx.world.clock.viewTime();
                 state.stage = .picked_up;
                 radio.mooseSaysOneOfTo(ctx.world, .{ .participant = all.playerBinding(index).? }, fate.lines());
@@ -430,14 +431,21 @@ const PickupScene = struct {
 /// large a target. Moose's words on the pilot's fate go out on the radio first.
 fn pickUp(ctx: Context, index: u16) void {
     const world = ctx.world;
+    const fate = world.player.rescue_odds.fate(world.random.rand());
+    beginPickup(ctx, index, fate, .local);
+}
+
+/// Starts the stock pickup scene with an outcome already chosen by the game or the co-op host.
+/// In co-op this runs on the affected pilot's presentation copy of the objects.
+pub fn beginPickup(ctx: Context, index: u16, fate: Fate, speech: enum { local, queued }) void {
+    const world = ctx.world;
     const all = world.objects;
     const pod = &all.slots[index];
     world.player.showing = .ejection;
-    const fate = world.player.rescue_odds.fate(world.random.rand());
     world.player.ending = fate.ending();
     objects.setPlace(&pod.object, &pod.drawn, .{ .position = cutaway_place, .orientation = math.identity });
     pod.state.eject.stage = .picked_up;
-    radio.mooseSaysOneOf(world, fate.lines());
+    if (speech == .local) radio.mooseSaysOneOf(world, fate.lines());
     const scene: PickupScene = switch (fate) {
         .rescued => .scoop(.of(.nanny)),
         .captured => .scoop(.of(.antanov)),

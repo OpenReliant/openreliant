@@ -38,6 +38,7 @@ fighter: wire.Fighter = .predator,
 latest: ?wire.Snapshot = null,
 debrief: ?wire.Debrief = null,
 result_tick: ?u32 = null,
+retired: bool = false,
 campaign_floor: u32 = 0,
 next_mission: ?u16 = null,
 pending_view: ?PendingView = null,
@@ -130,6 +131,7 @@ pub const Event = union(enum) {
     debrief,
     campaign_next,
     campaign_end,
+    campaign_retired,
     snapshot,
     finished,
     closed,
@@ -366,6 +368,12 @@ pub fn poll(client: *Client, io: Io) !Event {
             client.leaving = true;
             return .campaign_end;
         },
+        .campaign_retired => |tick| {
+            if (tick != client.result_tick) return error.UnexpectedMessage;
+            client.retired = true;
+            client.leaving = true;
+            return .campaign_retired;
+        },
         .view, .finished, .campaign_result => |view| {
             if (client.joined == null) {
                 // Flight updates can arrive before the reliable admission.
@@ -485,6 +493,10 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
                 std.debug.print("debrief-crew {d} {d} {d} {d}\n", .{ crew.lead, crew.present.mask, crew.eligible.mask, crew.ready.mask });
             },
             .campaign_next => std.debug.print("briefing {d}\n", .{client.next_mission.?}),
+            .campaign_retired => {
+                std.debug.print("campaign retired\n", .{});
+                return;
+            },
             .campaign_end, .closed => return,
             .admitted => {
                 const admission = client.joined.?;

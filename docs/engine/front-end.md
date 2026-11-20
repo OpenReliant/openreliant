@@ -613,6 +613,12 @@ the network path skips the solo autosave (0x00475BF4).
 **Improvement:** co-op keeps the attempt's restart point in memory, so replay uses the
 starting record and the solo restart file can still be used for the single-player campaign.
 
+`net_mark_campaign_out` (`0x004B9DA0`) marks pilots who cannot advance. Next Mission waits
+for eligible pilots and carries only those pilots into the next briefing. Replay waits for
+everyone and keeps the whole crew. If nobody can advance, the lowest occupied seat leads the
+replay (`multiplayer_debriefing`, `0x004296A0`). A LAN host that cannot advance still
+runs the session while they remain on the multiplayer screen.
+
 ## Backgrounds
 
 `background_set` (`0x00494B50`) shows a picture behind the frames, loading it with `background_load` (`0x00494A70`) unless `background_name` (`0x00588744`) is it already, case aside. `background_load` reads the TGA and hands it to the device (`sr + 0x50`), or runs `background_hook` (`0x00588740`) in its place where one is set.

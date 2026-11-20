@@ -134,6 +134,13 @@ never reached, as mission 16 ends no chapter.
 from the mission's settings, which start with the original's values and which mods can change
 ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)). A chapter plays up to 8 reports, where the original's play at most 3.
 
+The co-op loadout plays the same rotating hangar movies before flight. At the end of a mission,
+the client uses the host's campaign flags and mission rating to choose the return scene, story
+thread and news reports. A rescued pilot sees the return films as well. The transport keeps
+running during playback, so a pilot who skips a film can still wait for the rest of the crew.
+The Mission 25 transition, Foster's Last Stand and the third rescue are tracked together in
+[#1489](https://github.com/OpenReliant/openreliant/issues/1489).
+
 ### How a mission ended
 
 After the landing, or where there is none, `WinMain` plays how a mission of the campaign ended

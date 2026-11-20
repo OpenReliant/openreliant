@@ -504,6 +504,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var disc: game.interface.disc.Disc = .{ .gpa = gpa, .io = io, .directory = directory, .mods = &mods };
     defer disc.close();
     var hangar: game.xtrabits.movie.Hangar = .{};
+    var coop_hangar: game.xtrabits.movie.Hangar = .{};
     // The movies play in a loop of their own, decoded by FFmpeg behind the stand-in for Bink. When
     // the renderer first starts, before its loading screens, `renderer_load` plays the intro; a
     // mission named with `--mission`, or a screenshot run, starts without it.
@@ -1181,10 +1182,16 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 if (shared_debrief) movies.service = .{ .context = &service, .tick = NetworkPilot.Briefing.service };
                 defer movies.service = null;
                 var summary: game.gameflow.Campaign = .begin();
+                if (network_pilot.client) |*client| {
+                    if (client.latest) |*snapshot| if (snapshot.campaign_checkpoint) |checkpoint| {
+                        game.gameflow.save.applyVariables(&summary.variables, checkpoint.vars);
+                    };
+                }
                 summary.variables.mission_success = result.rating;
                 summary.mission = game.gameflow.nextMission(result.number);
                 if (summary.record(result.number)) |record| record.* = .{ .rating = result.rating, .kills = result.kills };
-                if (result.landed) {
+                // WinMain (0x004A8B10) plays the co-op return movie after a rescue too.
+                if (if (shared_debrief) game.winmain.landsAfter(result.ending, result.number, false) else result.landed) {
                     sound.end3DAll();
                     if (game.xtrabits.landing.landing(result.number, false, result.ending, &summary.variables)) |landed| {
                         if (!try movies.land(landed, &resources, sound) and !service.failed) return;
@@ -1193,6 +1200,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 if (shared_debrief and !service.failed) {
                     const ending = game.winmain.cooperativeEndingFilm(result.number, result.ending, result.rating, result.reliant_alive);
                     if (!try movies.playChosen(ending) and !service.failed) return;
+                    if (summary.mission == game.gameflow.story_end and ending == null and !service.failed) {
+                        const played = if (try rooms.?.endBriefing())
+                            try movies.storyEnd(game.xtrabits.ending.movies(&summary.variables))
+                        else
+                            false;
+                        if (!played and !service.failed) return;
+                    }
                 }
                 if (service.failed) {
                     network_pilot.returnToBrowser(&front.connection, presentation, .{ .english = "Connection lost during debrief" });
@@ -1213,7 +1227,15 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 const briefed = briefed: {
                     movies.service = .{ .context = &service, .tick = NetworkPilot.Briefing.service };
                     defer movies.service = null;
-                    break :briefed try rooms.?.cooperativeBriefing(number);
+                    const choice = try rooms.?.cooperativeBriefing(number) orelse break :briefed null;
+                    if (choice == .fly and !service.failed) {
+                        // WinMain (0x004A8B10) plays the carrier's rotating hangar clip after loadout.
+                        if (network_pilot.client.?.campaign_floor == 0) coop_hangar = .{};
+                        waitBeforeLaunch(&clock, sound);
+                        if (!try movies.launch(&coop_hangar, number)) break :briefed null;
+                        sound.closeMusic();
+                    }
+                    break :briefed choice;
                 };
                 if (service.failed) {
                     network_pilot.returnToBrowser(&front.connection, presentation, .{ .english = "Connection lost during briefing" });
@@ -1746,6 +1768,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .rays = if (flight.effects.rays) |*effects| effects else null,
                     .rays_drawing = &online.rays_drawing,
                     .ion_cannons = if (flight.effects.ion_cannons) |*effects| effects else null,
+                    .tractors = if (flight.effects.tractors) |*effects| effects else null,
+                    .tractors_drawing = &tractors_drawing,
+                    .jump_effects = if (flight.effects.jump_effects) |*effects| effects else null,
                     .shockwaves = if (flight.effects.shockwaves) |*rings| rings else null,
                     .flash = if (flight.effects.flash) |*screen_flash| screen_flash else null,
                     .respawns = &online.respawns,
