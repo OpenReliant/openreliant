@@ -172,6 +172,11 @@ With the archives, the workflow attaches `openreliant-v0.6.1-sha256sums.txt`, wh
 
 Run by hand from the Actions tab, the workflow builds all six and keeps the archives as the run's artifacts, but publishes nothing and makes no attestations.
 
+The Discord release feed runs after GitHub has the downloads. The Discord
+[commits workflow](../../.github/workflows/discord-commits.yml) posts each new
+commit on `main`. The webhooks are stored in the repository's Actions secrets
+as `DISCORD_RELEASES_WEBHOOK` and `DISCORD_MAIN_COMMITS_WEBHOOK`.
+
 The build gives `openreliant` and `sltool` their version ([`version.zig`](../../src/version.zig)), which `--version` and the top of `openreliant --help` and of `sltool help` show. It is the version in `build.zig.zon`, followed by what `git describe` says of the checkout as SemVer build metadata when it is not exactly a release:
 
 | Checkout | Version |
