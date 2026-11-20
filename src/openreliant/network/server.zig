@@ -1183,10 +1183,7 @@ pub fn pump(host: *Host) !enum { running, finished } {
     host.tick += 1;
     const step_started = if (host.metrics != null) host.now() else 0;
     const step = host.arena.step(host.tick);
-    if (host.metrics) |exporter| {
-        exporter.stats.ticks += 1;
-        exporter.stats.step_us += @intCast(@max(0, host.now() - step_started));
-    }
+    if (host.metrics) |exporter| exporter.stats.recordStep(@intCast(@max(0, host.now() - step_started)));
     const view = step catch |err| switch (err) {
         error.ArenaEnded => if (host.arena_directory != null and host.arena.mode.scenario() != null) {
             if (host.roundStats()) |rounds| rounds.completed += 1;
