@@ -19,7 +19,7 @@ pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
 pub const CampaignCheckpoint = campaign.Checkpoint;
-pub const revision: u16 = 28;
+pub const revision: u16 = 29;
 pub const Team = engine.game.players.ArenaTeam;
 
 fn readTeam(reader: *std.Io.Reader) !Team {
@@ -330,6 +330,7 @@ fn readCallSign(reader: *std.Io.Reader) !CallSign {
 pub const Version = struct {
     protocol: u16,
     release: []const u8,
+    session: ?[16]u8 = null,
 
     pub const local: Version = .{ .protocol = revision, .release = version.string };
 
@@ -1078,6 +1079,7 @@ pub const Message = union(enum(u8)) {
                 try w.writeInt(u16, peer.protocol, .little);
                 try w.writeByte(@intCast(peer.release.len));
                 try w.writeAll(peer.release);
+                if (message == .join) if (peer.session) |session| try w.writeAll(&session);
             },
             .joined => |entry| {
                 try writeAdmission(&w, entry.admission);
@@ -1246,7 +1248,8 @@ pub const Message = union(enum(u8)) {
                 if (length == 0 or length > max_release) return error.InvalidVersion;
                 const release = try r.take(length);
                 for (release) |byte| if (!std.ascii.isPrint(byte)) return error.InvalidVersion;
-                const peer: Version = .{ .protocol = protocol, .release = release };
+                const session: ?[16]u8 = if (tag == .join and r.bufferedLen() != 0) (try r.take(16))[0..16].* else null;
+                const peer: Version = .{ .protocol = protocol, .release = release, .session = session };
                 break :pair if (tag == .join) .{ .join = peer } else .{ .wrong_protocol = peer };
             },
             .joined => .{ .joined = .{ .admission = try readAdmission(&r), .arena_floor = try r.takeInt(u32, .little) } },
@@ -1549,6 +1552,8 @@ test "versions compare by protocol and snapshots retain slot identities" {
     try std.testing.expect((try Message.decode(try local.encode(&buffer))).join.compatible());
     const old: Message = .{ .join = .{ .protocol = revision - 1, .release = "next" } };
     try std.testing.expect(!(try Message.decode(try old.encode(&buffer))).join.compatible());
+    const listing: Message = .{ .join = .{ .protocol = revision, .release = "1.0.1", .session = @splat(9) } };
+    try std.testing.expectEqualDeep(listing.join.session, (try Message.decode(try listing.encode(&buffer))).join.session);
     var view: Message = .{ .view = .{ .tick = 12, .ships = @splat(null) } };
     view.view.ships[0] = .{
         .generation = 4,

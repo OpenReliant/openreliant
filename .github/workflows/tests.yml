@@ -43,7 +43,7 @@ jobs:
           if ! git diff --quiet HEAD^1 HEAD -- build.zig build.zig.zon deps/transport \
             src/openreliant/network src/openreliant/main.zig src/openreliant/options.zig \
             scripts/build_transport.py scripts/check-direct-session.py scripts/transport_test_identities.py \
-            scripts/transport-test-requirements.txt .github/actions/build-transport \
+            scripts/transport-test-requirements.txt Dockerfile.headless .dockerignore .github/actions/build-transport \
             .github/workflows/release.yml .github/workflows/tests.yml; then
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           fi
@@ -66,6 +66,13 @@ jobs:
         env:
           IDENTITIES: ${{ steps.transport.outputs.identities }}
         run: python3 scripts/check-direct-session.py zig-out/bin/openreliant "$IDENTITIES"
+      - name: Check the headless container
+        if: steps.transport_changes.outputs.changed == 'true'
+        run: |
+          mkdir -p dist/amd64
+          cp zig-out/bin/openreliant LICENSE dist/amd64/
+          docker build -f Dockerfile.headless -t openreliant-headless-check .
+          docker run --rm --network none openreliant-headless-check --version
       # On Windows, the executables carry a manifest, which Windows reads as they start, and version
       # information, which has to give the version they report.
       - if: runner.os == 'Windows'

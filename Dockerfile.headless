@@ -1,0 +1,7 @@
+FROM gcr.io/distroless/base-debian12:nonroot
+ARG TARGETARCH
+COPY dist/${TARGETARCH}/openreliant /openreliant
+COPY dist/${TARGETARCH}/LICENSE* /licenses/
+WORKDIR /data
+ENTRYPOINT ["/openreliant"]
+CMD ["--headless", "/data/server.ini"]

@@ -27,6 +27,7 @@ const timeout = 10 * std.time.us_per_s;
 const poll_ms = 4;
 
 expected_host: ?[]const u8,
+expected_session: ?[16]u8 = null,
 conn: net.Connection = 0,
 state: enum { connecting, connected, unverified, closed, lost, dropped } = .connecting,
 
@@ -265,7 +266,9 @@ pub fn poll(client: *Client, io: Io) !Event {
         if (client.joined == null or (client.latest != null and client.result_tick == null)) return error.SessionTimedOut;
     }
     if (client.state == .connected and !client.sent_join) {
-        try net.send(client.conn, .{ .join = .local });
+        var version = wire.Version.local;
+        version.session = client.expected_session;
+        try net.send(client.conn, .{ .join = version });
         try net.send(client.conn, .{ .pick_ship = client.fighter });
         client.sent_join = true;
     }

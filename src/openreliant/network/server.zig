@@ -63,6 +63,7 @@ const Peer = struct {
 io: Io,
 arena: *Arena,
 signer: ?*const identity.Server = null,
+directory_session: ?[16]u8 = null,
 player_limit: u8 = wire.slots,
 lan_only: bool = false,
 arena_directory: ?Io.Dir = null,
@@ -523,6 +524,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                 peer.expires = time + timeout;
                 return true;
             }
+            if (!host.acceptsSession(message.join.session)) return false;
             peer.state = .choosing;
             return true;
         },
@@ -613,6 +615,21 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
     }
 }
 
+fn acceptsSession(host: *const Host, expected: ?[16]u8) bool {
+    const requested = expected orelse return true;
+    const actual = host.directory_session orelse return false;
+    return std.mem.eql(u8, &requested, &actual);
+}
+
+test "directory joins are bound to the current advertised session" {
+    var host: Host = .{ .io = std.testing.io, .arena = undefined };
+    try std.testing.expect(host.acceptsSession(null));
+    try std.testing.expect(!host.acceptsSession(@splat(1)));
+    host.directory_session = @splat(1);
+    try std.testing.expect(host.acceptsSession(@splat(1)));
+    try std.testing.expect(!host.acceptsSession(@splat(2)));
+}
+
 fn acceptInput(host: *const Host, peer: *Peer, input: wire.Input, time: i64) void {
     if (!input.follows(peer.sequence)) return;
     peer.sequence = input.sequence;
@@ -667,7 +684,7 @@ fn servicePeers(host: *Host, time: i64) !void {
     }
 }
 
-fn playingCount(host: *const Host) usize {
+pub fn playingCount(host: *const Host) usize {
     var count: usize = 0;
     for (host.peers) |entry| {
         const peer = entry orelse continue;
@@ -1284,7 +1301,7 @@ fn broadcastScene(host: *Host) !void {
     }
 }
 
-pub fn run(host: *Host, address: [:0]const u8, ticks: ?u32, invite: ?identity.Invite) !void {
+pub fn run(host: *Host, address: [:0]const u8, ticks: ?u32, invite: ?identity.Invite, advertiser: ?*@import("advertise.zig"), updates: ?*@import("headless_updates.zig")) !void {
     try host.open(address, ticks);
     defer host.close();
     std.debug.print("listening {s}\n", .{address});
@@ -1298,6 +1315,8 @@ pub fn run(host: *Host, address: [:0]const u8, ticks: ?u32, invite: ?identity.In
         net.session_poll();
         const result = try host.pump();
         if (host.metrics) |exporter| exporter.publish(host.playingCount());
+        if (advertiser) |publisher| publisher.tick(host, host.now());
+        if (updates) |check| check.tick(host.now());
         if (result == .finished) break;
         const wait = if (host.final_tick != null)
             std.time.us_per_ms

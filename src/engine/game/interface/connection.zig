@@ -27,6 +27,7 @@ pub const Server = struct {
     capacity: u16,
     ping_ms: ?u16 = null,
     target: []const u8,
+    protocol: ?u32 = null,
 };
 const chat = @import("../chat.zig");
 
@@ -40,6 +41,8 @@ address: language.Text(128) = .{},
 message: Label = .{},
 busy: bool = false,
 host_available: bool = false,
+discovery_available: bool = false,
+refresh_requested: bool = false,
 host_choice: ?HostChoice = null,
 lobby: ?Lobby = null,
 debrief: ?Debrief = null,
@@ -55,6 +58,8 @@ hover: ?Layout.Control = null,
 quit_prompt: ?dialog.Confirm = null,
 help: tooltips.Tooltips = .{},
 shown_help: ?tooltips.Tooltip = null,
+protocol: ?u16 = null,
+compatibility_help: [80]u8 = undefined,
 
 pub fn updateHelp(screen: *Connection, at: [2]i32, window: [2]u32, ticks: u32) void {
     screen.shown_help = null;
@@ -67,6 +72,20 @@ pub fn updateHelp(screen: *Connection, at: [2]i32, window: [2]u32, ticks: u32) v
         return;
     }
     const layout = Layout.init(window);
+    const list = screen.servers();
+    const point = layout.point(at);
+    const first = @min(screen.first, list.len -| layout.rows());
+    if (layout.list.holds(point) and point[1] >= layout.rowTop(0)) {
+        const row: usize = @intCast(@divTrunc(point[1] - layout.rowTop(0), Layout.row_height));
+        const index = first + row;
+        if (row < layout.rows() and index < list.len and !screen.compatible(list[index])) {
+            const rect: ui.Rect = .{ .x = layout.list.x, .y = layout.rowTop(row), .width = layout.list.width, .height = Layout.row_height };
+            const label = std.fmt.bufPrint(&screen.compatibility_help, "Incompatible server version: {d} (have {d})", .{ list[index].protocol.?, screen.protocol.? }) catch unreachable;
+            const tips = [_]tooltips.Tooltip{.{ .rect = layout.backdropRect(rect), .string = std.math.maxInt(u16), .fallback = label }};
+            if (screen.help.update(&tips, at, ticks)) |tip| screen.shown_help = tips[tip];
+            return;
+        }
+    }
     // multiplayer_connection_screen registers provider and session help at 0x004338E8.
     const tips = [_]tooltips.Tooltip{
         .{ .rect = layout.backdropRect(layout.control(.internet)), .string = 0x583, .fallback = "Browse Internet games." },
@@ -91,15 +110,18 @@ fn servers(screen: *const Connection) []const Server {
     return screen.listings.get(screen.source);
 }
 
+fn compatible(screen: *const Connection, server: Server) bool {
+    return if (screen.protocol) |ours| if (server.protocol) |theirs| ours == theirs else true else true;
+}
+
 fn enabled(screen: *const Connection, control: Layout.Control) bool {
     return switch (control) {
         .back => true,
         .internet, .lan => !screen.busy,
         .connect => !screen.busy and screen.address.len != 0,
-        .selected => !screen.busy and screen.selected < screen.servers().len,
+        .selected => !screen.busy and screen.selected < screen.servers().len and screen.compatible(screen.servers()[screen.selected]),
         .host => screen.host_available and !screen.busy,
-        // Discovery needs its runtime provider (#957).
-        .refresh => false,
+        .refresh => screen.discovery_available and !screen.busy,
     };
 }
 
@@ -186,11 +208,13 @@ pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, type
         if (screen.hover) |control| switch (control) {
             .internet, .lan => {
                 screen.source = if (control == .internet) .internet else .lan;
+                if (control == .internet) screen.refresh_requested = true;
                 screen.first = 0;
                 screen.selected = 0;
                 screen.editing = false;
             },
             .selected => return .{ .join = screen.servers()[screen.selected].target },
+            .refresh => screen.refresh_requested = true,
             .connect => return .{ .join = screen.address.slice() },
             .host => {
                 screen.host_choice = .{};
@@ -329,10 +353,13 @@ fn drawList(screen: *const Connection, canvas: ui.Canvas, layout: Layout) !void 
         var ping: [std.fmt.count("{d}", .{std.math.maxInt(Latency)})]u8 = undefined;
         const population = std.fmt.bufPrint(&counts, "{d} / {d}", .{ server.players, server.capacity }) catch unreachable;
         const latency = if (server.ping_ms) |ms| std.fmt.bufPrint(&ping, "{d}", .{ms}) catch unreachable else "?";
-        try cells(canvas, layout, y, .{ server.name, server.mode, population, latency }, if (chosen) ui.white else ui.blue, text_offset);
+        const colour = if (!screen.compatible(server)) hud.rgb(0x657078) else if (chosen) ui.white else ui.blue;
+        try cells(canvas, layout, y, .{ server.name, server.mode, population, latency }, colour, text_offset);
     }
     if (list.len == 0) {
-        const empty = if (screen.source == .internet)
+        const empty = if (screen.source == .internet and screen.discovery_available)
+            "No sessions found"
+        else if (screen.source == .internet)
             "Internet discovery unavailable"
         else
             "LAN discovery unavailable";
@@ -380,6 +407,26 @@ test "browser labels use the installed language and fall back for missing string
     try std.testing.expectEqualStrings("Beitreten", (Label{ .english = "Join", .installed = 1 }).text(strings));
     try std.testing.expectEqualStrings("Host", (Label{ .english = "Host", .installed = 2 }).text(strings));
     try std.testing.expectEqualStrings("Connect", (Label{ .english = "Connect" }).text(strings));
+}
+
+test "a server with a different protocol cannot be joined from the list" {
+    const incompatible: Server = .{
+        .name = "Old server",
+        .description = "",
+        .mode = "Deathmatch",
+        .players = 0,
+        .capacity = 8,
+        .target = "127.0.0.1:27020",
+        .protocol = 27,
+    };
+    var screen: Connection = .{ .protocol = 28 };
+    screen.listings.set(.internet, &.{incompatible});
+    try std.testing.expect(!screen.enabled(.selected));
+    const layout = Layout.init(.{ 800, 600 });
+    const point = layout.backdropRect(.{ .x = layout.list.x, .y = layout.rowTop(0), .width = layout.list.width, .height = Layout.row_height }).centre();
+    screen.updateHelp(point, .{ 800, 600 }, 1000);
+    screen.updateHelp(point, .{ 800, 600 }, 1100);
+    try std.testing.expectEqualStrings("Incompatible server version: 27 (have 28)", screen.shown_help.?.fallback);
 }
 
 test "the browser only offers hosting when the transport is available" {

@@ -225,6 +225,34 @@ Run `openreliant --headless` to start the host from the command line. It reads `
 the current folder. Pass a different file as `openreliant --headless path/to/server.ini`.
 The host starts before the game opens a window or initializes sound.
 
+The Linux container `ghcr.io/openreliant/openreliant-headless` supports x86-64 and AArch64.
+GitHub creates a new container package as private. The organisation can make the package
+public after its first release so operators can pull it without signing in.
+Mount a writable folder at `/data`, with `server.ini` and the retail game files inside it.
+The image runs as UID 65532 and stores its persistent `server.key` beside the INI. It holds
+no StarLancer files. For the stock deathmatch arenas, copy these files from your retail
+installation into `/data/game` and set `GameDirectory=game` in `/data/server.ini`.
+If the discs contain the files in cabinets, run `openreliant install --from <disc> <directory>` on a
+machine with the retail discs first, then copy the files from the resulting installation.
+
+```text
+resource.hog
+tcachehw.dat
+shipstats.bin
+gunstats.bin
+missilestats.bin
+pilotstats.bin
+```
+
+```sh
+docker run --rm -p 27020:27020/udp -v "$PWD/server-data:/data" \
+  ghcr.io/openreliant/openreliant-headless:latest
+```
+
+Set `BindAddress=0.0.0.0` in the INI for Docker port forwarding. The mounted folder must be
+writable by UID 65532 so the host can create its identity. Co-op campaign missions can
+require additional files from the installation.
+
 The headless host runs Nuclear Threat from an installed copy of StarLancer. Save this example
 as `server.ini` beside the installation, or set `GameDirectory` to its path. Section and key
 names can be written in any case.
@@ -237,6 +265,33 @@ Arena=nuclear-threat
 GameDirectory=.
 Players=3
 ```
+
+To publish a server, set `Name` and `DirectoryServers` in `[Server]`. Separate directory
+URLs with commas. Set `Description` for the browser. `PublicAddress` is optional and gives
+the public IP when the host's incoming address differs from its outgoing address. Directory
+advertisement uses the host's automatically managed identity.
+It is not available with an externally managed `RootPublicKey` and `Certificate`.
+
+```ini
+[Server]
+Name=OpenReliant games
+Description=Friendly deathmatches
+DirectoryServers=https://directory.example.org
+```
+
+To browse public games, put the directory URLs in the client's `starlancer.ini`.
+
+```ini
+[OpenReliant]
+DirectoryServers=https://directory.example.org
+```
+
+Separate multiple URLs with commas. The browser combines matching sessions from all listed
+directories and verifies the host key when a player joins a listing.
+
+The headless server checks for a newer OpenReliant release at startup and every six hours.
+It logs a warning when one is available. Set `CheckUpdates=0` under `[Server]` to disable
+the check for an offline server.
 
 On first start, the host creates `server.key` beside the INI. It reuses that key on every start
 and renews its transport certificate automatically while running. Store the INI in a private
@@ -305,6 +360,11 @@ your pilots can reach. Allow incoming UDP on `Port` and use the same port if you
 | `Arena` | `nuclear-threat` | `nuclear-threat`, `asteroid-field`, `dark-reign`, `tag-bomb`, `hunt-the-shadow` or `vampires` for the stock missions. `six-beacons` and `training` are small transport test arenas |
 | `Mission` | Unset | Installed campaign mission number for co-op. Set either `Arena` or `Mission` |
 | `GameDirectory` | `.` | Installed game folder, relative to `server.ini` or an absolute path. Used by stock arenas and co-op missions |
+| `Name` | `OpenReliant server` | The name shown in directory listings |
+| `Description` | Empty | Description shown in directory listings |
+| `DirectoryServers` | Unset | Comma-separated directory URLs. When set, the host publishes itself to each directory |
+| `PublicAddress` | Unset | Public IP to advertise when the incoming address differs from the observed outgoing address |
+| `CheckUpdates` | `1` | Check for a newer OpenReliant release at startup and every six hours. Set to `0` to disable |
 | `Players` | `8` for arenas, `2` for co-op | How many pilots can join. Choose 2 to 8 for an arena or 2 to 4 for co-op |
 | `MinPlayers` | `2` for arenas, `Players` for co-op | How many admitted pilots are needed to begin the countdown. Choose at least 2 and at most `Players` |
 | `StartDelaySeconds` | `30` for stock deathmatch, `0` otherwise | Time to wait once enough pilots have joined. Each new admission restarts the countdown, even when the lobby fills. Dropping below the minimum clears it |

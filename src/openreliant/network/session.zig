@@ -7,6 +7,8 @@ const credential = @import("identity.zig");
 const Host = @import("server.zig");
 const LaunchWait = @import("launch_wait.zig");
 const Metrics = @import("metrics.zig");
+const Advertiser = @import("advertise.zig");
+const HeadlessUpdates = @import("headless_updates.zig");
 pub const Client = @import("client.zig");
 
 pub const default_port = 27020;
@@ -64,6 +66,8 @@ pub const HostOptions = struct {
     arena_options: @import("openreliant").engine.game.deathmatch.Options = .{},
     repeat_rounds: bool = false,
     invite_address: ?std.Io.net.IpAddress = null,
+    advertise: ?Advertiser.Config = null,
+    check_updates: bool = false,
 };
 
 fn initTransport(root: ?[]const u8, certificate: ?[]const u8) !void {
@@ -189,7 +193,15 @@ pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity
         if (options.invite_address) |address| .{ .address = address, .key = automatic.issuer.public_key } else null
     else
         null;
-    try host.run(options.address, options.ticks, invite);
+    var advertiser: ?Advertiser = if (options.advertise) |config|
+        try Advertiser.init(io, config, if (server) |*automatic| automatic else return error.ManagedIdentityCannotAdvertise)
+    else
+        null;
+    defer if (advertiser) |*publisher| publisher.close();
+    if (advertiser) |publisher| host.directory_session = publisher.session;
+    var update_check: HeadlessUpdates = .{};
+    defer update_check.close();
+    try host.run(options.address, options.ticks, invite, if (advertiser) |*publisher| publisher else null, if (options.check_updates) &update_check else null);
 }
 
 fn controls(value: []const u8) !Client.Controls {
@@ -219,7 +231,8 @@ fn join(io: std.Io, args: []const [:0]const u8) !void {
 }
 
 pub fn connect(client: *Client, io: std.Io, target: []const u8) !void {
-    const invite = if (std.mem.startsWith(u8, target, credential.Invite.prefix))
+    const listing = if (std.mem.startsWith(u8, target, credential.DirectoryInvite.prefix)) try credential.DirectoryInvite.parse(target) else null;
+    const invite = if (listing) |entry| entry.invite else if (std.mem.startsWith(u8, target, credential.Invite.prefix))
         try credential.Invite.parse(target)
     else
         null;
@@ -228,7 +241,7 @@ pub fn connect(client: *Client, io: std.Io, target: []const u8) !void {
     const address = try std.fmt.bufPrintSentinel(&buffer, "{f}", .{endpoint}, 0);
     try initTransport(if (invite) |value| &credential.openSshKey(value.key) else null, null);
     errdefer net.session_deinit();
-    client.* = .{ .expected_host = if (invite != null) credential.host_name else null };
+    client.* = .{ .expected_host = if (invite != null) credential.host_name else null, .expected_session = if (listing) |entry| entry.session else null };
     try client.open(io, address);
     current.client = client;
 }
