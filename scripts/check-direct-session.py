@@ -5,6 +5,7 @@ import asyncio
 import base64
 import os
 from pathlib import Path
+import random
 import socket
 import subprocess
 import tempfile
@@ -58,8 +59,41 @@ def require(condition, description):
         raise RuntimeError(description)
 
 
+class ImpairedLink(asyncio.DatagramProtocol):
+    """One loopback path with independent loss and jitter in both directions."""
+
+    def __init__(self, host, seed):
+        self.host = host
+        self.random = random.Random(seed)
+        self.loop = asyncio.get_running_loop()
+        self.client = None
+
+    def connection_made(self, transport):
+        self.transport = transport
+
+    def datagram_received(self, data, sender):
+        if sender == self.host:
+            if self.client is None:
+                return
+            destination = self.client
+        else:
+            if self.client is None:
+                self.client = sender
+            if sender != self.client:
+                return
+            destination = self.host
+        if self.random.random() >= 0.06:
+            self.loop.call_later(self.random.uniform(0.008, 0.044), self.deliver, data, destination)
+
+    def deliver(self, data, destination):
+        if not self.transport.is_closing():
+            self.transport.sendto(data, destination)
+
+
 class Loopback:
-    def __init__(self, binary, credentials):
+    def __init__(self, binary, credentials, seed=None):
+        self.seed = None if seed is None else random.Random(seed)
+        self.links = []
         self.binary = binary
         self.credentials = credentials
         self.sessions = []
@@ -79,6 +113,8 @@ class Loopback:
                 except ProcessLookupError:
                     pass
         await asyncio.gather(*(session.wait() for session in self.sessions))
+        for link in self.links:
+            link.close()
 
     async def start(self, *args, cwd=None):
         process = await asyncio.create_subprocess_exec(
@@ -92,13 +128,30 @@ class Loopback:
         self.sessions.append(session)
         return session
 
+    async def path(self, target):
+        if self.seed is None:
+            return target
+        invite = target.startswith("orl1:")
+        address, _, key = target.removeprefix("orl1:").partition("/")
+        host_ip, port = address.rsplit(":", 1)
+        require(host_ip == "127.0.0.1", "packet impairment is for IPv4 loopback")
+        loop = asyncio.get_running_loop()
+        seed = self.seed.getrandbits(64)
+        transport, _ = await loop.create_datagram_endpoint(
+            lambda: ImpairedLink((host_ip, int(port)), seed), local_addr=("127.0.0.1", 0))
+        self.links.append(transport)
+        local_ip, local_port = transport.get_extra_info("sockname")
+        local = f"{local_ip}:{local_port}"
+        return f"orl1:{local}/{key}" if invite else local
+
     async def session(self, role, identity, *args, trust=None):
         root = trust if trust is not None else self.credentials / "root.pub"
         certificate = self.credentials / f"{identity}.cert"
-        return await self.start("session", role, self.address, str(root), str(certificate), *args)
+        address = await self.path(self.address) if role == "join" else self.address
+        return await self.start("session", role, address, str(root), str(certificate), *args)
 
     async def join_target(self, target, steering, *args):
-        pilot = await self.start("session", "join", target, steering, *args)
+        pilot = await self.start("session", "join", await self.path(target), steering, *args)
         await pilot.expect("admitted ")
         return pilot
 
@@ -110,7 +163,9 @@ class Loopback:
 
 async def finish(host, participants):
     for session in (host, *participants):
-        require(await session.wait() == 0, f"a peer exited before the end of the round. Last message: {session.last_line}")
+        status = await session.wait()
+        require(status == 0, f"Peer {session.admission} exited with {status}, final tick {session.finished}, "
+                             f"host tick {host.finished}, receipts {host.receipts}. Last message: {session.last_line}")
     end = host.finished
     require(end is not None, "the host did not finish")
     require(host.receipts == len(participants), "the host did not receive every final receipt")
@@ -120,8 +175,8 @@ async def finish(host, participants):
     return end
 
 
-async def check_training(binary, credentials):
-    async with Loopback(binary, credentials) as game:
+async def check_training(binary, credentials, seed):
+    async with Loopback(binary, credentials, seed) as game:
         with tempfile.TemporaryDirectory() as directory:
             invalid_key = Path(directory) / "root.pub"
             invalid_key.write_text("invalid public key\n", encoding="ascii")
@@ -137,6 +192,9 @@ async def check_training(binary, credentials):
             first.process.stdin.write(b"a\n")
             await first.process.stdin.drain()
         await first.expect("view ")
+        if keyboard:
+            await send_key(first, "c")
+            await second.expect(f"chat flight {first.admission[0]} Check my six")
         late = await game.join("pilot3", "straight", "12")
         slot, old_generation = late.admission
         await host.expect(f"left {slot} {old_generation}")
@@ -175,15 +233,15 @@ def beacon(line, index, state):
     return fields[2:4] == [str(index), state]
 
 
-async def check_beacons(binary, credentials):
+async def check_beacons(binary, credentials, seed):
     with tempfile.TemporaryDirectory() as directory:
-        async with Loopback(binary, credentials) as game:
+        async with Loopback(binary, credentials, seed) as game:
             await six_beacons(game, Path(directory).resolve() / "server.ini")
 
 
-async def check_invites(binary, credentials):
+async def check_invites(binary, credentials, seed):
     with tempfile.TemporaryDirectory() as directory:
-        async with Loopback(binary, credentials) as game:
+        async with Loopback(binary, credentials, seed) as game:
             await ip_invites(game, Path(directory))
 
 
@@ -219,7 +277,7 @@ RoundTicks=175
     other_root = (game.credentials / "root.pub").read_text(encoding="ascii").split()[1]
     other_key = base64.urlsafe_b64encode(base64.b64decode(other_root)[-32:]).decode().rstrip("=")
     wrong_invite = f"{invite.split('/')[0]}/{other_key}"
-    denied = await game.start("session", "join", wrong_invite, "left")
+    denied = await game.start("session", "join", await game.path(wrong_invite), "left")
     require(await denied.wait() == 1 and denied.last_line == "session: UnverifiedServer",
             f"the client did not reject a different server key. Last message: {denied.last_line}")
     require(denied.admission is None, "a pilot with the wrong invite was admitted")
@@ -269,41 +327,102 @@ Certificate={certificate}
     await pickup(third)
     await host.expect(f"left {slot} {generation}")
     require(await first.wait() == 0, "the carrier could not leave cleanly")
-    drops = [await peer.expect("beacon ", lambda line: beacon(line, 0, "loose")) for peer in (second, third)]
-    require(drops[0] == drops[1], "pilots saw different beacon drops")
+    drops = await asyncio.gather(*(peer.expect("beacon ", lambda line: beacon(line, 0, "loose")) for peer in (second, third)))
+    position = drops[0].split()[4:]
+    require(drops[1].split()[4:] == position, "pilots saw different beacon drop positions")
 
     replacement = await game.join("pilot1", "straight")
     new_slot, new_generation = replacement.admission
     require(new_slot == slot and new_generation != generation, "the carrier's slot did not get a fresh admission")
-    restored = await replacement.expect("beacon ", lambda line: beacon(line, 0, "loose"))
-    require(restored.split()[4:] == drops[0].split()[4:], "the returning pilot saw a different beacon position")
+    restored = await replacement.expect("beacon ", lambda line: line.split()[2] == "0")
+    if beacon(restored, 0, "loose"):
+        require(restored.split()[4:] == position, "the returning pilot saw a different beacon position")
+    else:
+        # Packet delay can allow a new pickup before the returner's first flight view.
+        owner = [str(new_slot), str(new_generation)]
+        require(beacon(restored, 0, "carried") and restored.split()[4:] == owner,
+                "the returning pilot saw the wrong beacon carrier")
+        for peer in (second, third):
+            await peer.expect("beacon ", lambda line: beacon(line, 0, "carried") and line.split()[4:] == owner)
 
     end = await finish(host, (second, third, replacement))
     print(f"Six Beacons: a late pilot saw the pickup, both active pilots saw the drop, and the returning pilot confirmed tick {end}.")
 
 
-async def check_full_arena(binary, credentials):
-    async with Loopback(binary, credentials) as game:
+async def check_full_arena(binary, credentials, seed, mode="training", game_dir=None):
+    async with Loopback(binary, credentials, seed) as game:
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "server.ini"
-            config.write_text(f"[Server]\nPort={game.port}\nArena=training\nRoundTicks=125\n", encoding="ascii")
+            settings = f"[Server]\nPort={game.port}\nArena={mode}\nRoundTicks=125\n"
+            if game_dir is not None:
+                settings += f"GameDirectory={game_dir}\n"
+            config.write_text(settings, encoding="utf-8")
             host = await game.start("--headless", str(config))
             await host.expect("listening ")
             pilots = await asyncio.gather(*(game.join_target(game.address, "straight") for _ in range(8)))
             require({peer.admission[0] for peer in pilots} == set(range(8)), "the arena did not admit eight pilots")
             end = await finish(host, pilots)
             require(all(ship[0] for ship in pilots[0].views[end]), "the final view lost an admitted pilot")
-            print(f"Full arena: eight pilots confirmed tick {end}.")
+            print(f"{mode}: eight pilots confirmed tick {end}.")
 
 
-async def run(binary, credentials):
+async def send_key(pilot, key):
+    pilot.process.stdin.write(key.encode("ascii") + b"\n")
+    await pilot.process.stdin.drain()
+
+
+async def check_coop(binary, credentials, seed, game_dir):
+    async with Loopback(binary, credentials, seed) as game:
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "server.ini"
+            config.write_text(f"[Server]\nPort={game.port}\nGameDirectory={game_dir}\nMission=1\nPlayers=4\n",
+                              encoding="utf-8")
+            host = await game.start("--headless", str(config))
+            await host.expect("listening ")
+            pilots = sorted(await asyncio.gather(*(game.join_target(game.address, "keyboard") for _ in range(4))),
+                            key=lambda pilot: pilot.admission)
+            lead = pilots[0]
+            for decision, following in (("r", 1), ("n", 2)):
+                await asyncio.gather(*(pilot.expect("mission 1 lead 0 jump true") for pilot in pilots))
+                await asyncio.gather(*(send_key(pilot, "e") for pilot in pilots[1:]))
+                running = max(lead.views)
+                await lead.expect("view ", lambda line: int(line.split()[1]) > running + 20)
+                await send_key(lead, "e")
+                mask = (1 << len(pilots)) - 1
+                await asyncio.gather(*(pilot.expect(f"debrief-crew 0 {mask} {mask} 0") for pilot in pilots))
+                if decision == "r":
+                    await send_key(lead, "c")
+                    await asyncio.gather(*(pilot.expect("chat lobby 0 Check my six") for pilot in pilots[1:]))
+                    leaving = pilots.pop()
+                    await send_key(leaving, "q")
+                    await host.expect(f"left {leaving.admission[0]} ")
+                    mask >>= 1
+                    await asyncio.gather(*(pilot.expect(f"debrief-crew 0 {mask} {mask} 0") for pilot in pilots))
+                await asyncio.gather(*(send_key(pilot, "y") for pilot in pilots[1:]))
+                await lead.expect(f"debrief-crew 0 {mask} {mask} {mask ^ 1}")
+                await send_key(lead, decision)
+                await asyncio.gather(*(pilot.expect(f"briefing {following}") for pilot in pilots))
+            await asyncio.gather(*(pilot.expect("mission 2 lead 0") for pilot in pilots))
+            print("Co-op: four pilots ejected, a departure updated the debrief, and three replayed then reached Mission 2.")
+
+
+async def run(binary, credentials, seed, game_dir):
+    print("Clean loopback" if seed is None else f"Loopback seed {seed}, 6% packet loss, 8 to 44 ms one-way lag")
     for check in (check_training, check_beacons, check_invites, check_full_arena):
-        await asyncio.wait_for(check(binary, credentials), 30)
+        await asyncio.wait_for(check(binary, credentials, seed), 40)
+    if game_dir is not None:
+        for mode in ("nuclear-threat", "asteroid-field", "dark-reign", "tag-bomb", "hunt-the-shadow", "vampires"):
+            await asyncio.wait_for(check_full_arena(binary, credentials, seed, mode, game_dir), 40)
+        await asyncio.wait_for(check_coop(binary, credentials, seed, game_dir), 180)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
     parser.add_argument("credentials", type=Path)
+    parser.add_argument("--seed", type=int, default=1483, help="seed for packet loss and latency")
+    parser.add_argument("--clean", action="store_true", help="run without packet impairment")
+    parser.add_argument("--game-dir", type=Path, help="installed data for the stock modes and campaign")
     args = parser.parse_args()
-    asyncio.run(run(args.binary.resolve(), args.credentials.resolve()))
+    game_dir = args.game_dir.resolve() if args.game_dir else None
+    asyncio.run(run(args.binary.resolve(), args.credentials.resolve(), None if args.clean else args.seed, game_dir))

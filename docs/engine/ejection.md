@@ -11,10 +11,16 @@ camera watches it from are in [Camera](camera.md#the-ejections-views).
 ## Ejecting
 
 The player's pilot ejects with EJECT (`0x00413D8D`, once a press): while the mission goes on or the
-ship waits to blow up (`mission_ending` 0 or 8), outside a multiplayer game, not in the Kamov, not
-where the mission disabled it (object flag `0x40000`), and with the ship's current order Player
+ship waits to blow up (`mission_ending` 0 or 8), outside an arena, on a ship other than the Kamov
+that allows ejection (object flag `0x40000` clear), and with the ship's current order Player
 Control (100) or Eject Player (118). The key clears the ship's ejected flag (`0x800`), switches the
 camera to view 7 of the ship, locked and forced, uncloaks the ship, and pushes Eject (30).
+
+The check at `0x00413DB1` reads `multiplayer_mission`, the arena flag. In co-op
+`net_send_eject` (`0x004BB160`) sends the slot; gameplay message `0x45` pushes Eject on that ship.
+The remote pod is disabled once clear (`0x00415CD6`). The local pod still calls and the mission's
+rescue odds settle the outcome. OpenReliant validates the co-op request against the pilot's
+current admission and ship and sends the resulting pod state.
 
 Eject Player is the player's warning ([Destruction](objects.md#destruction)): `object_destroyed`
 gives it the player's ship as its armour runs out, and the ship drifts, unpowered, for 400 to 599
@@ -81,7 +87,10 @@ of a wingman of the player's wing says it is ejecting (`radio_wingman_ejected`,
 | 3 | It waits 500 ticks more; then the pickup |
 | 4 | The pickup under way |
 
-In a multiplayer game the order ends at once, and a player's pod is disabled once clear.
+In an arena the order ends at once. In co-op other pilots stop seeing the pod once it clears
+the ship. OpenReliant shows the pod and plays the radio calls for the ejected pilot while the
+mission continues. The pickup cutaway for that pilot is still tracked in
+[#1483](https://github.com/OpenReliant/openreliant/issues/1483).
 
 ## The pickup
 

@@ -124,8 +124,9 @@ fn markCrew(world: gameobj.World, mark: gameobj.SentHome) void {
 }
 
 /// `friendly_fire_send_home` (0x00474B40) runs after orders. The campaign runs the
-/// pilot's return to the carrier. In shared flight the original gives the recalled ship
-/// Jump Out (0x00474C5A). **Improvement:** the host makes that decision for each pilot.
+/// pilot's return. The original starts Friendly Fire on the recalled pilot's machine
+/// and gives Jump Out to remote copies. The shared host runs the recalled pilot's
+/// original timers for each affected ship.
 pub fn sendHome(ctx: aigeneric.Context) void {
     const world = ctx.world;
     const all = world.objects;
@@ -159,7 +160,8 @@ pub fn recallComplete(all: *const create.Objects) bool {
         recalled = recalled or state.membership.joined.ending.sentHome();
         if (all.playerBinding(@intCast(i)) == null) continue;
         const slot = &all.slots[i];
-        if (!slot.object.flags.outOfAction() or slot.running(.jump_out) != null) return false;
+        if (!slot.object.flags.outOfAction() or slot.running(.friendly_fire) != null or slot.running(.jump_out) != null) return false;
+        if (slot.running(.land) != null and !state.landed) return false;
     }
     return recalled;
 }
@@ -175,7 +177,8 @@ fn sendParticipantHome(ctx: aigeneric.Context, binding: players.ControlRef, mark
     const slot = &all.slots[index];
     if (slot.object.flags.outOfAction()) return;
     if (slot.current()) |order| if (aigeneric.prioritised(all, order.order)) return;
-    if (!aigeneric.give(ctx, index, .jump_out, .none)) return;
+    const target: aigeneric.Target = if (slot.current()) |order| order.target.asShip(all) else .none;
+    if (!aigeneric.give(ctx, index, .friendly_fire, target)) return;
     // An order hook can change the ship before the push returns.
     if (!std.meta.eql(all.playerBinding(index), @as(?players.ControlRef, binding))) return;
     const state = &all.player_states[index];
@@ -183,7 +186,6 @@ fn sendParticipantHome(ctx: aigeneric.Context, binding: players.ControlRef, mark
     state.membership.joined.ending = endingFor(mark);
     slot.object.sent_home = mark;
     slot.object.flags.sent_off = true;
-    recallLine(world, .{ .participant = binding }, mark, state.carrier);
 }
 
 /// What Friendly Fire keeps in the object's order state.
@@ -233,7 +235,10 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
     const slot = &world.objects.slots[index];
     slot.state.friendly_fire.stage = .speaking;
     slot.state.friendly_fire.until = ctx.world.clock.frame_start + speaking_ticks;
-    recallLine(world, .local, slot.object.sent_home, world.player.carrier);
+    if (world.damage_rules == .cooperative) {
+        const pilot = world.objects.playerBinding(index) orelse return;
+        recallLine(world, .{ .participant = pilot }, slot.object.sent_home, world.objects.player_states[index].carrier);
+    } else recallLine(world, .local, slot.object.sent_home, world.player.carrier);
 }
 
 fn recallLine(world: gameobj.World, audience: collision.HitFeedback.Audience, mark: gameobj.SentHome, carrier: ?gameobj.ObjectRef) void {
@@ -254,6 +259,20 @@ const steering_share: f32 = 0.3;
 
 /// How far from its carrier the ship jumps out rather than flying there (`0x004DC4F8`).
 const jump_beyond: f32 = 1_000_000;
+
+fn returnCarrier(world: gameobj.World, index: u16) ?u16 {
+    if (world.damage_rules != .cooperative) return ailand.landingCarrier(world);
+    const all = world.objects;
+    const carrier = (all.player_states[index].carrier orelse return null).resolve(all) orelse return null;
+    return if (all.slots[carrier].landing == .reliant) carrier else null;
+}
+
+fn crewSendingOff(all: *const create.Objects) bool {
+    for (all.slots[0..all.playerSlotCount()], 0..) |*pilot, slot| {
+        if (all.playerBinding(@intCast(slot)) != null and !pilot.object.flags.outOfAction()) return false;
+    }
+    return true;
+}
 
 /// `order_friendly_fire` (`0x00474F20`): while Moose speaks, the player flies on
 /// (`input.playerControlOrder`); then for `steering_ticks` the ship is steered toward the carrier
@@ -284,16 +303,30 @@ pub fn update(ctx: aigeneric.Context, index: u16) void {
                 return;
             }
             input.playerControlOrder(ctx, index);
-            const carrier = ailand.landingCarrier(world) orelse return;
+            const carrier = returnCarrier(world, index) orelse return;
             steerHome(world, index, all.slots[carrier].object.nextPosition());
         },
         .landing => {
+            const carrier = returnCarrier(world, index);
+            if (world.damage_rules == .cooperative) {
+                const mark = slot.object.sent_home;
+                // In a network campaign, an ordinary friendly-fire recall only jumps out.
+                // A carrier abort can land once the whole active wing is leaving.
+                if (mark == .friend_destroyed or carrier == null) {
+                    slot.object.flags.sent_off = false;
+                    aigeneric.end(ctx, index);
+                    _ = aigeneric.giveShip(ctx, index, .jump_out, index, null);
+                    slot.object.flags.sent_off = true;
+                    return;
+                }
+                if (!crewSendingOff(all)) return;
+            }
             slot.object.flags.sent_off = false;
             aigeneric.end(ctx, index);
-            const carrier = ailand.landingCarrier(world) orelse return;
-            const home = &all.slots[carrier].object;
+            const landed_on = carrier orelse return;
+            const home = &all.slots[landed_on].object;
             home.flags.stand_in = false;
-            _ = aigeneric.giveShip(ctx, index, .land, carrier, null);
+            _ = aigeneric.giveShip(ctx, index, .land, landed_on, null);
             const from = slot.object.nextPosition();
             if (math.distance(home.nextPosition(), from) > jump_beyond) {
                 _ = aigeneric.giveShip(ctx, index, .jump_out, index, null);
@@ -583,6 +616,7 @@ test "co-op recall, crew abort and mission-script recall follow the pilots acros
                 _ = try aigeneric.push(ctx, index, .multiplayer_control, .none);
             }
             const reliant = try mission.add(.of(.reliant), @splat(0));
+            mission.slot(reliant).landing = null;
             all.player_states[1].carrier = .of(all, reliant);
             const target = mission.slot(heard.enemy);
             target.object.side = .friendly;
@@ -599,6 +633,9 @@ test "co-op recall, crew abort and mission-script recall follow the pilots acros
             }
             sendHome(ctx);
             sendHome(ctx);
+            for (0..2) |i| {
+                if (all.slots[i].running(.friendly_fire) != null) aigeneric.objectOrders(ctx, @intCast(i));
+            }
             try std.testing.expectEqual(.playing, world.player.ending);
             try std.testing.expectEqual(.friendly_fire, all.player_states[1].membership.joined.ending);
             try std.testing.expectEqual(if (case == .ordinary) @as(usize, 1) else 2, recorder.count);
@@ -610,7 +647,7 @@ test "co-op recall, crew abort and mission-script recall follow the pilots acros
             for (recorder.lines[0..recorder.count], 0..) |line, i| {
                 const index: u16 = if (case == .ordinary) 1 else @intCast(i);
                 try std.testing.expectEqual(all.playerBinding(index).?, line.recipient);
-                try std.testing.expect(all.slots[index].running(.jump_out) != null);
+                try std.testing.expect(all.slots[index].running(.friendly_fire) != null);
                 try std.testing.expect(all.slots[index].object.flags.sent_off);
                 const client = heard.world();
                 all.player = index;
@@ -626,7 +663,7 @@ test "co-op recall, crew abort and mission-script recall follow the pilots acros
             for (0..300) |_| {
                 mission.clock.frame_duration = 10;
                 mission.clock.frame_start += 10;
-                for (0..2) |i| if (all.slots[i].running(.jump_out) != null) {
+                for (0..2) |i| if (all.slots[i].running(.friendly_fire) != null or all.slots[i].running(.jump_out) != null) {
                     aigeneric.objectOrders(ctx, @intCast(i));
                 };
                 if (all.slots[1].object.flags.disabled and

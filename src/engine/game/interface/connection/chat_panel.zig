@@ -47,10 +47,12 @@ pub fn draw(canvas: ui.Canvas, panel: ui.Rect, history: ?*const History, editor:
     const top = panel.y + heading_y;
     try canvas.text(font, .{ entry.x, top }, chat_label.text(canvas.strings.*), ui.white, .left);
     if (history) |lines| {
-        const log = canvas.within(.{ .x = entry.x, .y = top + spacing, .width = entry.width, .height = entry.y - top - spacing });
-        for (0..lines.count) |index| {
-            const y = top + spacing * @as(i16, @intCast(index + 1));
-            try log.text(font, .{ entry.x, y }, lines.line(index), ui.blue, .left);
+        const height = entry.y - top - spacing;
+        const log = canvas.within(.{ .x = entry.x, .y = top + spacing, .width = entry.width, .height = height });
+        const visible = @min(lines.count, @as(usize, @intCast(@max(0, @divTrunc(height, spacing)))));
+        for (0..visible) |row| {
+            const y = top + spacing * @as(i16, @intCast(row + 1));
+            try log.text(font, .{ entry.x, y }, lines.line(lines.count - visible + row), ui.blue, .left);
         }
     }
     widgets.panel(canvas, entry);

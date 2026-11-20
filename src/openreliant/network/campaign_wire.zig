@@ -40,6 +40,8 @@ pub const MissionView = struct {
     ending: engine.game.main.Ending = .playing,
     kills: u16 = 0,
     landed: bool = false,
+    objectives_met: bool = false,
+    reliant_alive: bool = true,
     nebula: u8 = engine.game.nebula.default_nebula,
     director: ?Director = null,
 
@@ -118,7 +120,10 @@ pub const MissionView = struct {
         try mission.guide.write(w);
         try w.writeByte(@backingInt(mission.ending));
         try w.writeInt(u16, mission.kills, .little);
-        try w.writeByte(@intFromBool(mission.landed));
+        const landed: u8 = @intFromBool(mission.landed);
+        const met: u8 = @intFromBool(mission.objectives_met);
+        const reliant: u8 = @intFromBool(mission.reliant_alive);
+        try w.writeByte(landed | (met << 1) | (reliant << 2));
         try w.writeByte(mission.nebula);
         try w.writeByte(@intFromBool(mission.director != null));
         if (mission.director) |director| {
@@ -143,11 +148,11 @@ pub const MissionView = struct {
         if (ending > @backingInt(engine.game.main.Ending.ejecting)) return error.InvalidMissionView;
         mission.ending = @fromBackingInt(ending);
         mission.kills = try r.takeInt(u16, .little);
-        mission.landed = switch (try r.takeByte()) {
-            0 => false,
-            1 => true,
-            else => return error.InvalidMissionView,
-        };
+        const flags = try r.takeByte();
+        if (flags > 0b111) return error.InvalidMissionView;
+        mission.landed = flags & 1 != 0;
+        mission.objectives_met = flags & 2 != 0;
+        mission.reliant_alive = flags & 4 != 0;
         mission.nebula = try r.takeByte();
         if (mission.nebula >= engine.game.nebula.nebulae.len) return error.InvalidMissionView;
         switch (try r.takeByte()) {
@@ -254,6 +259,44 @@ pub const CrewRequest = struct { view_tick: u32, reuse: u32 };
 pub fn campaignNumber(number: u16) bool {
     return number >= engine.game.gameflow.first_mission and number <= engine.game.gameflow.last_mission;
 }
+
+pub const Crew = engine.game.interface.Connection.DebriefCrew;
+
+pub const Debrief = struct {
+    tick: u32,
+    crew: Crew,
+
+    pub fn write(state: Debrief, w: *std.Io.Writer) !void {
+        try w.writeInt(u32, state.tick, .little);
+        try w.writeByte(state.crew.present.mask);
+        try w.writeByte(state.crew.eligible.mask);
+        try w.writeByte(state.crew.ready.mask);
+        try w.writeByte(state.crew.lead);
+    }
+
+    pub fn read(r: *std.Io.Reader) !Debrief {
+        const tick = try r.takeInt(u32, .little);
+        const present = try r.takeByte();
+        const eligible = try r.takeByte();
+        const ready = try r.takeByte();
+        const lead = try r.takeByte();
+        if (tick == 0 or (present | eligible | ready) >= 1 << Crew.size or lead >= Crew.size)
+            return error.InvalidDebrief;
+        const crew: Crew = .{
+            .present = .{ .mask = @intCast(present) },
+            .eligible = .{ .mask = @intCast(eligible) },
+            .ready = .{ .mask = @intCast(ready) },
+            .lead = lead,
+        };
+        if (!crew.present.isSet(lead) or !crew.eligible.subsetOf(crew.present) or !crew.ready.subsetOf(crew.present))
+            return error.InvalidDebrief;
+        if (crew.eligible.count() != 0 and !crew.eligible.isSet(lead)) return error.InvalidDebrief;
+        return .{ .tick = tick, .crew = crew };
+    }
+};
+
+pub const DebriefChoice = struct { tick: u32, action: Crew.Choice };
+pub const NextMission = struct { after: u32, number: u16 };
 
 pub fn readMissionNumber(r: *std.Io.Reader) !u16 {
     const number = try r.takeInt(u16, .little);

@@ -457,6 +457,19 @@ triggers. Part 30 creates the first extra group for two pilots and the second fo
 pilots also get a second Kamov and its four torpedoes. OpenReliant passes the admitted crew size
 to the installed script at launch and keeps that value for the mission.
 
+#### Co-op debrief and replay
+
+The original debrief (`multiplayer_debriefing`, `0x004296A0`) prefers the session
+owner among pilots who can advance. When the owner cannot advance, it chooses the
+lowest eligible slot. If nobody can advance, the lowest remaining slot can replay.
+Continue waits for the other eligible pilots. Replay waits for the whole connected crew.
+`net_mark_ready` (`0x004BA1D0`) marks each guest's readiness.
+
+`WinMain` restores its restart point on replay and returns to the mission's
+briefing (`0x004A9AB0`). On Continue it saves the next mission's starting state
+(`0x004AA152`). OpenReliant keeps that restart point on the host and uses the same
+connections for the debrief, briefing and launch.
+
 ### Matching
 
 `trigger_raise_event` raises an event on an object unless its ID is `0xFFFF`, then sets

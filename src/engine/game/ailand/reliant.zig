@@ -85,7 +85,12 @@ pub fn init(ctx: Context, index: u16) void {
         return;
     }
     state.step = .of(Step.waiting);
-    state.due = ctx.world.clock.frame_start + if (ctx.world.player.ending.sentHome()) 0 else ailand.wait;
+    const mission = ctx.world;
+    const ending = if (mission.damage_rules == .cooperative and all.hasBoundPlayerShip(index))
+        all.player_states[index].membership.joined.ending
+    else
+        mission.player.ending;
+    state.due = mission.clock.frame_start + if (ending.sentHome()) 0 else ailand.wait;
 }
 
 /// `land_reliant_update` (`0x0040F940`): a step of the Reliant's landing (`Step`).

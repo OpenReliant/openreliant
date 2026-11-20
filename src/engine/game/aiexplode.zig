@@ -347,9 +347,9 @@ fn shipInit(ctx: Context, index: u16) void {
     }
     if (world.damage_rules == .cooperative and world.objects.playerBinding(index) != null) {
         const pilot = &world.objects.player_states[index].membership.joined;
-        if (pilot.ending == .playing) {
+        if (pilot.ending == .playing or pilot.ending == .ejecting) {
             pilot.ending = .destroyed;
-            pilot.destroyed_at = world.clock.viewTime();
+            pilot.lost_at = world.clock.viewTime();
         }
     }
     killCredit(world, index);

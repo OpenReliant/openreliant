@@ -85,6 +85,7 @@ pub const Outcome = union(enum) {
     host_lan: game.interface.Connection.HostChoice.Kind,
     leave_session,
     launch_session,
+    debrief_choice: game.interface.Connection.DebriefCrew.Choice,
     choose_ship: game.dmscenarios.Fighter,
     send_chat: game.chat.Line,
     /// QUIT, answered YES: 3.
@@ -191,6 +192,11 @@ pub const Resources = struct {
     paging_shapes: ?canvas.Shapes = null,
     tried_paging_shapes: bool = false,
     itac_strings: language.Language = .{ .strings = &.{} },
+    debrief_background: matmanager.Background = .{},
+    debrief_large: ?hud.FontFile = null,
+    debrief_small: ?hud.FontFile = null,
+    debrief_shapes: ?canvas.Shapes = null,
+    tried_debrief: bool = false,
 
     /// The files it reads, which the dialogs' shapes are made of.
     pub const File = enum { dialog, about };
@@ -263,6 +269,17 @@ pub const Resources = struct {
         return if (resources.paging_shapes) |*loaded| &loaded.art else null;
     }
 
+    /// The separate co-op debrief uses the installed ITAC fonts and mpdebr backdrop
+    /// (multiplayer_debriefing, 0x004297B8 to 0x00429863).
+    fn debriefResources(resources: *Resources) void {
+        if (resources.tried_debrief) return;
+        resources.tried_debrief = true;
+        resources.debrief_background.show(resources.gpa, resources.archive, "mpdebr.tga");
+        resources.debrief_shapes = canvas.Shapes.read(resources.gpa, &resources.archive, "interface\\mpdebr.spr");
+        resources.debrief_large = hud.FontFile.open(resources.gpa, resources.archive, game.itac.large_font_name, null) catch null;
+        resources.debrief_small = hud.FontFile.open(resources.gpa, resources.archive, game.itac.small_font_name, null) catch null;
+    }
+
     fn dropShapes(resources: *Resources) void {
         if (resources.shapes) |*art| art.deinit(resources.gpa);
         resources.gpa.free(resources.shapes_file);
@@ -274,6 +291,10 @@ pub const Resources = struct {
     pub fn close(resources: *Resources) void {
         const gpa = resources.gpa;
         resources.background.deinit(gpa);
+        resources.debrief_background.deinit(gpa);
+        if (resources.debrief_large) |*font| font.deinit(gpa);
+        if (resources.debrief_small) |*font| font.deinit(gpa);
+        if (resources.debrief_shapes) |*art| art.deinit(gpa);
         resources.dropShapes();
         resources.dialog.deinit(gpa);
         resources.about.deinit(gpa);
@@ -450,12 +471,20 @@ pub const Interface = struct {
                 };
             },
             .connection => {
+                if (front.connection.debrief) |*debrief| {
+                    if (context.resources) |resources| {
+                        resources.debriefResources();
+                        const font = if (resources.debrief_small) |*file| &file.font else &resources.small.font;
+                        debrief.updateText(font, pointer, front.ticks);
+                    }
+                }
                 const action = front.connection.frame(pointer, &context.devices.keyboard, context.typed, context.window) orelse return null;
                 switch (action) {
                     .join => |target| return .{ .join_server = target },
                     .host_lan => |kind| return .{ .host_lan = kind },
                     .leave_session => return .leave_session,
                     .launch_session => return .launch_session,
+                    .debrief_choice => |choice| return .{ .debrief_choice = choice },
                     .send_chat => |line| return .{ .send_chat = line },
                     .choose_ship => |ship| return .{ .choose_ship = ship },
                     .back => {
@@ -798,7 +827,7 @@ pub const Interface = struct {
     /// then the shown screen, the settings screen's of `shown`, with OpenReliant's `version` in the
     /// window's corner where there is one (`canvas.Canvas.drawVersion`).
     pub fn draw(front: Interface, resources: *Resources, target: device.Device, window: [2]u32, strings: *const language.Language, shown: settings.Shown, version: ?[]const u8) canvas.Error!void {
-        const drawn: canvas.Canvas = .{
+        var drawn: canvas.Canvas = .{
             .gpa = resources.gpa,
             .target = target,
             .window = window,
@@ -806,7 +835,14 @@ pub const Interface = struct {
             .strings = strings,
             .version = version,
         };
-        if (resources.background.image) |*picture| drawn.fill(picture);
+        var background = &resources.background;
+        if (front.screen == .connection and front.connection.debrief != null) {
+            resources.debriefResources();
+            if (resources.debrief_background.image != null) background = &resources.debrief_background;
+            if (resources.debrief_large) |*file| drawn.fonts.large = &file.font;
+            if (resources.debrief_small) |*file| drawn.fonts.small = &file.font;
+        }
+        if (background.image) |*picture| drawn.fill(picture);
         const art = if (resources.shapes) |*shapes| shapes else return;
         // A mod's screen stands in for the screen's own, drawn by its scripts over this.
         if (front.scripted_shown != null) return;
@@ -815,7 +851,7 @@ pub const Interface = struct {
             .connection => try front.connection.draw(drawn, art, &resources.dialog, if (front.connection.lobby != null) resources.pagingArt() else null, .{
                 .pictures = if (resources.fighter_pictures) |*pictures| pictures else null,
                 .strings = resources.itac_strings,
-            }, front.ticks),
+            }, front.ticks, if (resources.debrief_shapes) |*stock| &stock.art else null),
             .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about),
             .audio, .controls, .video => try front.settings.draw(drawn, art, &resources.dialog, shown),
             .mods => try front.mod_manager.draw(drawn, art),
@@ -842,7 +878,12 @@ pub const Interface = struct {
     /// (`canvas.Canvas.drawPointer`).
     pub fn drawPointer(front: Interface, resources: *Resources, target: device.Device, window: [2]u32, strings: *const language.Language) canvas.Error!void {
         if (!front.showsScreen()) return;
-        const art = if (resources.shapes) |*shapes| shapes else return;
+        const art = if (front.screen == .connection and front.connection.debrief != null and resources.debrief_shapes != null)
+            &resources.debrief_shapes.?.art
+        else if (resources.shapes) |*shapes|
+            shapes
+        else
+            return;
         const drawn: canvas.Canvas = .{
             .gpa = resources.gpa,
             .target = target,

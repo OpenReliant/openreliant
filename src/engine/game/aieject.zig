@@ -83,19 +83,36 @@ pub const Stage = enum(i32) {
 /// ship's Destroyed event is posted (`events.destroyed`), and a wingman of the player's wing has
 /// its words on the radio (`radio.wingmanEjected`).
 ///
-/// Not ported: a multiplayer game, in which nobody ejects so
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// Arena orders end the ejection as soon as it starts. A co-op pod has a result
+/// for each pilot, even when the pilot who runs the host is still flying.
 pub fn init(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
     const model = if (slot.model) |*live| live else return;
-    var children = model.rootChildren();
-    const cockpit = while (children.next()) |child| {
-        if (child.part.class == .cockpit) break child.index;
-    } else return;
+    const cockpit = cockpitPart(model) orelse return;
     separate(ctx, index, cockpit);
+    if (slot.object.flags.ejected) if (coopPilot(ctx, index)) |pilot| {
+        pilot.ending = .ejecting;
+    };
     events.destroyed(ctx.world, index, null);
     if (index >= all.players and slot.object.wing == .player) radio.wingmanEjected(ctx.world, index);
+}
+
+fn cockpitPart(model: *const objects.Model) ?usize {
+    var children = model.rootChildren();
+    while (children.next()) |child| if (child.part.class == .cockpit) return child.index;
+    return null;
+}
+
+/// Keep the same cockpit on a client that the host separates for an ejected pilot.
+pub fn showPod(slot: *create.Slot) void {
+    const model = if (slot.model) |*live| live else return;
+    const cockpit = cockpitPart(model) orelse return;
+    model.hangFromRoot(cockpit);
+    model.parts[cockpit].object.face_mask &= ~srmesh.caps_hidden;
+    for (model.parts, 0..) |part, index| {
+        if (index != cockpit and !part.removed) objects.destroyPart(slot, .{ .model = model, .index = index });
+    }
 }
 
 /// How long the pod takes to shoot clear of its ship (`0x00415BB5`), and to drift before the pilot
@@ -260,20 +277,28 @@ fn ejectPoint(pod: *const create.Slot, cockpit: usize) ?math.Place {
 /// pilot calls, as Moose speaks on the radio (`calling_lines`), then waits to be picked up
 /// (`pickUp`).
 ///
-/// Not ported: a multiplayer game, in which the order ends at once, and in which a player's pod is
-/// disabled once clear ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// An arena pops the order at once. A co-op peer hides another player's pod once clear
+/// (0x00415CD6). The host keeps that pilot's call and rescue timers without starting a solo scene.
 pub fn update(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
     const state = &slot.state.eject;
     const now = ctx.world.clock.frame_start;
+    if (ctx.world.damage_rules == .arena) {
+        slot.object.invulnerable = .none;
+        return aigeneric.end(ctx, index);
+    }
+    const participant = coopPilot(ctx, index);
     switch (state.stage) {
         .clearing => {
             if (state.until >= now) return;
             slot.motion = .brake;
             slot.object.flags.unpowered = false;
             slot.object.invulnerable = state.invulnerable;
-            if (index != all.player) {
+            if (participant != null) {
+                slot.object.flags.targetable = false;
+                slot.object.flags.no_collisions = true;
+            } else if (index != all.player or ctx.world.damage_rules == .cooperative) {
                 state.stage = .adrift;
                 return;
             }
@@ -282,13 +307,31 @@ pub fn update(ctx: Context, index: u16) void {
         },
         .drifting => {
             if (state.until >= now) return;
-            radio.mooseSaysOneOf(ctx.world, &calling_lines);
+            if (participant != null) {
+                radio.mooseSaysOneOfTo(ctx.world, .{ .participant = all.playerBinding(index).? }, &calling_lines);
+            } else radio.mooseSaysOneOf(ctx.world, &calling_lines);
             state.stage = .called;
             state.until += calling_ticks;
         },
-        .called => if (state.until < now) pickUp(ctx, index),
+        .called => {
+            if (state.until >= now) return;
+            if (participant) |pilot| {
+                const fate = ctx.world.player.rescue_odds.fate(ctx.world.random.rand());
+                pilot.ending = fate.ending();
+                pilot.lost_at = ctx.world.clock.viewTime();
+                state.stage = .picked_up;
+                radio.mooseSaysOneOfTo(ctx.world, .{ .participant = all.playerBinding(index).? }, fate.lines());
+            } else pickUp(ctx, index);
+        },
         .adrift, .picked_up, _ => {},
     }
+}
+
+fn coopPilot(ctx: Context, index: u16) ?*@import("players.zig").Membership.Joined {
+    if (ctx.world.damage_rules != .cooperative) return null;
+    const all = ctx.world.objects;
+    if (all.playerBinding(index) == null) return null;
+    return &all.player_states[index].membership.joined;
 }
 
 /// The mission's odds of how the player fares after ejecting (`rescue_odds_rescued`,
@@ -324,6 +367,14 @@ pub const Fate = enum {
     rescued,
     captured,
     killed,
+
+    fn lines(fate: Fate) []const []const u8 {
+        return switch (fate) {
+            .rescued => &rescued_lines,
+            .captured => &captured_lines,
+            .killed => &killed_lines,
+        };
+    }
 
     /// The mission's ending it makes (`mission_ending` 2, 3 or 1).
     pub fn ending(fate: Fate) main.Ending {
@@ -386,11 +437,7 @@ fn pickUp(ctx: Context, index: u16) void {
     world.player.ending = fate.ending();
     objects.setPlace(&pod.object, &pod.drawn, .{ .position = cutaway_place, .orientation = math.identity });
     pod.state.eject.stage = .picked_up;
-    radio.mooseSaysOneOf(world, switch (fate) {
-        .rescued => &rescued_lines,
-        .captured => &captured_lines,
-        .killed => &killed_lines,
-    });
+    radio.mooseSaysOneOf(world, fate.lines());
     const scene: PickupScene = switch (fate) {
         .rescued => .scoop(.of(.nanny)),
         .captured => .scoop(.of(.antanov)),
@@ -508,6 +555,11 @@ pub fn playerInit(ctx: Context, index: u16) void {
     state.end = @as(i32, ctx.world.random.below(blow_up_spread)) + blow_up_after + ctx.world.clock.frame_start;
     slot.object.flags.unpowered = true;
     slot.object.flags.ejected = true;
+    if (coopPilot(ctx, index)) |pilot| {
+        pilot.ending = .ejecting;
+        radio.mooseSaysOneOfTo(ctx.world, .{ .participant = ctx.world.objects.playerBinding(index).? }, &eject_calls);
+        return;
+    }
     ctx.world.player.ending = .ejecting;
     if (ctx.world.display) |display| {
         display.ejected = true;

@@ -224,11 +224,7 @@ pub const Debriefing = struct {
         const number = debriefing.chosen() orelse return;
         const record = itac.pilot.campaign.kept(number);
         if (record.pickups != 0) {
-            const met = itac.pilot.campaign.variables.objectives_met != 0;
-            writer.writeAll(between) catch {};
-            writer.writeAll(itac.string(if (met) objectives_met_text else objectives_missed_text)) catch {};
-            writer.writeAll(between) catch {};
-            writer.writeAll(itac.string(pickup_texts[@min(record.pickups, pickup_texts.len - 1)])) catch {};
+            writePickup(&writer, itac.context.strings.*, itac.pilot.campaign.variables.objectives_met != 0, record.pickups);
         } else {
             itac.writeParagraphsTo(&writer, textOf(record, number));
             if (gameflow.campaignField(number, .medal)) |medal| if (record.rating == .success_bonus) addParagraph(&writer, itac, medal_texts[@backingInt(medal)]);
@@ -361,9 +357,17 @@ fn ratingOf(record: gameflow.MissionRecord) usize {
     return @intCast(std.math.clamp(@backingInt(rating), 0, ratings - 1));
 }
 
+/// The original's objective and recovery paragraphs for a rescued pilot (0x00424ED4).
+pub fn writePickup(writer: *std.Io.Writer, strings: language.Language, objectives_met: bool, pickups: u8) void {
+    writer.writeAll(between) catch return;
+    writer.writeAll(strings.string(if (objectives_met) objectives_met_text else objectives_missed_text) orelse "") catch return;
+    writer.writeAll(between) catch return;
+    writer.writeAll(strings.string(pickup_texts[@min(pickups, pickup_texts.len - 1)]) orelse "") catch return;
+}
+
 /// The paragraphs of mission `number`'s debriefing for the rating its record has
 /// (`gameflow.CampaignMission.debriefing`).
-fn textOf(record: gameflow.MissionRecord, number: u16) []const language.Words {
+pub fn textOf(record: gameflow.MissionRecord, number: u16) []const language.Words {
     return gameflow.campaignField(number, .debriefing)[ratingOf(record)];
 }
 

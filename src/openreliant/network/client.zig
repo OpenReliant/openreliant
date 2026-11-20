@@ -36,6 +36,10 @@ joined: ?wire.Admission = null,
 call_sign: ?wire.CallSign = null,
 fighter: wire.Fighter = .predator,
 latest: ?wire.Snapshot = null,
+debrief: ?wire.Debrief = null,
+result_tick: ?u32 = null,
+campaign_floor: u32 = 0,
+next_mission: ?u16 = null,
 pending_view: ?PendingView = null,
 pilot_pages: [wire.PilotPage.max_extra]?wire.PilotPage = @splat(null),
 scenery: ?wire.Scenery = null,
@@ -122,6 +126,10 @@ pub const Event = union(enum) {
     scene_page,
     scenery,
     campaign_line: wire.CampaignLine,
+    campaign_result,
+    debrief,
+    campaign_next,
+    campaign_end,
     snapshot,
     finished,
     closed,
@@ -132,16 +140,18 @@ pub fn sendChat(client: *Client, request: wire.ChatRequest) void {
     net.send(client.conn, .{ .chat_request = request }) catch return;
 }
 
-pub fn requestCrewAction(client: *Client, action: enum { jump, land }) void {
+pub fn requestCrewAction(client: *Client, action: enum { jump, land, eject }) void {
     const admission = client.joined orelse return;
     const view = &(client.latest orelse return);
     const mission = view.mission orelse return;
     const ship = view.ships[admission.slot] orelse return;
-    if (client.leaving or client.roster.paused or mission.lead != admission.slot) return;
+    if (client.leaving or client.result_tick != null or client.roster.paused) return;
+    if (action != .eject and mission.lead != admission.slot) return;
     const request: wire.CrewRequest = .{ .view_tick = view.tick, .reuse = ship.reuse };
     const message: wire.Message = switch (action) {
         .jump => if (mission.travel.any()) .{ .crew_jump = request } else return,
         .land => .{ .crew_land = request },
+        .eject => .{ .crew_eject = request },
     };
     net.send(client.conn, message) catch return;
 }
@@ -171,6 +181,32 @@ pub fn selectShip(client: *Client, ship: wire.Fighter) !void {
     client.fighter = ship;
 }
 
+pub fn chooseDebrief(client: *Client, action: @FieldType(wire.DebriefChoice, "action")) void {
+    const state = client.debrief orelse return;
+    const slot = (client.joined orelse return).slot;
+    if (client.leaving or !state.crew.permits(slot, action)) return;
+    net.send(client.conn, .{ .debrief_choice = .{ .tick = state.tick, .action = action } }) catch return;
+}
+
+fn startNextMission(client: *Client, next: wire.NextMission) void {
+    client.result_tick = null;
+    client.debrief = null;
+    client.campaign_floor = next.after;
+    client.next_mission = next.number;
+    client.latest = null;
+    client.pending_view = null;
+    client.pilot_pages = @splat(null);
+    client.projectiles = @splat(null);
+    client.scene = @splat(null);
+    client.scenery = null;
+    client.briefed = false;
+    client.roster.briefing = false;
+    client.roster.mission = next.number;
+    client.releaseFlight();
+    client.weapons = null;
+    client.sent_aim = null;
+}
+
 pub fn finishBriefing(client: *Client, fit: ?wire.CampaignLoadout) !void {
     if (!client.roster.briefing or client.briefed or client.leaving) return;
     try net.send(client.conn, .{ .briefed = fit });
@@ -185,8 +221,12 @@ pub fn poll(client: *Client, io: Io) !Event {
     if (client.state == .dropped) return error.DroppedForLag;
     if (client.state == .lost) return if (client.leaving) .closed else error.TransportLost;
     const now = Io.Clock.awake.now(io).toMicroseconds();
-    // The first pilot may wait as long as needed for a second to join.
-    if ((client.joined == null or client.latest != null or client.leaving) and now >= client.deadline) return error.SessionTimedOut;
+    if (now >= client.deadline) {
+        // A close notice can be lost after the host receives our final receipt or leave.
+        if (client.leaving) return .closed;
+        // An admitted pilot can wait in the lobby or the debrief.
+        if (client.joined == null or (client.latest != null and client.result_tick == null)) return error.SessionTimedOut;
+    }
     if (client.state == .connected and !client.sent_join) {
         try net.send(client.conn, .{ .join = .local });
         try net.send(client.conn, .{ .pick_ship = client.fighter });
@@ -274,7 +314,7 @@ pub fn poll(client: *Client, io: Io) !Event {
         .scene_page => |page| {
             const view = &(client.latest orelse return .idle);
             // A reliable empty page can arrive before the matching pilot view.
-            if (client.leaving or view.mission == null) return .idle;
+            if (client.leaving or view.mission == null or page.tick <= client.campaign_floor) return .idle;
             const entry = &client.scene[page.number];
             if (entry.* == null or page.tick > entry.*.?.tick) entry.* = page;
             return .scene_page;
@@ -290,7 +330,7 @@ pub fn poll(client: *Client, io: Io) !Event {
         .campaign_line => |line| {
             if (client.leaving or client.joined == null or (client.latest == null and client.roster.mission == null)) return .idle;
             if (client.latest) |view| {
-                if (view.mission == null or line.tick > view.tick *| game.gameobj.ticks_per_step +| 100) return .idle;
+                if (view.mission == null or line.tick > (view.tick -| client.campaign_floor) *| game.gameobj.ticks_per_step +| 100) return .idle;
             }
             return .{ .campaign_line = line };
         },
@@ -301,21 +341,49 @@ pub fn poll(client: *Client, io: Io) !Event {
             if (entry.* == null or page.tick > entry.*.?.tick) entry.* = page;
             return client.acceptView(now);
         },
-        .view, .finished => |view| {
+        .debrief => |state| {
+            const slot = (client.joined orelse return error.UnexpectedMessage).slot;
+            if (state.tick != client.result_tick or slot >= wire.cooperative_slots or !state.crew.present.isSet(slot))
+                return error.UnexpectedMessage;
+            client.debrief = state;
+            return .debrief;
+        },
+        .campaign_next => |next| {
+            if (next.after != client.result_tick) return error.UnexpectedMessage;
+            client.startNextMission(next);
+            return .campaign_next;
+        },
+        .campaign_end => |tick| {
+            if (tick != client.result_tick) return error.UnexpectedMessage;
+            try net.send(client.conn, .{ .received_final = tick });
+            client.deadline = now + timeout;
+            client.leaving = true;
+            return .campaign_end;
+        },
+        .view, .finished, .campaign_result => |view| {
             if (client.joined == null) {
                 // Flight updates can arrive before the reliable admission.
                 return if (message == .view) .idle else error.UnexpectedMessage;
             }
-            if (client.leaving or view.tick <= if (client.latest) |last| last.tick else @as(u32, 0)) return .idle;
+            if (client.leaving or client.result_tick != null or view.tick <= client.campaign_floor) return .idle;
+            if (client.latest) |latest| if (view.tick <= latest.tick) return .idle;
+            if (client.next_mission) |number| {
+                if (!client.briefed or view.mission == null or view.mission.?.number != number) return .idle;
+            }
             if (client.pending_view) |*pending| if (view.tick < pending.view.tick) return .idle;
-            client.pending_view = .{ .view = view, .final = message == .finished };
+            client.pending_view = .{ .view = view, .delivery = switch (message) {
+                .view => .flight,
+                .finished => .final,
+                .campaign_result => .debrief,
+                else => unreachable,
+            } };
             return client.acceptView(now);
         },
         else => return error.UnexpectedMessage,
     }
 }
 
-const PendingView = struct { view: wire.Snapshot, final: bool };
+const PendingView = struct { view: wire.Snapshot, delivery: enum { flight, final, debrief } };
 
 fn acceptView(client: *Client, now: i64) !Event {
     const pending = if (client.pending_view) |*pending| pending else return .idle;
@@ -325,12 +393,12 @@ fn acceptView(client: *Client, now: i64) !Event {
         if (page.tick != view.tick or page.scenario != view.scenario) return .idle;
         try page.apply(&view.ships);
     }
-    const final = pending.final;
+    const delivery = pending.delivery;
     defer client.pending_view = null;
     if (view.pilot_pages != 0) try view.checkObjectivePilots(true);
     const admission = client.joined.?;
     // A flight view can overtake the reliable campaign seat update.
-    if (!final and view.mission != null and client.latest == null and client.roster.briefing) {
+    if (delivery == .flight and view.mission != null and client.latest == null and client.roster.briefing) {
         const ship = view.ships[admission.slot] orelse return .idle;
         if (ship.generation != admission.generation) return .idle;
     }
@@ -342,8 +410,14 @@ fn acceptView(client: *Client, now: i64) !Event {
         if (last.scenario != view.scenario or previous != mission) return error.UnexpectedMessage;
     }
     client.latest = view.*;
+    client.next_mission = null;
     client.deadline = now + timeout;
-    if (final) {
+    if (delivery == .debrief) {
+        client.result_tick = view.tick;
+        client.releaseFlight();
+        return .campaign_result;
+    }
+    if (delivery == .final) {
         try net.send(client.conn, .{ .received_final = view.tick });
         client.leaving = true;
         return .finished;
@@ -373,13 +447,24 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
             'd', 'D' => steering = .right,
             'j', 'J' => client.requestCrewAction(.jump),
             'l', 'L' => client.requestCrewAction(.land),
+            'e', 'E' => client.requestCrewAction(.eject),
             'q', 'Q' => try client.leave(io),
+            'y', 'Y' => client.chooseDebrief(.ready),
+            'r', 'R' => client.chooseDebrief(.replay),
+            'n', 'N' => client.chooseDebrief(.advance),
+            'c', 'C' => {
+                var line: wire.chat.Line = .{};
+                line.set("Check my six");
+                const lobby = client.latest == null or client.result_tick != null;
+                client.sendChat(.{ .to = if (lobby) .lobby else .flight, .text = line });
+            },
             else => {},
         };
         client.setFlight(steering.command());
         const event = try client.poll(io);
         switch (event) {
-            .idle, .combat, .projectiles, .scene_page, .scenery, .campaign_line, .chat_line => {},
+            .idle, .combat, .projectiles, .scene_page, .scenery, .campaign_line => {},
+            .chat_line => |line| std.debug.print("chat {t} {d} {s}\n", .{ line.scope, line.sender, line.text.slice() }),
             .lobby => if (client.roster.briefing) try client.finishBriefing(null),
             .tag_bomb_notice => |notice| std.debug.print("notice {s} {d} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot, notice.event.other.slot }),
             .shadow_notice => |notice| std.debug.print("shadow-notice {s} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot }),
@@ -388,7 +473,13 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
             .beacon_notice => |notice| std.debug.print("notice {s} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot }),
             .pilot_notice => |notice| std.debug.print("pilot-notice {s} {d} {d}\n", .{ @tagName(notice.kind), notice.pilot.slot, notice.pilot.generation }),
             .wreck => |wreck| std.debug.print("wreck {d} {d} {d}\n", .{ wreck.pilot.participant.slot, wreck.pilot.ship.reuse, wreck.tick }),
-            .closed => return,
+            .campaign_result => std.debug.print("debrief {d} {d} {t}\n", .{ client.latest.?.tick, client.latest.?.mission.?.number, client.latest.?.mission.?.rating }),
+            .debrief => {
+                const crew = client.debrief.?.crew;
+                std.debug.print("debrief-crew {d} {d} {d} {d}\n", .{ crew.lead, crew.present.mask, crew.eligible.mask, crew.ready.mask });
+            },
+            .campaign_next => std.debug.print("briefing {d}\n", .{client.next_mission.?}),
+            .campaign_end, .closed => return,
             .admitted => {
                 const admission = client.joined.?;
                 std.debug.print("admitted {d} {d}\n", .{ admission.slot, admission.generation });

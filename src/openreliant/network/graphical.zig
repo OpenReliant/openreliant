@@ -166,6 +166,7 @@ pub fn chooseShip(pilot: *Graphical, ship: wire.Fighter, screen: *Connection) vo
 
 pub fn returnToBrowser(pilot: *Graphical, screen: *Connection, presentation: ?*Presentation, message: Connection.Label) void {
     screen.lobby = null;
+    screen.debrief = null;
     screen.ship_picker = null;
     screen.busy = false;
     screen.message = message;
@@ -175,7 +176,7 @@ pub fn returnToBrowser(pilot: *Graphical, screen: *Connection, presentation: ?*P
 }
 
 pub fn takeCampaignResult(pilot: *Graphical) ?wire.MissionView {
-    if (pilot.client != null) return null;
+    if (pilot.client) |*client| if (client.result_tick == null) return null;
     const result = pilot.campaign_result;
     pilot.campaign_result = null;
     return result;
@@ -193,8 +194,7 @@ fn stopConnection(pilot: *Graphical) void {
     pilot.hosted = null;
 }
 
-pub fn stop(pilot: *Graphical, presentation: ?*Presentation) void {
-    pilot.stopConnection();
+fn stopFlight(pilot: *Graphical, presentation: ?*Presentation) void {
     if (pilot.flight) |flight| {
         if (presentation) |shown| {
             shown.endGame();
@@ -205,12 +205,26 @@ pub fn stop(pilot: *Graphical, presentation: ?*Presentation) void {
         }
         flight.destroy();
     }
+    pilot.flight = null;
+    pilot.menu_open = false;
+    pilot.chat = .{};
+    pilot.last_camera = null;
+    pilot.campaign_line_count = 0;
+    pilot.combat_count = 0;
+    pilot.wreck_count = 0;
+    pilot.notice_count = 0;
+    pilot.flight_history = .{};
+}
+
+pub fn stop(pilot: *Graphical, presentation: ?*Presentation) void {
+    pilot.stopConnection();
+    pilot.stopFlight(presentation);
     pilot.* = .{};
 }
 
 pub fn flying(pilot: *const Graphical) bool {
     if (pilot.session_lost != null) return pilot.flight != null;
-    return if (pilot.client) |*client| client.latest != null and !client.leaving else false;
+    return if (pilot.client) |*client| client.latest != null and client.result_tick == null and !client.leaving else false;
 }
 
 pub fn sendLobbyChat(pilot: *Graphical, line: game.chat.Line) void {
@@ -298,10 +312,13 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             return;
         };
         if (result == .finished) {
-            pilot.returnToBrowser(&front.connection, presentation, finalMessage(client.latest));
+            const message = if (client.result_tick != null) campaign_complete else finalMessage(client.latest);
+            pilot.returnToBrowser(&front.connection, presentation, message);
             return;
         }
-        if (front.connection.lobby) |*lobby| lobby.role.host.can_launch = hosted.host.canLaunch();
+        if (front.connection.lobby) |*lobby| {
+            if (lobby.role == .host) lobby.role.host.can_launch = hosted.host.canLaunch();
+        }
     }
     if (pilot.flight) |flight| {
         const devices = controls.devices;
@@ -359,6 +376,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 .world = scene,
             });
             if (cooperative and devices.active(.permission_to_land, true)) client.requestCrewAction(.land);
+            if (cooperative and devices.active(.eject, true)) client.requestCrewAction(.eject);
             engine.input.frameKeys(.{
                 .display = display,
                 .charges = &all.player_states[all.player].charges,
@@ -406,6 +424,33 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
         switch (event) {
             .idle => break,
             .projectiles, .scene_page, .scenery => {},
+            .campaign_result => {
+                const mission = client.latest.?.mission.?;
+                if (presentation) |shown| shown.missionEnded(.{ .ending = mission.ending, .rating = mission.rating });
+                pilot.stopFlight(presentation);
+                pilot.campaign_result = mission;
+                pilot.lobby_notices = .{};
+                front.connection.debrief = .{
+                    .local_slot = client.joined.?.slot,
+                    .number = mission.number,
+                    .ending = mission.ending,
+                    .objectives_met = mission.objectives_met,
+                    .record = .{ .rating = mission.rating, .kills = if (mission.ending == .destroyed or mission.ending == .captured) 0 else mission.kills },
+                    .names = pilot.roster[0..wire.cooperative_slots],
+                    .notices = &pilot.lobby_notices,
+                };
+                pilot.showDebriefCrew(&front.connection, client, strings);
+            },
+            .debrief => pilot.showDebriefCrew(&front.connection, client, strings),
+            .campaign_next => {
+                front.connection.debrief = null;
+                front.connection.message = .{ .english = "Waiting for the briefing" };
+            },
+            .campaign_end => {
+                if (pilot.hosted != null) return;
+                pilot.returnToBrowser(&front.connection, presentation, campaign_complete);
+                return;
+            },
             .campaign_line => |line| {
                 if (pilot.campaign_line_count < pilot.campaign_lines.len) {
                     pilot.campaign_lines[pilot.campaign_line_count] = line;
@@ -418,6 +463,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             },
             .lobby => {
                 for (client.roster.pilots, &pilot.roster) |entry, *name| name.* = if (entry) |listed| listed.name else null;
+                if (client.result_tick != null) continue;
                 if (front.connection.lobby == null) front.connection.lobby = .{
                     .role = .guest,
                     .roster = pilot.roster[0..client.roster.limit],
@@ -447,7 +493,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 }
             },
             .chat_line => |line| switch (line.scope) {
-                .lobby => if (client.latest == null) presentChat(&pilot.lobby_notices, strings, line, 0),
+                .lobby => if (client.latest == null or client.result_tick != null) presentChat(&pilot.lobby_notices, strings, line, 0),
                 .flight, .private => {
                     presentChat(&pilot.flight_history, strings, line, 0);
                     pilot.queueNotice(.{ .chat = line });
@@ -483,6 +529,10 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             },
         }
     }
+    // A landing film can pump the next briefing before the next menu frame.
+    if (front.connection.debrief != null) {
+        if (client.result_tick != null) pilot.showDebriefCrew(&front.connection, client, strings) else front.connection.debrief = null;
+    }
     if (!shared_before and pilot.sharedPaused()) {
         if (pilot.flight) |flight| flight.drawn.display.windows.close(.comms);
         pilot.chat = .{};
@@ -493,6 +543,22 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
         controls.typed.clear();
     }
 }
+
+fn showDebriefCrew(pilot: *Graphical, screen: *Connection, client: *const session.Client, strings: game.language.Language) void {
+    for (&pilot.roster, client.roster.pilots) |*name, seat| name.* = if (seat) |peer| peer.name else null;
+    if (screen.debrief) |*debrief| if (client.debrief) |state| {
+        var newly_ready = state.crew.ready.differenceWith(debrief.crew.ready).iterator(.{});
+        while (newly_ready.next()) |slot| {
+            const name = pilot.roster[slot] orelse continue;
+            var fallback: [64]u8 = undefined;
+            const shown = pilotName(&fallback, strings, &name, @intCast(slot));
+            game.deathmatch.addMessage(&pilot.lobby_notices, 0, strings.stringOr(0x575, "System : %s READY"), &.{shown});
+        }
+        debrief.crew = state.crew;
+    };
+}
+
+const campaign_complete: Connection.Label = .{ .english = "Campaign complete" };
 
 fn finalMessage(view: ?wire.Snapshot) Connection.Label {
     const mission = (view orelse return round_finished).mission orelse return round_finished;
@@ -512,6 +578,7 @@ pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Obje
     }
     const flight = try FlightFrame.create(gpa, local, tables);
     errdefer flight.destroy();
+    flight.round_start = client.campaign_floor;
     if (client.latest.?.scenario) |scenario| {
         try flight.loadArena(files, scenario, types);
     }
@@ -693,6 +760,10 @@ fn flightCamera(pilot: *Graphical, drawn: *const game.main.Drawn) game.camera.Pl
         if (death.watching_from) |at| return .{ .position = at, .orientation = math.lookAt(slot.drawn.position - at) };
         const since: f32 = @floatFromInt(drawn.clock.frame_start -| death.started);
         return game.camera.pullBack(slot.drawn.position, slot.drawn.orientation, since);
+    }
+    if (flight.eject_view) |eject| {
+        const since: f32 = @floatFromInt(drawn.clock.frame_start -| eject.started);
+        return game.camera.ejected(eject.offset, slot.drawn.position, since);
     }
     const offset = game.camera.Chase.offset(slot.object.type);
     const throttle = if (slot.object.afterburner) game.camera.Chase.afterburner_throttle else slot.object.throttle;

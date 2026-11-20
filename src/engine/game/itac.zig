@@ -234,6 +234,14 @@ const profile_string = 0x87;
 /// What a section writes between two paragraphs (`0x004E5440`), and the room its text has
 /// (`itac_text`, `0x00520844`).
 pub const between = "\n\n";
+
+/// Writes ITAC paragraphs with a blank line between them.
+pub fn writeNarrative(writer: *std.Io.Writer, strings: language.Language, paragraphs: []const language.Words) void {
+    for (paragraphs, 0..) |paragraph, n| {
+        if (n > 0) writer.writeAll(between) catch return;
+        writer.writeAll(paragraph.in(strings)) catch return;
+    }
+}
 pub const text_room = 10000;
 
 /// How far a pane wipes in each tick of the ITAC's timer (`0x0043FFD4`).
@@ -397,6 +405,12 @@ pub const ScrollBox = struct {
             box.steps = if (arrow == 0) -1 else 1;
             box.keep();
         };
+    }
+
+    /// Wheel input scrolls by whole lines and keeps the same bounds as the ITAC arrows.
+    pub fn wheel(box: *ScrollBox, notches: i32) void {
+        box.scroll += @as(f32, @floatFromInt(notches)) * line_height;
+        box.keep();
     }
 
     /// `itac_scroll_text_draw`'s writing of `text` in `font`, in the text's colour, broken into its
@@ -1201,10 +1215,7 @@ pub const Itac = struct {
     /// Writes `paragraphs` to `writer`, a blank line between each two. What doesn't fit is left
     /// out.
     pub fn writeParagraphsTo(itac: *Itac, writer: *std.Io.Writer, paragraphs: []const language.Words) void {
-        for (paragraphs, 0..) |paragraph, n| {
-            if (n > 0) writer.writeAll(between) catch {};
-            writer.writeAll(itac.words(paragraph)) catch {};
-        }
+        writeNarrative(writer, itac.context.strings.*, paragraphs);
     }
 
     /// Lets `box` scroll as far as `text` reaches, broken into its lines in the small font.

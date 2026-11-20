@@ -2126,25 +2126,32 @@ fn spendCountermeasure(world: gameobj.World, index: u16, presents: bool) void {
 /// (`camera.switchCutaway`), the ship uncloaks where it is cloaked, and Eject sends the pilot's
 /// pod out of it (`aieject.init`).
 ///
-/// Not ported: a multiplayer game, in which EJECT does nothing, and what it tells one
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// The arena flag blocks EJECT (0x00413DB1). In co-op it ejects the pilot and
+/// reports the pod to the crew (0x00413E49). The host makes that change once.
 pub fn eject(world: gameobj.World, index: u16) void {
+    if (world.damage_rules == .arena) return;
     const all = world.objects;
     const slot = &all.slots[index];
     const object = &slot.object;
-    switch (world.player.ending) {
+    const hosted = world.damage_rules == .cooperative;
+    if (hosted and all.playerBinding(index) == null) return;
+    const ending = if (hosted) all.player_states[index].membership.joined.ending else world.player.ending;
+    switch (ending) {
         .playing, .ejecting => {},
         else => return,
     }
-    if (object.type.base() == .kamov or object.flags.eject_disabled) return;
+    if (object.type.base() == .kamov or object.flags.eject_disabled or object.flags.exploding or object.flags.disabled) return;
     const flying = slot.current() orelse return;
     switch (flying.order) {
         .player_control, .eject_player => {},
+        .multiplayer_control => if (!hosted) return,
         else => return,
     }
     object.flags.ejected = false;
-    const seen: camera.Subject = .of(slot);
-    _ = camera.switchCutaway(world, .eject, index, seen, seen);
+    if (!hosted) {
+        const seen: camera.Subject = .of(slot);
+        _ = camera.switchCutaway(world, .eject, index, seen, seen);
+    }
     if (object.flags.cloaked) cloak.uncloak(world, index);
     _ = aigeneric.give(.of(world), index, .eject, .none);
 }

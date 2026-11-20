@@ -1157,6 +1157,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .standings_scale = display.placements.get(.standings).scale,
             }, presentation, strings, &display.resources.font, app.active and !console_up);
             if (network_enabled) if (network_pilot.takeCampaignResult()) |result| {
+                if (front.connection.debrief) |*debrief| debrief.setNarrative(itac_strings);
+                var service: NetworkPilot.Briefing = .{ .pilot = &network_pilot, .io = io };
+                const shared_debrief = network_pilot.client != null;
+                if (shared_debrief) movies.service = .{ .context = &service, .tick = NetworkPilot.Briefing.service };
+                defer movies.service = null;
                 var summary: game.gameflow.Campaign = .begin();
                 summary.variables.mission_success = result.rating;
                 summary.mission = game.gameflow.nextMission(result.number);
@@ -1164,10 +1169,18 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 if (result.landed) {
                     sound.end3DAll();
                     if (game.xtrabits.landing.landing(result.number, false, result.ending, &summary.variables)) |landed| {
-                        if (!try movies.land(landed, &resources, sound)) return;
+                        if (!try movies.land(landed, &resources, sound) and !service.failed) return;
                     }
                 }
-                _ = try rooms.?.modeItac(&summary) orelse return;
+                if (shared_debrief and !service.failed) {
+                    const ending = game.winmain.cooperativeEndingFilm(result.number, result.ending, result.rating, result.reliant_alive);
+                    if (!try movies.playChosen(ending) and !service.failed) return;
+                }
+                if (service.failed) {
+                    network_pilot.returnToBrowser(&front.connection, presentation, .{ .english = "Connection lost during debrief" });
+                } else if (!shared_debrief) {
+                    _ = try rooms.?.modeItac(&summary) orelse return;
+                }
                 continue;
             };
             if (network_enabled) if (network_pilot.upcomingBriefing()) |number| {
@@ -1211,7 +1224,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         through.mode_saved = .unchosen;
                         try game_scripts.start();
                     },
-                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .choose_ship, .send_chat => {},
+                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .debrief_choice, .choose_ship, .send_chat => {},
                 }
                 flow.next = switch (outcome) {
                     .host_lan => |kind| {
@@ -1224,6 +1237,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     },
                     .launch_session => {
                         if (network_enabled) network_pilot.launch(&front.connection);
+                        continue;
+                    },
+                    .debrief_choice => |choice| {
+                        if (network_enabled) if (network_pilot.client) |*client| client.chooseDebrief(choice);
                         continue;
                     },
                     .send_chat => |line| {
