@@ -190,7 +190,7 @@ fn cantCheck(comptime reason: []const u8, args: anytype) void {
 }
 
 /// Asks GitHub's API for the latest release, on the download's thread.
-fn latest(io: Io, progress: *web.Progress) Error!Version {
+pub fn latest(io: Io, progress: *web.Progress) Error!Version {
     const answer = try web.fetch(io, .{ .url = latest_url, .headers = &.{accept} }, max_answer, progress);
     defer web.allocator.free(answer);
     return tagVersion(web.allocator, answer);

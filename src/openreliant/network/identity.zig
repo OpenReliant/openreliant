@@ -105,6 +105,31 @@ pub const Invite = struct {
     }
 };
 
+/// A directory listing also identifies the running host session.
+pub const DirectoryInvite = struct {
+    invite: Invite,
+    session: [16]u8,
+    pub const prefix = "orl2:";
+
+    pub fn parse(text: []const u8) !DirectoryInvite {
+        const body = std.mem.cutPrefix(u8, text, prefix) orelse return error.InvalidInvite;
+        const separator = std.mem.lastIndexOfScalar(u8, body, '/') orelse return error.InvalidInvite;
+        const session_text = body[separator + 1 ..];
+        if (session_text.len != 32) return error.InvalidInvite;
+        var session: [16]u8 = undefined;
+        _ = std.fmt.hexToBytes(&session, session_text) catch return error.InvalidInvite;
+        var buffer: [Invite.prefix.len + Invite.max_address + 1 + 43]u8 = undefined;
+        const original = std.fmt.bufPrint(&buffer, "{s}{s}", .{ Invite.prefix, body[0..separator] }) catch return error.InvalidInvite;
+        return .{ .invite = try Invite.parse(original), .session = session };
+    }
+
+    pub fn format(value: DirectoryInvite, out: *Writer) Writer.Error!void {
+        var key_text: [43]u8 = undefined;
+        const key = std.base64.url_safe_no_pad.Encoder.encode(&key_text, &value.invite.key.toBytes());
+        try out.print(prefix ++ "{f}/{s}/{s}", .{ value.invite.address, key, std.fmt.bytesToHex(value.session, .lower) });
+    }
+};
+
 // Field numbers from steamnetworkingsockets_messages_certs.proto. Only the fields this issuer
 // sets are encoded here. GameNetworkingSockets reads them and checks the signature.
 const CertField = enum(u5) { key_type = 1, key_data = 2, time_created = 8, time_expiry = 9, app_ids = 10, identity_string = 12 };

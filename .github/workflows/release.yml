@@ -119,6 +119,38 @@ jobs:
           name: ${{ matrix.name }}
           path: dist/*
 
+  publish-headless:
+    needs: [release-please, build]
+    if: needs.release-please.outputs.created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.release-please.outputs.tag }}
+      IMAGE: ghcr.io/openreliant/openreliant-headless
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: linux-*
+          path: artifacts
+      - name: Prepare the Linux executables
+        run: |
+          mkdir -p dist/amd64 dist/arm64
+          tar -xzf artifacts/linux-x86_64/*.tar.gz -C dist/amd64 --strip-components=1
+          tar -xzf artifacts/linux-aarch64/*.tar.gz -C dist/arm64 --strip-components=1
+      - name: Publish the multi-architecture image
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker buildx create --use --driver docker-container
+          docker buildx build --platform linux/amd64,linux/arm64 --push -f Dockerfile.headless \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.version=$TAG" \
+            --tag "$IMAGE:$TAG" .
+
   attach:
     needs: [release-please, build]
     if: needs.release-please.outputs.created == 'true'
@@ -151,7 +183,7 @@ jobs:
           $changelog"
 
   announce:
-    needs: [release-please, attach]
+    needs: [release-please, attach, publish-headless]
     if: github.repository == 'OpenReliant/openreliant'
     permissions:
       contents: read

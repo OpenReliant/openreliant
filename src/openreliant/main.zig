@@ -34,6 +34,7 @@ const save = game.gameflow.save;
 const camera = game.camera;
 const network_enabled = @import("network_options").enabled;
 const NetworkPilot = @import("network/graphical.zig");
+const Directory = @import("network/directory.zig");
 const CoopSave = @import("network/coop_save.zig");
 // The program's own files are `pub`, so that the test block at the end runs their tests.
 pub const debug_command = @import("debug.zig");
@@ -834,9 +835,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // the game starts (`campaign_new`).
     var network_pilot: NetworkPilot = .{};
     defer if (network_enabled) network_pilot.stop(presentation);
+    var directory_browser: Directory = .{};
+    defer directory_browser.close();
+    const directory_servers = settings_file.profile.value("OpenReliant", "DirectoryServers") orelse "";
+    var was_connection = false;
     var front: engine.genilib.interf.Interface = .{
         .pilot = .{ .difficulty = options.difficulty orelse .easy },
-        .connection = .{ .host_available = network_enabled },
+        .connection = .{ .host_available = network_enabled, .discovery_available = network_enabled and directory_servers.len != 0, .protocol = @import("network/wire.zig").revision },
     };
     defer front.deinit();
     var pilot_profile: game.gameflow.ProfileFile = .{
@@ -1153,6 +1158,16 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             if (!network_pilot.flying()) sound.updateMusic();
             front_context.window = size;
             front_context.elapsed = elapsed;
+            if (network_enabled) {
+                const browsing = front.screen == .connection and front.connection.lobby == null and front.connection.debrief == null;
+                if (browsing and !was_connection and directory_servers.len != 0) front.connection.refresh_requested = true;
+                was_connection = browsing;
+                if (front.connection.refresh_requested) {
+                    front.connection.refresh_requested = false;
+                    if (directory_servers.len != 0) directory_browser.refresh(directory_servers);
+                }
+                directory_browser.poll(&front.connection);
+            }
             // While the console is up, it takes the pass.
             if (network_enabled) network_pilot.update(io, &front, .{
                 .devices = &devices,
@@ -3029,6 +3044,7 @@ const Display = struct {
 
 test {
     _ = NetworkPilot;
+    _ = Directory;
     _ = CoopSave;
     _ = @import("network/wire.zig");
     _ = @import("network/chat_budget.zig");

@@ -1,0 +1,6 @@
+*
+!Dockerfile.headless
+!dist/
+!dist/**/
+!dist/**/openreliant
+!dist/**/LICENSE*

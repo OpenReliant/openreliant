@@ -8,6 +8,7 @@ const Invite = @import("identity.zig").Invite;
 const wire = @import("wire.zig");
 const LaunchWait = @import("launch_wait.zig");
 const ArenaOptions = @import("openreliant").engine.game.deathmatch.Options;
+const Advertiser = @import("advertise.zig");
 
 const default_config = "server.ini";
 const max_config_size = 16 * 1024;
@@ -26,6 +27,8 @@ const Config = struct {
     arena_options: ArenaOptions,
     repeat_rounds: bool,
     identity: ?session.Identity,
+    advertise: ?Advertiser.Config,
+    check_updates: bool,
 
     fn parse(profile: Profile) !Config {
         const port = if (profile.value("Server", "Port")) |value|
@@ -109,6 +112,14 @@ const Config = struct {
             .arena_options = arena_options,
             .repeat_rounds = repeat_rounds,
             .identity = managed,
+            .advertise = if (profile.value("Server", "DirectoryServers")) |origins| .{
+                .origins = origins,
+                .name = profile.value("Server", "Name") orelse "OpenReliant server",
+                .description = profile.value("Server", "Description") orelse "",
+                .address = profile.value("Server", "PublicAddress"),
+                .port = port,
+            } else null,
+            .check_updates = try optionalSwitch(profile, "CheckUpdates", true),
         };
     }
 };
@@ -147,6 +158,8 @@ pub fn run(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !void
         .arena_options = config.arena_options,
         .repeat_rounds = config.repeat_rounds,
         .invite_address = config.invite_address,
+        .advertise = config.advertise,
+        .check_updates = config.check_updates,
     });
 }
 
@@ -187,6 +200,8 @@ test "headless settings share the game's INI syntax" {
 
 test "dedicated activation and metrics have independent settings" {
     const defaults = try Config.parse(.empty);
+    try std.testing.expect(defaults.check_updates);
+    try std.testing.expect(!(try Config.parse(.{ .text = "[Server]\nCheckUpdates=0" })).check_updates);
     try std.testing.expectEqual(2, defaults.launch_wait.minimum);
     try std.testing.expectEqual(30 * std.time.us_per_s, defaults.launch_wait.delay_us);
     try std.testing.expect(defaults.repeat_rounds);
