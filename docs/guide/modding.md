@@ -200,7 +200,7 @@ so the section doesn't change. `--mods bananas` plays a mod on its own, and a pa
 ### Getting mods from the catalogue
 
 GET MODS, above the list on the mods screen, opens the catalogue of mods on the web: the mods that
-[OpenReliant's mods page](https://openreliant.github.io/openreliant-mods/) lists in its `mods.json`
+[OpenReliant's mods page](https://mods.openreliant.space/) lists in its `mods.json`
 index, and those of any other repository you add ([Repositories](#repositories)). The screen lists
 them like the mods screen does, grouped under the site's top categories (SHIPS, MISSIONS, ...); a
 click on a heading folds the group, and another unfolds it. The panel shows the chosen mod's
@@ -254,7 +254,7 @@ choosing, and the URL of its index, in the order the screen reads them.
 
 ```ini
 [OpenReliantModRepositories]
-openreliant-mods=https://openreliant.github.io/openreliant-mods/mods.json
+openreliant-mods=https://mods.openreliant.space/mods.json
 mine=https://example.com/mods/mods.json
 ```
 
@@ -299,8 +299,8 @@ top-level `generated` key is, which says when the index was written.
       "size": 5624773,
       "archive": "https://github.com/OpenReliant/openreliant-mods/releases/download/viper-v1.3/viper.hog",
       "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-      "thumbnail": "https://openreliant.github.io/openreliant-mods/thumbs/viper.png",
-      "url": "https://openreliant.github.io/openreliant-mods/mods/viper/"
+      "thumbnail": "https://mods.openreliant.space/thumbs/viper.png",
+      "url": "https://mods.openreliant.space/mods/viper/"
     }
   ]
 }
@@ -1455,7 +1455,7 @@ included, and works just as the folder did. `--checksum` writes `coyote.hog.sha2
   ([The manifest](#the-manifest)).
 - Share only work you may share: your own, or work whose licence lets you share it. Fonts, models,
   pictures and sounds from elsewhere each have a licence of their own.
-- [OpenReliant's mods page](https://openreliant.github.io/openreliant-mods/) lists mods made for
+- [OpenReliant's mods page](https://mods.openreliant.space/) lists mods made for
   OpenReliant, and the mods screen's GET MODS installs them from it
   ([Getting mods from the catalogue](#getting-mods-from-the-catalogue)).
 
