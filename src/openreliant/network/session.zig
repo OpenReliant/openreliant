@@ -53,6 +53,7 @@ pub const HostOptions = struct {
     address: [:0]const u8,
     game_directory: ?std.Io.Dir = null,
     mode: Arena.Mode = .training,
+    mission: ?u16 = null,
     players: u8 = wire.slots,
     ticks: ?u32,
     invite_address: ?std.Io.net.IpAddress = null,
@@ -77,7 +78,7 @@ pub const LocalGame = struct {
     server: credential.Server,
     host: Host,
 
-    pub fn start(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, client: *Client, port: u16, call_sign: wire.CallSign) !*LocalGame {
+    pub fn start(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, client: *Client, port: u16, call_sign: wire.CallSign, mission: ?u16) !*LocalGame {
         const game = try gpa.create(LocalGame);
         errdefer gpa.destroy(game);
         game.gpa = gpa;
@@ -88,7 +89,14 @@ pub const LocalGame = struct {
         errdefer net.session_deinit();
         const arena = try Arena.create(gpa, .training, io, directory);
         errdefer arena.destroy();
-        game.host = .{ .io = io, .arena = arena, .signer = &game.server, .lan_only = true, .start = .{ .lobby = .{} } };
+        game.host = .{
+            .io = io,
+            .arena = arena,
+            .signer = &game.server,
+            .lan_only = true,
+            .start = .{ .lobby = .{ .mission = mission } },
+            .player_limit = if (mission != null) wire.cooperative_slots else wire.slots,
+        };
 
         var address_buffer: [credential.Invite.max_address]u8 = undefined;
         const address = try std.fmt.bufPrintSentinel(&address_buffer, "[::]:{d}", .{port}, 0);
@@ -106,7 +114,12 @@ pub const LocalGame = struct {
     pub fn launch(game: *LocalGame) !void {
         if (!game.host.canLaunch()) return;
         const staging = game.host.arena;
-        game.host.arena = try staging.prepareStock(game.host.start.lobby.scenario, game.host.io, game.directory);
+        const lobby = game.host.start.lobby;
+        if (lobby.mission) |mission| {
+            game.host.beginBriefing(mission, game.directory);
+            return;
+        }
+        game.host.arena = try staging.prepareStock(lobby.scenario, game.host.io, game.directory);
         staging.destroy();
         game.host.launch();
     }
@@ -123,6 +136,8 @@ pub const LocalGame = struct {
 };
 
 pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity: ?Identity, options: HostOptions) !void {
+    const limit: u8 = if (options.mission != null) wire.cooperative_slots else wire.slots;
+    if (options.players < Host.pilots_to_start or options.players > limit) return error.InvalidPlayerLimit;
     var server: ?credential.Server = null;
     defer if (server) |*automatic| automatic.wipe();
     if (identity) |managed| {
@@ -134,14 +149,16 @@ pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity
     defer net.session_deinit();
     const host = try gpa.create(Host);
     defer gpa.destroy(host);
-    const arena = try Arena.create(gpa, options.mode, io, options.game_directory orelse directory);
-    defer arena.destroy();
+    const game_directory = options.game_directory orelse directory;
+    const arena = try Arena.create(gpa, options.mode, io, game_directory);
     host.* = .{
         .io = io,
         .arena = arena,
         .player_limit = options.players,
         .signer = if (server) |*automatic| automatic else null,
+        .campaign_start = if (options.mission) |mission| .{ .number = mission, .directory = game_directory } else null,
     };
+    defer host.arena.destroy();
     current.host = host;
     defer current.host = null;
     const invite: ?credential.Invite = if (server) |*automatic|

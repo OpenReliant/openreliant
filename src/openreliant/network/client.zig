@@ -2,6 +2,7 @@
 const std = @import("std");
 const Io = std.Io;
 const flight = @import("openreliant").engine.input.flight;
+const game = @import("openreliant").engine.game;
 const flight_input = @import("flight_input.zig");
 const Presses = flight_input.Presses;
 const wire = @import("wire.zig");
@@ -35,15 +36,20 @@ joined: ?wire.Admission = null,
 call_sign: ?wire.CallSign = null,
 fighter: wire.Fighter = .predator,
 latest: ?wire.Snapshot = null,
+pending_view: ?PendingView = null,
+pilot_pages: [wire.PilotPage.max_extra]?wire.PilotPage = @splat(null),
+scenery: ?wire.Scenery = null,
 roster: wire.Roster = .{},
 sequence: u32 = 0,
 next_input: i64 = 0,
 leaving: bool = false,
+briefed: bool = false,
 flight_command: flight.Command = .{},
 fire_primary: bool = false,
 weapons: ?wire.ordnance.Order = null,
 sent_aim: ?wire.ordnance.Aim = null,
 projectiles: [wire.ordnance.Page.pages]?wire.ordnance.Page = @splat(null),
+scene: [wire.ScenePage.count]?wire.ScenePage = @splat(null),
 presses: Presses = .{},
 
 pub fn status(client: *Client, conn: net.Connection, event: net.Status, name: ?[]const u8) void {
@@ -102,7 +108,7 @@ pub fn leave(client: *Client, io: Io) !void {
 pub const Event = union(enum) {
     idle,
     admitted,
-    lobby: wire.Scenario,
+    lobby,
     beacon_notice: wire.BeaconNotice,
     tag_bomb_notice: wire.TagBombNotice,
     shadow_notice: wire.ShadowNotice,
@@ -113,6 +119,9 @@ pub const Event = union(enum) {
     wreck: wire.Wreck,
     combat: wire.Combat,
     projectiles,
+    scene_page,
+    scenery,
+    campaign_line: wire.CampaignLine,
     snapshot,
     finished,
     closed,
@@ -121,6 +130,20 @@ pub const Event = union(enum) {
 pub fn sendChat(client: *Client, request: wire.ChatRequest) void {
     if (client.joined == null or client.leaving or wire.chat.trim(request.text.slice()).len == 0) return;
     net.send(client.conn, .{ .chat_request = request }) catch return;
+}
+
+pub fn requestCrewAction(client: *Client, action: enum { jump, land }) void {
+    const admission = client.joined orelse return;
+    const view = &(client.latest orelse return);
+    const mission = view.mission orelse return;
+    const ship = view.ships[admission.slot] orelse return;
+    if (client.leaving or client.roster.paused or mission.lead != admission.slot) return;
+    const request: wire.CrewRequest = .{ .view_tick = view.tick, .reuse = ship.reuse };
+    const message: wire.Message = switch (action) {
+        .jump => if (mission.travel.any()) .{ .crew_jump = request } else return,
+        .land => .{ .crew_land = request },
+    };
+    net.send(client.conn, message) catch return;
 }
 
 pub fn setFlight(client: *Client, command: flight.Command) void {
@@ -148,6 +171,12 @@ pub fn selectShip(client: *Client, ship: wire.Fighter) !void {
     client.fighter = ship;
 }
 
+pub fn finishBriefing(client: *Client, fit: ?wire.CampaignLoadout) !void {
+    if (!client.roster.briefing or client.briefed or client.leaving) return;
+    try net.send(client.conn, .{ .briefed = fit });
+    client.briefed = true;
+}
+
 /// Advance the connection without waiting for a packet or a simulation tick.
 pub fn poll(client: *Client, io: Io) !Event {
     net.session_poll();
@@ -167,7 +196,10 @@ pub fn poll(client: *Client, io: Io) !Event {
         try net.send(client.conn, .{ .input = .{
             .sequence = client.sequence,
             .command = client.flight_command,
-            .fire_for = if (client.fire_primary and client.latest != null) client.latest.?.ships[client.joined.?.slot].?.reuse else null,
+            .fire_for = if (client.fire_primary and client.latest != null)
+                if (client.latest.?.ships[client.joined.?.slot]) |ship| ship.reuse else null
+            else
+                null,
         } });
         if (client.presses.any()) {
             try net.send(client.conn, .{ .flight_press = client.presses });
@@ -194,6 +226,14 @@ pub fn poll(client: *Client, io: Io) !Event {
             client.deadline = now + timeout;
             return .admitted;
         },
+        .campaign_seat => |admission| {
+            const previous = client.joined orelse return error.UnexpectedAdmission;
+            if (client.latest != null or !client.briefed or !client.roster.briefing or
+                admission.slot >= previous.slot or admission.slot >= wire.cooperative_slots or
+                admission.generation <= previous.generation) return error.UnexpectedAdmission;
+            client.joined = admission;
+            return .admitted;
+        },
         .wrong_protocol => |required| {
             std.debug.print("server requires multiplayer protocol {d} (OpenReliant {s})\n", .{ required.protocol, required.release });
             return error.IncompatibleProtocol;
@@ -206,7 +246,7 @@ pub fn poll(client: *Client, io: Io) !Event {
             client.roster = roster;
             // A paused session sends roster heartbeats while simulation snapshots are stopped.
             if (roster.paused) client.deadline = now + timeout;
-            if (client.latest == null) if (roster.lobby) |scenario| return .{ .lobby = scenario };
+            if (client.latest == null and (roster.lobby != null or roster.mission != null)) return .lobby;
             return .idle;
         },
         .tag_bomb_notice => |notice| return if (client.joined != null and !client.leaving) .{ .tag_bomb_notice = notice } else .idle,
@@ -226,31 +266,89 @@ pub fn poll(client: *Client, io: Io) !Event {
         .combat => |effects| return if (client.latest != null and !client.leaving) .{ .combat = effects } else .idle,
         .projectiles => |page| {
             const view = client.latest orelse return .idle;
-            if (client.leaving or view.scenario == null or page.tick > view.tick +| wire.ordnance.Page.max_age) return .idle;
+            if (client.leaving or !view.hasOrdnance() or page.tick > view.tick +| wire.ordnance.Page.max_age) return .idle;
             const entry = &client.projectiles[page.index()];
             if (entry.* == null or page.tick > entry.*.?.tick) entry.* = page;
             return .projectiles;
         },
-        .view, .finished => |view| {
-            const admission = client.joined orelse {
-                // Unreliable flight updates can arrive before the reliable admission.
-                return if (message == .view) .idle else error.UnexpectedMessage;
-            };
-            if (client.leaving or view.tick <= if (client.latest) |last| last.tick else @as(u32, 0)) return .idle;
-            const ship = view.ships[admission.slot] orelse return error.MissingShip;
-            if (ship.generation != admission.generation) return error.WrongShip;
-            if (client.latest) |last| if (last.scenario != view.scenario) return error.UnexpectedMessage;
-            client.latest = view;
-            client.deadline = now + timeout;
-            if (message == .finished) {
-                try net.send(client.conn, .{ .received_final = view.tick });
-                client.leaving = true;
-                return .finished;
+        .scene_page => |page| {
+            const view = &(client.latest orelse return .idle);
+            // A reliable empty page can arrive before the matching pilot view.
+            if (client.leaving or view.mission == null) return .idle;
+            const entry = &client.scene[page.number];
+            if (entry.* == null or page.tick > entry.*.?.tick) entry.* = page;
+            return .scene_page;
+        },
+        .scenery => |scenery| {
+            if (client.joined == null or client.leaving) return .idle;
+            if (client.latest) |view| {
+                if (view.scenario != scenery.scenario or scenery.tick > view.tick +| wire.ordnance.Page.max_age) return .idle;
             }
-            return .snapshot;
+            if (client.scenery == null or scenery.tick > client.scenery.?.tick) client.scenery = scenery;
+            return .scenery;
+        },
+        .campaign_line => |line| {
+            if (client.leaving or client.joined == null or (client.latest == null and client.roster.mission == null)) return .idle;
+            if (client.latest) |view| {
+                if (view.mission == null or line.tick > view.tick *| game.gameobj.ticks_per_step +| 100) return .idle;
+            }
+            return .{ .campaign_line = line };
+        },
+        .pilot_page => |page| {
+            if (client.joined == null or client.leaving or page.number > wire.max_pilot_pages) return .idle;
+            if (client.latest) |*latest| if (page.tick <= latest.tick) return .idle;
+            const entry = &client.pilot_pages[page.number - 1];
+            if (entry.* == null or page.tick > entry.*.?.tick) entry.* = page;
+            return client.acceptView(now);
+        },
+        .view, .finished => |view| {
+            if (client.joined == null) {
+                // Flight updates can arrive before the reliable admission.
+                return if (message == .view) .idle else error.UnexpectedMessage;
+            }
+            if (client.leaving or view.tick <= if (client.latest) |last| last.tick else @as(u32, 0)) return .idle;
+            if (client.pending_view) |*pending| if (view.tick < pending.view.tick) return .idle;
+            client.pending_view = .{ .view = view, .final = message == .finished };
+            return client.acceptView(now);
         },
         else => return error.UnexpectedMessage,
     }
+}
+
+const PendingView = struct { view: wire.Snapshot, final: bool };
+
+fn acceptView(client: *Client, now: i64) !Event {
+    const pending = if (client.pending_view) |*pending| pending else return .idle;
+    const view = &pending.view;
+    for (client.pilot_pages[0..view.pilot_pages]) |*entry| {
+        const page = if (entry.*) |*page| page else return .idle;
+        if (page.tick != view.tick or page.scenario != view.scenario) return .idle;
+        try page.apply(&view.ships);
+    }
+    const final = pending.final;
+    defer client.pending_view = null;
+    if (view.pilot_pages != 0) try view.checkObjectivePilots(true);
+    const admission = client.joined.?;
+    // A flight view can overtake the reliable campaign seat update.
+    if (!final and view.mission != null and client.latest == null and client.roster.briefing) {
+        const ship = view.ships[admission.slot] orelse return .idle;
+        if (ship.generation != admission.generation) return .idle;
+    }
+    const ship = view.ships[admission.slot] orelse return error.MissingShip;
+    if (ship.generation != admission.generation) return error.WrongShip;
+    if (client.latest) |*last| {
+        const mission = if (view.mission) |state| state.number else null;
+        const previous = if (last.mission) |state| state.number else null;
+        if (last.scenario != view.scenario or previous != mission) return error.UnexpectedMessage;
+    }
+    client.latest = view.*;
+    client.deadline = now + timeout;
+    if (final) {
+        try net.send(client.conn, .{ .received_final = view.tick });
+        client.leaving = true;
+        return .finished;
+    }
+    return .snapshot;
 }
 
 pub fn run(client: *Client, io: Io, address: [:0]const u8, controls: Controls, leave_after: ?u32) !void {
@@ -267,18 +365,22 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
     if (controls == .keyboard) std.debug.print("A steers left, S flies straight, D steers right, and Q leaves. Press Enter to send a key.\n", .{});
     var views: u32 = 0;
     var objectives: wire.Objectives = .none;
+    var mission_view: ?wire.MissionView = null;
     while (true) {
         if (controls == .keyboard and client.joined != null and !client.leaving) switch (net.session_key()) {
             'a', 'A' => steering = .left,
             's', 'S' => steering = .straight,
             'd', 'D' => steering = .right,
+            'j', 'J' => client.requestCrewAction(.jump),
+            'l', 'L' => client.requestCrewAction(.land),
             'q', 'Q' => try client.leave(io),
             else => {},
         };
         client.setFlight(steering.command());
         const event = try client.poll(io);
         switch (event) {
-            .idle, .lobby, .combat, .projectiles, .chat_line => {},
+            .idle, .combat, .projectiles, .scene_page, .scenery, .campaign_line, .chat_line => {},
+            .lobby => if (client.roster.briefing) try client.finishBriefing(null),
             .tag_bomb_notice => |notice| std.debug.print("notice {s} {d} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot, notice.event.other.slot }),
             .shadow_notice => |notice| std.debug.print("shadow-notice {s} {d}\n", .{ @tagName(notice.event.kind), notice.event.pilot.slot }),
             .uber_kill => |notice| std.debug.print("nuclear-strike {d} {d}\n", .{ notice.event.owner.slot, notice.event.victim.slot }),
@@ -304,6 +406,14 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
                 if (!std.meta.eql(objectives, view.objectives)) {
                     objectives = view.objectives;
                     showObjectives(view);
+                }
+                if (view.mission) |mission| {
+                    if (!std.meta.eql(mission_view, @as(?wire.MissionView, mission))) {
+                        std.debug.print("mission {d} lead {d} jump {any} warp {any}\n", .{
+                            mission.number, mission.lead orelse wire.slots, mission.travel.jump, mission.travel.warp,
+                        });
+                        mission_view = mission;
+                    }
                 }
                 if (event == .finished) {
                     std.debug.print("finished {d}\n", .{view.tick});

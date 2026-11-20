@@ -55,13 +55,17 @@ pub const Files = struct {
     directory: Io.Dir,
     archive: *const game.bigfile.Hog,
 
+    pub fn readMission(files: Files, gpa: Allocator, number: u16) !?game.mission.bind.File {
+        var path_buffer: [game.winmain.mission_path_size]u8 = undefined;
+        const path = game.winmain.missionPath(&path_buffer, number, false, true);
+        return game.mission.bind.read(files.io, gpa, files.directory, files.archive, path);
+    }
+
     /// Bind and run the mission's start part. On a viewer this only constructs the scenery.
     /// The host supplies the arena damage rules, participant bindings and simulation clock.
     pub fn load(files: Files, gpa: Allocator, scenario: Scenario, world: game.gameobj.World) !*game.mission.Loaded {
         const number = scenario.mission();
-        var path_buffer: [game.winmain.mission_path_size]u8 = undefined;
-        const path = game.winmain.missionPath(&path_buffer, number, false, true);
-        const mission = (try game.mission.bind.read(files.io, gpa, files.directory, files.archive, path)) orelse return error.MissingArenaMission;
+        const mission = (try files.readMission(gpa, number)) orelse return error.MissingArenaMission;
         const loaded = try game.mission.Loaded.create(gpa, mission.image, world.random);
         errdefer loaded.destroy();
         const all = world.objects;

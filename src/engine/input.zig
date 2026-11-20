@@ -1868,7 +1868,7 @@ pub fn aimPlayer(world: gameobj.World, target: aigeneric.Target) bool {
 }
 
 /// Checks the target and component in the simulation before changing this pilot's aim.
-fn aimPlayerFor(world: gameobj.World, player: u16, target: aigeneric.Target) bool {
+pub fn aimPlayerFor(world: gameobj.World, player: u16, target: aigeneric.Target) bool {
     const all = world.objects;
     const state = all.playerState(player) orelse return false;
     if (!ai.targetValid(all, target, .{})) return false;
@@ -2268,14 +2268,35 @@ fn waitingLaunch(all: *const create.Objects, carrier: u16) ?u16 {
 /// **Unverified:** it first closes the target display's large form, or else its small one, where
 /// two words say it is open (`0x0057BEA8`, `0x0057BE44`); nothing writes them, so it never does.
 ///
-/// Not ported: a multiplayer game, where it waits on `0x00588735` and tells the other players
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn playerJump(world: gameobj.World) void {
-    if (world.player.ending != .playing) return;
-    const waiting = world.events orelse return;
+    if (world.damage_rules == .cooperative or world.player.ending != .playing) return;
+    _ = takeReadyJump(world);
+}
+
+/// The first eligible pilot in slot order leads a co-op mission (`mission_frame`, `0x004924E5`).
+pub fn missionLead(all: *const create.Objects) ?players.ControlRef {
+    for (0..all.playerSlotCount()) |index| {
+        const binding = all.playerBinding(@intCast(index)) orelse continue;
+        if (!all.slots[index].object.flags.outOfAction()) return binding;
+    }
+    return null;
+}
+
+/// Apply the lead's request to the host's mission script. A request names the current ship and
+/// admission so an old pilot cannot act after their slot has been reused.
+pub fn crewJump(world: gameobj.World, source: players.ControlRef) bool {
+    if (world.damage_rules != .cooperative) return false;
+    const lead = missionLead(world.objects) orelse return false;
+    if (!std.meta.eql(lead, source)) return false;
+    return takeReadyJump(world);
+}
+
+fn takeReadyJump(world: gameobj.World) bool {
+    const waiting = world.events orelse return false;
     const script = waiting.script;
+    if (world.damage_rules == .cooperative and script.variables.mission_over != 0) return false;
     const ready = &script.variables.ready;
-    if (ready.jump == .no and ready.warp == .no) return;
+    if (ready.jump == .no and ready.warp == .no) return false;
     script.last_jumped = script.clock;
     if (ready.jump != .no) {
         ready.jump = .no;
@@ -2285,6 +2306,7 @@ pub fn playerJump(world: gameobj.World) void {
         ready.warp = .no;
         events.readyToJump(world, true);
     }
+    return true;
 }
 
 /// What `player_controls` (`0x00413410`) does about the target's speed, which reads the objects:
@@ -2622,6 +2644,7 @@ pub const FrameKeys = struct {
     view: camera.View,
     game_ticks: u32,
     multiplayer: bool,
+    cooperative: bool = false,
     /// A network flight sends ship changes to the host. COMMS uses the chat controls.
     submitted: ?*players.CockpitCommand = null,
     /// The world the keys' sounds are heard in; null where nothing is heard.
@@ -2795,7 +2818,7 @@ pub fn frameKeys(keys: FrameKeys) void {
             windows.renew(.objectives);
             display.objectives.page();
         } else {
-            _ = windows.open(.objectives, multiplayer);
+            _ = windows.open(.objectives, multiplayer and !keys.cooperative);
         }
     }
     if (devices.active(.primary_target, true)) primaryTarget(keys);
@@ -2852,7 +2875,7 @@ fn primaryTarget(keys: FrameKeys) void {
     }
     if (display.objectives.current()) |current| display.objectives.shown = current;
     const windows = &display.windows;
-    if (windows.open(.objectives, keys.multiplayer)) windows.status.getPtr(.objectives).held = false;
+    if (windows.open(.objectives, keys.multiplayer and !keys.cooperative)) windows.status.getPtr(.objectives).held = false;
 }
 
 test primaryTarget {

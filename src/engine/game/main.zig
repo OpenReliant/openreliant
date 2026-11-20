@@ -787,7 +787,11 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     radio_module.remarksFrame(orders.world);
     input.nextNavPoint(orders.world);
     if (loaded) |playing| {
-        const running = orders.world.damage_rules != .campaign or (player.ending == .playing and player.showing != .landing);
+        const running = switch (orders.world.damage_rules) {
+            .campaign => player.ending == .playing and player.showing != .landing,
+            .cooperative => player.showing != .landing,
+            .arena => true,
+        };
         if (orders.world.clock.frame_duration != 0 and running) {
             playing.tickClock(orders.world.clock.game_ticks);
             playing.flush(orders);
@@ -1019,9 +1023,11 @@ const shot_watched = 500;
 pub fn missionOver(world: gameobj.World) bool {
     if (world.damage_rules == .arena) return false;
     if (world.damage_rules == .cooperative) {
-        if (!friendly_fire.recallComplete(world.objects)) return false;
-        world.player.ending = .friendly_fire;
-        return true;
+        if (friendly_fire.recallComplete(world.objects)) {
+            world.player.ending = .friendly_fire;
+            return true;
+        }
+        return crewLossComplete(world.objects, world.clock.viewTime());
     }
     const viewing = &world.player.viewing;
     const now = world.clock.viewTime();
@@ -1037,6 +1043,31 @@ pub fn missionOver(world: gameobj.World) bool {
         else => return false,
     };
     return now > viewing.switched + watched;
+}
+
+fn crewLossComplete(all: *const create.Objects, now: u32) bool {
+    var last_loss: ?u32 = null;
+    for (all.player_states[0..all.playerSlotCount()]) |state| {
+        if (state.membership != .joined) continue;
+        const destroyed = state.membership.joined.destroyed_at orelse return false;
+        last_loss = @max(last_loss orelse destroyed, destroyed);
+    }
+    return if (last_loss) |at| now -| at > end_watched else false;
+}
+
+test "co-op waits for the last pilot's loss before ending the mission" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    all.players = 2;
+    const first = all.joinParticipant(0).?;
+    const second = all.joinParticipant(1).?;
+    all.player_states[first.slot].membership.joined.destroyed_at = 100;
+    try std.testing.expect(!crewLossComplete(all, 1000));
+    all.player_states[second.slot].membership.joined.destroyed_at = 1000;
+    try std.testing.expect(!crewLossComplete(all, 1000 + end_watched));
+    try std.testing.expect(crewLossComplete(all, 1001 + end_watched));
 }
 
 /// `mission_frame`'s pass that draws the objects, beyond drawing them: over each object drawn
@@ -2409,9 +2440,9 @@ pub const Start = struct {
     /// (`ship_type_load`).
     tables: *create.Stats,
     types: *create.library.TypeCache,
-    /// The cockpit it loads for the player's ship, and the display it readies for it.
-    cockpit: *cockpit.Cockpit,
-    display: *hud.State,
+    /// The cockpit and display for a local pilot. A headless host can leave both unset.
+    cockpit: ?*cockpit.Cockpit = null,
+    display: ?*hud.State = null,
     /// The campaign the mission is flown in, whose variables the attempt starts from
     /// (`gameflow.Campaign.attempt`); none for a mission flown outside one, which starts from a new
     /// campaign's (`gameflow.restartPoint`).
@@ -2515,14 +2546,16 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     if (world.radio) |radio| radio.reset(world.sounds);
     world.player.remarks = .{};
     if (world.flash) |lit| lit.* = .{};
-    start.display.reset(world.clock.game_ticks);
-    start.display.interference = .{};
-    start.display.subtitle = .{};
-    start.display.objectives.reset(number, all.mission25_second_part, start.objectives);
+    if (start.display) |display| {
+        display.reset(world.clock.game_ticks);
+        display.interference = .{};
+        display.subtitle = .{};
+        display.objectives.reset(number, all.mission25_second_part, start.objectives);
+    }
     if (world.countermeasures) |dropped| dropped.reset();
     // The subtarget's parts picked out in red are put back before the objects go, which the game
     // does as the mission before ends (`mission_run`, at `0x00494260`).
-    start.display.subtarget.clear(all);
+    if (start.display) |display| display.subtarget.clear(all);
     all.reset(world.random);
     // The shell and the debris, which the sweep below keeps.
     var drawn_types: create.TypeSet = .empty;
@@ -2562,7 +2595,13 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     const loaded = try Loaded.create(gpa, image, world.random);
     errdefer loaded.destroy();
     loaded.script.variables = if (start.campaign) |campaign| campaign.attempt() else gameflow.restartPoint();
-    loaded.script.variables.players = all.players;
+    loaded.script.variables.players = if (world.damage_rules == .cooperative) count: {
+        var joined: u16 = 0;
+        for (all.player_states[0..all.playerSlotCount()]) |*state| {
+            if (state.membership == .joined) joined += 1;
+        }
+        break :count joined;
+    } else all.players;
     orders.world.mission = &loaded.bound;
     orders.world.events = &loaded.events;
     orders.world.variables = &loaded.script.variables;
@@ -2586,8 +2625,8 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     const player = &all.slots[all.player];
     const player_type = all.slotType(all.player, if (try loaded.bound.file.player()) |record| @fromBackingInt(record.kind) else player.object.type);
     const ship = cockpitShip(all, player_type);
-    try start.cockpit.load(start.types.resources, start.types.textures, ship, start.types.models);
-    fitDevices(&all.player_states[all.player].charges, start.display, ship, if (player.type) |loaded_type| loaded_type.model.header.flags.cloak else false);
+    if (start.cockpit) |shown| try shown.load(start.types.resources, start.types.textures, ship, start.types.models);
+    if (start.display) |display| fitDevices(&all.player_states[all.player].charges, display, ship, if (player.type) |loaded_type| loaded_type.model.header.flags.cloak else false);
     all.fitPlayerWeapons(all.player);
     if (player.firstOrder(.launch) == null) sound3d.hearEngine(world);
     if (start.profile) |profile| profile.saveWith(start.call_sign);
@@ -2852,6 +2891,23 @@ test startMission {
         const again = try startMission(gpa, reseeded, try dte.write.write(gpa, &sections, .{}), 0);
         defer again.destroy();
         try std.testing.expectEqual(seed == Random.default_seed, mission.random.fingerprint() == started);
+    }
+
+    // A headless co-op mission counts admissions rather than reserved slots.
+    const all = mission.objects;
+    all.players = 3;
+    const crew = .{ all.joinParticipant(0).?, all.joinParticipant(1).? };
+    var headless = start;
+    headless.orders.world.damage_rules = .cooperative;
+    headless.cockpit = null;
+    headless.display = null;
+    const loaded = try startMission(gpa, headless, try dte.write.write(gpa, &sections, .{}), 0);
+    defer loaded.destroy();
+    try std.testing.expectEqual(2, loaded.script.variables.players);
+    inline for (crew) |pilot| {
+        const binding = all.playerBinding(pilot.slot).?;
+        try std.testing.expectEqual(pilot, binding.participant);
+        try std.testing.expectEqual(pilot.slot, binding.ship.resolve(all).?);
     }
 }
 

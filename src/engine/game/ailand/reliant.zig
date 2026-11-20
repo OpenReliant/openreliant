@@ -113,13 +113,14 @@ pub fn update(ctx: Context, index: u16) void {
     const now = ctx.world.clock.frame_start;
     switch (state.step.as(Step)) {
         .waiting => {
-            if (now < state.due and index == all.player) return input.playerControlOrder(ctx, index);
+            if (now < state.due and (index == all.player or world.damage_rules == .cooperative))
+                return input.playerControlOrder(ctx, index);
             cutaway(ctx, index, carrier);
             ailand.showLanding(world, index, carrier);
             state.step = .of(Step.approaching);
             slot.motion = .plain;
             object.flags.no_collisions = true;
-            playDoor(world, &all.slots[carrier], .dooropen, 0, door_speed);
+            openTube(world, &all.slots[carrier]);
         },
         .approaching => {
             const frame = tubeFrame(state, &all.slots[carrier]);
@@ -160,7 +161,7 @@ pub fn update(ctx: Context, index: u16) void {
             state.step = .of(Step.down);
             state.due = now + ailand.landed_wait;
         },
-        .down => ailand.endAfter(world, state.due),
+        .down => ailand.finishReliant(world, index, state.due),
         _ => {},
     }
 }
@@ -227,6 +228,10 @@ fn playDoor(world: gameobj.World, reliant: *create.Slot, which: sound3d.sounds.S
     if (model.rootChild(upper_door) == null) return;
     sound3d.playFrom(world, model.frameAt(upper_door, reliant.drawn), which, .guaranteed);
     model.playNamed(upper_door, door_track, from, null, speed);
+}
+
+pub fn openTube(world: gameobj.World, ship: *create.Slot) void {
+    playDoor(world, ship, .dooropen, 0, door_speed);
 }
 
 /// What the landing's views stand by (`camera.View.landing_tube`, `landing_aside`): the middle of
@@ -386,6 +391,53 @@ test "a ship sent home for its friendly fire lands at once" {
     const state = &mission.slot(player).state.land;
     try std.testing.expectEqual(1000, state.due);
     try std.testing.expectEqual(Step.approaching, state.step.as(Step));
+}
+
+test "co-op clearance starts both landing clocks and waits for both pilots to touch down" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var reliant_model: reliant_launch.testing.Reliant = undefined;
+    try reliant_model.init(gpa);
+    defer reliant_model.deinit(gpa);
+    const all = mission.objects;
+    const lead = try mission.add(.of(.predator), @splat(0));
+    const guest = try mission.add(.of(.naginata), .{ 400, 0, 0 });
+    const carrier = try mission.add(.of(.reliant), .{ 0, 0, 50000 });
+    try reliant_model.fit(gpa, mission.slot(carrier));
+    all.players = 2;
+    for ([_]u16{ lead, guest }) |index| {
+        const participant = all.joinParticipant(index).?;
+        _ = all.bindParticipant(participant, .of(all, index)).?;
+        all.player_states[index].carrier = .of(all, carrier);
+    }
+
+    var variables: @import("../../vm.zig").Variables = .{ .landing_cleared = 1 };
+    var world = mission.world();
+    world.variables = &variables;
+    world.damage_rules = .cooperative;
+    const ctx: Context = .of(world);
+    mission.clock.frame_start = 1000;
+    @import("../radio.zig").crewLanding(world, lead);
+    for ([_]u16{ lead, guest }) |index| {
+        aigeneric.objectOrders(ctx, index);
+        const state = &mission.slot(index).state.land;
+        try std.testing.expectEqual(Step.waiting, state.step.as(Step));
+        try std.testing.expectEqual(1000 + ailand.wait, state.due);
+    }
+    mission.clock.frame_start = 1000 + ailand.wait;
+    for ([_]u16{ lead, guest }) |index| {
+        aigeneric.objectOrders(ctx, index);
+        const slot = mission.slot(index);
+        try std.testing.expectEqual(Step.approaching, slot.state.land.step.as(Step));
+        try std.testing.expect(!slot.object.flags.disabled);
+        try std.testing.expect(all.player_states[index].landing_view != null);
+    }
+    ailand.finishReliant(world, lead, world.clock.frame_start - 1);
+    try std.testing.expectEqual(0, variables.mission_over);
+    ailand.finishReliant(world, guest, world.clock.frame_start - 1);
+    try std.testing.expectEqual(1, variables.mission_over);
 }
 
 test "over the tube, a ship stops dead, or coasts as the game lets it" {

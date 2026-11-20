@@ -51,6 +51,9 @@ wrecks: [2 * wire.slots]wire.Wreck = undefined,
 wreck_count: usize = 0,
 combat: [combat_messages_per_frame * wire.Combat.max]game.guns.FlightEffect = undefined,
 combat_count: usize = 0,
+campaign_lines: [game.radio.queue_size + game.radio.report_count]wire.CampaignLine = undefined,
+campaign_line_count: usize = 0,
+campaign_result: ?wire.MissionView = null,
 stick: [2]i16 = @splat(0),
 standings_first: ?usize = null,
 
@@ -71,11 +74,12 @@ pub fn start(pilot: *Graphical, io: std.Io, target: []const u8, screen: *Connect
     screen.message = .{ .english = "Connecting..." };
 }
 
-pub fn hostLan(pilot: *Graphical, io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, screen: *Connection, name: *const wire.CallSign) void {
+pub fn hostLan(pilot: *Graphical, io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, screen: *Connection, name: *const wire.CallSign, kind: Connection.HostChoice.Kind) void {
     if (pilot.client != null) return;
     pilot.client = .{ .expected_host = null };
     const call_sign = wire.lobbyName(name.slice());
-    pilot.hosted = session.LocalGame.start(io, gpa, directory, &pilot.client.?, session.default_port, call_sign) catch |err| {
+    const mission: ?u16 = if (kind == .cooperative) game.gameflow.first_mission else null;
+    pilot.hosted = session.LocalGame.start(io, gpa, directory, &pilot.client.?, session.default_port, call_sign, mission) catch |err| {
         std.log.warn("could not host a LAN game: {s}", .{@errorName(err)});
         pilot.client = null;
         screen.message = switch (err) {
@@ -92,21 +96,63 @@ pub fn hostLan(pilot: *Graphical, io: std.Io, gpa: std.mem.Allocator, directory:
     pilot.roster[0] = pilot.hosted.?.host.localCallSign();
     screen.lobby = .{
         .role = .{ .host = .{ .port = session.default_port } },
-        .roster = &pilot.roster,
+        .roster = pilot.roster[0..pilot.hosted.?.host.player_limit],
         .notices = &pilot.lobby_notices,
         .local_slot = 0,
         .ship = screen.fighter,
+        .mission = mission,
     };
 }
 
 pub fn launch(pilot: *Graphical, screen: *Connection) void {
     const hosted = pilot.hosted orelse return;
     const lobby = screen.lobby orelse return;
-    hosted.host.selectScenario(lobby.scenario);
+    if (lobby.mission == null) hosted.host.selectScenario(lobby.scenario);
     hosted.launch() catch |err| {
-        std.log.warn("could not load the LAN arena: {s}", .{@errorName(err)});
-        pilot.returnToBrowser(screen, null, .{ .english = "Could not load the multiplayer arena" });
+        std.log.warn("could not load the multiplayer mission: {s}", .{@errorName(err)});
+        pilot.returnToBrowser(screen, null, .{ .english = "Could not load the multiplayer mission" });
     };
+}
+
+pub fn upcomingBriefing(pilot: *const Graphical) ?u16 {
+    const client = if (pilot.client) |*active| active else return null;
+    if (client.briefed or !client.roster.briefing or client.latest != null) return null;
+    return client.roster.mission;
+}
+
+pub const Briefing = struct {
+    pilot: *Graphical,
+    io: std.Io,
+    failed: bool = false,
+
+    pub fn service(context: *anyopaque) bool {
+        const briefing: *Briefing = @ptrCast(@alignCast(context));
+        briefing.update() catch {
+            briefing.failed = true;
+            return false;
+        };
+        return true;
+    }
+
+    fn update(briefing: *Briefing) !void {
+        const pilot = briefing.pilot;
+        if (pilot.hosted) |hosted| {
+            if (try hosted.host.pump() == .finished) return error.SessionEnded;
+        }
+        const client = &pilot.client.?;
+        for (0..messages_per_frame) |_| {
+            if (try client.poll(briefing.io) == .idle) break;
+        }
+    }
+};
+
+pub fn finishBriefing(pilot: *Graphical, result: ?engine.interface.loadout.Result) !void {
+    const fit: ?wire.CampaignLoadout = if (result) |chosen| .{
+        .ship = std.enums.fromInt(wire.Fighter, chosen.ship) orelse return error.InvalidCampaignLoadout,
+        .racks = chosen.racks,
+    } else null;
+    if (fit) |loadout| if (!loadout.valid()) return error.InvalidCampaignLoadout;
+    try pilot.client.?.finishBriefing(fit);
 }
 
 pub fn chooseShip(pilot: *Graphical, ship: wire.Fighter, screen: *Connection) void {
@@ -123,7 +169,16 @@ pub fn returnToBrowser(pilot: *Graphical, screen: *Connection, presentation: ?*P
     screen.ship_picker = null;
     screen.busy = false;
     screen.message = message;
+    const result = pilot.campaign_result;
     pilot.stop(presentation);
+    pilot.campaign_result = result;
+}
+
+pub fn takeCampaignResult(pilot: *Graphical) ?wire.MissionView {
+    if (pilot.client != null) return null;
+    const result = pilot.campaign_result;
+    pilot.campaign_result = null;
+    return result;
 }
 
 pub fn leave(pilot: *Graphical, screen: *Connection, presentation: ?*Presentation) void {
@@ -236,14 +291,14 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
     }
     const client = if (pilot.client) |*active| active else return;
     if (pilot.hosted) |hosted| {
-        if (front.connection.lobby) |lobby| hosted.host.selectScenario(lobby.scenario);
+        if (front.connection.lobby) |lobby| if (lobby.mission == null) hosted.host.selectScenario(lobby.scenario);
         const result = hosted.host.pump() catch |err| {
             std.log.warn("LAN game ended: {s}", .{@errorName(err)});
             pilot.showSessionLoss(&front.connection, presentation, .{ .english = "The LAN game stopped" });
             return;
         };
         if (result == .finished) {
-            pilot.returnToBrowser(&front.connection, presentation, round_finished);
+            pilot.returnToBrowser(&front.connection, presentation, finalMessage(client.latest));
             return;
         }
         if (front.connection.lobby) |*lobby| lobby.role.host.can_launch = hosted.host.canLaunch();
@@ -291,7 +346,8 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             const scene = flight.world();
             const all = scene.objects;
             const display = &flight.drawn.display;
-            const multiplayer_ordnance = client.latest.?.scenario != null;
+            const multiplayer_ordnance = client.latest.?.hasOrdnance();
+            const cooperative = client.latest.?.mission != null;
             var cockpit: game.players.CockpitCommand = .{};
             game.hud.targetKeys(display, .{
                 .devices = devices,
@@ -302,6 +358,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 .multiplayer_ordnance = multiplayer_ordnance,
                 .world = scene,
             });
+            if (cooperative and devices.active(.permission_to_land, true)) client.requestCrewAction(.land);
             engine.input.frameKeys(.{
                 .display = display,
                 .charges = &all.player_states[all.player].charges,
@@ -311,17 +368,21 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 .view = scene.view(),
                 .game_ticks = scene.clock.game_ticks,
                 .multiplayer = true,
+                .cooperative = cooperative,
                 .submitted = &cockpit,
                 .world = scene,
                 .all = all,
             });
+            if (cooperative and devices.active(.jump_drive, true)) client.requestCrewAction(.jump);
             client.setFlight(engine.input.sampleFlight(scene.player, devices, &pilot.stick, scene.player.viewing.view));
             client.fire_primary = engine.input.primaryHeld(devices);
             if (multiplayer_ordnance) {
                 const weapons = engine.input.sampleOrdnance(scene.player, devices);
                 if (weapons.rotate_missiles != null and display.windows.open(.missiles, false))
                     display.windows.status.getPtr(.missiles).held = true;
-                client.setWeapons(.{ .aim = flight.weaponAim(), .presses = .from(weapons), .cockpit = cockpit });
+                var presses: wire.ordnance.Presses = .from(weapons);
+                presses.match_speed = cooperative and devices.active(.match_speed, true);
+                client.setWeapons(.{ .aim = flight.weaponAim(), .presses = presses, .cockpit = cockpit });
             }
         } else {
             client.releaseFlight();
@@ -344,22 +405,31 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
         };
         switch (event) {
             .idle => break,
-            .projectiles => {},
+            .projectiles, .scene_page, .scenery => {},
+            .campaign_line => |line| {
+                if (pilot.campaign_line_count < pilot.campaign_lines.len) {
+                    pilot.campaign_lines[pilot.campaign_line_count] = line;
+                    pilot.campaign_line_count += 1;
+                }
+            },
             .snapshot => {
                 front.connection.lobby = null;
                 front.connection.ship_picker = null;
             },
-            .lobby => |scenario| {
+            .lobby => {
                 for (client.roster.pilots, &pilot.roster) |entry, *name| name.* = if (entry) |listed| listed.name else null;
                 if (front.connection.lobby == null) front.connection.lobby = .{
                     .role = .guest,
-                    .roster = &pilot.roster,
+                    .roster = pilot.roster[0..client.roster.limit],
                     .notices = &pilot.lobby_notices,
                     .local_slot = client.joined.?.slot,
-                    .scenario = scenario,
+                    .mission = client.roster.mission,
                     .ship = client.fighter,
                 };
-                if (front.connection.lobby.?.role == .guest) front.connection.lobby.?.scenario = scenario;
+                if (front.connection.lobby.?.role == .guest) {
+                    front.connection.lobby.?.local_slot = client.joined.?.slot;
+                    if (client.roster.lobby) |scenario| front.connection.lobby.?.scenario = scenario;
+                }
             },
             .uber_kill => |notice| pilot.queueNotice(.{ .uber_kill = notice }),
             .beacon_notice => |notice| pilot.queueNotice(.{ .beacon = notice }),
@@ -397,7 +467,14 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             .admitted => if (pilot.hosted == null) {
                 front.connection.message = .{ .english = "Waiting for another pilot" };
             },
-            .finished => front.connection.message = round_finished,
+            .finished => {
+                front.connection.message = finalMessage(client.latest);
+                pilot.campaign_result = client.latest.?.mission;
+                if (presentation) |shown| {
+                    if (client.latest.?.mission) |mission|
+                        shown.missionEnded(.{ .ending = mission.ending, .rating = mission.rating });
+                }
+            },
             .closed => {
                 // The local transport can acknowledge the final view before remote pilots get it.
                 if (pilot.hosted) |hosted| if (hosted.host.final_tick != null) return;
@@ -417,6 +494,14 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
     }
 }
 
+fn finalMessage(view: ?wire.Snapshot) Connection.Label {
+    const mission = (view orelse return round_finished).mission orelse return round_finished;
+    return switch (mission.rating) {
+        .partial_success, .success, .success_bonus => .{ .english = "Mission complete" },
+        else => .{ .english = "Mission ended" },
+    };
+}
+
 pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Objects, tables: *const game.create.Stats, types: game.create.Types, files: stock.Files, strings: game.language.Language, presentation: ?*Presentation, combat_assets: FlightFrame.CombatAssets) !?*game.main.Drawn {
     if (!pilot.flying()) return null;
     if (pilot.session_lost != null) return &pilot.flight.?.drawn;
@@ -429,15 +514,17 @@ pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Obje
     errdefer flight.destroy();
     if (client.latest.?.scenario) |scenario| {
         try flight.loadArena(files, scenario, types);
-        try flight.enableCombat(combat_assets, types);
     }
+    if (client.latest.?.mission != null)
+        flight.drawn.radio = .openAt(gpa, files.io, files.directory, game.radio.speech_archive, game.hudmovie.archive_path);
+    if (client.latest.?.hasOrdnance()) try flight.enableCombat(combat_assets, types);
     try pilot.applyFrame(flight, local, types, strings);
     if (presentation) |shown| {
         errdefer shown.endGame();
         try shown.startGame(null, flight.drawn.objects, false);
-        if (client.latest.?.scenario) |scenario| {
+        const number = if (client.latest.?.scenario) |scenario| scenario.mission() else flight.drawn.objects.mission_number;
+        if (client.latest.?.hasOrdnance()) {
             var path: [game.winmain.mission_path_size]u8 = undefined;
-            const number = scenario.mission();
             shown.missionStarted(game.main.scriptMission(&path, flight.drawn.objects, number, number));
         }
     }
@@ -448,6 +535,24 @@ pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Obje
 fn applyFrame(pilot: *Graphical, flight: *FlightFrame, local: *game.create.Objects, types: game.create.Types, strings: game.language.Language) !void {
     const client = &pilot.client.?;
     try flight.apply(&client.latest.?, client.joined.?, local, types);
+    if (client.scenery) |*scenery| {
+        if (client.latest.?.scenario == scenery.scenario)
+            try flight.presentScenery(scenery, types);
+    }
+    if (client.latest.?.mission) |mission| {
+        try flight.presentScene(&client.scene, types);
+        flight.presentGuide(mission.guide);
+        flight.presentRadio(pilot.campaign_lines[0..pilot.campaign_line_count]);
+        pilot.campaign_line_count = 0;
+        const slot = client.joined.?.slot;
+        // The original announces a takeover once, using string 0x558.
+        if (slot != 0 and mission.lead == slot and !flight.lead_announced) {
+            flight.lead_announced = true;
+            game.deathmatch.addMessage(&flight.drawn.display.messages, flight.drawn.clock.frame_start, "%s", &.{
+                strings.stringOr(0x558, "You are now flight leader"),
+            });
+        }
+    }
     try flight.presentProjectiles(&client.projectiles);
     flight.applyRoster(client.roster);
     try pilot.presentCombat(flight, types);
@@ -580,6 +685,8 @@ pub fn cameraPlace(pilot: *Graphical, drawn: *const game.main.Drawn) game.camera
 fn flightCamera(pilot: *Graphical, drawn: *const game.main.Drawn) game.camera.Place {
     const slot = &drawn.objects.slots[drawn.objects.player];
     const flight = pilot.flight.?;
+    if (flight.landing_camera) |landing| return landing;
+    if (flight.director) |director| return .{ .position = director.position, .orientation = wire.unpackFacing(director.angles) };
     const left = flight.respawns.left[drawn.objects.player];
     if (left != 0) return game.deathmatch.respawn.camera(slot.drawn, left);
     if (flight.death_view) |death| {

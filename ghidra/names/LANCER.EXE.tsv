@@ -949,7 +949,7 @@ address	kind	name	type	comment
 00562df4	data	skull_count	int	The pilot's kills over the campaign, which kills_add counts and the display's skull readout shows. The end of a mission the player comes through keeps it in skull_count_kept and promotes the pilot by it (mission_end_record); WinMain puts it back from there before each single-player mission, undoing a failed attempt's kills; a new pilot starts it from 0 (0x004751B0)
 004124d0	function	script_set_players	void __fastcall (int players)	Sets script_players, the scripts' variable 15, which WinMain calls before a mission loads: 1 outside a multiplayer game, the session's players, or 8
 0052a42c	data	script_players	int	How many players fly the mission, the scripts' variable 15, which script_set_players sets
-00412b20	function	player_jump	void (void)	JUMP DRIVE, while 0x00588394 is 0: when the mission has a jump or a warp ready (jump_ready, warp_ready), clears it and posts player_ready_to_jump or player_ready_to_warp
+00412b20	function	player_jump	void (void)	Uses a ready jump or warp while the mission is running. In a network game the local pilot must lead the mission. Sends the request to the other pilots and posts the local script event
 00415370	function	player_ecm_set	void __fastcall (bool on)	Turns the player's ECM on or off, when the ship carries one (ecm_state not -1): object flag 0x4000000 and ecm_state
 004153e0	function	player_cloak_set	void __fastcall (bool on)	Cloaks or uncloaks the player's ship through object_set_cloak, outside a multiplayer game, when its model can cloak (header flag 2) and cloak_state is not -1
 00416310	function	order_eject_player_init	ObjectRoutine	The init of order 118, Eject Player: marks the ship ejected (object flags 0x808), sets mission_ending to 8, sets player_ejected and starts the eject marker's flash; Moose calls the pilot to eject, ejt_001 to 008
@@ -1658,6 +1658,10 @@ address	kind	name	type	comment
 005d60b9	data	mission_restart	byte	Set for Restart: WinMain ends the mission and starts it again
 00566644	data	missile_lock_tone	int	The voice of the missile lock tone, stdsmp sound 0x15, held while a lock is complete in view 0; -1 for none
 00588734	data	mission_loaded	byte	Set from the end of mission_start to mission_end
+00588735	data	local_mission_lead	byte	Cleared at mission start. mission_frame sets it when the local pilot is the first player in slot order whose ship is not exploding, ejected or sent off
+004baac0	function	net_send_jump_request	void (void)	Sends a jump request in gameplay message 0x25
+004baad0	function	net_send_warp_request	void (void)	Sends a warp request in gameplay message 0x26
+004ba2b0	function	net_send_landing_clearance	void (void)	Sends gameplay message 0x1C from the mission lead after the script clears the crew to land
 005dc1e8	data	net_session	int	Nonzero in a multiplayer session
 005ddd28	data	window_suspended	int	Set while the game's window is put away, from 0x004A8260 until input_init clears it; the message pump pauses the sound, and in a multiplayer session the mission, while it is set and the renderer runs. Unverified: what putting the window away is
 004a8260	function	window_suspend	void (void)	Unverified name: unless an editor is linked (editor_absent clear) or 0x005D60B8 is set, saves the window's style and placement, changes them and sets window_suspended; then acquires the input again
@@ -2367,7 +2371,7 @@ address	kind	name	type	comment
 004345b0	function	multiplayer_connection_draw	void (void)	Render hook installed by multiplayer_connection_screen for screen 14
 0043da40	function	multiplayer_sessions_draw	void (void)	Draws the cooperative session screen with the host call sign, ready status, players and chat
 0044cb60	function	session_loadout_draw	void (void)	Draws the deathmatch setup and lobby on the same screen, with the ship, scenario, players and chat
-004bc550	function	directplay_create_session		Opens a DirectPlay session with the name in ECX, creates the local player with the call sign in EDX and enumerates the players. Both pre-match screens call it on entry for the host
+004bc550	function	directplay_create_session		Opens a DirectPlay session with the name in ECX, creates the local player with the call sign in EDX and enumerates the players. Both pre-match screens call it on entry for the host. The session admits four pilots in co-op and eight in deathmatch (0x004BC5D3).
 0043ca50	function	multiplayer_sessions_screen	int (void)	Screens 10 and 11 of interface_run, the multiplayer sessions, by 0x0051D54C: interface\mulfade.tga behind them, interface\frntend3.spr, and tooltips of the game's strings (tooltips_init with 1)
 0044b950	function	session_loadout_screen	int (void)	Screens 17 and 18 of interface_run, a multiplayer session's loadout, by 0x0051D54C, with the multiplayer scenarios (dm_scenarios) and tooltips of the game's strings (tooltips_init with 1)
 00475a60	function	pickup_count	int (void)	Counts a pickup of the ejected pilot by a nanny ship (0x00562ED4): 1 once there have been more than two, which WinMain follows with a transfer's movie; else 0, the count kept for the mission (0x00562E9A)
@@ -2762,6 +2766,10 @@ address	kind	name	type	comment
 0051d5f4	data	saved_games_saving	int	Whether the saved games screen saves (1) or loads (0)
 005201a4	data	saved_games_no_fade	int	Set where the saved games screen plays no movie as it is left for the roster, as the co-op host screen has it
 005202d8	data	saved_games_no_exit	byte	Set where the saved games screen hides MAIN MENU and QUIT, as the multiplayer debriefing has it
+004296a0	function	multiplayer_debriefing	void (void)	The network campaign's debriefing after flight. Loads mpdebr.spr and the ITAC text and panes. Checks the crew's readiness before the lead advances or replays, and can open the save screen.
+00424730	function	multiplayer_debrief_panes	void (void)	Sets up the multiplayer debriefing's header, text pane and scroll controls.
+004361e0	function	interface_read_pointer	void (void)	Polls the mouse, clamps the front end's pointer and records both button states.
+004b66d0	function	net_all_ready	bool __fastcall (byte stage)	Sends the local pilot's ready flag for the stage, pumps messages and checks all lobby pilots. Clears the flag for that stage once all pilots are ready.
 0051d9f8	data	saved_games_selected	int	The saved game selected on the saved games screen, or -1
 0051da1c	data	saved_games_first	int	The saved game the list's first row shows
 00520248	data	saved_games_count	int	How many saved games saved_games_scan found

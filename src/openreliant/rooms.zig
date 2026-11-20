@@ -197,6 +197,22 @@ pub const Driver = struct {
         };
     }
 
+    /// Use the campaign's briefing and first-tier equipment with a separate saved loadout.
+    pub fn cooperativeBriefing(driver: *Driver, mission: u16) !?End {
+        driver.turnTo(rooms.Carrier.of(mission).disc());
+        var saved: loadout.Saved = .{};
+        var hologram = driver.loadoutContext(mission);
+        hologram.tier = 0;
+        hologram.rank = 0;
+        hologram.saved = &saved;
+        const ships = [_]game.gameobj.Type{ .of(.predator), .of(.naginata), .of(.grendel), .of(.crusader) };
+        hologram.ships = &ships;
+        return switch (try driver.briefWith(mission, false, hologram, null) orelse return null) {
+            .fly => |flown| .{ .fly = flown },
+            .main_menu, .loaded => .main_menu,
+        };
+    }
+
     /// A game mode's briefing of mission `mission` in one of the game's briefing rooms
     /// (`briefing.Own`): where it leads, or null where the game quits meanwhile. The loadout
     /// offers what a new pilot gets, or the `ships` the mode lists. It stands on the room's

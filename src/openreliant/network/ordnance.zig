@@ -18,7 +18,7 @@ pub const Order = struct {
             return;
         }
         // A launch belongs to the target selected when the pilot pressed fire.
-        if (!std.meta.eql(pending.aim.target, next.aim.target)) pending.presses.launch = false;
+        if (!std.meta.eql(pending.aim, next.aim)) pending.presses.launch = false;
         pending.aim = next.aim;
         pending.presses.merge(next.presses);
         pending.cockpit.merge(next.cockpit);
@@ -40,6 +40,8 @@ test "a target change drops the old launch but preserves the pilot's countermeas
 pub const Aim = struct {
     reuse: u32,
     target: ?game.gameobj.ObjectRef = null,
+    component: ?u15 = null,
+    script_aim: u32 = 0,
 };
 
 const Rotation = enum(u2) { none, clockwise, anticlockwise };
@@ -48,7 +50,8 @@ pub const Presses = packed struct(u8) {
     launch: bool = false,
     countermeasures: bool = false,
     rotation: u2 = 0,
-    reserved: u4 = 0,
+    match_speed: bool = false,
+    reserved: u3 = 0,
 
     pub fn from(command: game.players.WeaponCommand) Presses {
         return .{
@@ -76,6 +79,7 @@ pub const Presses = packed struct(u8) {
     fn merge(pending: *Presses, next: Presses) void {
         pending.launch = pending.launch or next.launch;
         pending.countermeasures = pending.countermeasures or next.countermeasures;
+        pending.match_speed = pending.match_speed or next.match_speed;
         if (next.rotation != 0) pending.rotation = next.rotation;
     }
 };
@@ -90,6 +94,7 @@ const CockpitBits = packed struct(u8) {
 
 pub fn writeOrder(w: *std.Io.Writer, order: Order) !void {
     try w.writeInt(u32, order.aim.reuse, .little);
+    try w.writeInt(u32, order.aim.script_aim, .little);
     try w.writeByte(@bitCast(order.presses));
     const cockpit: CockpitBits = .{
         .next_guns = order.cockpit.next_guns,
@@ -101,11 +106,15 @@ pub fn writeOrder(w: *std.Io.Writer, order: Order) !void {
     if (order.aim.target) |target| {
         try w.writeInt(u16, target.slot, .little);
         try w.writeInt(u32, target.reuse, .little);
+        try w.writeInt(i16, if (order.aim.component) |part| @intCast(part) else -1, .little);
     }
 }
 
 pub fn readOrder(r: *std.Io.Reader, pilot_slots: usize) !Order {
-    var order: Order = .{ .aim = .{ .reuse = try r.takeInt(u32, .little) }, .presses = @bitCast(try r.takeByte()) };
+    var order: Order = .{
+        .aim = .{ .reuse = try r.takeInt(u32, .little), .script_aim = try r.takeInt(u32, .little) },
+        .presses = @bitCast(try r.takeByte()),
+    };
     if (order.presses.reserved != 0 or std.enums.fromInt(Rotation, order.presses.rotation) == null) return error.InvalidWeaponOrder;
     const cockpit: CockpitBits = @bitCast(try r.takeByte());
     if (cockpit.reserved != 0) return error.InvalidWeaponOrder;
@@ -122,6 +131,9 @@ pub fn readOrder(r: *std.Io.Reader, pilot_slots: usize) !Order {
     const slot = try r.takeInt(u16, .little);
     if (slot >= pilot_slots) return error.InvalidWeaponOrder;
     order.aim.target = .{ .slot = slot, .reuse = try r.takeInt(u32, .little) };
+    const component = try r.takeInt(i16, .little);
+    if (component < -1) return error.InvalidWeaponOrder;
+    if (component >= 0) order.aim.component = @intCast(component);
     return order;
 }
 

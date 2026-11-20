@@ -379,6 +379,16 @@ pub fn createShip(game: aigeneric.Context, bound: *const mission.Mission, index:
     create.gateMade(game.world, made);
     create.wreckMade(game.world, made);
     create.extra.hatMade(game.world, made);
+    if (game.world.damage_rules == .cooperative) {
+        // Bind before the launch order starts so it can record the carrier for this pilot.
+        if (all.playerState(made)) |state| if (state.membership == .joined) {
+            const participant: @import("players.zig").ParticipantRef = .{
+                .slot = made,
+                .generation = state.membership.joined.generation,
+            };
+            _ = all.bindParticipant(participant, .of(all, made));
+        };
+    }
     const first: Order = if (made >= all.players) .do_nothing else if (made == all.player) .player_control else .multiplayer_control;
     _ = aigeneric.give(game, made, first, .none);
     if (made == all.player) _ = camera.switchView(game.world, .cockpit, made, false, false);
@@ -968,10 +978,8 @@ fn multiPlayerSync(call: Call) u32 {
 }
 
 /// `cmd_MultiplayerScriptSync` (`0x00459DF0`, command `0x56`): in a single-player game, the thread
-/// runs on at once.
-///
-/// Not ported: a multiplayer game's players' scripts kept in step
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// runs on at once. The original network host also waits for each peer's copy of the script.
+/// OpenReliant runs one script on the host, so it can continue as soon as the command runs.
 fn multiplayerScriptSync(call: Call) u32 {
     _ = call;
     return run_on;
@@ -1116,15 +1124,22 @@ fn positionRelativeShip(call: Call, ship: Ship) void {
     objects.setPosition(&ship.slot.object, &ship.slot.drawn, record.runtime_position);
 }
 
-/// `cmd_SetPlayerTarget` (`0x00458C80`, command `0x21`): if the first argument names the player's
-/// ship, makes the ship the second argument names, or its component (`push_component`), the
-/// player's target, as long as the player can aim at it (`input.aimPlayer`).
-///
-/// Not ported: a ship past the players' slots aimed through its Multiplayer Control order, which no
-/// ship has outside a multiplayer game ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// `cmd_SetPlayerTarget` (`0x00458C80`, command `0x21`): sets the addressed pilot's target to
+/// the second argument's ship or component, if it can be targeted. The host applies the same
+/// command to each bound pilot's control order.
 fn setPlayerTarget(call: Call, game: aigeneric.Context) void {
-    if (call.argumentShip(game.world.objects, 0) != game.world.objects.player) return;
-    _ = input.aimPlayer(game.world, shipTarget(call.machine, call.thread, call.args[1], 1));
+    const pilot = scriptPilot(call, game) orelse return;
+    if (input.aimPlayerFor(game.world, pilot, shipTarget(call.machine, call.thread, call.args[1], 1)) and
+        game.world.damage_rules == .cooperative) game.world.objects.player_states[pilot].script_aim +%= 1;
+}
+
+/// A campaign script can address a particular pilot by their authored ship record.
+fn scriptPilot(call: Call, game: aigeneric.Context) ?u16 {
+    const all = game.world.objects;
+    const ship = call.argumentShip(all, 0) orelse return null;
+    if (game.world.damage_rules == .cooperative)
+        return if (all.playerBinding(ship) != null) ship else null;
+    return if (ship == all.player) ship else null;
 }
 
 /// `cmd_SetTargetable` (`0x00458D50`, command `0x22`) and `cmd_SetTargetable_ship` (`0x00458D70`),
@@ -1416,11 +1431,11 @@ const answer_yes: u32 = 1;
 const answer_no: u32 = 2;
 
 /// `cmd_IsShipThisPlayer` (`0x004598F0`, command `0x45`): whether the argument names the player's
-/// ship.
+/// ship. The co-op host runs one copy of the script, so each bound pilot can trigger the branch
+/// their copy would have taken.
 fn isShipThisPlayer(call: Call) u32 {
-    const machine = call.machine;
-    const game = machine.game orelse return answer_no;
-    return if (machine.mission.shipIndex(call.args[0]) == game.world.objects.player) answer_yes else answer_no;
+    const game = call.machine.game orelse return answer_no;
+    return if (scriptPilot(call, game) != null) answer_yes else answer_no;
 }
 
 /// `cmd_SetFlybackMarker` (`0x00459910`, command `0x46`): the flyback markers start afresh with
@@ -1449,13 +1464,12 @@ fn resetFlybackMarker(_: Call, game: aigeneric.Context) void {
 /// ship, the player matches the target's speed from now on, where the second is set, having
 /// matched it at once where it already did (`input.matchTargetSpeed`), or stops matching it.
 fn matchSpeed(call: Call, game: aigeneric.Context) void {
-    const machine = call.machine;
     const world = game.world;
     const all = world.objects;
-    if (machine.mission.shipIndex(call.args[0]) != all.player) return;
-    const controls = &all.player_states[all.player].controls;
+    const pilot = scriptPilot(call, game) orelse return;
+    const controls = &all.player_states[pilot].controls;
     if (call.args[1] != 0) {
-        input.matchTargetSpeed(controls, all, all.player, world.view());
+        input.matchTargetSpeed(controls, all, pilot, if (pilot == all.player) world.view() else .cockpit);
         controls.matching_speed = true;
     } else {
         controls.matching_speed = false;

@@ -429,6 +429,34 @@ counts from, and posts PlayerReadyToJump for each jump and PlayerReadyToWarp for
 clearing it. **Unverified:** it first closes the target display's large form, or else its small one,
 where the words at `0x0057BEA8` and `0x0057BE44` hold 1 or 3; nothing writes them.
 
+In a network game, the original gives jump and warp control to the first eligible pilot in
+slot order. The check in `mission_frame` (`0x004924E5`) skips ships that are exploding, ejected
+or sent off. When the local pilot is first, it sets `local_mission_lead` (`0x00588735`).
+The lead can use a ready jump or warp without waiting for the other pilots to confirm.
+The other machines receive the request and post their script event at `0x004B8991` for a jump
+or `0x004B89DE` for a warp.
+
+OpenReliant checks the sender's admission and ship against the host's current lead before it
+consumes the ready jump or warp. The host posts the existing mission event. All pilots
+receive the resulting positions and readiness in their views.
+
+Landing has a separate lead request. When the script grants it, `permission_to_land`
+(`0x00454119`) sends clearance to the other pilots. On message `0x1C` the original starts a
+landing for the receiving pilot, or ends their mission if their ship is out of action.
+
+#### Co-op encounter scaling
+
+`directplay_create_session` caps co-op at four pilots (`0x004BC5D3`). `WinMain` sets the campaign's
+difficulty to Easy at `0x004A99F3`. After the pilots have finished
+the briefing, the host takes the crew size from the lobby roster at `0x004A9CD2` and passes it to
+`script_set_players`. The crew size goes into variable 15 before the mission starts. The damage
+function at `0x00463D70` reads the difficulty and the recipient, without reading the crew size.
+
+Mission 1's installed script uses the starting count to pick its ambush groups and completion
+triggers. Part 30 creates the first extra group for two pilots and the second for three. Four
+pilots also get a second Kamov and its four torpedoes. OpenReliant passes the admitted crew size
+to the installed script at launch and keeps that value for the mission.
+
 ### Matching
 
 `trigger_raise_event` raises an event on an object unless its ID is `0xFFFF`, then sets

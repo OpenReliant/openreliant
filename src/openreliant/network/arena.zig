@@ -7,6 +7,28 @@ const stock = @import("stock_arena.zig");
 const wire = @import("wire.zig");
 const Arena = @This();
 
+const Campaign = struct {
+    gates: game.wgate.Gates,
+    radio: game.radio.Radio,
+    lines: [game.radio.queue_size + game.radio.report_count]wire.CampaignLine = undefined,
+    line_count: usize = 0,
+    display: game.hud.State = .{},
+    environment: game.environfx.Environment = .{},
+    cues: game.main.cues.Cues,
+    nebula: u8 = game.nebula.default_nebula,
+    camera: game.camera.Camera = .{},
+    travel: wire.MissionView.Travel = .{},
+    ready_since: u32 = 0,
+    finished: bool = false,
+
+    fn say(context: *anyopaque, tick: i32, line: game.radio.RoutedLine) void {
+        const campaign: *Campaign = @ptrCast(@alignCast(context));
+        if (campaign.line_count == campaign.lines.len) return;
+        campaign.lines[campaign.line_count] = .{ .tick = tick, .line = line };
+        campaign.line_count += 1;
+    }
+};
+
 const spawn_spacing: f32 = 12000;
 pub const Mode = enum {
     training,
@@ -40,6 +62,7 @@ pub const Mode = enum {
 const Pilot = struct {
     participant: game.players.ParticipantRef,
     fighter: wire.Fighter,
+    loadout: ?wire.CampaignLoadout = null,
     // Keep the last pose while an admitted pilot waits for a free spawn marker.
     last_ship: ?wire.Ship = null,
 };
@@ -73,6 +96,7 @@ combat_count: usize = 0,
 decoys: ?game.cloak.Countermeasures = null,
 waves: ?game.shockwave.Shockwaves = null,
 cannons: ?game.aiioncan.Cannons = null,
+campaign: ?*Campaign = null,
 
 pub fn create(gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory: std.Io.Dir) !*Arena {
     const arena = try gpa.create(Arena);
@@ -96,6 +120,7 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
     arena.decoys = null;
     arena.waves = null;
     arena.cannons = null;
+    arena.campaign = null;
     errdefer arena.deinit();
     switch (mode) {
         .training => {
@@ -112,11 +137,7 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
             var seed: u64 = undefined;
             io.random(std.mem.asBytes(&seed));
             arena.mission.random = .init(seed);
-            const assets = try stock.Assets.open(gpa, io, directory, &arena.mission.tables, arena.mission.objects);
-            arena.assets = assets;
-            arena.explosions = try .init(gpa, null);
-            arena.decoys = .init(gpa, assets.mounts.mounts());
-            arena.waves = try .create(gpa, &assets.images, .round);
+            const assets = try arena.loadAssets(io, directory);
             const scenario = mode.scenario().?;
             if (scenario == .dark_reign) arena.cannons = try .init(gpa, &assets.images);
             arena.loaded = try assets.files.load(gpa, scenario, arena.world());
@@ -126,21 +147,87 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
     }
 }
 
+fn loadAssets(arena: *Arena, io: std.Io, directory: std.Io.Dir) !*stock.Assets {
+    const gpa = arena.mission.objects.gpa;
+    const assets = try stock.Assets.open(gpa, io, directory, &arena.mission.tables, arena.mission.objects);
+    arena.assets = assets;
+    arena.explosions = try .init(gpa, null);
+    arena.decoys = .init(gpa, assets.mounts.mounts());
+    arena.waves = try .create(gpa, &assets.images, .round);
+    return assets;
+}
+
 /// Prepare a stock arena with the lobby's admissions. Its objects hold pointers to its ship tables.
 pub fn prepareStock(arena: *const Arena, scenario: wire.Scenario, io: std.Io, directory: std.Io.Dir) !*Arena {
     const gpa = arena.mission.objects.gpa;
     const next = try create(gpa, .stockMode(scenario), io, directory);
     errdefer next.destroy();
-    const all = next.mission.objects;
-    all.participant_generation = arena.mission.objects.participant_generation;
-    for (arena.pilots, &next.pilots) |entry, *new| {
+    next.carryAdmissions(arena);
+    for (next.pilots) |entry| {
         const pilot = entry orelse continue;
-        const slot = pilot.participant.slot;
-        all.player_states[slot] = .{ .membership = .{ .joined = .{ .generation = pilot.participant.generation } } };
         try next.spawnPilot(pilot, true);
-        new.* = pilot;
     }
     return next;
+}
+
+fn carryAdmissions(next: *Arena, staging: *const Arena) void {
+    const all = next.mission.objects;
+    all.participant_generation = staging.mission.objects.participant_generation;
+    next.pilots = staging.pilots;
+    for (next.pilots, all.player_states[0..wire.slots]) |entry, *state| {
+        if (entry) |pilot| state.* = .{ .membership = .{ .joined = .{ .generation = pilot.participant.generation } } };
+    }
+}
+
+/// Start a campaign mission from the installed data and bind its created ships to the lobby crew.
+pub fn prepareCampaign(staging: *const Arena, number: u16, io: std.Io, directory: std.Io.Dir) !*Arena {
+    const gpa = staging.mission.objects.gpa;
+    const arena = try create(gpa, .training, io, directory);
+    errdefer arena.destroy();
+    const assets = try arena.loadAssets(io, directory);
+    const campaign = try gpa.create(Campaign);
+    const gates = game.wgate.Gates.init(gpa, &assets.images, .low, .{}) catch |err| {
+        gpa.destroy(campaign);
+        return err;
+    };
+    campaign.* = .{
+        .gates = gates,
+        .radio = .openAt(gpa, io, directory, game.radio.speech_archive, game.hudmovie.archive_path),
+        .cues = .{ .gpa = gpa },
+    };
+    campaign.radio.output = .{ .context = campaign, .send = Campaign.say };
+    arena.campaign = campaign;
+    arena.carryAdmissions(staging);
+    const all = arena.mission.objects;
+    all.players = 0;
+    for (arena.pilots, 0..) |entry, slot| {
+        if (entry) |pilot| {
+            if (slot >= wire.cooperative_slots) return error.InvalidCampaignCrew;
+            all.players = @intCast(slot + 1);
+            if (pilot.loadout) |fit| {
+                all.loadout_ships[slot] = fit.ship.kind();
+                all.loadout_racks[slot] = fit.racks;
+            }
+        }
+    }
+    const file = (try assets.files.readMission(gpa, number)) orelse return error.MissingCampaignMission;
+    var seed: u64 = undefined;
+    io.random(std.mem.asBytes(&seed));
+    arena.loaded = try game.main.startMission(gpa, .{
+        .orders = .of(arena.world()),
+        .clock = &arena.mission.clock,
+        .tables = &arena.mission.tables,
+        .types = &assets.library,
+        .display = &campaign.display,
+        .seed = seed,
+    }, file.image, number);
+    for (&arena.pilots, 0..) |*entry, slot| {
+        if (entry.*) |*pilot| {
+            if (all.playerBinding(@intCast(slot)) == null) return error.MissingCampaignPilotShip;
+            pilot.fighter = std.enums.fromInt(wire.Fighter, all.slots[slot].object.type.base().untwinned().number()) orelse return error.UnsupportedCampaignPilotShip;
+        }
+    }
+    return arena;
 }
 
 pub fn destroy(arena: *Arena) void {
@@ -152,6 +239,12 @@ pub fn destroy(arena: *Arena) void {
 fn deinit(arena: *Arena) void {
     const gpa = arena.mission.objects.gpa;
     if (arena.loaded) |loaded| loaded.destroy();
+    if (arena.campaign) |campaign| {
+        campaign.cues.deinit();
+        campaign.radio.deinit();
+        campaign.gates.deinit();
+        gpa.destroy(campaign);
+    }
     if (arena.decoys) |*decoys| decoys.reset();
     if (arena.waves) |*waves| waves.deinit(gpa);
     if (arena.cannons) |*cannons| cannons.deinit();
@@ -166,6 +259,16 @@ fn effects(arena: *Arena) ?*game.explode.Explosions {
 
 fn world(arena: *Arena) game.gameobj.World {
     var scene = simulation.world(&arena.mission, arena.effects());
+    if (arena.campaign) |campaign| {
+        scene.damage_rules = .cooperative;
+        scene.difficulty = .easy;
+        scene.touchdown = .original;
+        scene.gates = &campaign.gates;
+        scene.display = &campaign.display;
+        scene.radio = &campaign.radio;
+        scene.environment = &campaign.environment;
+        scene.cues = &campaign.cues;
+    }
     if (arena.assets) |assets| scene.spawn = .{ .tables = &arena.mission.tables, .types = assets.library.types() };
     if (arena.loaded) |loaded| scene = stock.withMission(scene, loaded);
     scene.uber_kills = .{ .context = arena, .send = noteUberKill };
@@ -275,7 +378,7 @@ pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire
     if (!all.hasBoundPlayerShip(slot)) return true;
     if (all.slots[slot].running(.deathmatch_respawn_effect) != null) return true;
     const pilot = all.playerBinding(slot).?;
-    const stock_mode = arena.mode.scenario() != null;
+    const stock_mode = arena.mode.scenario() != null or arena.campaign != null;
     var submitted: game.players.Command = .{
         .flight = command,
         .weapons = .{ .fire_guns = fire_for == pilot.ship.reuse and stock_mode },
@@ -283,13 +386,17 @@ pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire
     if (stock_mode) if (order) |weapons| {
         if (weapons.aim.reuse == pilot.ship.reuse) {
             submitted.cockpit = weapons.cockpit;
-            const target = if (weapons.aim.target) |ref| weaponTarget(all, slot, ref) else null;
-            if (game.ai.controlEntry(all, slot)) |entry| {
-                if (target) |ref| {
-                    if (entry.target.slotIn(all) != ref.slot) submitted.target = .{ .aim = .{ .object = ref } };
-                } else if (entry.target != .none) submitted.target = .clear;
+            if (weapons.aim.script_aim == all.player_states[slot].script_aim) {
+                const target = arena.weaponTarget(slot, weapons.aim);
+                if (game.ai.controlEntry(all, slot)) |entry| {
+                    if (target) |aim| {
+                        const selected = entry.target.resolve(all);
+                        if (!selected.eql(aim.resolve(all).?)) submitted.target = .{ .aim = aim };
+                    } else if (entry.target != .none) submitted.target = .clear;
+                }
+                submitted.weapons.launch_missile = weapons.presses.launch and (weapons.aim.target == null or target != null);
+                submitted.match_speed = arena.campaign != null and weapons.presses.match_speed;
             }
-            submitted.weapons.launch_missile = weapons.presses.launch and (weapons.aim.target == null or target != null);
             submitted.weapons.countermeasures = weapons.presses.countermeasures;
             submitted.weapons.rotate_missiles = weapons.presses.turn();
         }
@@ -297,18 +404,23 @@ pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire
     return all.submitPlayerCommand(pilot, submitted);
 }
 
-fn weaponTarget(all: *game.create.Objects, source: u16, ref: game.gameobj.ObjectRef) ?game.gameobj.ObjectRef {
+fn weaponTarget(arena: *const Arena, source: u16, order: wire.ordnance.Aim) ?game.players.Target {
+    const all = arena.mission.objects;
+    const ref = order.target orelse return null;
     const slot = ref.resolve(all) orelse return null;
-    if (slot == source or all.playerBinding(slot) == null or !game.ai.targetValid(all, .at(slot, null), .{})) return null;
-    return ref;
+    if (slot == source or (arena.campaign == null and all.playerBinding(slot) == null) or
+        !game.ai.targetValid(all, .at(slot, if (order.component) |part| @as(u16, part) else null), .{})) return null;
+    return .{ .object = ref, .component = order.component };
 }
 
 pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
     arena.wrecks = @splat(null);
     arena.combat_count = 0;
     arena.mission.clock.advanceTimer(game.gameobj.ticks_per_step);
-    if (game.main.gameFrames(&arena.mission.clock, &arena.devices, null, arena.world(), .in_turn, arena.loaded) != .played) return error.ArenaEnded;
-    if (arena.assets != null) {
+    if (game.main.gameFrames(&arena.mission.clock, &arena.devices, null, arena.world(), .in_turn, arena.loaded) != .played) {
+        if (arena.campaign) |campaign| campaign.finished = true else return error.ArenaEnded;
+    }
+    if (arena.assets != null and arena.campaign == null) {
         for (&arena.pilots) |*entry| {
             const pilot = entry.* orelse continue;
             if (arena.mission.objects.playerBinding(pilot.participant.slot) != null) continue;
@@ -318,6 +430,15 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
             };
         }
     }
+    if (arena.campaign) |campaign| {
+        arena.campaignPresentation(campaign);
+        const ready = arena.loaded.?.script.variables.ready;
+        const travel: wire.MissionView.Travel = .{ .jump = ready.jump != .no, .warp = ready.warp != .no };
+        if (!std.meta.eql(campaign.travel, travel)) {
+            campaign.travel = travel;
+            campaign.ready_since = tick;
+        }
+    }
     const view = try arena.snapshot(tick);
     for (&arena.pilots, view.ships) |*entry, ship| {
         if (entry.*) |*pilot| pilot.last_ship = ship;
@@ -325,20 +446,47 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
     return view;
 }
 
+fn campaignPresentation(arena: *Arena, campaign: *Campaign) void {
+    for (campaign.cues.list.items) |cue| switch (cue) {
+        .nebula_asked => |index| if (index < game.nebula.nebulae.len) {
+            campaign.nebula = @intCast(index);
+        },
+        else => {},
+    };
+    campaign.cues.list.clearRetainingCapacity();
+    const scene = arena.world();
+    const subject = game.camera.Subject.of(&scene.objects.slots[scene.objects.player]);
+    campaign.camera.frame(.{
+        .object = subject,
+        .player = subject,
+        .viewing = &scene.player.viewing,
+        .game = scene,
+        .ticks = scene.clock.frameTicks(),
+        .now = scene.clock.viewTime(),
+    });
+}
+
 /// Capture an arena view at the current tick. A pilot joining during a pause still needs one.
 pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
     const all = arena.mission.objects;
     var view: wire.Snapshot = .{ .tick = tick, .scenario = arena.mode.scenario(), .ships = @splat(null) };
-    view.rocks = arena.rocks.capture(all);
-    if (all.arena_scenario.powerUps()) |round| {
-        view.pickups = round.pickups.visible(all);
-        for (&view.mines, 0..) |*entry, i| {
-            const index = round.mine_start + @as(u16, @intCast(i));
-            const object = &all.slots[index].object;
-            if (!object.created or object.flags.disabled or object.flags.stand_in) continue;
-            entry.* = .{ .position = object.nextPosition(), .angles = wire.packFacing(object.root.next_orientation), .reuse = all.reuses[index] };
-        }
+    if (arena.campaign) |campaign| {
+        view.mission = .{
+            .number = all.mission_number,
+            .pilot_slots = @intCast(all.players),
+            .lead = if (engine.input.missionLead(all)) |lead| @intCast(lead.participant.slot) else null,
+            .travel = campaign.travel,
+            .objectives = campaign.display.objectives.states,
+            .rating = arena.loaded.?.script.variables.mission_success,
+            .nebula = campaign.nebula,
+            .director = if (arena.mission.player.viewing.view == .director) .{
+                .position = campaign.camera.place.position,
+                .angles = wire.packFacing(campaign.camera.place.orientation),
+                .bars = campaign.camera.bars,
+            } else null,
+        };
     }
+    if (all.arena_scenario.powerUps()) |round| view.pickups = round.pickups.visible(all);
     for (arena.pilots, &view.ships, 0..) |entry, *ship, at| {
         const pilot = entry orelse continue;
         const index: u16 = @intCast(at);
@@ -417,6 +565,70 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
     if (all.arena_scenario == .vampires)
         view.objectives = .{ .vampires = all.arena_scenario.vampires.infection.roles(all) };
     return view;
+}
+
+pub fn scenery(arena: *const Arena, tick: u32) ?wire.Scenery {
+    const all = arena.mission.objects;
+    const scenario = arena.mode.scenario() orelse return null;
+    const round = all.arena_scenario.powerUps() orelse return null;
+    var view: wire.Scenery = .{ .tick = tick, .scenario = scenario, .rocks = arena.rocks.capture(all) };
+    for (&view.mines, 0..) |*entry, offset| {
+        const index = round.mine_start + @as(u16, @intCast(offset));
+        const object = &all.slots[index].object;
+        if (!object.created or object.flags.disabled or object.flags.stand_in) continue;
+        entry.* = .{ .position = object.nextPosition(), .angles = wire.packFacing(object.root.next_orientation), .reuse = all.reuses[index] };
+    }
+    return view;
+}
+
+pub fn crewJump(arena: *Arena, slot: u8, tick: u32, request: wire.CrewRequest) void {
+    const campaign = arena.campaign orelse return;
+    if (request.view_tick < campaign.ready_since or request.view_tick > tick) return;
+    const pilot = arena.pilots[slot] orelse return;
+    if (engine.input.crewJump(arena.world(), .{
+        .participant = pilot.participant,
+        .ship = .{ .slot = slot, .reuse = request.reuse },
+    })) {
+        // Any new readiness set by the script belongs to a later view.
+        campaign.travel = .{};
+        campaign.ready_since = tick +| 1;
+    }
+}
+
+pub fn crewLand(arena: *Arena, slot: u8, tick: u32, request: wire.CrewRequest) void {
+    if (arena.campaign == null or request.view_tick == 0 or request.view_tick > tick) return;
+    const lead = engine.input.missionLead(arena.mission.objects) orelse return;
+    if (lead.participant.slot != slot or lead.ship.reuse != request.reuse) return;
+    game.radio.crewLanding(arena.world(), slot);
+}
+
+pub fn guide(arena: *const Arena, index: u8) wire.MissionView.Guide {
+    const all = arena.mission.objects;
+    const slot = &all.slots[index];
+    const state = &all.player_states[index];
+    var result: wire.MissionView.Guide = .{ .aim = state.script_aim };
+    if (state.script_aim != 0) if (game.ai.controlEntry(all, index)) |order| {
+        const target = order.target.resolve(all);
+        if (target.slotIn(all)) |at| result.target = .{
+            .object = .of(all, at),
+            .component = if (target.component < 0) null else @intCast(target.component),
+        };
+    };
+    if (slot.object.escort_point.index()) |at| result.escort = .of(all, at);
+    if (slot.object.nav_point.index()) |at| result.nav = .of(all, at);
+    if (arena.mission.player.primary_target) |aim| if (aim.slotIn(all)) |at| {
+        result.primary = .of(all, at);
+    };
+    if (state.landing_view) |view| {
+        if (slot.running(.land)) |order| if (order.target.slotIn(all)) |carrier| {
+            result.landing = .{
+                .carrier = .of(all, carrier),
+                .view = if (view == .landing_tube) .tube else .aside,
+                .tube = slot.state.land.tube,
+            };
+        };
+    }
+    return result;
 }
 
 test "the pilot stays admitted through destruction and old trigger input expires on respawn" {

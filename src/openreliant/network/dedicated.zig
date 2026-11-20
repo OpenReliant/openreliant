@@ -14,6 +14,7 @@ const Config = struct {
     bind: std.Io.net.IpAddress,
     invite_address: ?std.Io.net.IpAddress,
     mode: Arena.Mode,
+    mission: ?u16,
     game_directory: []const u8,
     players: u8,
     ticks: ?u32,
@@ -31,15 +32,22 @@ const Config = struct {
             std.Io.net.IpAddress.parse(value, port) catch return error.InvalidInviteAddress
         else
             bind;
-        const mode = if (profile.value("Server", "Arena")) |value|
+        const arena = profile.value("Server", "Arena");
+        const mission = if (profile.value("Server", "Mission")) |value| selected: {
+            if (arena != null) return error.InvalidMission;
+            const number = std.fmt.parseInt(u16, value, 10) catch return error.InvalidMission;
+            if (!wire.campaignNumber(number)) return error.InvalidMission;
+            break :selected number;
+        } else null;
+        const mode: Arena.Mode = if (mission != null) .training else if (arena) |value|
             std.meta.stringToEnum(Arena.Mode, value) orelse return error.InvalidArena
         else
             .@"nuclear-threat";
+        const crew_limit: u8 = if (mission != null) wire.cooperative_slots else wire.slots;
         const players = if (profile.value("Server", "Players")) |value|
             std.fmt.parseInt(u8, value, 10) catch return error.InvalidPlayerLimit
-        else
-            wire.slots;
-        if (players < Host.pilots_to_start or players > wire.slots) return error.InvalidPlayerLimit;
+        else if (mission != null) Host.pilots_to_start else crew_limit;
+        if (players < Host.pilots_to_start or players > crew_limit) return error.InvalidPlayerLimit;
         const ticks = if (profile.value("Server", "RoundTicks")) |limit|
             std.fmt.parseInt(u32, limit, 10) catch return error.InvalidRoundTicks
         else
@@ -58,6 +66,7 @@ const Config = struct {
             .bind = bind,
             .invite_address = if (Invite.hasAddress(advertised)) advertised else null,
             .mode = mode,
+            .mission = mission,
             .game_directory = profile.value("Server", "GameDirectory") orelse ".",
             .players = players,
             .ticks = ticks,
@@ -75,13 +84,14 @@ pub fn run(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !void
     const text = try directory.readFileAlloc(io, std.fs.path.basename(path), gpa, .limited(max_config_size));
     defer gpa.free(text);
     const config = try Config.parse(.{ .text = text });
-    var game_directory = if (config.mode.scenario() != null) try directory.openDir(io, config.game_directory, .{}) else null;
+    var game_directory = if (config.mission != null or config.mode.scenario() != null) try directory.openDir(io, config.game_directory, .{}) else null;
     defer if (game_directory) |*opened| opened.close(io);
     var buffer: [128]u8 = undefined;
     const address = try std.fmt.bufPrintSentinel(&buffer, "{f}", .{config.bind}, 0);
     try session.serve(io, gpa, directory, config.identity, .{
         .address = address,
         .mode = config.mode,
+        .mission = config.mission,
         .game_directory = game_directory,
         .players = config.players,
         .ticks = config.ticks,
@@ -106,7 +116,11 @@ test "headless settings share the game's INI syntax" {
     try std.testing.expectEqual(2, config.players);
     try std.testing.expectEqual(175, config.ticks.?);
     try std.testing.expectEqualStrings("certs/session root.pub", config.identity.?.root_path);
-    try std.testing.expectError(error.InvalidPlayerLimit, Config.parse(.{ .text = "[Server]\nPlayers=4" }));
+    try std.testing.expectEqual(8, (try Config.parse(.empty)).players);
+    try std.testing.expectError(error.InvalidPlayerLimit, Config.parse(.{ .text = "[Server]\nPlayers=9" }));
+    try std.testing.expectEqual(2, (try Config.parse(.{ .text = "[Server]\nMission=1" })).players);
+    try std.testing.expectEqual(4, (try Config.parse(.{ .text = "[Server]\nMission=1\nPlayers=4" })).players);
+    try std.testing.expectError(error.InvalidPlayerLimit, Config.parse(.{ .text = "[Server]\nMission=1\nPlayers=5" }));
     try std.testing.expect((try Config.parse(.empty)).identity == null);
     try std.testing.expectError(error.MissingRootPublicKey, Config.parse(.{ .text = "[Identity]\nCertificate=host.cert" }));
     try std.testing.expect((try Config.parse(.{ .text = "[server]\nBindAddress=0.0.0.0" })).invite_address == null);

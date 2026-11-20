@@ -1156,6 +1156,39 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .elapsed = elapsed,
                 .standings_scale = display.placements.get(.standings).scale,
             }, presentation, strings, &display.resources.font, app.active and !console_up);
+            if (network_enabled) if (network_pilot.takeCampaignResult()) |result| {
+                var summary: game.gameflow.Campaign = .begin();
+                summary.variables.mission_success = result.rating;
+                summary.mission = game.gameflow.nextMission(result.number);
+                if (summary.record(result.number)) |record| record.* = .{ .rating = result.rating, .kills = result.kills };
+                if (result.landed) {
+                    sound.end3DAll();
+                    if (game.xtrabits.landing.landing(result.number, false, result.ending, &summary.variables)) |landed| {
+                        if (!try movies.land(landed, &resources, sound)) return;
+                    }
+                }
+                _ = try rooms.?.modeItac(&summary) orelse return;
+                continue;
+            };
+            if (network_enabled) if (network_pilot.upcomingBriefing()) |number| {
+                var service: NetworkPilot.Briefing = .{ .pilot = &network_pilot, .io = io };
+                const briefed = briefed: {
+                    movies.service = .{ .context = &service, .tick = NetworkPilot.Briefing.service };
+                    defer movies.service = null;
+                    break :briefed try rooms.?.cooperativeBriefing(number);
+                };
+                if (service.failed) {
+                    network_pilot.returnToBrowser(&front.connection, presentation, .{ .english = "Connection lost during briefing" });
+                    continue;
+                }
+                const result = briefed orelse return;
+                switch (result) {
+                    .fly => |flown| network_pilot.finishBriefing(flown.result) catch
+                        network_pilot.returnToBrowser(&front.connection, presentation, .{ .english = "Could not submit the co-op loadout" }),
+                    .main_menu, .simulator => network_pilot.leave(&front.connection, presentation),
+                }
+                continue;
+            };
             const in_arena = network_enabled and network_pilot.flying();
             const front_outcome = if (console_up or in_arena) null else front.frame(front_context);
             // The movie a menu script asked for (`ui.play_movie`).
@@ -1181,8 +1214,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .choose_ship, .send_chat => {},
                 }
                 flow.next = switch (outcome) {
-                    .host_lan => {
-                        if (network_enabled) network_pilot.hostLan(io, gpa, directory, &front.connection, &front.pilot.call_sign);
+                    .host_lan => |kind| {
+                        if (network_enabled) network_pilot.hostLan(io, gpa, directory, &front.connection, &front.pilot.call_sign, kind);
                         continue;
                     },
                     .leave_session => {
@@ -1488,17 +1521,23 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             network_voices_paused = network_pause_voices;
             game.main.pauseFlightVoices(sound, network_voices_paused);
         }
-        if (display.multiplayer != (network_frame != null)) {
+        const changed_world = display.multiplayer != (network_frame != null);
+        if (changed_world) {
             if (display.multiplayer) {
                 display.drawing.warnOfLock(sound, false, false);
                 online_sounds.play(sound, view.place);
             }
             display.drawing = .{};
+        }
+        if (changed_world or network_frame != null) {
             const mission_nebula = if (network_frame != null) network_pilot.flight.?.environment.requested else environment.requested;
-            if (sky.nebula != mission_nebula) sky.select(&textures, mission_nebula, &space.lights) catch |err| {
+            const changed_nebula = sky.nebula != mission_nebula;
+            if (changed_nebula) sky.select(&textures, mission_nebula, &space.lights) catch |err| {
                 std.log.warn("could not select the mission's nebula: {s}", .{@errorName(err)});
             };
-            if (network_frame) |flight| space.place(sky, flight.objects, flight.objects.count);
+            if (network_frame) |flight| {
+                if (changed_world or changed_nebula) space.place(sky, flight.objects, flight.objects.count);
+            }
         }
         display.multiplayer = network_frame != null;
         display.standings_first = if (display.multiplayer) network_pilot.standings_first else null;
@@ -1609,16 +1648,18 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 viewing.seen_from = place;
                 if (!network_voices_paused) online_sounds.play(sound, place);
                 context.camera = .{ .position = place.position, .orientation = place.orientation };
-                context.projection = (camera.Camera{}).projection(viewing.view, size[0], size[1], field_of_view);
+                const online = network_pilot.flight.?;
+                const projection_camera: camera.Camera = .{ .bars = if (online.director) |director| director.bars else 0 };
+                context.projection = projection_camera.projection(viewing.view, size[0], size[1], field_of_view);
                 display.device = gpu.interface();
                 display.screen = size;
                 display.sight = .{ .place = place, .projection = context.projection };
                 display.cockpit_mode = viewing.cockpit_mode;
-                const online = network_pilot.flight.?;
                 const projectiles = if (online.projectiles) |*visuals| visuals else null;
                 try game.main.drawFrame(arena, frame_arena.allocator(), &scene, &context, .{
                     .objects = flight.objects,
                     .portals = &flight.portals,
+                    .shown = .of(&flight.player),
                     .space = space,
                     .sky = sky,
                     .environment = &online.environment,

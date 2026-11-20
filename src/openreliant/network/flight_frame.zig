@@ -13,10 +13,18 @@ rays_drawing: game.erayfx.Drawing,
 tables: game.create.Stats,
 random: engine.random.Random = .{},
 tick: ?u32 = null,
+scenery_tick: u32 = 0,
 bomb_was_active: ?bool = null,
 shadow_was_active: ?bool = null,
 vampires_started: bool = false,
 host_ship_reuse: [wire.slots]u32 = @splat(0),
+scene_replica: wire.ScenePage.Replica = .{},
+lead_announced: bool = false,
+script_aim: u32 = 0,
+landing_camera: ?game.camera.Place = null,
+landing_tick: u32 = 0,
+radio_tick: u32 = 0,
+director: ?wire.MissionView.Director = null,
 respawns: game.deathmatch.respawn.View = .{},
 wall: game.deathmatch.Boundary.Flashes = .{},
 wall_mesh: ?engine.surrender.surrenderlib.srapiext.Mesh = null,
@@ -108,6 +116,10 @@ pub fn enableCombat(frame: *FlightFrame, assets: CombatAssets, types: game.creat
 
 pub fn destroy(frame: *FlightFrame) void {
     const gpa = frame.drawn.gpa;
+    if (frame.drawn.radio) |*radio| {
+        radio.stopSpeech(frame.sounds);
+        radio.deinit();
+    }
     if (frame.loaded) |loaded| loaded.destroy();
     if (frame.projectiles) |*shown| shown.deinit();
     if (frame.sounds) |asked| frame.lock_tone.sound(false, asked, frame.drawn.player.viewing.last);
@@ -123,6 +135,27 @@ pub fn destroy(frame: *FlightFrame) void {
     frame.drawn.objects.destroy();
     frame.drawn.arena.deinit();
     gpa.destroy(frame);
+}
+
+pub fn presentRadio(frame: *FlightFrame, lines: []const wire.CampaignLine) void {
+    const scene = frame.world();
+    const radio, const context = game.radio.onAir(scene) orelse return;
+    const tick = frame.tick orelse return;
+    if (frame.radio_tick != tick) {
+        radio.step(context, scene.clock.frameTicks(), scene.clock.game_ticks);
+        frame.radio_tick = tick;
+    }
+    for (lines) |entry| {
+        var line = entry.line;
+        if (line.speaker == .ship) {
+            if (frame.seenObject(line.speaker.ship.object)) |slot| {
+                line.speaker.ship.object = .of(scene.objects, slot);
+            } else {
+                line.speaker = .{ .other = game.radio.nobody };
+            }
+        }
+        line.present(scene, entry.tick);
+    }
 }
 
 pub fn presentProjectiles(frame: *FlightFrame, pages: *const [wire.ordnance.Page.pages]?wire.ordnance.Page) !void {
@@ -174,12 +207,74 @@ pub fn applyRoster(frame: *FlightFrame, roster: wire.Roster) void {
 
 pub fn weaponAim(frame: *FlightFrame) wire.ordnance.Aim {
     const all = frame.drawn.objects;
-    var aim: wire.ordnance.Aim = .{ .reuse = frame.host_ship_reuse[all.player] };
+    var aim: wire.ordnance.Aim = .{ .reuse = frame.host_ship_reuse[all.player], .script_aim = frame.script_aim };
     const entry = game.ai.controlEntry(all, all.player) orelse return aim;
     const target = entry.target.slotIn(all) orelse return aim;
     if (target != all.player and target < wire.slots and all.playerBinding(target) != null)
         aim.target = .{ .slot = target, .reuse = frame.host_ship_reuse[target] };
+    if (frame.scene_replica.reuses[target]) |reuse| aim.target = .{ .slot = target, .reuse = reuse };
+    const component = entry.target.resolve(all).component;
+    if (aim.target != null and component >= 0) aim.component = @intCast(component);
     return aim;
+}
+
+fn seenObject(frame: *const FlightFrame, ref: ?game.gameobj.ObjectRef) ?u16 {
+    const object = ref orelse return null;
+    const all = frame.drawn.objects;
+    if (!all.slots[object.slot].object.created) return null;
+    const reuse = if (object.slot < all.players) frame.host_ship_reuse[object.slot] else frame.scene_replica.reuses[object.slot];
+    return if (reuse == object.reuse) object.slot else null;
+}
+
+pub fn presentGuide(frame: *FlightFrame, guide: wire.MissionView.Guide) void {
+    const all = frame.drawn.objects;
+    const ship = &all.slots[all.player];
+    ship.object.escort_point = .from(frame.seenObject(guide.escort));
+    ship.object.nav_point = .from(frame.seenObject(guide.nav));
+    frame.drawn.player.primary_target = if (frame.seenObject(guide.primary)) |target| .of(all, .at(target, null)) else null;
+    if (guide.aim != frame.script_aim) scripted: {
+        const target = if (guide.target) |aim| frame.seenObject(aim.object) orelse break :scripted else null;
+        const part: ?u16 = if (guide.target) |aim| if (aim.component) |component| component else null else null;
+        const aim = game.aigeneric.Target.at(target orelse 0, part);
+        const chosen: game.aigeneric.Target = if (target != null) aim else .none;
+        if (engine.input.setPilotTarget(&frame.drawn.display, all, all.player, chosen.index, chosen.component, false))
+            frame.script_aim = guide.aim;
+    }
+    const landing = guide.landing orelse return;
+    const at = frame.seenObject(landing.carrier) orelse return;
+    const carrier = &all.slots[at];
+    const view: game.camera.View = if (landing.view == .tube) .landing_tube else .landing_aside;
+    if (frame.landing_camera == null) game.ailand.reliant.openTube(frame.world(), carrier);
+    const tick = frame.tick orelse return;
+    if (tick != frame.landing_tick) {
+        game.gameobj.updateTree(&carrier.object.root, if (carrier.model) |*model| model else null, null);
+        frame.landing_tick = tick;
+    }
+    frame.drawn.player.showing = .landing;
+    frame.drawn.player.viewing.view = view;
+    frame.drawn.player.viewing.last = view;
+    for (all.slots[0..all.count], 0..) |*slot, index| {
+        slot.object.flags.hidden = index != all.player and index != at;
+    }
+    frame.landing_camera = game.camera.reliantLanding(landing.tube, carrier.drawn.orientation, ship.drawn.position, view);
+}
+
+pub fn presentScene(frame: *FlightFrame, pages: *const [wire.ScenePage.count]?wire.ScenePage, types: game.create.Types) !void {
+    const tick = frame.tick orelse return;
+    var scene = frame.world();
+    scene.spawn = .{ .tables = &frame.tables, .types = types };
+    for (pages) |entry| {
+        const page = entry orelse continue;
+        if (page.tick <= tick) try frame.scene_replica.apply(scene, &page);
+    }
+}
+
+pub fn presentScenery(frame: *FlightFrame, scenery: *const wire.Scenery, types: game.create.Types) !void {
+    const tick = frame.tick orelse return;
+    if (scenery.tick > tick or scenery.tick <= frame.scenery_tick) return;
+    try frame.rocks.apply(frame.drawn.objects, &scenery.rocks);
+    try frame.presentMines(&scenery.mines, types);
+    frame.scenery_tick = scenery.tick;
 }
 
 fn presentWeapons(frame: *FlightFrame, status: ?wire.ordnance.Status) void {
@@ -224,11 +319,11 @@ fn presentPickups(frame: *FlightFrame, mask: powerups.Pickups.Mask) !void {
     }
 }
 
-fn presentMines(frame: *FlightFrame, snapshot: *const wire.Snapshot, types: game.create.Types) !void {
+fn presentMines(frame: *FlightFrame, mines: *const [powerups.mine_count]?wire.Mine, types: game.create.Types) !void {
     const first = frame.mine_start orelse return;
     const scene = frame.world();
     const all = scene.objects;
-    for (snapshot.mines, &frame.host_mines, 0..) |entry, *known, offset| {
+    for (mines, &frame.host_mines, 0..) |entry, *known, offset| {
         const index = first + @as(u16, @intCast(offset));
         const slot = &all.slots[index];
         if (known.*) |before| if (entry == null or entry.?.reuse != before) {
@@ -254,6 +349,7 @@ pub fn world(frame: *FlightFrame) game.gameobj.World {
         .clock = &frame.drawn.clock,
         .shake = &frame.drawn.shake,
         .sounds = frame.sounds,
+        .radio = if (frame.drawn.radio) |*radio| radio else null,
         .explosions = if (frame.drawn.effects.explosions) |*effects| effects else null,
         .particles = if (frame.drawn.effects.particles) |*particles| particles else null,
         .shockwaves = if (frame.drawn.effects.shockwaves) |*rings| rings else null,
@@ -359,6 +455,28 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     if (frame.tick == snapshot.tick) return;
     const all = frame.drawn.objects;
     all.player = admission.slot;
+    if (snapshot.mission) |mission| {
+        all.players = mission.pilot_slots;
+        all.mission_number = mission.number;
+        frame.environment.requested = mission.nebula;
+        frame.director = mission.director;
+        var objectives = &frame.drawn.display.objectives;
+        if (frame.tick == null) objectives.reset(mission.number, false, null);
+        // Only a newly current objective changes the pilot's selected page.
+        for (mission.objectives, 0..) |state, index| {
+            if (objectives.states[index] != state) _ = objectives.set(@intCast(index), state);
+        }
+        if (frame.drawn.variables == null) frame.drawn.variables = .{};
+        const ready = &frame.drawn.variables.?.ready;
+        const leads = mission.lead == admission.slot;
+        if (!leads or !mission.travel.jump) ready.jump = .no else if (ready.jump == .no) {
+            ready.jump = .newly;
+        }
+        if (!leads or !mission.travel.warp) ready.warp = .no else if (ready.warp == .no) {
+            ready.warp = .newly;
+        }
+        frame.drawn.display.readyPrompt(ready);
+    }
     const scene = frame.world();
     const ticks = snapshot.tick *| game.gameobj.ticks_per_step;
     frame.drawn.clock.drawn_duration = if (frame.tick == null) game.gameobj.ticks_per_step else @intCast(@min(ticks -| frame.drawn.clock.game_ticks, std.math.maxInt(i32)));
@@ -373,10 +491,8 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     };
     if (scene.flash) |flash| flash.countDown(scene.clock.frame_duration);
     if (scene.sparks) |sparks| sparks.frame(scene.clock);
-    try frame.rocks.apply(all, &snapshot.rocks);
     if (snapshot.scenario != null and snapshot.scenario.?.hasPowerUps()) {
         try frame.presentPickups(snapshot.pickups);
-        try frame.presentMines(snapshot, types);
     }
     frame.drawn.portals.begin();
     defer frame.drawn.portals.end();
@@ -395,7 +511,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         if (!all.slots[index].object.created) {
             all.loadout_racks[index] = @splat(.of(.none));
             _ = try game.create.createObject(all, &frame.tables, types, index, ship.fighter.kind(), 0, ship.position, &frame.random);
-            if (snapshot.scenario != null) all.slots[index].object.countermeasures = 0;
+            if (snapshot.hasOrdnance()) all.slots[index].object.countermeasures = 0;
             all.player_states[index] = .{ .membership = .{ .joined = .{
                 .generation = ship.generation,
                 .ship = .of(all, index),
@@ -404,7 +520,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
             if (index == admission.slot) {
                 _ = try game.aigeneric.push(.of(scene), index, .player_control, .none);
                 game.main.fitDevices(&all.player_states[index].charges, &frame.drawn.display, game.main.playerShip(ship.fighter.kind()), false);
-            } else {
+            } else if (snapshot.mission == null) {
                 all.slots[index].object.side = .hostile;
             }
         }
@@ -452,7 +568,9 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     }
     const viewing = &frame.drawn.player.viewing;
     viewing.last = viewing.view;
-    viewing.view = if (frame.respawns.left[admission.slot] != 0)
+    viewing.view = if (frame.director != null)
+        .director
+    else if (frame.respawns.left[admission.slot] != 0)
         game.camera.deathmatch_respawn_view
     else if (frame.death_view) |death|
         (if (death.watching_from == null) .pull_back else .watch)
@@ -462,7 +580,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     if (scene.explosions) |effects| effects.frame(scene);
     if (scene.particles) |particles| particles.frame(scene.clock);
     if (scene.shockwaves) |rings| rings.frame(scene);
-    if (snapshot.scenario != null) frame.presentWeapons(snapshot.weapons);
+    if (snapshot.hasOrdnance()) frame.presentWeapons(snapshot.weapons);
     if (snapshot.scenario != null and snapshot.scenario.?.hasPowerUps()) frame.presentPower(snapshot.power);
     // Reserve the identities used during the session in the local mission's slot counters.
     for (local.reuses[0..wire.slots], all.reuses[0..wire.slots]) |*reuse, received| reuse.* = received +% 1;
@@ -516,13 +634,11 @@ test "the flight view follows host admissions and objective carriers" {
     const admission: wire.Admission = .{ .slot = 1, .generation = 2 };
     var snapshot: wire.Snapshot = .{
         .tick = 1,
-        .ships = .{
-            .{ .generation = 1, .position = .{ 3, 4, 5 } },
-            .{ .generation = 2, .position = .{ 8, 0, 1 }, .speed = 12, .throttle = 0.75, .fuel = 240 },
-            null,
-        },
+        .ships = @splat(null),
         .objectives = .{ .six_beacons = @splat(.{ .loose = @splat(0) }) },
     };
+    snapshot.ships[0] = .{ .generation = 1, .position = .{ 3, 4, 5 } };
+    snapshot.ships[1] = .{ .generation = 2, .position = .{ 8, 0, 1 }, .speed = 12, .throttle = 0.75, .fuel = 240 };
     snapshot.objectives.six_beacons[0] = .{ .carried = 1 };
     snapshot.ships[1].?.shields = .{ .left = 1, .right = 2, .fore = 3, .aft = 4 };
     snapshot.ships[1].?.armor = .all(40);
@@ -574,12 +690,10 @@ test "the target panel opens and closes as flight snapshots advance" {
     const admission: wire.Admission = .{ .slot = 0, .generation = 1 };
     var snapshot: wire.Snapshot = .{
         .tick = 1,
-        .ships = .{
-            .{ .generation = 1, .position = @splat(0) },
-            .{ .generation = 2, .position = .{ 0, 0, 2000 } },
-            null,
-        },
+        .ships = @splat(null),
     };
+    snapshot.ships[0] = .{ .generation = 1, .position = @splat(0) };
+    snapshot.ships[1] = .{ .generation = 2, .position = .{ 0, 0, 2000 } };
     try frame.apply(&snapshot, admission, local, no_models);
     try std.testing.expect(engine.input.setPilotTarget(display, all, 0, 1, game.aigeneric.Target.whole, true));
     try std.testing.expectEqual(.opening, display.windows.status.get(.target).phase);
