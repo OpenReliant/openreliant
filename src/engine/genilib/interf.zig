@@ -85,6 +85,8 @@ pub const Outcome = union(enum) {
     host_lan: game.interface.Connection.HostChoice.Kind,
     leave_session,
     launch_session,
+    lobby_ready: bool,
+    remove_lobby_pilot: interface.Connection.Lobby.Admission,
     debrief_choice: game.interface.Connection.DebriefCrew.Choice,
     choose_ship: game.dmscenarios.Fighter,
     send_chat: game.chat.Line,
@@ -194,6 +196,8 @@ pub const Resources = struct {
     itac_strings: language.Language = .{ .strings = &.{} },
     outlines: ?*hud.outline.Outlines = null,
     debrief_background: matmanager.Background = .{},
+    lobby_background: matmanager.Background = .{},
+    tried_lobby_background: bool = false,
     debrief_large: ?hud.FontFile = null,
     debrief_small: ?hud.FontFile = null,
     debrief_shapes: ?canvas.Shapes = null,
@@ -294,6 +298,7 @@ pub const Resources = struct {
         const gpa = resources.gpa;
         resources.background.deinit(gpa);
         resources.debrief_background.deinit(gpa);
+        resources.lobby_background.deinit(gpa);
         if (resources.debrief_large) |*font| font.deinit(gpa);
         if (resources.debrief_small) |*font| font.deinit(gpa);
         if (resources.debrief_shapes) |*art| art.deinit(gpa);
@@ -327,6 +332,7 @@ fn screenFiles(screen: Screen) ?struct { shapes: []const u8, background: []const
 /// What a frame of the front end reads and plays through.
 pub const Context = struct {
     devices: *input.Devices,
+    strings: language.Language = .{ .strings = &.{} },
     /// The characters typed into the window.
     typed: *winmain.Typed,
     /// The window's size in pixels.
@@ -473,6 +479,11 @@ pub const Interface = struct {
                 };
             },
             .connection => {
+                if (front.connection.ship_picker == null and front.connection.quit_prompt == null) {
+                    if (front.connection.lobby) |*lobby| if (context.resources) |resources| {
+                        lobby.scrollDescription(pointer, &resources.small.font, context.strings);
+                    };
+                }
                 if (front.connection.debrief) |*debrief| {
                     if (context.resources) |resources| {
                         resources.debriefResources();
@@ -484,8 +495,11 @@ pub const Interface = struct {
                 switch (action) {
                     .join => |target| return .{ .join_server = target },
                     .host_lan => |kind| return .{ .host_lan = kind },
+                    .quit => return .quit,
                     .leave_session => return .leave_session,
                     .launch_session => return .launch_session,
+                    .lobby_ready => |ready| return .{ .lobby_ready = ready },
+                    .remove_lobby_pilot => |pilot| return .{ .remove_lobby_pilot = pilot },
                     .debrief_choice => |choice| return .{ .debrief_choice = choice },
                     .send_chat => |line| return .{ .send_chat = line },
                     .choose_ship => |ship| return .{ .choose_ship = ship },
@@ -843,6 +857,14 @@ pub const Interface = struct {
             if (resources.debrief_background.image != null) background = &resources.debrief_background;
             if (resources.debrief_large) |*file| drawn.fonts.large = &file.font;
             if (resources.debrief_small) |*file| drawn.fonts.small = &file.font;
+        } else if (front.screen == .connection and front.connection.lobby != null) {
+            // Both multiplayer_sessions_screen (0x0043CA50) and session_loadout_screen
+            // (0x0044B950) load this picture.
+            if (!resources.tried_lobby_background) {
+                resources.tried_lobby_background = true;
+                resources.lobby_background.show(resources.gpa, resources.archive, "interface\\mulfade.tga");
+            }
+            if (resources.lobby_background.image != null) background = &resources.lobby_background;
         }
         if (background.image) |*picture| drawn.fill(picture);
         const art = if (resources.shapes) |*shapes| shapes else return;

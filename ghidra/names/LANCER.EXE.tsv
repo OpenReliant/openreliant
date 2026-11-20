@@ -2370,6 +2370,12 @@ address	kind	name	type	comment
 00432fc0	function	multiplayer_connection_screen	int (void)	Screen 14 of interface_run, the multiplayer connection: interface\main2mul.tga behind it, interface\frntend3.spr, and tooltips of the game's strings (tooltips_init with 1)
 004345b0	function	multiplayer_connection_draw	void (void)	Render hook installed by multiplayer_connection_screen for screen 14
 0043da40	function	multiplayer_sessions_draw	void (void)	Draws the cooperative session screen with the host call sign, ready status, players and chat
+0052497c	data	coop_lobby_guest_ready	int	The guest's ready toggle on the co-op session screen. Clicking Ready sets it after net_mark_ready. Clicking Not Ready clears it after sending the change
+00524a4c	data	deathmatch_ship_list_open	int	Set while the deathmatch setup ship list is open
+00524a54	data	deathmatch_lobby_ship	int	The displayed fighter's index in the deathmatch setup list
+00524a48	data	deathmatch_description_scroll	int	The number of pixels scrolled in the deathmatch setup description
+00524d68	data	deathmatch_description_lines	int	The line count returned by hud_text_wrapped for the current deathmatch description
+00524c94	data	mp_lobby_game_name	char[200]	The session title edited in the co-op host screen and sent to the guests
 0044cb60	function	session_loadout_draw	void (void)	Draws the deathmatch setup and lobby on the same screen, with the ship, scenario, players and chat
 004bc550	function	directplay_create_session		Opens a DirectPlay session with the name in ECX, creates the local player with the call sign in EDX and enumerates the players. Both pre-match screens call it on entry for the host. The session admits four pilots in co-op and eight in deathmatch (0x004BC5D3).
 0043ca50	function	multiplayer_sessions_screen	int (void)	Screens 10 and 11 of interface_run, the multiplayer sessions, by 0x0051D54C: interface\mulfade.tga behind them, interface\frntend3.spr, and tooltips of the game's strings (tooltips_init with 1)

@@ -34,7 +34,7 @@ const round_finished: Connection.Label = .{ .english = "Round finished" };
 
 client: ?session.Client = null,
 hosted: ?*session.LocalGame = null,
-roster: [wire.slots]?wire.CallSign = @splat(null),
+roster: [wire.slots]?wire.Roster.Pilot = @splat(null),
 flight: ?*FlightFrame = null,
 notices: [game.hud.Messages.capacity]FlightNotice = undefined,
 notice_count: usize = 0,
@@ -94,7 +94,7 @@ pub fn hostLan(pilot: *Graphical, io: std.Io, gpa: std.mem.Allocator, directory:
     pilot.client.?.fighter = screen.fighter;
     screen.selected = 0;
     screen.first = 0;
-    pilot.roster[0] = pilot.hosted.?.host.localCallSign();
+    pilot.roster[0] = .{ .generation = 0, .name = pilot.hosted.?.host.localCallSign() };
     screen.lobby = .{
         .role = .{ .host = .{ .port = session.default_port } },
         .roster = pilot.roster[0..pilot.hosted.?.host.player_limit],
@@ -169,6 +169,7 @@ pub fn returnToBrowser(pilot: *Graphical, screen: *Connection, presentation: ?*P
     screen.lobby = null;
     screen.debrief = null;
     screen.ship_picker = null;
+    screen.quit_prompt = null;
     screen.busy = false;
     screen.message = message;
     const result = pilot.campaign_result;
@@ -440,7 +441,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                     .objectives_met = mission.objectives_met,
                     .record = .{ .rating = mission.rating, .kills = if (mission.ending == .destroyed or mission.ending == .captured) 0 else mission.kills },
                     .overall_kills = if (client.latest.?.ships[local]) |ship| ship.kills else @intCast(mission.kills),
-                    .names = pilot.roster[0..wire.cooperative_slots],
+                    .pilots = pilot.roster[0..wire.cooperative_slots],
                     .notices = &pilot.debrief_notices,
                 };
                 pilot.showDebriefCrew(&front.connection, client, strings);
@@ -466,7 +467,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 front.connection.ship_picker = null;
             },
             .lobby => {
-                for (client.roster.pilots, &pilot.roster) |entry, *name| name.* = if (entry) |listed| listed.name else null;
+                pilot.roster = client.roster.pilots;
                 if (client.result_tick != null) continue;
                 if (front.connection.lobby == null) front.connection.lobby = .{
                     .role = .guest,
@@ -480,6 +481,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                     front.connection.lobby.?.local_slot = client.joined.?.slot;
                     if (client.roster.lobby) |scenario| front.connection.lobby.?.scenario = scenario;
                 }
+                front.connection.lobby.?.ready = client.roster.ready;
             },
             .uber_kill => |notice| pilot.queueNotice(.{ .uber_kill = notice }),
             .beacon_notice => |notice| pilot.queueNotice(.{ .beacon = notice }),
@@ -488,8 +490,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             .vampires_notice => |notice| pilot.queueNotice(.{ .vampires = notice }),
             .pilot_notice => |notice| {
                 if (notice.kind == .left_lobby) {
-                    const listed = client.roster.pilots[notice.pilot.slot];
-                    pilot.roster[notice.pilot.slot] = if (listed) |entry| entry.name else null;
+                    pilot.roster[notice.pilot.slot] = client.roster.pilots[notice.pilot.slot];
                     if (client.result_tick != null) {
                         presentPilotNotice(&pilot.debrief_notices, strings, notice);
                     } else presentPilotNotice(&pilot.lobby_notices, strings, notice);
@@ -553,13 +554,13 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
 }
 
 fn showDebriefCrew(pilot: *Graphical, screen: *Connection, client: *const session.Client, strings: game.language.Language) void {
-    for (&pilot.roster, client.roster.pilots) |*name, seat| name.* = if (seat) |peer| peer.name else null;
+    pilot.roster = client.roster.pilots;
     if (screen.debrief) |*debrief| if (client.debrief) |state| {
         var newly_ready = state.crew.ready.differenceWith(debrief.crew.ready).iterator(.{});
         while (newly_ready.next()) |slot| {
-            const name = pilot.roster[slot] orelse continue;
+            const peer = pilot.roster[slot] orelse continue;
             var fallback: [64]u8 = undefined;
-            const shown = pilotName(&fallback, strings, &name, @intCast(slot));
+            const shown = pilotName(&fallback, strings, &peer.name, @intCast(slot));
             game.deathmatch.addMessage(&pilot.debrief_notices, 0, strings.stringOr(0x575, "System : %s READY"), &.{shown});
         }
         debrief.crew = state.crew;
