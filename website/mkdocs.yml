@@ -2,7 +2,7 @@
 # (docs-theme). The Pages workflow builds it with MkDocs. Links that leave docs/, such as to the
 # sources, go to the files on GitHub (docs_hooks.py).
 site_name: OpenReliant docs
-site_url: https://openreliant.github.io/openreliant/docs/
+site_url: https://openreliant.space/docs/
 site_description: How to install, play and mod OpenReliant, how its engine works, and StarLancer's file formats.
 repo_url: https://github.com/OpenReliant/openreliant
 edit_uri: edit/main/docs/

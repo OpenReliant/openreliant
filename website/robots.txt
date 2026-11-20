@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+Sitemap: https://openreliant.space/sitemap.xml
+Sitemap: https://openreliant.space/docs/sitemap.xml
