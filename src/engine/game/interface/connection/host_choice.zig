@@ -17,6 +17,11 @@ const coop_label: widgets.Label = .{ .english = "CO-OP", .installed = 0x13D };
 const deathmatch_label: widgets.Label = .{ .english = "DEATHMATCH", .installed = 0x13E };
 const cancel_label: widgets.Label = .{ .english = "BACK", .installed = 0xF7 };
 
+pub const help = [_]@import("../../itac/tooltips.zig").Tooltip{
+    .{ .rect = cooperative, .string = 0x587, .fallback = "Host a co-op game." },
+    .{ .rect = deathmatch, .string = 0x588, .fallback = "Host a deathmatch game." },
+};
+
 hover: ?Action = null,
 
 pub fn frame(choice: *HostChoice, pointer: ui.Pointer, keys: *input.Keyboard) ?Action {

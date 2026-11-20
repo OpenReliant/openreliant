@@ -93,6 +93,7 @@ pub const Outcome = union(enum) {
     choose_ship: game.dmscenarios.Fighter,
     choose_team: game.interface.Connection.Lobby.Team,
     team_play: bool,
+    arena_option: game.deathmatch.Options.Setting,
     send_chat: game.chat.Line,
     /// QUIT, answered YES: 3.
     quit,
@@ -203,9 +204,9 @@ pub const Resources = struct {
     lobby_background: matmanager.Background = .{},
     tried_lobby_background: bool = false,
     original_look: bool = false,
-    lobby_help_font: ?hud.FontFile = null,
-    lobby_help_shapes: ?canvas.Shapes = null,
-    tried_lobby_help: bool = false,
+    multiplayer_help_font: ?hud.FontFile = null,
+    multiplayer_help_shapes: ?canvas.Shapes = null,
+    tried_multiplayer_help: bool = false,
     debrief_large: ?hud.FontFile = null,
     debrief_small: ?hud.FontFile = null,
     debrief_shapes: ?canvas.Shapes = null,
@@ -283,16 +284,16 @@ pub const Resources = struct {
         return if (resources.paging_shapes) |*loaded| &loaded.art else null;
     }
 
-    fn drawLobbyHelp(resources: *Resources, drawn: canvas.Canvas, lobby: *const interface.Connection.Lobby) canvas.Error!void {
-        const tip = lobby.shown_help orelse return;
-        if (!resources.tried_lobby_help) {
-            resources.tried_lobby_help = true;
-            resources.lobby_help_font = .read(resources.gpa, resources.archive, game.itac.tooltips.font_name, resources.outlines);
-            resources.lobby_help_shapes = canvas.Shapes.read(resources.gpa, &resources.archive, game.itac.shapes_name);
+    fn drawMultiplayerHelp(resources: *Resources, drawn: canvas.Canvas, state: game.itac.tooltips.Tooltips, shown: ?game.itac.tooltips.Tooltip) canvas.Error!void {
+        const tip = shown orelse return;
+        if (!resources.tried_multiplayer_help) {
+            resources.tried_multiplayer_help = true;
+            resources.multiplayer_help_font = .read(resources.gpa, resources.archive, game.itac.tooltips.font_name, resources.outlines);
+            resources.multiplayer_help_shapes = canvas.Shapes.read(resources.gpa, &resources.archive, game.itac.shapes_name);
         }
-        if (resources.lobby_help_font) |*font| {
-            if (resources.lobby_help_shapes) |*shapes| {
-                try lobby.help.draw(drawn, &font.font, shapes, drawn.strings.stringOr(tip.string, tip.fallback));
+        if (resources.multiplayer_help_font) |*font| {
+            if (resources.multiplayer_help_shapes) |*shapes| {
+                try state.draw(drawn, &font.font, shapes, drawn.strings.stringOr(tip.string, tip.fallback));
             }
         }
     }
@@ -321,8 +322,8 @@ pub const Resources = struct {
         resources.background.deinit(gpa);
         resources.debrief_background.deinit(gpa);
         resources.lobby_background.deinit(gpa);
-        if (resources.lobby_help_font) |*font| font.deinit(gpa);
-        if (resources.lobby_help_shapes) |*shapes| shapes.deinit(gpa);
+        if (resources.multiplayer_help_font) |*font| font.deinit(gpa);
+        if (resources.multiplayer_help_shapes) |*shapes| shapes.deinit(gpa);
         if (resources.debrief_large) |*font| font.deinit(gpa);
         if (resources.debrief_small) |*font| font.deinit(gpa);
         if (resources.debrief_shapes) |*art| art.deinit(gpa);
@@ -507,7 +508,7 @@ pub const Interface = struct {
             .connection => {
                 if (front.connection.lobby) |*lobby| {
                     lobby.caret.update(front.ticks);
-                    const uncovered = !lobby.mode_open and front.connection.ship_picker == null and front.connection.quit_prompt == null;
+                    const uncovered = !lobby.mode_open and !lobby.team_open and front.connection.ship_picker == null and front.connection.quit_prompt == null;
                     lobby.updateHelp(if (uncovered) pointer.at else null, front.ticks);
                     if (uncovered) if (context.resources) |resources| {
                         lobby.scrollDescription(pointer, &resources.small.font, context.strings);
@@ -520,7 +521,9 @@ pub const Interface = struct {
                         debrief.updateText(font, pointer, front.ticks);
                     }
                 }
-                const action = front.connection.frame(pointer, &context.devices.keyboard, context.typed, context.window) orelse return null;
+                const result = front.connection.frame(pointer, &context.devices.keyboard, context.typed, context.window);
+                front.connection.updateHelp(pointer.at, context.window, front.ticks);
+                const action = result orelse return null;
                 switch (action) {
                     .join => |target| return .{ .join_server = target },
                     .host_lan => |kind| return .{ .host_lan = kind },
@@ -541,6 +544,7 @@ pub const Interface = struct {
                     .choose_ship => |ship| return .{ .choose_ship = ship },
                     .choose_team => |team| return .{ .choose_team = team },
                     .team_play => |enabled| return .{ .team_play = enabled },
+                    .arena_option => |setting| return .{ .arena_option = setting },
                     .back => {
                         front.screen = .main_menu;
                         return null;
@@ -951,8 +955,10 @@ pub const Interface = struct {
                         .strings = resources.itac_strings,
                     }, front.ticks);
                     if (front.connection.lobby) |*lobby| {
-                        if (!lobby.mode_open and front.connection.ship_picker == null and front.connection.quit_prompt == null)
-                            try resources.drawLobbyHelp(drawn, lobby);
+                        if (!lobby.mode_open and !lobby.team_open and front.connection.ship_picker == null and front.connection.quit_prompt == null)
+                            try resources.drawMultiplayerHelp(drawn, lobby.help, lobby.shown_help);
+                    } else if (front.connection.ship_picker == null and front.connection.quit_prompt == null) {
+                        try resources.drawMultiplayerHelp(drawn, front.connection.help, front.connection.shown_help);
                     }
                     try drawn.drawVersion();
                 }

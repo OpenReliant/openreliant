@@ -14,6 +14,7 @@ const scenarios = @import("../dmscenarios.zig");
 pub const HostChoice = @import("connection/host_choice.zig");
 pub const Lobby = @import("connection/lobby.zig");
 const Connection = @This();
+const tooltips = @import("../itac/tooltips.zig");
 
 pub const background = "interface\\sinfade.tga";
 pub const shapes = "interface\\frntend3.spr";
@@ -32,7 +33,7 @@ const chat = @import("../chat.zig");
 pub const Debrief = @import("connection/debrief.zig");
 pub const DebriefCrew = @import("connection/debrief_crew.zig");
 
-pub const Action = union(enum) { send_chat: chat.Line, back, quit, host_lan: HostChoice.Kind, leave_session, launch_session, new_campaign, load_campaign, save_campaign, lobby_ready: bool, remove_lobby_pilot: Lobby.Admission, debrief_choice: DebriefCrew.Choice, choose_ship: scenarios.Fighter, choose_team: Lobby.Team, team_play: bool, join: []const u8 };
+pub const Action = union(enum) { send_chat: chat.Line, back, quit, host_lan: HostChoice.Kind, leave_session, launch_session, new_campaign, load_campaign, save_campaign, lobby_ready: bool, remove_lobby_pilot: Lobby.Admission, debrief_choice: DebriefCrew.Choice, choose_ship: scenarios.Fighter, choose_team: Lobby.Team, team_play: bool, arena_option: @import("../deathmatch.zig").Options.Setting, join: []const u8 };
 pub const Label = widgets.Label;
 
 address: language.Text(128) = .{},
@@ -52,6 +53,32 @@ first: usize = 0,
 editing: bool = true,
 hover: ?Layout.Control = null,
 quit_prompt: ?dialog.Confirm = null,
+help: tooltips.Tooltips = .{},
+shown_help: ?tooltips.Tooltip = null,
+
+pub fn updateHelp(screen: *Connection, at: [2]i32, window: [2]u32, ticks: u32) void {
+    screen.shown_help = null;
+    if (screen.ship_picker != null or screen.quit_prompt != null or screen.lobby != null or screen.debrief != null or screen.busy) {
+        screen.help = .{};
+        return;
+    }
+    if (screen.host_choice != null) {
+        if (screen.help.update(&HostChoice.help, at, ticks)) |index| screen.shown_help = HostChoice.help[index];
+        return;
+    }
+    const layout = Layout.init(window);
+    // multiplayer_connection_screen registers provider and session help at 0x004338E8.
+    const tips = [_]tooltips.Tooltip{
+        .{ .rect = layout.backdropRect(layout.control(.internet)), .string = 0x583, .fallback = "Browse Internet games." },
+        .{ .rect = layout.backdropRect(layout.control(.lan)), .string = 0x580, .fallback = "Browse games on the local network." },
+        .{ .rect = layout.backdropRect(layout.field), .string = 0x589, .fallback = "Enter the host's IP address." },
+        .{ .rect = layout.backdropRect(layout.control(.connect)), .string = 0, .fallback = "Connect to the host at the entered address." },
+        .{ .rect = layout.backdropRect(layout.control(.selected)), .string = 0x586, .fallback = "Join the selected game." },
+        .{ .rect = if (screen.host_available) layout.backdropRect(layout.control(.host)) else tooltips.Tooltip.no_rect, .string = 0, .fallback = "Choose a co-op or deathmatch game to host." },
+        .{ .rect = layout.backdropRect(fighterField(layout)), .string = 0x5A3, .fallback = "Choose a fighter to fly." },
+    };
+    if (screen.help.update(&tips, at, ticks)) |index| screen.shown_help = tips[index];
+}
 
 pub fn takesText(screen: *const Connection) bool {
     if (screen.host_choice != null or screen.ship_picker != null or screen.quit_prompt != null) return false;
@@ -135,6 +162,7 @@ pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, type
         .send_chat => |line| .{ .send_chat = line },
         .choose_team => |team| .{ .choose_team = team },
         .team_play => |playing| .{ .team_play = playing },
+        .arena_option => |setting| .{ .arena_option = setting },
         .choose_ship => open: {
             screen.ship_picker = .{ .preview = lobby.ship };
             break :open null;

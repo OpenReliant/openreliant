@@ -542,6 +542,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 front.connection.lobby.?.mission = client.roster.mission;
                 front.connection.lobby.?.ready = client.roster.ready;
                 front.connection.lobby.?.teams = client.roster.teams;
+                front.connection.lobby.?.options = client.roster.options;
             },
             .uber_kill => |notice| pilot.queueNotice(.{ .uber_kill = notice }),
             .beacon_notice => |notice| pilot.queueNotice(.{ .beacon = notice }),

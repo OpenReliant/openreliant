@@ -68,6 +68,7 @@ lan_only: bool = false,
 arena_directory: ?Io.Dir = null,
 arena_floor: u32 = 0,
 arena_teams: bool = false,
+arena_options: game.deathmatch.Options = .{},
 repeat_rounds: bool = false,
 restart_at: ?i64 = null,
 start: union(enum) {
@@ -337,6 +338,12 @@ pub fn selectScenario(host: *Host, scenario: wire.Scenario) void {
     host.roster_dirty = true;
 }
 
+pub fn toggleArenaOption(host: *Host, setting: game.deathmatch.Options.Setting) void {
+    if (!host.localInLobby() or host.start.lobby.mission != null) return;
+    host.arena_options.toggle(setting);
+    host.roster_dirty = true;
+}
+
 pub fn setArenaTeams(host: *Host, enabled: bool) void {
     if (!host.localInLobby() or host.start.lobby.mission != null) return;
     if (enabled and host.start.lobby.scenario.record().teams == .none) return;
@@ -348,7 +355,7 @@ pub fn startArena(host: *Host) !void {
     if (host.start != .lobby or host.start.lobby.mission != null or (host.lan_only and !host.canLaunch())) return;
     const directory = host.arena_directory orelse return;
     const staging = host.arena;
-    host.arena = try staging.prepareStock(host.start.lobby.scenario, host.arena_teams, host.io, directory);
+    host.arena = try staging.prepareStock(host.start.lobby.scenario, host.arena_teams, host.arena_options, host.io, directory);
     staging.destroy();
     host.enterFlight();
 }
@@ -646,6 +653,7 @@ fn publishRoster(host: *Host) !void {
         .limit = host.player_limit,
         .arena_floor = host.arena_floor,
         .teams = host.arena_teams,
+        .options = host.arena_options,
     };
     if (host.start == .lobby) {
         if (host.start.lobby.mission) |number| roster.mission = number else roster.lobby = host.start.lobby.scenario;

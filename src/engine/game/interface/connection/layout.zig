@@ -47,6 +47,18 @@ pub fn point(layout: Layout, from: Point) Point {
     return .{ axis(from[0], 320, layout.share), axis(from[1], 240, layout.share) };
 }
 
+/// Convert a browser hit box to the backdrop's normal coordinates for stock tooltips.
+pub fn backdropRect(layout: Layout, rect: ui.Rect) ui.Rect {
+    const left = axis(rect.x, 320, 1 / layout.share);
+    const top = axis(rect.y, 240, 1 / layout.share);
+    return .{
+        .x = left,
+        .y = top,
+        .width = axis(rect.x + rect.width, 320, 1 / layout.share) - left,
+        .height = axis(rect.y + rect.height, 240, 1 / layout.share) - top,
+    };
+}
+
 pub fn title(layout: Layout) Point {
     return layout.point(.{ 48, 101 });
 }

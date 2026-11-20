@@ -6,6 +6,7 @@ const Host = @import("server.zig");
 const session = @import("session.zig");
 const Invite = @import("identity.zig").Invite;
 const wire = @import("wire.zig");
+const ArenaOptions = @import("openreliant").engine.game.deathmatch.Options;
 
 const default_config = "server.ini";
 const max_config_size = 16 * 1024;
@@ -19,6 +20,7 @@ const Config = struct {
     players: u8,
     ticks: ?u32,
     teams: bool,
+    arena_options: ArenaOptions,
     repeat_rounds: bool,
     identity: ?session.Identity,
 
@@ -55,8 +57,12 @@ const Config = struct {
         else
             null;
         if (ticks == 0) return error.InvalidRoundTicks;
-        const teams = try optionalSwitch(profile, "Teams");
-        const repeat_rounds = try optionalSwitch(profile, "RepeatRounds");
+        const teams = try optionalSwitch(profile, "Teams", false);
+        const repeat_rounds = try optionalSwitch(profile, "RepeatRounds", false);
+        const arena_options: ArenaOptions = if (mode.scenario() != null) .{
+            .ai_turrets = try optionalSwitch(profile, "AiTurrets", false),
+            .target_players = try optionalSwitch(profile, "TargetPlayers", true),
+        } else .{};
         if (teams and (mode.scenario() == null or mode.scenario().?.record().teams == .none)) return error.InvalidTeamArena;
         if (repeat_rounds and (mode.scenario() == null or ticks == null)) return error.InvalidRepeatRounds;
         const root = profile.value("Identity", "RootPublicKey");
@@ -77,14 +83,15 @@ const Config = struct {
             .players = players,
             .ticks = ticks,
             .teams = teams,
+            .arena_options = arena_options,
             .repeat_rounds = repeat_rounds,
             .identity = managed,
         };
     }
 };
 
-fn optionalSwitch(profile: Profile, key: []const u8) !bool {
-    const value = profile.value("Server", key) orelse return false;
+fn optionalSwitch(profile: Profile, key: []const u8, default: bool) !bool {
+    const value = profile.value("Server", key) orelse return default;
     return switch (std.fmt.parseInt(u1, value, 10) catch return error.InvalidServerSwitch) {
         0 => false,
         1 => true,
@@ -112,6 +119,7 @@ pub fn run(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !void
         .players = config.players,
         .ticks = config.ticks,
         .teams = config.teams,
+        .arena_options = config.arena_options,
         .repeat_rounds = config.repeat_rounds,
         .invite_address = config.invite_address,
     });
@@ -131,6 +139,12 @@ test "headless settings share the game's INI syntax" {
     try std.testing.expectEqual(27200, config.bind.getPort());
     try std.testing.expectEqual(Arena.Mode.@"nuclear-threat", config.mode);
     try std.testing.expectEqual(.asteroid_field, (try Config.parse(.{ .text = "[Server]\nArena=asteroid-field" })).mode.scenario());
+    try std.testing.expectEqual(ArenaOptions{}, config.arena_options);
+    const options = try Config.parse(.{ .text = "[server]\naiturrets=1\ntargetplayers=0" });
+    try std.testing.expect(options.arena_options.ai_turrets);
+    try std.testing.expect(!options.arena_options.target_players);
+    try std.testing.expectError(error.InvalidServerSwitch, Config.parse(.{ .text = "[Server]\nTargetPlayers=2" }));
+    try std.testing.expectEqual(ArenaOptions{}, (try Config.parse(.{ .text = "[Server]\nMission=1\nAiTurrets=1\nTargetPlayers=0" })).arena_options);
     try std.testing.expectEqual(2, config.players);
     try std.testing.expectEqual(175, config.ticks.?);
     try std.testing.expectEqualStrings("certs/session root.pub", config.identity.?.root_path);

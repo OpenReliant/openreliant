@@ -744,8 +744,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
             }
         }
         slot.object.flags.exploding = ship.dying;
-        if (snapshot.objectives == .hunt_the_shadow)
-            slot.object.flags.targetable = snapshot.objectives.hunt_the_shadow != @as(u8, @intCast(index));
+        if (snapshot.scenario != null) slot.object.flags.targetable = ship.targetable;
         if (!ship.dying and index == admission.slot) frame.death_view = null;
         all.player_states[index].membership.joined.kills.count = ship.kills;
         all.player_states[index].membership.joined.deaths = ship.deaths;

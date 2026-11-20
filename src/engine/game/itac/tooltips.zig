@@ -3,10 +3,8 @@
 //! game ticks (`tooltips_update`, `0x00440C40`; `tooltip_draw`, `0x00440D80`). OpenReliant shows the
 //! ITAC's, which name its buttons (`itac_tooltips_add`, `0x00440EB0`).
 //!
-//! Multiplayer setup uses the same tooltips with the game's strings (`tooltips_init` with 1).
-//! Help for the redesigned connection browser is tracked in
-//! [#813](https://github.com/OpenReliant/openreliant/issues/813). The remaining setup controls and
-//! their tooltips are tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404).
+//! The multiplayer browser and setup screens use the same tooltip art and read text from the
+//! main language file, like `tooltips_init` with 1.
 //!
 //! **Fix:** the game adds ten of the ITAC's tooltips, the tenth read from the start of the table
 //! after the nine. Its rectangle lies far off the screen, so it never shows. OpenReliant adds the
@@ -26,7 +24,13 @@ const Rect = canvas_module.Rect;
 pub const font_name = "newfont.fnt";
 
 /// A tooltip: the rectangle the pointer rests on, and its string.
-pub const Tooltip = struct { rect: Rect, string: u16, fallback: []const u8 = "" };
+pub const Tooltip = struct {
+    rect: Rect,
+    string: u16,
+    fallback: []const u8 = "",
+
+    pub const no_rect: Rect = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+};
 
 /// How long the pointer rests on a button before its tooltip shows, in game ticks, unless a
 /// tooltip showed within `recent` of them (`0x00440CB2`, `0x00440CAF`).
@@ -45,12 +49,12 @@ const right_margin = 6;
 
 /// The box round the text, from `box_left` and `box_top` of it to `box_right` past its end and
 /// `box_bottom` below it, filled with palette entry `fill` and edged with `edge`, which the text is
-/// written in too, from `text_at` (`0x00440E0E` on).
+/// written in too (`0x00440E0E` on).
 const box_left = 1;
 const box_top = 3;
 const box_right = 5;
 const box_bottom = 15;
-const text_at: [2]i32 = .{ 2, -2 };
+const text_inset = 2;
 const fill = 0;
 const edge = 100;
 
@@ -107,17 +111,32 @@ pub const Tooltips = struct {
         const width: i32 = @intCast(font.textWidth(text));
         const x = if (tips.at[0] + width + right_margin > screen_width) screen_width - right_margin - width else tips.at[0];
         const y = tips.at[1];
-        const left = x - box_left;
-        const top = y - box_top;
-        const right = x + width + box_right;
-        const bottom = y + box_bottom;
+        const start = canvas.point(.{ x - box_left, y - box_top });
+        const end = canvas.point(.{ x + width + box_right + 1, y + box_bottom + 1 });
+        const scale = canvas.scale();
+        const stroke: f32 = @floatFromInt(@max(1, hud.round(scale)));
+        const frame: hud.Clip = .{
+            .left = @floatFromInt(start[0]),
+            .top = @floatFromInt(start[1]),
+            .right = @floatFromInt(end[0]),
+            .bottom = @floatFromInt(end[1]),
+        };
+        const inside: hud.Clip = .{
+            .left = frame.left + stroke,
+            .top = frame.top + stroke,
+            .right = frame.right - stroke,
+            .bottom = frame.bottom - stroke,
+        };
         const edge_colour = colourOf(shapes, edge);
-        canvas.wipe(.{ left, top }, .{ right, bottom - 1 }, colourOf(shapes, fill));
-        canvas.line(.{ left, top }, .{ right, top }, edge_colour);
-        canvas.line(.{ right, top }, .{ right, bottom }, edge_colour);
-        canvas.line(.{ right, bottom }, .{ left, bottom }, edge_colour);
-        canvas.line(.{ left, bottom }, .{ left, top }, edge_colour);
-        try canvas.text(font, .{ x + text_at[0], y + text_at[1] }, text, edge_colour, .left);
+        hud.drawFilled(canvas.target, frame, hud.atBrightness(edge_colour, 1));
+        hud.drawFilled(canvas.target, inside, hud.atBrightness(colourOf(shapes, fill), 1));
+
+        // The stock font uses capitals for both cases. Centre the capital body and keep
+        // its baseline in the same place when translated text has accents.
+        const ink = try hud.textInk(font, .{ 0, 0 }, "H", .left, scale) orelse return;
+        const text_y = hud.round((inside.top + inside.bottom - ink.top - ink.bottom) / 2);
+        const text_x = canvas.point(.{ x + text_inset, y })[0];
+        _ = try hud.drawTextIn(font, canvas.gpa, canvas.target, .{ text_x, text_y }, text, hud.atBrightness(edge_colour, canvas.brightness), .left, scale, inside);
     }
 };
 

@@ -91,8 +91,11 @@ The host opens a fresh campaign when choosing Co-op. **New** resets the selectio
 opens the saved game screen over the lobby (0x0043D555 and 0x0043D586). Loading selects the
 saved mission and checkpoint on the host. The host sends the selected mission to the waiting crew
 through the roster, as the original does with message 8 (`net_send_coop_session`, 0x004BA2D0).
-The original's AI Turrets and Target Players switches are tracked in
-[#404](https://github.com/OpenReliant/openreliant/issues/404).
+The deathmatch host can change **AI Turrets**, **Target Players** and, in modes that support it,
+**Teamplay**. The first two switches use the original positions and installed labels from
+`session_loadout_draw` (0x0044D022 onward). AI Turrets starts off and Target Players starts on
+(`session_loadout_screen`, 0x0044C14B and 0x0044C179). The host keeps the settings when the group
+returns to setup for another match.
 
 The co-op lobby shows nine chat lines and the deathmatch lobby six, as variants 0 and 2 of
 `multiplayer_chat_panel` (0x004AE2D0) do. The stock arrows scroll the last 30 lines. Click the
@@ -136,9 +139,10 @@ Use the stills to check the display and the executable's draw functions for the 
 | Co-op debrief | `multiplayer_debrief_render` (`0x00429DC0`), `multiplayer_debrief_text` (`0x00425240`), and `multiplayer_chat_panel` variant 1 (`0x004AE2D0`) | The retail backdrop, letter, two scroll controls, chat, figures, roster and buttons use the original art and coordinates. Save Game opens the existing save screen over the stock in-game-options backdrop. |
 | Pause, session loss, and standings | `pause_screen_multiplayer` (`0x0048E510`), `pause_session_lost` (`0x0048E370`), and `mp_draw_scoreboard` (`0x004AF650`) | The pause and flight standings use the stock sprites. The pause controls and connection-loss dialog use the original pause art. Host-only shared pause and scrolling beyond stock capacity are deliberate changes. See [Pause menu](pause-menu.md#multiplayer-9). |
 
-The lobby uses the installed tooltip strings and the ITAC tooltip art, as registered by
-`multiplayer_sessions_screen` and `session_loadout_screen`. Help for the redesigned browser
-is tracked in [#813](https://github.com/OpenReliant/openreliant/issues/813).
+The browser, host game chooser and lobby use the ITAC tooltip art. They read the installed
+strings for controls shared with retail and fall back to English. The original registers its
+tooltips in `multiplayer_connection_screen`, `multiplayer_sessions_screen` and
+`session_loadout_screen`.
 
 ## The screens
 

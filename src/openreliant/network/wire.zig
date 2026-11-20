@@ -19,7 +19,7 @@ pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
 pub const CampaignCheckpoint = campaign.Checkpoint;
-pub const revision: u16 = 27;
+pub const revision: u16 = 28;
 pub const Team = engine.game.players.ArenaTeam;
 
 fn readTeam(reader: *std.Io.Reader) !Team {
@@ -135,11 +135,19 @@ pub const Roster = struct {
     briefing: bool = false,
     arena_floor: u32 = 0,
     teams: bool = false,
+    options: engine.game.deathmatch.Options = .{},
     limit: u8 = slots,
     ready: engine.game.interface.Connection.DebriefCrew.Pilots = .empty,
     pilots: [slots]?Pilot = @splat(null),
 
     pub const Pilot = engine.game.interface.Connection.Lobby.Pilot;
+};
+
+const RosterFlags = packed struct(u8) {
+    teams: bool,
+    ai_turrets: bool,
+    no_player_targeting: bool,
+    reserved: u5 = 0,
 };
 
 pub const BeaconNotice = struct { event: engine.game.deathmatch.six_beacons.Notice, name: CallSign };
@@ -345,6 +353,7 @@ pub const Ship = struct {
     deaths: u32 = 0,
     cloaked: bool = false,
     respawn: u16 = 0,
+    targetable: bool = true,
     at_wall: bool = false,
     dying: bool = false,
     pod: bool = false,
@@ -500,6 +509,12 @@ const ShipFlags = packed struct(u8) {
     reverse_thrust: bool,
 };
 
+// A spawn lasts at most 300 ticks. Share the existing timer word with the targeting flag.
+const ShipSpawn = packed struct(u16) {
+    ticks: u15,
+    no_target: bool,
+};
+
 fn writeShips(w: *std.Io.Writer, ships: []const ?Ship, mode: Mode) !void {
     for (ships) |entry| {
         const ship = entry orelse {
@@ -519,7 +534,8 @@ fn writeShips(w: *std.Io.Writer, ships: []const ?Ship, mode: Mode) !void {
         try w.writeInt(i32, ship.kills, .little);
         try w.writeInt(u32, ship.deaths, .little);
         if (mode.hasOrdnance()) {
-            try w.writeInt(u16, ship.respawn, .little);
+            const spawn: ShipSpawn = .{ .ticks = @intCast(ship.respawn), .no_target = !ship.targetable };
+            try w.writeInt(u16, @bitCast(spawn), .little);
             const flags: ShipFlags = .{
                 .at_wall = ship.at_wall,
                 .dying = ship.dying,
@@ -551,8 +567,10 @@ fn readShips(r: *std.Io.Reader, ships: []?Ship, mode: Mode) !void {
         ship.kills = try r.takeInt(i32, .little);
         ship.deaths = try r.takeInt(u32, .little);
         if (mode.hasOrdnance()) {
-            ship.respawn = try r.takeInt(u16, .little);
-            if (ship.respawn > engine.game.deathmatch.respawn.duration) return error.InvalidSnapshot;
+            const spawn: ShipSpawn = @bitCast(try r.takeInt(u16, .little));
+            if (spawn.ticks > engine.game.deathmatch.respawn.duration or (spawn.no_target and mode.scenario == null)) return error.InvalidSnapshot;
+            ship.respawn = spawn.ticks;
+            ship.targetable = !spawn.no_target;
             const flags: ShipFlags = @bitCast(try r.takeByte());
             if (!mode.mission and (flags.pod or flags.kamov or flags.engine_waiting)) return error.InvalidSnapshot;
             if (flags.pod_clear and !flags.pod) return error.InvalidSnapshot;
@@ -950,7 +968,7 @@ fn readCombat(r: *std.Io.Reader) !Combat {
                 const dies_at = try r.takeInt(i32, .little);
                 const origin = try readPosition(r);
                 const velocity = try readPosition(r);
-                if (index >= guns.max_bullets or owner >= slots or fired_at < 0 or dies_at <= fired_at or
+                if (index >= guns.max_bullets or owner >= engine.game.gameobj.max_objects or fired_at < 0 or dies_at <= fired_at or
                     !std.math.isFinite(engine.surrender.math.lengthSquared(velocity)) or engine.surrender.math.lengthSquared(velocity) == 0)
                     return error.InvalidCombat;
                 break :shot .{ .shot = .{
@@ -1127,7 +1145,12 @@ pub const Message = union(enum(u8)) {
                 try w.writeByte(roster.limit);
                 try w.writeByte(roster.ready.mask);
                 try w.writeInt(u32, roster.arena_floor, .little);
-                try w.writeByte(@intFromBool(roster.teams));
+                const flags: RosterFlags = .{
+                    .teams = roster.teams,
+                    .ai_turrets = roster.options.ai_turrets,
+                    .no_player_targeting = !roster.options.target_players,
+                };
+                try w.writeByte(@bitCast(flags));
                 for (roster.pilots) |entry| {
                     try w.writeInt(u64, if (entry) |pilot| pilot.generation else 0, .little);
                     if (entry) |pilot| {
@@ -1335,11 +1358,10 @@ pub const Message = union(enum(u8)) {
                     (ready != 0 and (view.mission == null or view.briefing))) return error.InvalidRoster;
                 view.ready.mask = @intCast(ready);
                 view.arena_floor = try r.takeInt(u32, .little);
-                view.teams = switch (try r.takeByte()) {
-                    0 => false,
-                    1 => true,
-                    else => return error.InvalidRoster,
-                };
+                const flags: RosterFlags = @bitCast(try r.takeByte());
+                if (flags.reserved != 0 or (view.mission != null and (flags.ai_turrets or flags.no_player_targeting))) return error.InvalidRoster;
+                view.teams = flags.teams;
+                view.options = .{ .ai_turrets = flags.ai_turrets, .target_players = !flags.no_player_targeting };
                 if (view.teams and (view.mission != null or (view.lobby != null and view.lobby.?.record().teams == .none))) return error.InvalidRoster;
                 for (&view.pilots, 0..) |*entry, slot| {
                     const generation = try r.takeInt(u64, .little);
@@ -1603,7 +1625,7 @@ test "combat batches carry visual effects with bounded counts and pool indices" 
     var buffer: [capacity]u8 = undefined;
     var effects: Combat = .{ .count = 4 };
     effects.entries[0..4].* = .{
-        .{ .shot = .{ .index = 4, .owner = 0, .kind = .pulse_cannon, .fired_at = 84, .dies_at = 124, .origin = .{ 1, 2, 3 }, .velocity = .{ 0, 0, 1 } } },
+        .{ .shot = .{ .index = 4, .owner = slots, .kind = .turret_lasers, .fired_at = 84, .dies_at = 124, .origin = .{ 1, 2, 3 }, .velocity = .{ 0, 0, 1 } } },
         .{ .impact = .{ .shot = 4, .fired_at = 84, .target = .{ .slot = 2, .reuse = 7 }, .at = .{ 1, 2, 20 }, .kind = .shield } },
         .{ .nova = .{ .owner = .{ .slot = 2, .reuse = 7 }, .charge = 0.75, .fired_at = 85 } },
         .{ .wall = .{ .at = .{ 100, 200, 300 }, .inward = .{ 1, 0, 0 }, .started = 86, .flare = true, .shot = .{ .index = 8, .fired_at = 82 } } },
@@ -1611,6 +1633,9 @@ test "combat batches carry visual effects with bounded counts and pool indices" 
     const content = try (Message{ .combat = effects }).encode(&buffer);
     const decoded = (try Message.decode(content)).combat;
     try std.testing.expectEqualDeep(effects.items(), decoded.items());
+    effects.entries[0].shot.owner = engine.game.gameobj.max_objects;
+    try std.testing.expectError(error.InvalidCombat, Message.decode(try (Message{ .combat = effects }).encode(&buffer)));
+    effects.entries[0].shot.owner = 0;
     effects.entries[0].shot.index = guns.max_bullets;
     try std.testing.expectError(error.InvalidCombat, Message.decode(try (Message{ .combat = effects }).encode(&buffer)));
     try std.testing.expectError(error.InvalidCombat, Message.decode(&.{ @backingInt(std.meta.Tag(Message).combat), 0, 0, 0, 0, Combat.max + 1 }));
@@ -1684,7 +1709,12 @@ test "stock team scores and a new lobby preserve the round boundary" {
     var buffer: [capacity]u8 = undefined;
     const admitted: Message = .{ .joined = .{ .admission = .{ .slot = 0, .generation = 3 }, .arena_floor = 155 } };
     try std.testing.expectEqualDeep(admitted, try Message.decode(try admitted.encode(&buffer)));
-    var roster: Message = .{ .roster = .{ .lobby = .dark_reign, .teams = true, .arena_floor = 155 } };
+    var roster: Message = .{ .roster = .{
+        .lobby = .dark_reign,
+        .teams = true,
+        .arena_floor = 155,
+        .options = .{ .ai_turrets = true, .target_players = false },
+    } };
     roster.roster.pilots[0] = .{ .generation = 3, .team = .fourth };
     try std.testing.expectEqualDeep(roster, try Message.decode(try roster.encode(&buffer)));
     roster.roster.lobby = .vampires;
@@ -1695,7 +1725,7 @@ test "stock team scores and a new lobby preserve the round boundary" {
     const view: Message = .{ .view = .{
         .tick = 156,
         .scenario = .dark_reign,
-        .ships = @splat(.{ .generation = 3, .position = @splat(0) }),
+        .ships = @splat(.{ .generation = 3, .position = @splat(0), .targetable = false, .respawn = 300 }),
         .objectives = .{ .dark_reign = .{ .relay = .{ .carried = 0 }, .yaw = 0 } },
         .teams = scores,
     } };

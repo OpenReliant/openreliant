@@ -101,17 +101,23 @@ cannons: ?game.aiioncan.Cannons = null,
 campaign: ?*Campaign = null,
 music: wire.MissionMusic.Queue = .{},
 last_music: ?wire.MissionMusic = null,
+options: game.deathmatch.Options = .{},
 
 pub fn create(gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory: std.Io.Dir) !*Arena {
+    return createWithOptions(gpa, mode, .{}, io, directory);
+}
+
+pub fn createWithOptions(gpa: std.mem.Allocator, mode: Mode, options: game.deathmatch.Options, io: std.Io, directory: std.Io.Dir) !*Arena {
     const arena = try gpa.create(Arena);
     errdefer gpa.destroy(arena);
-    try arena.init(gpa, mode, io, directory);
+    try arena.init(gpa, mode, options, io, directory);
     return arena;
 }
 
-fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory: std.Io.Dir) !void {
+fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, options: game.deathmatch.Options, io: std.Io, directory: std.Io.Dir) !void {
     try arena.mission.init(gpa);
     arena.mode = mode;
+    arena.options = options;
     arena.explosions = null;
     arena.devices = .{};
     arena.pilots = @splat(null);
@@ -164,9 +170,9 @@ fn loadAssets(arena: *Arena, io: std.Io, directory: std.Io.Dir) !*stock.Assets {
 }
 
 /// Prepare a stock arena with the lobby's admissions. Its objects hold pointers to its ship tables.
-pub fn prepareStock(arena: *const Arena, scenario: wire.Scenario, teams: bool, io: std.Io, directory: std.Io.Dir) !*Arena {
+pub fn prepareStock(arena: *const Arena, scenario: wire.Scenario, teams: bool, options: game.deathmatch.Options, io: std.Io, directory: std.Io.Dir) !*Arena {
     const gpa = arena.mission.objects.gpa;
-    const next = try create(gpa, .stockMode(scenario), io, directory);
+    const next = try createWithOptions(gpa, .stockMode(scenario), options, io, directory);
     errdefer next.destroy();
     next.carryAdmissions(arena);
     next.setTeams(teams);
@@ -313,6 +319,7 @@ fn effects(arena: *Arena) ?*game.explode.Explosions {
 
 fn world(arena: *Arena) game.gameobj.World {
     var scene = simulation.world(&arena.mission, arena.effects());
+    scene.arena_options = arena.options;
     if (arena.campaign) |campaign| {
         scene.damage_rules = .cooperative;
         scene.difficulty = .easy;
@@ -356,7 +363,10 @@ fn noteWreck(context: *anyopaque, wreck: wire.Wreck) void {
 fn noteCombat(context: *anyopaque, effect: game.guns.FlightEffect) void {
     const arena: *Arena = @ptrCast(@alignCast(context));
     switch (effect) {
-        .shot => |shot| if (shot.owner >= wire.slots) return,
+        .shot => |shot| {
+            // Arena turret fire uses the same visual events as pilot gunfire.
+            if (shot.owner >= wire.slots and arena.mode.scenario() == null) return;
+        },
         .nova => |beam| if (beam.owner.slot >= wire.slots) return,
         .impact, .wall => {},
     }
@@ -583,6 +593,7 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
             .kills = score.kills.count,
             .deaths = score.deaths,
             .cloaked = if (all.slots[index].cloak) |cloak| !cloak.going else false,
+            .targetable = arena.mode.scenario() == null or object.flags.targetable,
             .respawn = game.deathmatch.respawn.remaining(&all.slots[index], arena.mission.clock.frame_start),
             .at_wall = if (all.arena_boundary) |*boundary| boundary.outside(object.nextPosition()) else false,
             .dying = object.flags.exploding,
@@ -717,7 +728,7 @@ pub fn guide(arena: *const Arena, index: u8) wire.MissionView.Guide {
 
 test "the pilot stays admitted through destruction and old trigger input expires on respawn" {
     var arena: Arena = undefined;
-    try arena.init(std.testing.allocator, .training, std.testing.io, .cwd());
+    try arena.init(std.testing.allocator, .training, .{}, std.testing.io, .cwd());
     defer arena.deinit();
     _ = try arena.join(0, .predator);
     arena.mode = .@"nuclear-threat";
@@ -741,7 +752,7 @@ test "the pilot stays admitted through destruction and old trigger input expires
 
 test "a failed admission and an occupied respawn leave the rest of the round running" {
     var arena: Arena = undefined;
-    try arena.init(std.testing.allocator, .training, std.testing.io, .cwd());
+    try arena.init(std.testing.allocator, .training, .{}, std.testing.io, .cwd());
     defer arena.deinit();
     const all = arena.mission.objects;
     _ = try arena.join(0, .predator);
@@ -765,7 +776,7 @@ test "a failed admission and an occupied respawn leave the rest of the round run
 
 test "a Six Beacons blast queues the original kill line for network delivery" {
     var arena: Arena = undefined;
-    try arena.init(std.testing.allocator, .@"six-beacons", std.testing.io, .cwd());
+    try arena.init(std.testing.allocator, .@"six-beacons", .{}, std.testing.io, .cwd());
     defer arena.deinit();
     _ = try arena.join(0, .predator);
     _ = try arena.join(1, .shroud);

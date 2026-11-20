@@ -19,6 +19,20 @@ pub const hunt_the_shadow = @import("dmscenarios/hunt_the_shadow.zig");
 pub const vampires = @import("dmscenarios/vampires.zig");
 const math = @import("../surrender/math.zig");
 
+/// Stock deathmatch switches selected by the host in the lobby.
+pub const Options = struct {
+    ai_turrets: bool = false,
+    target_players: bool = true,
+
+    pub const Setting = enum { ai_turrets, target_players };
+
+    pub fn toggle(options: *Options, setting: Setting) void {
+        switch (setting) {
+            inline else => |key| @field(options, @tagName(key)) = !@field(options, @tagName(key)),
+        }
+    }
+};
+
 /// `cmd_ResetToSpawnPositions` (`0x004591B0`) selects the rules for this map once and
 /// rebuilds the admitted pilots' ships. An empty lobby leaves the spawn markers ready for joins.
 pub fn resetToSpawnPositions(world: gameobj.World) !void {
@@ -26,9 +40,11 @@ pub fn resetToSpawnPositions(world: gameobj.World) !void {
     const all = world.objects;
     const scenarios = @import("dmscenarios.zig");
     const scenario = scenarios.Scenario.forMission(all.mission_number) orelse return;
-    // The original leaves scenery guns off unless the host enables AI turrets.
-    for (all.slots[@min(all.players, all.count)..all.count]) |*slot| slot.object.flags.guns_disabled = true;
     if (all.arena_scenario == .deathmatch) {
+        // multiplayer_list_spawns (0x004AF5C0) disables scenery guns on the initial scan.
+        if (!world.arena_options.ai_turrets) {
+            for (all.slots[@min(all.players, all.count)..all.count]) |*slot| slot.object.flags.guns_disabled = true;
+        }
         switch (std.meta.activeTag(scenario.record().rules)) {
             .deathmatch => {},
             .six_beacons => try six_beacons.Round.start(world, .free_for_all),
@@ -50,6 +66,32 @@ pub fn resetToSpawnPositions(world: gameobj.World) !void {
         const index: u16 = @intCast(at);
         const pilot = all.playerBinding(index) orelse continue;
         try spawn.reset(world, pilot.participant, all.slots[index].object.type, null);
+    }
+}
+
+test "arena startup preserves authored guns only when AI turrets are on" {
+    for ([_]bool{ false, true }) |enabled| {
+        var mission: gameobj.testing.Mission = undefined;
+        try mission.init(std.testing.allocator);
+        defer mission.deinit();
+        const all = mission.objects;
+        all.mission_number = @import("dmscenarios.zig").Scenario.asteroid_field.record().mission;
+        all.players = spawn.positions;
+        all.count = all.players;
+        const live = try mission.add(.of(.predator), @splat(0));
+        const disabled = try mission.add(.of(.predator), .{ 0, 0, 1000 });
+        mission.slot(disabled).object.flags.guns_disabled = true;
+        var world = mission.world();
+        world.damage_rules = .{ .arena = null };
+        world.arena_options.ai_turrets = enabled;
+        try resetToSpawnPositions(world);
+        try std.testing.expectEqual(!enabled, mission.slot(live).object.flags.guns_disabled);
+        try std.testing.expect(mission.slot(disabled).object.flags.guns_disabled);
+
+        // A later ResetToSpawnPositions doesn't overwrite a script's gun changes.
+        mission.slot(live).object.flags.guns_disabled = false;
+        try resetToSpawnPositions(world);
+        try std.testing.expect(!mission.slot(live).object.flags.guns_disabled);
     }
 }
 

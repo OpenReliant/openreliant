@@ -937,13 +937,24 @@ pub fn drawShapeWith(
     scale: f32,
     how: Draw,
 ) Error!void {
+    try drawShapeAt(art, gpa, into, index, .{ @floatFromInt(at[0]), @floatFromInt(at[1]) }, colour, scale, how);
+}
+
+/// Draws a shape at a fractional anchor so layers can share the same scaled origin.
+pub fn drawShapeAt(
+    art: *Art,
+    gpa: Allocator,
+    into: device.Device,
+    index: usize,
+    at: Point,
+    colour: [4]f32,
+    scale: f32,
+    how: Draw,
+) Error!void {
     _ = art.shape(index) orelse return;
     const image = try art.image(gpa, index) orelse return;
     const found = art.placedAs(index) orelse return;
-    const corner: [2]f32 = .{
-        @as(f32, @floatFromInt(at[0])) + @as(f32, @floatFromInt(found.header.x1)) * scale,
-        @as(f32, @floatFromInt(at[1])) + @as(f32, @floatFromInt(found.header.y1)) * scale,
-    };
+    const corner: [2]f32 = .{ Clip.edge(at[0], found.header.x1, scale), Clip.edge(at[1], found.header.y1, scale) };
     drawImageAs(into, image, .{ found.width(), found.height() }, corner, colour, scale, how);
 }
 
