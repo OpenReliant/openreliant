@@ -247,11 +247,6 @@ Open **Multi Player** from the main menu. Under **Direct Connect**, type the ser
 For IPv6 with a port, use brackets, for example `[2001:db8::1]:27200`. The client opens
 one encrypted connection to the address. Pilots need no credential files.
 
-For co-op, set `Mission=relay-survey` in place of `Arena`. A player hosting on a LAN can
-choose **Host Game**, then **Co-op**, and start once a second pilot has joined. In Relay Survey,
-fly close to the two relays. The Objectives window shows the crew's shared progress. The host
-runs the mission script and sends the result to each pilot. Join before the mission starts.
-
 In Nuclear Threat, use your usual **Fire Lasers** control. The host advances the guns, applies
 hits and updates each pilot's shields, armour and kill count. When a carrier is destroyed, their
 beacons drop at the wreck. The pilot respawns in the fighter they chose and keeps their score.
@@ -308,10 +303,9 @@ your pilots can reach. Allow incoming UDP on `Port` and use the same port if you
 | `InviteAddress` | `BindAddress` | The IPv4 or IPv6 address to put in the invite. Set this to a specific address when listening on all interfaces |
 | `Port` | `27020` | The UDP port to listen on, from 1 to 65535 |
 | `Arena` | `nuclear-threat` | `nuclear-threat`, `asteroid-field`, `dark-reign`, `tag-bomb`, `hunt-the-shadow` or `vampires` for the stock missions. `six-beacons` and `training` are small transport test arenas |
-| `Mission` | Unset | `relay-survey` runs the built-in co-op mission. Leave out `Arena` when setting `Mission` |
-| `GameDirectory` | `.` | Installed game folder, relative to `server.ini` or an absolute path. Used by the stock arenas and Relay Survey |
+| `GameDirectory` | `.` | Installed game folder, relative to `server.ini` or an absolute path. Used by stock missions |
 | `Players` | `3` | The maximum pilots. This build supports 2 or 3, and starts the round once two are admitted |
-| `RoundTicks` | Unset | End a test round at this tick when set. A co-op mission also ends when its script gives a result |
+| `RoundTicks` | Unset | Keep the host running until stopped. Set a positive tick count to end a test round at that tick |
 
 ### Optional managed identity
 

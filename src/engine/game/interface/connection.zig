@@ -28,7 +28,7 @@ pub const Server = struct {
 };
 const chat = @import("../chat.zig");
 
-pub const Action = union(enum) { send_chat: chat.Line, back, host_lan: HostChoice.Kind, leave_session, launch_session, choose_ship: scenarios.Fighter, join: []const u8 };
+pub const Action = union(enum) { send_chat: chat.Line, back, host_lan, leave_session, launch_session, choose_ship: scenarios.Fighter, join: []const u8 };
 pub const Label = widgets.Label;
 
 address: language.Text(128) = .{},
@@ -81,8 +81,7 @@ pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, type
         screen.host_choice = null;
         return switch (action) {
             .cancel => null,
-            .deathmatch => .{ .host_lan = .deathmatch },
-            .cooperative => .{ .host_lan = .cooperative },
+            .deathmatch => .host_lan,
         };
     }
     if (screen.ship_picker) |*picker| {

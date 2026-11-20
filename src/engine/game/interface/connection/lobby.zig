@@ -28,7 +28,6 @@ notices: ?*const History = null,
 editor: chat_panel.Editor = .{},
 local_slot: usize,
 scenario: scenarios.Scenario = .nuclear_threat,
-cooperative: bool = false,
 ship: scenarios.Fighter = .predator,
 hover: ?Control = null,
 mode_open: bool = false,
@@ -52,14 +51,11 @@ const control_width = 180;
 
 const host_title: Label = .{ .english = "DEATHMATCH HOST", .installed = 0x2C1 };
 const guest_title: Label = .{ .english = "DEATHMATCH JOIN", .installed = 0x2D3 };
-const coop_title: Label = .{ .english = "CO-OP", .installed = 0x13D };
-pub const coop_mission_name = "Relay Survey";
 const players_label: Label = .{ .english = "PLAYERS", .installed = 0x141 };
 const fallback_player: Label = .{ .english = "PILOT", .installed = 0xBF };
 const host_label: Label = .{ .english = "HOST", .installed = 0x13C };
 const launch_label: Label = .{ .english = "START GAME", .installed = 0xB9 };
 const scenario_label: Label = .{ .english = "GAME TYPE", .installed = 0x139 };
-const mission_label: Label = .{ .english = "MISSION" };
 const ship_label: Label = .{ .english = "SHIP", .installed = 0x2C3 };
 const waiting_label: Label = .{ .english = "WAITING", .installed = 0x30E };
 const for_host_label: Label = .{ .english = "FOR HOST", .installed = 0x30F };
@@ -147,8 +143,8 @@ pub fn frame(lobby: *Lobby, pointer: ui.Pointer, keys: *input.Keyboard, typed: *
         .leave => .leave,
         .launch => .launch,
     };
-    if (!lobby.cooperative and fieldBox(layout, .ship).holds(at)) return .choose_ship;
-    if (!lobby.cooperative and lobby.role == .host and modeButton(layout).holds(at)) {
+    if (fieldBox(layout, .ship).holds(at)) return .choose_ship;
+    if (lobby.role == .host and modeButton(layout).holds(at)) {
         lobby.mode_open = true;
         lobby.preview = lobby.scenario;
         lobby.option_under = null;
@@ -162,7 +158,7 @@ pub fn draw(lobby: *const Lobby, original: ui.Canvas, art: *hud.Art) !void {
     canvas.share = layout.share;
     const players_box = box(layout, left_edge, divider);
     const game_box = box(layout, divider + gap, right_edge);
-    try widgets.title(canvas, layout.title(), if (lobby.cooperative) coop_title else if (lobby.role == .host) host_title else guest_title);
+    try widgets.title(canvas, layout.title(), if (lobby.role == .host) host_title else guest_title);
     widgets.panel(canvas, players_box);
     widgets.panel(canvas, game_box);
     try lobby.drawPlayers(canvas, players_box);
@@ -246,19 +242,13 @@ fn drawGame(lobby: *const Lobby, canvas: ui.Canvas, panel: ui.Rect, layout: Layo
     const inset = Layout.footer_inset;
     const x = panel.x + inset;
     const width = panel.width - 2 * inset;
-    const heading = if (lobby.cooperative) mission_label else scenario_label;
-    try widgets.fittedLabel(canvas, .{ x, panel.y + heading_y }, width, heading.text(strings), ui.white, .left);
+    try widgets.fittedLabel(canvas, .{ x, panel.y + heading_y }, width, scenario_label.text(strings), ui.white, .left);
     const mode = fieldBox(layout, .scenario);
+    try widgets.fittedLabel(canvas, .{ x, mode.y }, width, scenario_options[@backingInt(lobby.scenario)].text(strings), ui.blue, .left);
+    if (lobby.role == .host) try widgets.button(canvas, art, modeButton(layout), change_mode, true, lobby.mode_open);
     const ship = fieldBox(layout, .ship);
-    if (lobby.cooperative) {
-        try widgets.fittedLabel(canvas, .{ x, mode.y }, width, coop_mission_name, ui.blue, .left);
-        try canvas.wrapped(font, .{ x, ship.y - 21 }, "Fly past both relays to survey them. Stay in your lane as you approach.", ui.white, .left, .{ .width = width, .height = line_height, .most = 2 });
-    } else {
-        try widgets.fittedLabel(canvas, .{ x, mode.y }, width, scenario_options[@backingInt(lobby.scenario)].text(strings), ui.blue, .left);
-        if (lobby.role == .host) try widgets.button(canvas, art, modeButton(layout), change_mode, true, lobby.mode_open);
-        try widgets.fittedLabel(canvas, .{ x, ship.y - 18 }, width, ship_label.text(strings), ui.white, .left);
-        try widgets.button(canvas, art, ship, ShipPicker.label(lobby.ship), true, false);
-    }
+    try widgets.fittedLabel(canvas, .{ x, ship.y - 18 }, width, ship_label.text(strings), ui.white, .left);
+    try widgets.button(canvas, art, ship, ShipPicker.label(lobby.ship), true, false);
     var buffer: [128]u8 = undefined;
     const status = switch (lobby.role) {
         .host => |host| std.fmt.bufPrint(&buffer, "Join by LAN IP (UDP {d})", .{host.port}) catch unreachable,

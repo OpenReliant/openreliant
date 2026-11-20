@@ -77,7 +77,7 @@ pub const LocalGame = struct {
     server: credential.Server,
     host: Host,
 
-    pub fn start(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, client: *Client, port: u16, call_sign: wire.CallSign, cooperative: bool) !*LocalGame {
+    pub fn start(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, client: *Client, port: u16, call_sign: wire.CallSign) !*LocalGame {
         const game = try gpa.create(LocalGame);
         errdefer gpa.destroy(game);
         game.gpa = gpa;
@@ -88,7 +88,7 @@ pub const LocalGame = struct {
         errdefer net.session_deinit();
         const arena = try Arena.create(gpa, .training, io, directory);
         errdefer arena.destroy();
-        game.host = .{ .io = io, .arena = arena, .signer = &game.server, .lan_only = true, .start = .{ .lobby = .{ .cooperative = cooperative } } };
+        game.host = .{ .io = io, .arena = arena, .signer = &game.server, .lan_only = true, .start = .{ .lobby = .{} } };
 
         var address_buffer: [credential.Invite.max_address]u8 = undefined;
         const address = try std.fmt.bufPrintSentinel(&address_buffer, "[::]:{d}", .{port}, 0);
@@ -106,9 +106,7 @@ pub const LocalGame = struct {
     pub fn launch(game: *LocalGame) !void {
         if (!game.host.canLaunch()) return;
         const staging = game.host.arena;
-        const lobby = game.host.start.lobby;
-        const mode: Arena.Mode = if (lobby.cooperative) .cooperative else .stockMode(lobby.scenario);
-        game.host.arena = try staging.prepare(mode, game.host.io, game.directory);
+        game.host.arena = try staging.prepareStock(game.host.start.lobby.scenario, game.host.io, game.directory);
         staging.destroy();
         game.host.launch();
     }

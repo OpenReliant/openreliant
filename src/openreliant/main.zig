@@ -1181,8 +1181,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .choose_ship, .send_chat => {},
                 }
                 flow.next = switch (outcome) {
-                    .host_lan => |kind| {
-                        if (network_enabled) network_pilot.hostLan(io, gpa, directory, &front.connection, &front.pilot.call_sign, kind);
+                    .host_lan => {
+                        if (network_enabled) network_pilot.hostLan(io, gpa, directory, &front.connection, &front.pilot.call_sign);
                         continue;
                     },
                     .leave_session => {
