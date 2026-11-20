@@ -93,6 +93,8 @@ chat shows the installed system message for that callsign (`0x004B7160` and `0x0
 fill the chat history. The host still applies every readiness change.
 
 The browser reads matching labels from the installed language table, with English fallbacks.
+The browser and the mode and fighter pickers fill selected rows to the inner edges of their
+frames and centre the text vertically. In the pickers, the pointer lights the label under it.
 A pilot returns to the browser with the host-departure message (string `0x3B7` from the
 session loss path at `0x004B6C11`) if the host closes the session. A connection lost to a
 transport failure uses the separate connection warning (string `0x5F1`).
@@ -530,6 +532,9 @@ Each pass of its loop:
 
 `callsign_list` (`0x005D5E8C`) holds the call signs of the last ten pilots, 50 bytes each, which `starlancer.ini` keeps as `name00` to `name09` under `[CallsignList]`. Every place is a row of the list, an empty one too (`callsign_count`, `0x00595D98`). As the game starts, `WinMain` reads them (`callsigns_load`, `0x004AAE00`), the first PLAYER (string `0xBF`) where the file has none, and writes them straight back (`callsigns_save`, `0x004AAEE0`, which then reads them again).
 
+**Improvement:** callsigns are vertically centred within their dropdown rows. `--original`
+uses the retail text position.
+
 `callsign_add` (`0x00430B80`) leaves a call sign the list holds as it is. Another goes in the first empty place, or, once the list is full, in the last, the rest moved up a place and the first let go; then the list is saved.
 
 ### SET GAME DIFFICULTY
@@ -569,11 +574,15 @@ OpenReliant keeps what the roster sets in `Interface.pilot`, which flies every m
 | Title | Centred on (320, 86) | LOAD GAME FOR (`0x55F`) or SAVE GAME FOR (`0x560`), then the call sign in capitals, large, blue |
 | The list's frame, the details' frame | (45, 126), 530 by 175; (45, 321), 550 by 38 | `interface_box` |
 | Heads | y 107 | GAMES (`0xE3`) from x 45, PILOT (`0xE4`) centred on 320, MISSION (`0xE5`) to the left of 575, small, blue |
-| Rows, ten at most | 17 apart from (49, 126), each 400 by 17 | The save's name from x 49, its pilot centred on 320, the mission's number as the player sees it to the left of 570; blue, the selected row white over a bar of pure blue from x 49 to 572, y 2 to 19 below the row's |
+| Rows, ten at most | 17 apart from (49, 126), each 400 by 17 | The save's name starts at x 49, the pilot is centred on 320, and the displayed mission number ends at x 570. The selected row uses white text on a blue bar, from y 2 to 19 below the row's start. |
 | Details | GAME INFORMATION (`0xE6`) at (49, 302); `Callsign:` at (49, 322), `Rank:` at (49, 339), `Level:` at (290, 322), `Time:` at (290, 339) | The selected save's pilot at (113, 322), rank at (113, 339) and level at (350, 322), from its `MISS`; the date its file was written at (350, 339), as `%02d:%02d` then two spaces and `ddd',' MMM dd yyyy` |
 | Arrows | (579, 250) and (579, 268), each 26 by 16 | Shape 28, lit 29 up or 25 down under the pointer |
 | Buttons | BACK (292, 421), LOAD GAME or NEW SAVE GAME (324, 421), MAIN MENU (292, 441), QUIT (324, 441), each 25 by 16 | Shape 26, lit 27 under the pointer, the label small, blue, white under the pointer |
 | The name, saving | Its frame (45, 380), 358 by 20; the name at (49, 378), large, white, with `_` after it; OK at (562, 384), 32 by 20 | Shape 22, lit 23; SAVE GAME (`0x54D`) to the left of (562, 384) |
+
+**Improvement:** the selected save fills the list frame to its inner edges. The save name, pilot
+and mission share a vertically centred baseline. `--original` uses the retail inset from x 49
+to 572 and the retail text positions.
 
 Each pass, Escape leaves, and Down and Up scroll the list a row while held, where it holds more than ten. A press acts on the pass it is first seen, but for the arrows', which scroll a row each pass it is held. Rows never light under the pointer; a click on a row selects it, and a second click on the row selected loads it, or, saving, starts typing its name. Saving, the autosave can't be selected. LOAD GAME loads the row selected, and waits for the button to come up. The name typed takes 18 characters at most, and its cursor turns every 25 ticks; Enter, or a click on OK, saves the game under it in the slot selected. NEW SAVE GAME, once a visit, saves the game in the slot after the last found, named Empty Save Game (`0x179`), selects it with the game's rank and level, loads it back, and starts typing its name from Empty Save Game; leaving without saving removes it. A save that fails puts up a box saying so (`save_error_dialog`, `0x0042A870`), which OK closes. There is no DELETE, and no question before a save goes over another.
 

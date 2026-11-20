@@ -200,6 +200,7 @@ pub const Resources = struct {
     debrief_background: matmanager.Background = .{},
     lobby_background: matmanager.Background = .{},
     tried_lobby_background: bool = false,
+    original_look: bool = false,
     lobby_help_font: ?hud.FontFile = null,
     lobby_help_shapes: ?canvas.Shapes = null,
     tried_lobby_help: bool = false,
@@ -912,6 +913,7 @@ pub const Interface = struct {
             .window = window,
             .fonts = .{ .large = &resources.large.font, .small = &resources.small.font },
             .strings = strings,
+            .original_look = resources.original_look,
             .version = version,
         };
         var background = &resources.background;

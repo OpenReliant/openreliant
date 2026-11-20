@@ -1110,6 +1110,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             if (front_resources == null) {
                 front_resources = try .open(gpa, resources, &outlines);
                 front_resources.?.itac_strings = itac_strings;
+                front_resources.?.original_look = options.original;
                 rooms = .{
                     .movies = &movies,
                     .sound = sound,

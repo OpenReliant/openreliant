@@ -59,6 +59,7 @@ const row_box_at: [2]i32 = .{ 398, -2 };
 const row_box_size: [2]i32 = .{ 140, 24 };
 const row_wipe_to: [2]i32 = .{ 536, 20 };
 const row_text_at: [2]i32 = .{ 404, 2 };
+const row_fill_height = row_wipe_to[1] + 1;
 
 /// The rectangle of the list's row `row`.
 fn rowRect(row: usize) Rect {
@@ -466,11 +467,12 @@ pub const Roster = struct {
             try canvas.shape(art, placed.shapes.lit, placed.at);
         };
         if (roster.list_open) {
+            const text_offset = if (canvas.original_look) row_text_at[1] else try canvas.rowTextOffset(small, row_fill_height);
             for (&roster.list.names, 0..) |*name, row| {
                 const rect = rowRect(row);
                 canvas.box(.{ row_box_at[0], rect.y + row_box_at[1] }, row_box_size);
                 canvas.wipe(.{ rect.x, rect.y }, .{ row_wipe_to[0], rect.y + row_wipe_to[1] }, black);
-                try canvas.text(small, .{ row_text_at[0], rect.y + row_text_at[1] }, name.slice(), white, .left);
+                try canvas.text(small, .{ row_text_at[0], rect.y + text_offset }, name.slice(), white, .left);
             }
         }
         if (roster.difficulty) |box| try box.draw(canvas, art, pilot.difficulty);

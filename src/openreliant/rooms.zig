@@ -973,6 +973,7 @@ pub const Driver = struct {
             .target = driver.movies.presenter.gpu.interface(),
             .window = window,
             .fonts = .{ .large = &driver.front.large.font, .small = &driver.front.small.font },
+            .original_look = driver.front.original_look,
             .strings = driver.strings,
             .version = version.string,
         };

@@ -46,10 +46,21 @@ pub fn modal(canvas: ui.Canvas, rect: ui.Rect) void {
 }
 
 pub fn fittedLabel(canvas: ui.Canvas, at: [2]i32, width: i16, words: []const u8, colour: [3]f32, alignment: hud.Align) !void {
+    try drawFittedLabel(canvas, at, width, null, words, colour, alignment);
+}
+
+pub fn fittedRowLabel(canvas: ui.Canvas, cell: ui.Rect, words: []const u8, colour: [3]f32) !void {
+    try drawFittedLabel(canvas, .{ cell.x, cell.y }, cell.width, cell.height, words, colour, .left);
+}
+
+fn drawFittedLabel(canvas: ui.Canvas, at: [2]i32, width: i16, row_height: ?i16, words: []const u8, colour: [3]f32, alignment: hud.Align) !void {
     const font = canvas.fonts.small;
     const measured: f32 = @floatFromInt(@max(1, font.textWidth(words)));
     const fit = @min(1, @as(f32, @floatFromInt(width)) / measured);
-    _ = try hud.drawTextIn(font, canvas.gpa, canvas.target, canvas.point(at), words, hud.atBrightness(colour, canvas.brightness), alignment, canvas.scale() * fit, null);
+    const scale = canvas.scale();
+    var point = canvas.point(at);
+    if (row_height) |height| point[1] += hud.round(try ui.centredInkOffset(font, @as(f32, @floatFromInt(height)) * scale, scale * fit));
+    _ = try hud.drawTextIn(font, canvas.gpa, canvas.target, point, words, hud.atBrightness(colour, canvas.brightness), alignment, scale * fit, null);
 }
 
 pub fn title(canvas: ui.Canvas, at: [2]i32, label: Label) !void {

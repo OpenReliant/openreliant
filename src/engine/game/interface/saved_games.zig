@@ -102,8 +102,10 @@ const first_row: Rect = .{ .x = 49, .y = 126, .width = 400, .height = 17 };
 const row_spacing = 17;
 const pilot_x = 320;
 const mission_x = 570;
-const bar_from: [2]i32 = .{ 49, 2 };
-const bar_to: [2]i32 = .{ 572, 19 };
+const stock_bar_left = 49;
+const stock_bar_right = 572;
+const bar_top = 2;
+const bar_bottom = 19;
 const bar_colour = hud.rgb(0x0000FF);
 
 fn rowRect(row: usize) Rect {
@@ -169,8 +171,7 @@ const load_title = 0x55F;
 const save_title = 0x560;
 
 /// The frames of the list and of the details.
-const list_box_at: [2]i32 = .{ 45, 126 };
-const list_box_size: [2]i32 = .{ 530, 175 };
+const list_frame: Rect = .{ .x = 45, .y = 126, .width = 530, .height = 175 };
 const details_box_at: [2]i32 = .{ 45, 321 };
 const details_box_size: [2]i32 = .{ 550, 38 };
 
@@ -590,7 +591,7 @@ pub const SavedGames = struct {
     pub fn draw(screen: SavedGames, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, call_sign: []const u8) canvas_module.Error!void {
         const large = canvas.fonts.large;
         const small = canvas.fonts.small;
-        canvas.box(list_box_at, list_box_size);
+        canvas.box(.{ list_frame.x, list_frame.y }, .{ list_frame.width, list_frame.height });
         canvas.box(details_box_at, details_box_size);
         var title_buffer: [96]u8 = undefined;
         const heading = canvas.strings.string(if (screen.mode == .load) load_title else save_title) orelse "";
@@ -620,16 +621,24 @@ pub const SavedGames = struct {
             } else false;
             try shownButton(button, screen.mode).draw(canvas, art, button_shapes, lit);
         }
+        const bar_height = bar_bottom - bar_top + 1;
+        const text_offset = if (canvas.original_look) 0 else bar_top + try canvas.rowTextOffset(small, bar_height);
         for (screen.scrolled.first..screen.scrolled.end()) |slot| {
             const y = rowRect(slot - screen.scrolled.first).y;
             const selected = if (screen.selected) |chosen| chosen == slot else false;
             const colour = if (selected) white else blue;
-            if (selected) canvas.wipe(.{ bar_from[0], y + bar_from[1] }, .{ bar_to[0], y + bar_to[1] }, bar_colour);
+            if (selected) {
+                if (canvas.original_look) {
+                    canvas.wipe(.{ stock_bar_left, y + bar_top }, .{ stock_bar_right, y + bar_bottom }, bar_colour);
+                } else {
+                    canvas.fillRow(list_frame.framedRow(y + bar_top, bar_height), bar_colour);
+                }
+            }
             const listed = &screen.list[slot];
-            try canvas.text(small, .{ first_row.x, y }, listed.name.slice(), colour, .left);
-            try canvas.text(small, .{ pilot_x, y }, listed.pilot.slice(), colour, .centre);
+            try canvas.text(small, .{ first_row.x, y + text_offset }, listed.name.slice(), colour, .left);
+            try canvas.text(small, .{ pilot_x, y + text_offset }, listed.pilot.slice(), colour, .centre);
             var number: [8]u8 = undefined;
-            try canvas.text(small, .{ mission_x, y }, std.mem.print(&number, "{d}", .{gameflow.displayNumber(listed.mission)}) catch "", colour, .right);
+            try canvas.text(small, .{ mission_x, y + text_offset }, std.mem.print(&number, "{d}", .{gameflow.displayNumber(listed.mission)}) catch "", colour, .right);
         }
         if (screen.selected) |slot| {
             try canvas.string(small, rank_at, gameflow.rank_names[screen.rank], blue, .left);

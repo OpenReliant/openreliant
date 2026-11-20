@@ -219,7 +219,7 @@ const headers = [4]Label{
     .{ .english = "PING" },
 };
 
-fn cells(canvas: ui.Canvas, layout: Layout, y: i16, words: [4][]const u8, colour: [3]f32, heading: bool) !void {
+fn cells(canvas: ui.Canvas, layout: Layout, y: i16, words: [4][]const u8, colour: [3]f32, text_offset: ?i32) !void {
     const list = layout.list;
     var columns: [5]i16 = undefined;
     for (&columns, [_]i32{ 0, 46, 68, 88, 100 }) |*column, percent| column.* = @intCast(@divTrunc(@as(i32, list.width) * percent, 100));
@@ -231,10 +231,10 @@ fn cells(canvas: ui.Canvas, layout: Layout, y: i16, words: [4][]const u8, colour
             .centre => cell.centre()[0],
             else => cell.x,
         };
-        if (heading) {
-            try widgets.fittedLabel(canvas, .{ x, y }, cell.width, word, colour, alignment);
+        if (text_offset) |offset| {
+            try canvas.within(cell).text(canvas.fonts.small, .{ x, y + offset }, word, colour, alignment);
         } else {
-            try canvas.within(cell).text(canvas.fonts.small, .{ x, y }, word, colour, alignment);
+            try widgets.fittedLabel(canvas, .{ x, y }, cell.width, word, colour, alignment);
         }
     }
 }
@@ -283,25 +283,26 @@ fn drawList(screen: *const Connection, canvas: ui.Canvas, layout: Layout) !void 
     const font = canvas.fonts.small;
     var column_names: [headers.len][]const u8 = undefined;
     for (&column_names, headers) |*name, label| name.* = label.text(canvas.strings.*);
-    try cells(canvas, layout, layout.list.y + 3, column_names, hud.rgb(0x85A7B5), true);
+    try cells(canvas, layout, layout.list.y + 3, column_names, hud.rgb(0x85A7B5), null);
+    const text_offset = try canvas.rowTextOffset(font, Layout.row_height);
     const list = screen.servers();
     const first = @min(screen.first, list.len -| layout.rows());
     for (list[first..][0..@min(list.len - first, layout.rows())], first..) |server, i| {
         const y = layout.rowTop(i - first);
         const chosen = i == screen.selected;
-        if (chosen) canvas.wipe(.{ layout.list.x + 2, y }, .{ layout.list.x + layout.list.width - 2, y + Layout.row_height - 1 }, hud.rgb(0x193C4C));
+        if (chosen) canvas.fillRow(layout.list.framedRow(y, Layout.row_height), hud.rgb(0x193C4C));
         var counts: [16]u8 = undefined;
         var ping: [5]u8 = undefined;
         const population = std.fmt.bufPrint(&counts, "{d} / {d}", .{ server.players, server.capacity }) catch unreachable;
         const latency = if (server.ping_ms) |ms| std.fmt.bufPrint(&ping, "{d}", .{ms}) catch unreachable else "?";
-        try cells(canvas, layout, y + 2, .{ server.name, server.mode, population, latency }, if (chosen) ui.white else ui.blue, false);
+        try cells(canvas, layout, y, .{ server.name, server.mode, population, latency }, if (chosen) ui.white else ui.blue, text_offset);
     }
     if (list.len == 0) {
         const empty = if (screen.source == .internet)
             "Internet discovery unavailable"
         else
             "LAN discovery unavailable";
-        try canvas.text(font, .{ layout.list.x + Layout.inset, layout.rowTop(0) + 2 }, empty, ui.blue, .left);
+        try canvas.text(font, .{ layout.list.x + Layout.inset, layout.rowTop(0) + text_offset }, empty, ui.blue, .left);
     }
 }
 
