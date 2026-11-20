@@ -13,6 +13,8 @@ const identity = @import("identity.zig");
 const HandshakeBudget = @import("handshake_budget").Window(wire.slots);
 const Host = @This();
 const ChatBudget = @import("chat_budget.zig");
+const LaunchWait = @import("launch_wait.zig");
+const Metrics = @import("metrics.zig");
 const Crew = game.interface.Connection.DebriefCrew;
 const log = std.log.scoped(.network_host);
 const CoopRescues = game.gameflow.save.CoopRescues;
@@ -34,10 +36,8 @@ const paused_roster_interval = std.time.us_per_s;
 const slow_round_trip = 100 * std.time.ms_per_s / game.main.ticks_per_second;
 const packets_per_tick = 4;
 const scene_pages_per_tick = 3;
-// A dedicated team room gives pilots a moment to pick a side before launch.
-const arena_intermission = 5 * std.time.us_per_s;
 const max_identity = 32;
-pub const pilots_to_start = 2;
+pub const pilots_to_start = LaunchWait.minimum_players;
 
 const Peer = struct {
     conn: net.Connection,
@@ -70,7 +70,8 @@ arena_floor: u32 = 0,
 arena_teams: bool = false,
 arena_options: game.deathmatch.Options = .{},
 repeat_rounds: bool = false,
-restart_at: ?i64 = null,
+launch_wait: LaunchWait = .{},
+metrics: ?*Metrics = null,
 start: union(enum) {
     automatic,
     lobby: struct { scenario: wire.Scenario = .asteroid_field, mission: ?u16 = null },
@@ -113,10 +114,32 @@ fn release(host: *Host, slot: u8) void {
     host.remove(slot, host.final_tick == null, .normal);
 }
 
-const Departure = enum { normal, dropped, retired };
+const Departure = Metrics.Departure;
+
+fn channel(host: *const Host) net.Channel {
+    return .{ .traffic = if (host.metrics) |exporter| &exporter.stats.traffic else null };
+}
+
+fn joinOutcome(host: *Host, outcome: Metrics.Join) void {
+    if (host.metrics) |exporter| exporter.stats.joins.getPtr(outcome).* += 1;
+}
+
+fn roundStats(host: *Host) ?*Metrics.Stats.Rounds {
+    const exporter = host.metrics orelse return null;
+    return if (host.arena.campaign != null) &exporter.stats.cooperative else exporter.stats.rounds.getPtr(host.arena.mode);
+}
 
 fn remove(host: *Host, slot: u8, announce: bool, departure: Departure) void {
     const peer = host.peers[slot] orelse return;
+    if (peer.state == .playing) {
+        if (host.metrics) |exporter| exporter.stats.departures.getPtr(departure).* += 1;
+    } else {
+        host.joinOutcome(if (peer.state == .closing) .rejected else switch (departure) {
+            .rejected => .rejected,
+            .timed_out => .timed_out,
+            else => .abandoned,
+        });
+    }
     if (host.arena.pilots[slot]) |pilot| {
         if (announce and peer.state == .playing) {
             if (host.start == .lobby or host.debrief != null)
@@ -138,7 +161,7 @@ fn remove(host: *Host, slot: u8, announce: bool, departure: Departure) void {
     }
     if (slot == 0 and host.paused) host.setPaused(false);
     switch (departure) {
-        .normal => net.session_close(peer.conn),
+        .normal, .timed_out, .rejected => net.session_close(peer.conn),
         .dropped => net.session_drop(peer.conn),
         .retired => {},
     }
@@ -157,7 +180,7 @@ fn pilotNotice(host: *Host, slot: u8, generation: u64, name: ?wire.CallSign, kin
 fn sendPlaying(host: *const Host, message: wire.Message, except: ?u8) void {
     for (host.peers, 0..) |entry, slot| {
         const peer = entry orelse continue;
-        if (peer.state == .playing and except != @as(u8, @intCast(slot))) net.send(peer.conn, message) catch continue;
+        if (peer.state == .playing and except != @as(u8, @intCast(slot))) host.channel().send(peer.conn, message) catch continue;
     }
 }
 
@@ -187,8 +210,8 @@ fn relayChat(host: *Host, slot: u8, peer: *Peer, request: wire.ChatRequest, time
     switch (route) {
         .broadcast => host.sendPlaying(message, null),
         .private => |recipient| {
-            net.send(recipient, message) catch return;
-            net.send(peer.conn, message) catch return;
+            host.channel().send(recipient, message) catch return;
+            host.channel().send(peer.conn, message) catch return;
         },
     }
 }
@@ -305,7 +328,7 @@ fn seatCampaignCrew(host: *Host) !void {
             host.arena.leave(@intCast(index));
             host.peers[seat] = peer;
             host.peers[index] = null;
-            net.send(peer.conn, .{ .campaign_seat = admission }) catch {
+            host.channel().send(peer.conn, .{ .campaign_seat = admission }) catch {
                 host.release(seat);
                 continue;
             };
@@ -327,7 +350,7 @@ fn enterFlight(host: *Host) void {
         if (peer.state == .playing) peer.expires = expires;
     };
     host.start = .launched;
-    host.restart_at = null;
+    host.launch_wait.reset();
     host.roster_dirty = true;
 }
 
@@ -369,7 +392,7 @@ pub fn returnToArenaLobby(host: *Host) !void {
     flown.destroy();
     host.start = .{ .lobby = .{ .scenario = scenario } };
     host.arena_floor = host.tick;
-    host.restart_at = null;
+    host.launch_wait.reset();
     host.paused = false;
     host.paused_view_pending = false;
     host.projectile_pages = @splat(false);
@@ -400,6 +423,7 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
                     break;
                 }
             }
+            host.joinOutcome(.rejected);
         },
         .authenticated => if (slot) |index| {
             const peer = &host.peers[index].?;
@@ -423,7 +447,7 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
         .closed, .lost, .dropped => {},
     }
     if (slot) |index| {
-        host.release(index);
+        host.remove(index, host.final_tick == null, if (event == .authenticated) .rejected else .normal);
     } else {
         for (&host.retiring) |*entry| if (entry.* != null and entry.*.?.conn == conn) {
             entry.* = null;
@@ -494,7 +518,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
         .joining => {
             if (host.final_tick != null or message != .join) return false;
             if (!message.join.compatible()) {
-                try net.send(peer.conn, .{ .wrong_protocol = .local });
+                try host.channel().send(peer.conn, .{ .wrong_protocol = .local });
                 peer.state = .closing;
                 peer.expires = time + timeout;
                 return true;
@@ -509,14 +533,16 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                 else => return err,
             };
             peer.state = .playing;
+            host.joinOutcome(.admitted);
             peer.announce_join = host.start != .lobby and host.tick != host.arena_floor;
             peer.expires = time + timeout;
-            try net.send(peer.conn, .{ .joined = .{ .admission = admitted, .arena_floor = host.arena_floor } });
+            try host.channel().send(peer.conn, .{ .joined = .{ .admission = admitted, .arena_floor = host.arena_floor } });
+            host.launch_wait.reset();
             if (host.arena_teams and host.start != .lobby) host.arena.pickTeam(slot, host.arena.leastPopulatedTeam(slot));
             if (host.tick != 0) if (host.arena.last_music) |last| {
                 var cue = last;
                 cue.now = true;
-                try net.send(peer.conn, .{ .mission_music = cue });
+                try host.channel().send(peer.conn, .{ .mission_music = cue });
             };
             if (host.paused) {
                 var view = try host.arena.snapshot(host.tick);
@@ -524,10 +550,10 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                 view.countPilotPages();
                 var pilots: PilotPackets = undefined;
                 try pilots.encode(&view);
-                try pilots.send(peer.conn, true);
+                try pilots.send(host.channel(), peer.conn, true);
                 var buffer: [wire.capacity]u8 = undefined;
                 try host.sendView(&view, slot, .paused, &buffer);
-                if (host.arena.scenery(host.tick)) |scenery| try net.send(peer.conn, .{ .scenery = scenery });
+                if (host.arena.scenery(host.tick)) |scenery| try host.channel().send(peer.conn, .{ .scenery = scenery });
             }
             host.roster_dirty = true;
             log.info("joined {d} {d}", .{ slot, admitted.generation });
@@ -600,14 +626,14 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
 fn service(host: *Host, slot: u8, time: i64) !void {
     const peer = if (host.peers[slot]) |*peer| peer else return;
     if (peer.state != .playing and time >= peer.expires) {
-        host.release(slot);
+        host.remove(slot, host.final_tick == null, .timed_out);
         return;
     }
     if (peer.state == .connecting or peer.state == .closing) return;
     var buf: [wire.capacity]u8 = undefined;
     for (0..packets_per_tick) |_| {
-        const message = net.receive(peer.conn, &buf) catch {
-            host.release(slot);
+        const message = host.channel().receive(peer.conn, &buf) catch {
+            host.remove(slot, host.final_tick == null, .rejected);
             return;
         } orelse break;
         const keep = host.receive(slot, peer, message, time) catch |err| switch (err) {
@@ -615,14 +641,15 @@ fn service(host: *Host, slot: u8, time: i64) !void {
             else => return err,
         };
         if (!keep) {
-            host.release(slot);
+            const departure: Departure = if (message == .leave or message == .received_final) .normal else .rejected;
+            host.remove(slot, host.final_tick == null, departure);
             return;
         }
         if (peer.state == .closing) return;
     }
     // A headed host can spend time opening a film. Give admitted pilots one bounded receive
     // pass to deliver queued keepalives before expiring them.
-    if (time >= peer.expires) host.release(slot);
+    if (time >= peer.expires) host.remove(slot, host.final_tick == null, .timed_out);
 }
 
 fn servicePeers(host: *Host, time: i64) !void {
@@ -670,7 +697,7 @@ fn publishRoster(host: *Host) !void {
     for (host.peers, 0..) |entry, slot| {
         const peer = entry orelse continue;
         if (peer.state != .playing) continue;
-        net.sendBytes(peer.conn, bytes, true) catch host.release(@intCast(slot));
+        host.channel().sendBytes(peer.conn, bytes, true) catch host.release(@intCast(slot));
     }
 }
 
@@ -712,7 +739,7 @@ fn broadcast(host: *Host, view: wire.Snapshot, delivery: Delivery) !void {
         const peer = if (entry.*) |*peer| peer else continue;
         if (peer.state != .playing) continue;
         if (delivery == .split_result and host.debrief.?.eligible.isSet(slot)) continue;
-        pilots.send(peer.conn, reliable) catch {
+        pilots.send(host.channel(), peer.conn, reliable) catch {
             if (reliable) host.release(@intCast(slot));
             continue;
         };
@@ -740,8 +767,8 @@ const PilotPackets = struct {
         }
     }
 
-    fn send(packets: *const PilotPackets, conn: net.Connection, reliable: bool) !void {
-        for (0..packets.count) |index| try net.sendBytes(conn, packets.buffers[index][0..packets.lengths[index]], reliable);
+    fn send(packets: *const PilotPackets, transport: net.Channel, conn: net.Connection, reliable: bool) !void {
+        for (0..packets.count) |index| try transport.sendBytes(conn, packets.buffers[index][0..packets.lengths[index]], reliable);
     }
 };
 
@@ -792,7 +819,7 @@ fn sendView(host: *const Host, view: *wire.Snapshot, slot: u8, delivery: Deliver
         .final => .{ .finished = view.* },
         .debrief, .split_result => .{ .campaign_result = view.* },
     };
-    try net.sendBytes(host.peers[slot].?.conn, try message.encode(buffer), delivery != .flight);
+    try host.channel().sendBytes(host.peers[slot].?.conn, try message.encode(buffer), delivery != .flight);
 }
 
 fn noticeName(host: *const Host, pilot: game.players.ParticipantRef) wire.CallSign {
@@ -813,7 +840,7 @@ fn broadcastNotices(host: *Host) void {
                 const peer = maybe orelse continue;
                 if (peer.state != .playing) continue;
                 if (notice.kind == .waiting_for_players and slot != notice.pilot.slot) continue;
-                net.send(peer.conn, message) catch host.release(@intCast(slot));
+                host.channel().send(peer.conn, message) catch host.release(@intCast(slot));
             }
         },
         .uber_kill => |notice| host.sendPlaying(.{ .uber_kill = .{
@@ -848,7 +875,7 @@ fn broadcastCombat(host: *Host) !void {
         const bytes = try (wire.Message{ .combat = batch }).encode(&buffer);
         for (host.peers) |entry| {
             const peer = entry orelse continue;
-            if (peer.state == .playing) net.sendBytes(peer.conn, bytes, false) catch continue;
+            if (peer.state == .playing) host.channel().sendBytes(peer.conn, bytes, false) catch continue;
         }
     }
 }
@@ -887,7 +914,7 @@ fn broadcastProjectiles(host: *Host) !void {
             const bytes = try (wire.Message{ .projectiles = page }).encode(&buffer);
             for (host.peers) |entry| {
                 const peer = entry orelse continue;
-                if (peer.state == .playing) net.sendBytes(peer.conn, bytes, false) catch continue;
+                if (peer.state == .playing) host.channel().sendBytes(peer.conn, bytes, false) catch continue;
             }
         }
     }
@@ -917,7 +944,7 @@ pub fn close(host: *Host) void {
 fn sendCampaignPhase(host: *Host, message: wire.Message) void {
     for (host.peers, 0..) |entry, slot| {
         const peer = entry orelse continue;
-        if (peer.state == .playing) net.send(peer.conn, message) catch host.release(@intCast(slot));
+        if (peer.state == .playing) host.channel().send(peer.conn, message) catch host.release(@intCast(slot));
     }
 }
 
@@ -1009,7 +1036,7 @@ fn stageCampaign(host: *Host, time: i64, number: u16, second_part: bool, advance
         while (excluded.next()) |slot| {
             const index: u8 = @intCast(slot);
             const peer = host.peers[index].?;
-            if (net.send(peer.conn, .{ .campaign_retired = host.tick })) |_| {
+            if (host.channel().send(peer.conn, .{ .campaign_retired = host.tick })) |_| {
                 if (host.retiring[index]) |retired| net.session_close(retired.conn);
                 host.retiring[index] = .{ .conn = peer.conn, .until = time + wire.campaign_movie_timeout };
                 host.remove(index, false, .retired);
@@ -1112,24 +1139,22 @@ pub fn pump(host: *Host) !enum { running, finished } {
         host.roster_dirty = true;
     } else switch (host.start) {
         .lobby => {
-            if (!host.lan_only) {
-                if (host.playingCount() < pilots_to_start) {
-                    host.restart_at = null;
-                } else if (host.restart_at) |ready| {
-                    if (time >= ready) try host.startArena();
-                } else host.restart_at = time + arena_intermission;
-            }
+            if (!host.lan_only and host.launch_wait.ready(host.playingCount(), time)) try host.startArena();
             return .running;
         },
         .automatic => if (host.tick == 0) {
-            const needed = if (host.campaign_start != null) host.player_limit else pilots_to_start;
-            if (host.playingCount() < needed) return .running;
+            if (!host.launch_wait.ready(host.playingCount(), time)) return .running;
             if (host.campaign_start) |pending| {
                 host.beginBriefing(pending.number, pending.directory);
                 return .running;
             }
         },
         .launched => {},
+    }
+    const starting_round = host.tick == host.arena_floor or host.campaign_start != null;
+    if (host.repeat_rounds and !starting_round and host.playingCount() == 0) {
+        try host.returnToArenaLobby();
+        return .running;
     }
     if (host.campaign_start) |pending| {
         const staging = host.arena;
@@ -1151,10 +1176,20 @@ pub fn pump(host: *Host) !enum { running, finished } {
             if (entry.*) |*peer| peer.expires = expires;
         }
     }
+    if (starting_round) if (host.roundStats()) |rounds| {
+        rounds.started += 1;
+    };
     host.applyControls(time);
     host.tick += 1;
-    const view = host.arena.step(host.tick) catch |err| switch (err) {
+    const step_started = if (host.metrics != null) host.now() else 0;
+    const step = host.arena.step(host.tick);
+    if (host.metrics) |exporter| {
+        exporter.stats.ticks += 1;
+        exporter.stats.step_us += @intCast(@max(0, host.now() - step_started));
+    }
+    const view = step catch |err| switch (err) {
         error.ArenaEnded => if (host.arena_directory != null and host.arena.mode.scenario() != null) {
+            if (host.roundStats()) |rounds| rounds.completed += 1;
             try host.returnToArenaLobby();
             return .running;
         } else return err,
@@ -1163,11 +1198,14 @@ pub fn pump(host: *Host) !enum { running, finished } {
     host.broadcastNotices();
     for (host.arena.wrecks) |entry| if (entry) |wreck| host.sendPlaying(.{ .wreck = wreck }, null);
     const capped = host.tick - host.arena_floor == host.last_tick;
+    const mission_ended = if (host.arena.campaign) |campaign| campaign.finished else false;
+    if (capped or mission_ended) if (host.roundStats()) |rounds| {
+        rounds.completed += 1;
+    };
     if (capped and host.repeat_rounds) {
         try host.returnToArenaLobby();
         return .running;
     }
-    const mission_ended = if (host.arena.campaign) |campaign| campaign.finished else false;
     const delivery: Delivery = if (capped) .final else if (mission_ended) .debrief else .flight;
     if (delivery == .final) {
         host.final_tick = host.tick;
@@ -1208,7 +1246,7 @@ fn broadcastScenery(host: *Host) !void {
     const bytes = try (wire.Message{ .scenery = scenery }).encode(&buffer);
     for (host.peers) |entry| {
         const peer = entry orelse continue;
-        if (peer.state == .playing) net.sendBytes(peer.conn, bytes, false) catch continue;
+        if (peer.state == .playing) host.channel().sendBytes(peer.conn, bytes, false) catch continue;
     }
 }
 
@@ -1228,7 +1266,7 @@ fn broadcastScene(host: *Host) !void {
             const peer = entry orelse continue;
             if (peer.state != .playing) continue;
             // Keep the empty page if an unreliable final position is lost.
-            net.sendBytes(peer.conn, bytes, !active) catch {
+            host.channel().sendBytes(peer.conn, bytes, !active) catch {
                 retry_clear = !active;
             };
         }
@@ -1250,7 +1288,9 @@ pub fn run(host: *Host, address: [:0]const u8, ticks: ?u32, invite: ?identity.In
 
     while (true) {
         net.session_poll();
-        if (try host.pump() == .finished) break;
+        const result = try host.pump();
+        if (host.metrics) |exporter| exporter.publish(host.playingCount());
+        if (result == .finished) break;
         const wait = if (host.final_tick != null)
             std.time.us_per_ms
         else
@@ -1398,4 +1438,27 @@ test "an undeliverable private message spends only the sender's allowance" {
     try std.testing.expectEqual(null, host.chat_budget.ready_at);
     try std.testing.expect(host.chatRoute(0, peer, .flight, 0).? == .broadcast);
     try std.testing.expect(host.chat_budget.ready_at != null);
+}
+
+test "a reordered command or a command for the previous round leaves other controls alone" {
+    var host: Host = .{ .io = std.testing.io, .arena = undefined, .arena_floor = 35, .start = .launched };
+    host.peers[0] = .{ .conn = 1, .state = .playing, .expires = 50, .flight_command = .{ .afterburner = true } };
+    host.peers[1] = .{ .conn = 2, .state = .playing, .expires = 50, .sequence = 14 };
+    const peer = &host.peers[1].?;
+    try std.testing.expect(try host.receive(1, peer, .{ .input = .{
+        .sequence = 13,
+        .arena_floor = 35,
+        .command = .{ .reverse = true },
+        .fire_for = 9,
+    } }, 25));
+    try std.testing.expectEqual(50, peer.expires);
+    try std.testing.expect(try host.receive(1, peer, .{ .input = .{
+        .sequence = 15,
+        .arena_floor = 0,
+        .command = .{ .reverse = true },
+        .fire_for = 9,
+    } }, 25));
+    try std.testing.expectEqualDeep(flight.Command{}, peer.flight_command);
+    try std.testing.expectEqual(null, peer.fire_for);
+    try std.testing.expect(host.peers[0].?.flight_command.afterburner);
 }

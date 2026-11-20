@@ -383,7 +383,7 @@ async def check_full_arena(binary, credentials, seed, mode="training", game_dir=
             count = 8
             settings = f"[Server]\nPort={game.port}\nArena={mode}\nPlayers={count}\nRoundTicks=175\n"
             if game_dir is not None:
-                settings += f"GameDirectory={game_dir}\n"
+                settings += f"GameDirectory={game_dir}\nRepeatRounds=0\nStartDelaySeconds=0\n"
             config.write_text(settings, encoding="utf-8")
             host = await game.start("--headless", str(config))
             await host.expect("listening ")
@@ -419,7 +419,7 @@ async def check_team_cycle(binary, credentials, seed, game_dir):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "server.ini"
             settings = {"Port": game.port, "GameDirectory": game_dir, "Arena": "dark-reign",
-                        "Players": 8, "Teams": 1, "RoundTicks": 125, "RepeatRounds": 1}
+                        "Players": 8, "Teams": 1, "RoundTicks": 125, "RepeatRounds": 1, "StartDelaySeconds": 5}
             config.write_text("[Server]\n" + "".join(f"{key}={value}\n" for key, value in settings.items()), encoding="utf-8")
             host = await game.start("--headless", str(config))
             await host.expect("listening ")
@@ -492,15 +492,126 @@ async def check_coop(binary, credentials, seed, game_dir):
             print("Co-op: four pilots ejected, a departure updated the debrief, and three replayed then reached Mission 2.")
 
 
+def free_metrics_port(game_port):
+    while True:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as endpoint:
+            endpoint.bind(("127.0.0.1", 0))
+            port = endpoint.getsockname()[1]
+        if port != game_port:
+            return port
+
+
+async def scrape(port):
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    try:
+        writer.write(b"GET /metrics HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        await writer.drain()
+        head, _, body = (await reader.read()).partition(b"\r\n\r\n")
+        require(head.startswith(b"HTTP/1.1 200 "), "metrics endpoint did not return 200")
+        require(b"content-type: text/plain; version=0.0.4" in head.lower(), "missing metrics content type")
+        return {name: float(value) for name, value in (row.split() for row in body.decode("ascii").splitlines()
+                                                        if not row.startswith("#"))}
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
+async def await_sample(port, ready):
+    while True:
+        sample = await scrape(port)
+        if ready(sample):
+            return sample
+        await asyncio.sleep(0.05)
+
+
+async def check_dedicated_cycle(binary, credentials, seed, game_dir):
+    async with Loopback(binary, credentials, seed, vary_by_direction=True) as game:
+        with tempfile.TemporaryDirectory() as directory:
+            metrics = free_metrics_port(game.port)
+            config = Path(directory) / "server.ini"
+            config.write_text(
+                f"[Server]\nPort={game.port}\nArena=asteroid-field\nGameDirectory={game_dir}\n"
+                f"Players=4\nMinPlayers=3\nStartDelaySeconds=4\nRoundSeconds=2\n[Metrics]\nPort={metrics}\n",
+                encoding="utf-8",
+            )
+            host = await game.start("--headless", str(config))
+            await host.expect("listening ")
+            players = "openreliant_players"
+            ticks = "openreliant_simulation_tick_duration_seconds_count"
+            starts = 'openreliant_rounds_started_total{mode="asteroid-field"}'
+            completions = 'openreliant_rounds_completed_total{mode="asteroid-field"}'
+            before = await scrape(metrics)
+            require(before[players] == 0 and before["openreliant_player_capacity"] == 4, "the dedicated host counts as a pilot")
+            pilots = list(await asyncio.gather(*(game.join_target(game.address, "keyboard") for _ in range(2))))
+            sample = await await_sample(metrics, lambda data: data[players] == 2)
+            require(sample[ticks] == 0 and sample[starts] == 0, "the arena started below its configured minimum")
+            pilots.append(await game.join_target(game.address, "keyboard"))
+            await await_sample(metrics, lambda data: data[players] == 3)
+            await asyncio.sleep(1.6)
+            pilots.append(await game.join_target(game.address, "keyboard"))
+            await asyncio.sleep(2.8)
+            sample = await scrape(metrics)
+            require(sample[players] == 4 and sample[ticks] == 0, "the last admission did not restart the countdown")
+            launched = await await_sample(metrics, lambda data: data[starts] == 1 and data[ticks] > 5)
+            for direction in ("sent", "received"):
+                require(launched[f'openreliant_game_bytes_total{{direction="{direction}"}}'] > 0, "game traffic was not counted")
+            require(launched['openreliant_joins_total{outcome="admitted"}'] == 4, "admissions did not reach metrics")
+            denied = await game.start("session", "join", await game.path(game.address), "straight")
+            await await_sample(metrics, lambda data: data['openreliant_joins_total{outcome="rejected"}'] > 0)
+            require(await denied.wait() != 0 and denied.admission is None, "a full server admitted another pilot")
+            await await_sample(metrics, lambda data: data[completions] >= 1)
+            await await_sample(metrics, lambda data: data[starts] >= 2)
+            await asyncio.gather(*(send_key(pilot, "q") for pilot in pilots))
+            await asyncio.gather(*(pilot.wait() for pilot in pilots))
+            empty = await await_sample(metrics, lambda data: data[players] == 0)
+            require(empty['openreliant_departures_total{outcome="normal"}'] == 4, "departures did not reach metrics")
+            await asyncio.sleep(0.25)
+            idle = await scrape(metrics)
+            await asyncio.sleep(0.25)
+            require((await scrape(metrics))[ticks] == idle[ticks], "the empty server did not stop simulating")
+            print("Dedicated: the fourth pilot reset the countdown, a timed round returned to the lobby and relaunched, and an empty server waited.")
+
+
+async def check_metrics_shutdown(binary, credentials, seed):
+    async with Loopback(binary, credentials, seed) as game:
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "server.ini"
+            metrics = free_metrics_port(game.port)
+            config.write_text(f"[Server]\nPort={game.port}\nArena=training\nPlayers=2\nRoundSeconds=1\n"
+                              f"[Metrics]\nPort={metrics}\n", encoding="ascii")
+            host = await game.start("--headless", str(config))
+            await host.expect("listening ")
+            require((await scrape(metrics))["openreliant_players"] == 0, "empty server metric is wrong")
+            pilots = await asyncio.gather(*(game.join_target(game.address, "straight") for _ in range(2)))
+            # A scraper can be connected while the game shuts down.
+            reader, writer = await asyncio.open_connection("127.0.0.1", metrics)
+            try:
+                await finish(host, pilots)
+                require(not await reader.read(1), "the metrics listener left the scrape connection open")
+            finally:
+                writer.close()
+                await writer.wait_closed()
+            try:
+                _, unexpected = await asyncio.open_connection("127.0.0.1", metrics)
+            except ConnectionRefusedError:
+                pass
+            else:
+                unexpected.close()
+                await unexpected.wait_closed()
+                raise RuntimeError("the metrics listener stayed open after shutdown")
+            print("Metrics: the independent HTTP listener served a scrape and closed with the game.")
+
+
 async def run(binary, credentials, seed, game_dir):
     print("Clean loopback" if seed is None else f"Loopback seed {seed}, 6% packet loss, 8 to 44 ms one-way lag")
-    for check in (check_training, check_beacons, check_invites, check_full_arena):
+    for check in (check_training, check_beacons, check_invites, check_full_arena, check_metrics_shutdown):
         await asyncio.wait_for(check(binary, credentials, seed), 40)
     if game_dir is not None:
         if seed is not None:
             print("Stock arenas independently vary each direction of each link, with 3 to 9% loss and 8 to 80 ms latency.")
         for index, mode in enumerate(("nuclear-threat", "asteroid-field", "dark-reign", "tag-bomb", "hunt-the-shadow", "vampires")):
             await asyncio.wait_for(check_full_arena(binary, credentials, None if seed is None else seed + index, mode, game_dir), 45)
+        await asyncio.wait_for(check_dedicated_cycle(binary, credentials, seed, game_dir), 60)
         await asyncio.wait_for(check_team_cycle(binary, credentials, seed, game_dir), 45)
         await asyncio.wait_for(check_coop(binary, credentials, seed, game_dir), 180)
 

@@ -5,6 +5,8 @@ const wire = @import("wire.zig");
 const Arena = @import("arena.zig");
 const credential = @import("identity.zig");
 const Host = @import("server.zig");
+const LaunchWait = @import("launch_wait.zig");
+const Metrics = @import("metrics.zig");
 pub const Client = @import("client.zig");
 
 pub const default_port = 27020;
@@ -55,6 +57,8 @@ pub const HostOptions = struct {
     mode: Arena.Mode = .training,
     mission: ?u16 = null,
     players: u8 = wire.slots,
+    launch_wait: LaunchWait = .{},
+    metrics: ?std.Io.net.IpAddress = null,
     ticks: ?u32,
     teams: bool = false,
     arena_options: @import("openreliant").engine.game.deathmatch.Options = .{},
@@ -144,6 +148,8 @@ pub const LocalGame = struct {
 pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity: ?Identity, options: HostOptions) !void {
     const limit: u8 = if (options.mission != null) wire.cooperative_slots else wire.slots;
     if (options.players < Host.pilots_to_start or options.players > limit) return error.InvalidPlayerLimit;
+    if (options.launch_wait.minimum < Host.pilots_to_start or options.launch_wait.minimum > options.players)
+        return error.InvalidMinimumPlayers;
     var server: ?credential.Server = null;
     defer if (server) |*automatic| automatic.wipe();
     if (identity) |managed| {
@@ -155,14 +161,19 @@ pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity
     defer net.session_deinit();
     const host = try gpa.create(Host);
     defer gpa.destroy(host);
+    var exporter: Metrics = undefined;
+    if (options.metrics) |address| try exporter.open(io, address, options.players);
+    defer if (options.metrics != null) exporter.close();
     const game_directory = options.game_directory orelse directory;
     const scenario = options.mode.scenario();
-    const wait_in_lobby = scenario != null and (options.teams or options.repeat_rounds);
+    const wait_in_lobby = scenario != null and (options.launch_wait.delay_us != 0 or options.teams or options.repeat_rounds);
     const arena = try Arena.createWithOptions(gpa, if (wait_in_lobby) .training else options.mode, options.arena_options, io, game_directory);
     host.* = .{
         .io = io,
         .arena = arena,
         .player_limit = options.players,
+        .launch_wait = options.launch_wait,
+        .metrics = if (options.metrics != null) &exporter else null,
         .arena_directory = if (scenario != null) game_directory else null,
         .arena_teams = options.teams,
         .arena_options = options.arena_options,

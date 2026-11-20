@@ -305,12 +305,33 @@ your pilots can reach. Allow incoming UDP on `Port` and use the same port if you
 | `Arena` | `nuclear-threat` | `nuclear-threat`, `asteroid-field`, `dark-reign`, `tag-bomb`, `hunt-the-shadow` or `vampires` for the stock missions. `six-beacons` and `training` are small transport test arenas |
 | `Mission` | Unset | Installed campaign mission number for co-op. Set either `Arena` or `Mission` |
 | `GameDirectory` | `.` | Installed game folder, relative to `server.ini` or an absolute path. Used by stock arenas and co-op missions |
-| `Players` | `8` for arenas, `2` for co-op | Arenas accept up to this many pilots, from 2 to 8, and start once two are admitted. Co-op starts the briefing when this many pilots, from 2 to 4, have joined |
-| `RoundTicks` | Unset | Keep the host running until stopped. Set a positive tick count to end a test round at that tick |
-| `Teams` | `0` | Set to `1` for team play in Asteroid Field, Dark Reign, Tag Bomb or Hunt the Shadow. After two pilots join, the lobby gives them five seconds to choose teams before the server launches |
+| `Players` | `8` for arenas, `2` for co-op | How many pilots can join. Choose 2 to 8 for an arena or 2 to 4 for co-op |
+| `MinPlayers` | `2` for arenas, `Players` for co-op | How many admitted pilots are needed to begin the countdown. Choose at least 2 and at most `Players` |
+| `StartDelaySeconds` | `30` for stock deathmatch, `0` otherwise | Time to wait once enough pilots have joined. Each new admission restarts the countdown, even when the lobby fills. Dropping below the minimum clears it |
+| `RoundSeconds` | Unset | Optional duration of a round in seconds. Leave it unset for the arena's own ending rules |
+| `RoundTicks` | Unset | Set a positive simulation tick limit for scripted tests. Set either this or `RoundSeconds` |
+| `Teams` | `0` | Set to `1` for team play in Asteroid Field, Dark Reign, Tag Bomb or Hunt the Shadow. Pilots can choose their team in the lobby during the countdown |
 | `AiTurrets` | `0` | Set to `1` to keep the mission's AI turret settings in stock deathmatch arenas |
 | `TargetPlayers` | `1` | Set to `0` to make new fighters untargetable in stock deathmatch arenas |
-| `RepeatRounds` | `0` | With a stock arena and `RoundTicks` set, use `1` to return to the lobby and start another round on the same server |
+| `RepeatRounds` | `1` for stock deathmatch, `0` otherwise | A stock arena returns to the lobby after a timed round or when everyone leaves. The same countdown starts the next round. Set to `0` to exit after the first timed round |
+
+The dedicated server takes no pilot slot. When co-op's countdown ends, the server opens the
+mission briefing and waits for the admitted crew to finish it.
+
+### Optional Prometheus metrics
+
+Add a `[Metrics]` section with a TCP port other than the game's UDP port. Leave out `Port` to
+keep the exporter off.
+
+```ini
+[Metrics]
+Port=9100
+```
+
+`BindAddress` defaults to `127.0.0.1`. Set it to the private address your Prometheus server can
+reach if it runs on another machine. Scrape `/metrics`. The exporter reports current occupancy,
+admission and departure outcomes, rounds by mode, simulation tick count and duration, and the
+game message payload bytes sent and received. It handles scrapes outside the simulation loop.
 
 ### Optional managed identity
 
