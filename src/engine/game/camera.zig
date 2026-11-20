@@ -1962,7 +1962,7 @@ test "the arrival's views" {
 // --- The ejection -------------------------------------------------------------------------------
 
 /// How far out to its object's right the eject view stands (`0x0045F479`).
-const eject_reach: f32 = 5000;
+pub const eject_reach: f32 = 5000;
 
 /// View `eject` (`camera_frame`, view 7), `since` ticks after it was switched to: `cutaway` out
 /// from the pod at `position`, turned about the world's `Y` by `slow_turn` a tick, looking at the

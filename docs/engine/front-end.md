@@ -43,8 +43,8 @@ HUD. Escape leaves the server.
 ### Session lobby
 
 **Host** opens a game type chooser. **Deathmatch** opens the lobby immediately, starts a LAN
-listener on UDP port 27020 and reserves a place for the local pilot. Co-op is disabled until
-its hosting flow is ready. Friends use Direct Connect with the host's LAN IP. The lobby shows
+listener on UDP port 27020 and reserves a place for the local pilot. **Co-op** opens a lobby for
+the campaign with four seats. Friends use Direct Connect with the host's LAN IP. The lobby shows
 them the same roster, with the host marked and their own row highlighted. The host
 selects **Start Game** when they are ready to fly. Joining a match in progress takes the pilot
 straight to flight. **Stop Hosting** or Escape in the lobby or in flight closes the listener.
@@ -79,6 +79,31 @@ transport failure uses the separate connection warning (string `0x5F1`).
 Automatic discovery and internet joining for player hosts are tracked in
 [#957](https://github.com/OpenReliant/openreliant/issues/957) and
 [#363](https://github.com/OpenReliant/openreliant/issues/363).
+
+### Multiplayer UI fidelity
+
+The retail front end draws in a 640 by 480 coordinate space. OpenReliant fits that space
+and its backdrop together in a 4:3 frame. The minimum supported window is 800 by 600.
+OpenReliant uses sharper outline fonts where they are available. The original font metrics
+still set the positions and line breaks.
+
+The retail PC recording shows the [connection screen at 0:10](https://www.youtube.com/watch?v=NMQA1ay0ZKE&t=10s),
+the [co-op host lobby at 8:20](https://www.youtube.com/watch?v=NMQA1ay0ZKE&t=500s),
+the [host debrief at 20:00](https://www.youtube.com/watch?v=NMQA1ay0ZKE&t=1200s),
+and the [guest debrief after a pilot is killed at 41:10](https://www.youtube.com/watch?v=NMQA1ay0ZKE&t=2470s).
+Use the stills to check the display and the executable's draw functions for the coordinates and palettes.
+
+| Screen | Retail reference | OpenReliant behavior and remaining differences |
+|---|---|---|
+| Connection | `multiplayer_connection_screen` (`0x00432FC0`) | The Internet and LAN lists, IP and invite entry and hologram backdrop are deliberate replacements for the legacy provider choices. The browser uses installed button art and labels. |
+| Co-op setup | `multiplayer_sessions_draw` (`0x0043DA40`) | The shared lobby currently uses the browser style. The retail host and guest have different fields and use a separate ready flag, different roster coordinates and a separate chat panel. These differences are tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404). |
+| Deathmatch setup | `session_loadout_screen` (`0x0044B950`) and `session_loadout_draw` (`0x0044CB60`) | The mode description and ITAC fighter picker are deliberate additions to the lobby. The original setup has separate game options, pilot readiness and team selection. Stock setup details are tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404) and team rules in [#1400](https://github.com/OpenReliant/openreliant/issues/1400). |
+| Co-op briefing and loadout | `WinMain` (`0x004A9AB0`) and `interface_briefing` (`0x00437010`) | The existing campaign briefing and loadout code supplies the rooms, ship and rack views. The host coordinates launch and the crew's choices over the current network protocol. |
+| Co-op debrief | `multiplayer_debrief_render` (`0x00429DC0`), `multiplayer_debrief_text` (`0x00425240`), and `multiplayer_chat_panel` variant 1 (`0x004AE2D0`) | The retail backdrop, letter, two scroll controls, chat, figures, roster, and buttons use the original art and coordinates. The save action is tracked in [#475](https://github.com/OpenReliant/openreliant/issues/475), and the profile values that carry between sessions in [#804](https://github.com/OpenReliant/openreliant/issues/804). |
+| Pause, session loss, and standings | `pause_screen_multiplayer` (`0x0048E510`), `pause_session_lost` (`0x0048E370`), and `mp_draw_scoreboard` (`0x004AF650`) | The pause and flight standings use the stock sprites. The pause controls and connection-loss dialog use the original pause art. Host-only shared pause and scrolling beyond stock capacity are deliberate changes. See [Pause menu](pause-menu.md#multiplayer-9). |
+
+Retail tooltips for the multiplayer front end are tracked in
+[#813](https://github.com/OpenReliant/openreliant/issues/813).
 
 ## The screens
 

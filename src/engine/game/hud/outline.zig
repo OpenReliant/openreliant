@@ -45,6 +45,7 @@ pub const handel_gothic = [_][]const u8{
     itac.large_font_name,
     itac.small_font_name,
     hud.Resources.font_name,
+    hud.standings.font_name,
     loadout.title_font_name,
     loadout.stats_font_name,
 };
@@ -819,6 +820,7 @@ test standsIn {
     try std.testing.expect(standsIn("SMLFNT2.FNT"));
     try std.testing.expect(standsIn("inter\\itac\\itacbig.fnt"));
     try std.testing.expect(standsIn("blufont.fnt"));
+    try std.testing.expect(standsIn("blk2orng.fnt"));
     try std.testing.expect(!standsIn("font_01.fnt"));
 }
 

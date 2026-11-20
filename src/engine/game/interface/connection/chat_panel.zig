@@ -25,9 +25,15 @@ pub const Editor = struct {
             editor.focused = !escaped and chat.submitted(keys);
             return null;
         }
-        chat.edit(&editor.line, typed, null);
         if (escaped) editor.focused = false;
-        if (escaped or !chat.submitted(keys)) return null;
+        if (escaped) return null;
+        return editor.edit(keys, typed);
+    }
+
+    /// Reads the draft and submits it on Enter while the containing screen owns text focus.
+    pub fn edit(editor: *Editor, keys: *input.Keyboard, typed: *Typed) ?chat.Line {
+        chat.edit(&editor.line, typed, null);
+        if (!chat.submitted(keys)) return null;
         const line = editor.line;
         editor.line.len = 0;
         return if (chat.trim(line.slice()).len != 0) line else null;
@@ -47,23 +53,29 @@ pub fn draw(canvas: ui.Canvas, panel: ui.Rect, history: ?*const History, editor:
     const top = panel.y + heading_y;
     try canvas.text(font, .{ entry.x, top }, chat_label.text(canvas.strings.*), ui.white, .left);
     if (history) |lines| {
-        const log = canvas.within(.{ .x = entry.x, .y = top + spacing, .width = entry.width, .height = entry.y - top - spacing });
-        for (0..lines.count) |index| {
-            const y = top + spacing * @as(i16, @intCast(index + 1));
-            try log.text(font, .{ entry.x, y }, lines.line(index), ui.blue, .left);
+        const height = entry.y - top - spacing;
+        const log = canvas.within(.{ .x = entry.x, .y = top + spacing, .width = entry.width, .height = height });
+        const visible = @min(lines.count, @as(usize, @intCast(@max(0, @divTrunc(height, spacing)))));
+        for (0..visible) |row| {
+            const y = top + spacing * @as(i16, @intCast(row + 1));
+            try log.text(font, .{ entry.x, y }, lines.line(lines.count - visible + row), ui.blue, .left);
         }
     }
     widgets.panel(canvas, entry);
     const padding = 5;
+    const text = ui.Rect{ .x = entry.x + padding, .y = entry.y + 3, .width = entry.width - 2 * padding, .height = entry.height - 3 };
+    try drawDraft(canvas, text, font, editor, editor.focused, if (editor.focused) ui.white else ui.blue);
+}
+
+pub fn drawDraft(canvas: ui.Canvas, entry: ui.Rect, font: *hud.Opened, editor: *const Editor, caret: bool, colour: [3]f32) !void {
     var buffer: [chat.capacity + 1]u8 = undefined;
     var line = editor.line.slice();
     const caret_width = font.textWidth("_");
-    while (line.len != 0 and font.textWidth(line) + caret_width > entry.width - 2 * padding)
+    while (line.len != 0 and font.textWidth(line) + caret_width > entry.width)
         line = line[1..];
     @memcpy(buffer[0..line.len], line);
     buffer[line.len] = '_';
-    const colour = if (editor.focused) ui.white else ui.blue;
-    try canvas.within(entry).text(font, .{ entry.x + padding, entry.y + 3 }, buffer[0 .. line.len + @intFromBool(editor.focused)], colour, .left);
+    try canvas.within(entry).text(font, .{ entry.x, entry.y }, buffer[0 .. line.len + @intFromBool(caret)], colour, .left);
 }
 
 test "Escape leaves the editor and Enter sends the shared draft" {

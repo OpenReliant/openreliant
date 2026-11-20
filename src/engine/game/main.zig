@@ -1049,7 +1049,7 @@ fn crewLossComplete(all: *const create.Objects, now: u32) bool {
     var last_loss: ?u32 = null;
     for (all.player_states[0..all.playerSlotCount()]) |state| {
         if (state.membership != .joined) continue;
-        const destroyed = state.membership.joined.destroyed_at orelse return false;
+        const destroyed = state.membership.joined.lost_at orelse return false;
         last_loss = @max(last_loss orelse destroyed, destroyed);
     }
     return if (last_loss) |at| now -| at > end_watched else false;
@@ -1063,9 +1063,9 @@ test "co-op waits for the last pilot's loss before ending the mission" {
     all.players = 2;
     const first = all.joinParticipant(0).?;
     const second = all.joinParticipant(1).?;
-    all.player_states[first.slot].membership.joined.destroyed_at = 100;
+    all.player_states[first.slot].membership.joined.lost_at = 100;
     try std.testing.expect(!crewLossComplete(all, 1000));
-    all.player_states[second.slot].membership.joined.destroyed_at = 1000;
+    all.player_states[second.slot].membership.joined.lost_at = 1000;
     try std.testing.expect(!crewLossComplete(all, 1000 + end_watched));
     try std.testing.expect(crewLossComplete(all, 1001 + end_watched));
 }

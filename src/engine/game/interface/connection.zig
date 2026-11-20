@@ -28,7 +28,10 @@ pub const Server = struct {
 };
 const chat = @import("../chat.zig");
 
-pub const Action = union(enum) { send_chat: chat.Line, back, host_lan: HostChoice.Kind, leave_session, launch_session, choose_ship: scenarios.Fighter, join: []const u8 };
+pub const Debrief = @import("connection/debrief.zig");
+pub const DebriefCrew = @import("connection/debrief_crew.zig");
+
+pub const Action = union(enum) { send_chat: chat.Line, back, host_lan: HostChoice.Kind, leave_session, launch_session, debrief_choice: DebriefCrew.Choice, choose_ship: scenarios.Fighter, join: []const u8 };
 pub const Label = widgets.Label;
 
 address: language.Text(128) = .{},
@@ -37,6 +40,7 @@ busy: bool = false,
 host_available: bool = false,
 host_choice: ?HostChoice = null,
 lobby: ?Lobby = null,
+debrief: ?Debrief = null,
 fighter: scenarios.Fighter = .predator,
 ship_picker: ?ShipPicker = null,
 source: Source = .internet,
@@ -49,6 +53,7 @@ hover: ?Layout.Control = null,
 
 pub fn takesText(screen: *const Connection) bool {
     if (screen.host_choice != null or screen.ship_picker != null) return false;
+    if (screen.debrief) |debrief| return debrief.editor.focused;
     if (screen.lobby) |lobby| return lobby.editor.focused and !lobby.mode_open;
     return screen.editing and !screen.busy;
 }
@@ -101,6 +106,11 @@ pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, type
             },
         }
     }
+    if (screen.debrief) |*debrief| return switch (debrief.frame(mouse, keys, typed) orelse return null) {
+        .leave => .leave_session,
+        .choice => |choice| .{ .debrief_choice = choice },
+        .message => |line| .{ .send_chat = line },
+    };
     if (screen.lobby) |*lobby| return switch (lobby.frame(mouse, keys, typed, window) orelse return null) {
         .leave => .leave_session,
         .launch => .launch_session,

@@ -14,9 +14,12 @@ pub const CampaignLoadout = campaign.CampaignLoadout;
 pub const CampaignLine = campaign.CampaignLine;
 pub const CrewRequest = campaign.CrewRequest;
 pub const campaignNumber = campaign.campaignNumber;
-pub const revision: u16 = 20;
+pub const Debrief = campaign.Debrief;
+pub const DebriefChoice = campaign.DebriefChoice;
+pub const NextMission = campaign.NextMission;
+pub const revision: u16 = 21;
 pub const slots = engine.game.deathmatch.spawn.positions;
-pub const cooperative_slots = 4;
+pub const cooperative_slots = campaign.Crew.size;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
 const guns = engine.game.guns;
@@ -310,6 +313,8 @@ pub const Ship = struct {
     respawn: u16 = 0,
     at_wall: bool = false,
     dying: bool = false,
+    pod: bool = false,
+    pod_clear: bool = false,
     ping_ms: ?u16 = null,
 
     pub const unknown_ping = std.math.maxInt(u16);
@@ -464,7 +469,9 @@ fn writeShips(w: *std.Io.Writer, ships: []const ?Ship, mode: Mode) !void {
             try w.writeInt(u16, ship.respawn, .little);
             const wall: u8 = @intFromBool(ship.at_wall);
             const dying: u8 = @intFromBool(ship.dying);
-            try w.writeByte(wall | (dying << 1));
+            const pod: u8 = @intFromBool(ship.pod);
+            const clear: u8 = @intFromBool(ship.pod_clear);
+            try w.writeByte(wall | (dying << 1) | (pod << 2) | (clear << 3));
             try w.writeInt(u16, ship.ping_ms orelse Ship.unknown_ping, .little);
         }
         if (mode.scenario != null and mode.scenario.?.hasPowerUps()) try w.writeByte(@intFromBool(ship.cloaked));
@@ -488,9 +495,11 @@ fn readShips(r: *std.Io.Reader, ships: []?Ship, mode: Mode) !void {
             ship.respawn = try r.takeInt(u16, .little);
             if (ship.respawn > engine.game.deathmatch.respawn.duration) return error.InvalidSnapshot;
             const flags = try r.takeByte();
-            if (flags > 0b11) return error.InvalidSnapshot;
+            if (flags > 0b1111 or (!mode.mission and flags & 0b1100 != 0) or flags & 0b1100 == 0b1000) return error.InvalidSnapshot;
             ship.at_wall = flags & 1 != 0;
             ship.dying = flags & 2 != 0;
+            ship.pod = flags & 4 != 0;
+            ship.pod_clear = flags & 8 != 0;
             const ping = try r.takeInt(u16, .little);
             ship.ping_ms = if (ping == Ship.unknown_ping) null else ping;
         }
@@ -932,11 +941,17 @@ pub const Message = union(enum(u8)) {
     scene_page: ScenePage,
     crew_jump: CrewRequest,
     crew_land: CrewRequest,
+    crew_eject: CrewRequest,
     briefed: ?CampaignLoadout,
     campaign_seat: Admission,
     scenery: Scenery,
     campaign_line: CampaignLine,
     pilot_page: PilotPage,
+    campaign_result: Snapshot,
+    debrief: Debrief,
+    debrief_choice: DebriefChoice,
+    campaign_next: NextMission,
+    campaign_end: u32,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -957,7 +972,8 @@ pub const Message = union(enum(u8)) {
                 try flight_input.write(&w, input.command);
                 if (input.fire_for) |reuse| try w.writeInt(u32, reuse, .little);
             },
-            .view, .finished => |view| {
+            .view, .finished, .campaign_result => |view| {
+                if (message == .campaign_result and view.mission == null) return error.InvalidDebrief;
                 try w.writeInt(u32, view.tick, .little);
                 try writeMode(&w, view.scenario, view.mission != null);
                 try w.writeByte(view.pilot_pages);
@@ -997,7 +1013,7 @@ pub const Message = union(enum(u8)) {
                 if (view.weapons) |*status| try status.write(&w);
             },
             .leave => {},
-            .received_final => |tick| try w.writeInt(u32, tick, .little),
+            .received_final, .campaign_end => |tick| try w.writeInt(u32, tick, .little),
             .flight_press => |presses| try w.writeByte(@bitCast(presses)),
             .roster => |roster| {
                 try writeMode(&w, roster.lobby, roster.mission != null);
@@ -1013,6 +1029,15 @@ pub const Message = union(enum(u8)) {
             .pick_ship => |fighter| try w.writeByte(@backingInt(fighter)),
             .scenery => |scenery| try scenery.write(&w),
             .pilot_page => |page| try page.write(&w),
+            .debrief => |state| try state.write(&w),
+            .debrief_choice => |choice| {
+                try w.writeInt(u32, choice.tick, .little);
+                try w.writeByte(@backingInt(choice.action));
+            },
+            .campaign_next => |next| {
+                try w.writeInt(u32, next.after, .little);
+                try w.writeInt(u16, next.number, .little);
+            },
             .campaign_line => |line| try line.write(&w),
             .briefed => |selected| if (selected) |fit| {
                 try w.writeByte(@backingInt(fit.ship));
@@ -1033,7 +1058,7 @@ pub const Message = union(enum(u8)) {
             .weapon_order => |order| try ordnance.writeOrder(&w, order),
             .projectiles => |page| try page.write(&w),
             .scene_page => |*page| try page.write(&w),
-            .crew_jump, .crew_land => |request| {
+            .crew_jump, .crew_land, .crew_eject => |request| {
                 try w.writeInt(u32, request.view_tick, .little);
                 try w.writeInt(u32, request.reuse, .little);
             },
@@ -1098,7 +1123,7 @@ pub const Message = union(enum(u8)) {
                 .command = try flight_input.read(&r),
                 .fire_for = if (r.bufferedLen() == 0) null else try r.takeInt(u32, .little),
             } },
-            .view, .finished => snapshot: {
+            .view, .finished, .campaign_result => snapshot: {
                 const tick = try r.takeInt(u32, .little);
                 const session_mode = try readMode(&r);
                 var view: Snapshot = .{ .tick = tick, .scenario = session_mode.scenario, .ships = @splat(null) };
@@ -1157,10 +1182,16 @@ pub const Message = union(enum(u8)) {
                     1 => try ordnance.Status.read(&r),
                     else => return error.InvalidSnapshot,
                 };
-                break :snapshot if (tag == .view) .{ .view = view } else .{ .finished = view };
+                break :snapshot switch (tag) {
+                    .view => .{ .view = view },
+                    .finished => .{ .finished = view },
+                    .campaign_result => if (view.mission != null) .{ .campaign_result = view } else return error.InvalidDebrief,
+                    else => unreachable,
+                };
             },
             .leave => .leave,
             .received_final => .{ .received_final = try r.takeInt(u32, .little) },
+            .campaign_end => .{ .campaign_end = try r.takeInt(u32, .little) },
             .flight_press => presses: {
                 const value: flight_input.Presses = @bitCast(try r.takeByte());
                 if (value.reserved != 0 or !value.any()) return error.InvalidFlightInput;
@@ -1193,6 +1224,15 @@ pub const Message = union(enum(u8)) {
             .pick_ship => .{ .pick_ship = try r.takeEnum(Fighter, .little) },
             .scenery => .{ .scenery = try .read(&r) },
             .pilot_page => .{ .pilot_page = try .read(&r) },
+            .debrief => .{ .debrief = try .read(&r) },
+            .debrief_choice => .{ .debrief_choice = .{
+                .tick = try r.takeInt(u32, .little),
+                .action = try r.takeEnum(campaign.Crew.Choice, .little),
+            } },
+            .campaign_next => .{ .campaign_next = .{
+                .after = try r.takeInt(u32, .little),
+                .number = try campaign.readMissionNumber(&r),
+            } },
             .campaign_line => .{ .campaign_line = try .read(&r) },
             .briefed => ready: {
                 if (r.bufferedLen() == 0) break :ready .{ .briefed = null };
@@ -1219,6 +1259,7 @@ pub const Message = union(enum(u8)) {
             .scene_page => .{ .scene_page = try ScenePage.read(&r) },
             .crew_jump => .{ .crew_jump = .{ .view_tick = try r.takeInt(u32, .little), .reuse = try r.takeInt(u32, .little) } },
             .crew_land => .{ .crew_land = .{ .view_tick = try r.takeInt(u32, .little), .reuse = try r.takeInt(u32, .little) } },
+            .crew_eject => .{ .crew_eject = .{ .view_tick = try r.takeInt(u32, .little), .reuse = try r.takeInt(u32, .little) } },
             .pilot_notice => notice: {
                 const slot = try r.takeByte();
                 const generation = try r.takeInt(u64, .little);

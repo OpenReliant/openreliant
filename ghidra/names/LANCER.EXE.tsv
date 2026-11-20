@@ -2767,9 +2767,18 @@ address	kind	name	type	comment
 005201a4	data	saved_games_no_fade	int	Set where the saved games screen plays no movie as it is left for the roster, as the co-op host screen has it
 005202d8	data	saved_games_no_exit	byte	Set where the saved games screen hides MAIN MENU and QUIT, as the multiplayer debriefing has it
 004296a0	function	multiplayer_debriefing	void (void)	The network campaign's debriefing after flight. Loads mpdebr.spr and the ITAC text and panes. Checks the crew's readiness before the lead advances or replays, and can open the save screen.
+00429dc0	data	multiplayer_debrief_render		The debrief's render callback. Draws the ITAC report, messages, pilot stats and readiness, then advances the report scroll.
 00424730	function	multiplayer_debrief_panes	void (void)	Sets up the multiplayer debriefing's header, text pane and scroll controls.
+00425220	function	multiplayer_debrief_refresh	void (void)	Redraws the co-op debrief letter and its scroll pane when the scroll changes.
+00425240	function	multiplayer_debrief_text		Draws the debrief letter header, picks the mission or pilot outcome paragraphs and lays them out in the scroll pane.
 004361e0	function	interface_read_pointer	void (void)	Polls the mouse, clamps the front end's pointer and records both button states.
 004b66d0	function	net_all_ready	bool __fastcall (byte stage)	Sends the local pilot's ready flag for the stage, pumps messages and checks all lobby pilots. Clears the flag for that stage once all pilots are ready.
+004b9da0	function	net_mark_campaign_out	void (void)	Marks the local pilot as out of the campaign after a fatal, recalled or failed mission. The pilot can ready for a replay.
+004ba1d0	function	net_mark_ready	void __fastcall (byte stage)	Sends local readiness and sets that stage's bit in the local pilot's lobby record.
+004bb160	function	net_send_eject	void __fastcall (int slot)	Sends gameplay message 0x45 with the ejecting object's 9-bit slot. The receiver pushes order 30.
+0051d7b8	data	mp_debrief_lead	int	The pilot who can advance or replay. Prefer the session owner among those who can advance, then the lowest eligible slot. When none can advance, pick the lowest remaining slot for replay.
+0052025c	data	mp_debrief_replay_only	byte	Set when nobody remaining can advance the campaign.
+005dcc04	data	mp_debrief_action	int	The received debrief action. Value 2 replays the briefing.
 0051d9f8	data	saved_games_selected	int	The saved game selected on the saved games screen, or -1
 0051da1c	data	saved_games_first	int	The saved game the list's first row shows
 00520248	data	saved_games_count	int	How many saved games saved_games_scan found

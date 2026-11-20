@@ -1153,10 +1153,15 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .typed = &typed,
                 .window = size,
                 .scale = display.ui_scale,
-                .elapsed = elapsed,
                 .standings_scale = display.placements.get(.standings).scale,
+                .menu_art = &display.resources.art,
             }, presentation, strings, &display.resources.font, app.active and !console_up);
             if (network_enabled) if (network_pilot.takeCampaignResult()) |result| {
+                if (front.connection.debrief) |*debrief| debrief.setNarrative(strings, itac_strings);
+                var service: NetworkPilot.Briefing = .{ .pilot = &network_pilot, .io = io };
+                const shared_debrief = network_pilot.client != null;
+                if (shared_debrief) movies.service = .{ .context = &service, .tick = NetworkPilot.Briefing.service };
+                defer movies.service = null;
                 var summary: game.gameflow.Campaign = .begin();
                 summary.variables.mission_success = result.rating;
                 summary.mission = game.gameflow.nextMission(result.number);
@@ -1164,10 +1169,18 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 if (result.landed) {
                     sound.end3DAll();
                     if (game.xtrabits.landing.landing(result.number, false, result.ending, &summary.variables)) |landed| {
-                        if (!try movies.land(landed, &resources, sound)) return;
+                        if (!try movies.land(landed, &resources, sound) and !service.failed) return;
                     }
                 }
-                _ = try rooms.?.modeItac(&summary) orelse return;
+                if (shared_debrief and !service.failed) {
+                    const ending = game.winmain.cooperativeEndingFilm(result.number, result.ending, result.rating, result.reliant_alive);
+                    if (!try movies.playChosen(ending) and !service.failed) return;
+                }
+                if (service.failed) {
+                    network_pilot.returnToBrowser(&front.connection, presentation, .{ .english = "Connection lost during debrief" });
+                } else if (!shared_debrief) {
+                    _ = try rooms.?.modeItac(&summary) orelse return;
+                }
                 continue;
             };
             if (network_enabled) if (network_pilot.upcomingBriefing()) |number| {
@@ -1211,7 +1224,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         through.mode_saved = .unchosen;
                         try game_scripts.start();
                     },
-                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .choose_ship, .send_chat => {},
+                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .debrief_choice, .choose_ship, .send_chat => {},
                 }
                 flow.next = switch (outcome) {
                     .host_lan => |kind| {
@@ -1224,6 +1237,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     },
                     .launch_session => {
                         if (network_enabled) network_pilot.launch(&front.connection);
+                        continue;
+                    },
+                    .debrief_choice => |choice| {
+                        if (network_enabled) if (network_pilot.client) |*client| client.chooseDebrief(choice);
                         continue;
                     },
                     .send_chat => |line| {
@@ -1545,12 +1562,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         display.network_pause = if (network_frame != null) paused: {
             const shown = network_pilot.menuView(strings) orelse break :paused null;
             const front_art = &front_resources.?;
-            const art = if (front_art.shapes) |*loaded| loaded else break :paused null;
             break :paused .{
                 .view = shown,
                 .state = &network_pilot.pause_menu,
                 .fonts = .{ .large = &front_art.large.font, .small = &front_art.small.font },
-                .art = art,
                 .paging_art = if (shown == .match) front_art.pagingArt() else null,
             };
         } else null;
@@ -2758,7 +2773,6 @@ const Display = struct {
         view: game.hudoptions.multiplayer.View,
         state: *const game.hudoptions.multiplayer.State,
         fonts: game.interface.canvas.Fonts,
-        art: *game.hud.Art,
         paging_art: ?*game.hud.Art,
     } = null,
     /// What drawing hands the game (`game.main.Handed`), here what the player aimed at as the
@@ -2817,9 +2831,16 @@ const Display = struct {
                 .fonts = menu.fonts,
                 .strings = display.strings,
             };
-            try menu.state.draw(menu.view, canvas, menu.art, menu.paging_art);
+            const art = game.hudoptions.multiplayer.Art{
+                .menu = &display.resources.art,
+                .flight_font = &display.resources.font,
+                .scoreboard = if (menu.view == .match) try display.resources.standingsArt(display.gpa) else null,
+                .scoreboard_font = if (display.resources.standings_font) |*font| font else &display.resources.font,
+                .paging = menu.paging_art,
+            };
+            try menu.state.draw(menu.view, canvas, art);
             if (display.presentation) |scripts| try scripts.draw(.ui, display.device, null);
-            return menu.state.drawPointer(canvas, menu.art);
+            return menu.state.drawPointer(canvas, art);
         }
         if (display.pause_menu.isOpen()) {
             const frame = display.pauseFrame();

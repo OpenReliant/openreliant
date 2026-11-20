@@ -442,7 +442,8 @@ pub fn objectDestroyed(ctx: aigeneric.Context, index: u16, may_spin: bool, no_ej
     }
     if (slot.orders[0].order == .explode) return;
     const stock_arena = ctx.world.damage_rules == .arena and all.arena_boundary != null;
-    if (!stock_arena and index == all.player and !object.flags.ejected and !no_eject and object.type.base() != .kamov) {
+    const local = if (ctx.world.damage_rules == .cooperative) all.hasBoundPlayerShip(index) else index == all.player;
+    if (!stock_arena and local and !object.flags.ejected and !no_eject and object.type.base() != .kamov) {
         if (slot.orders[0].order != .eject_player) {
             _ = aigeneric.give(ctx, index, .eject_player, slot.orders[0].target.asShip(all));
             object.flags.ejected = true;

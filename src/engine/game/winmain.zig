@@ -437,6 +437,21 @@ const transfer = std.EnumArray(rooms.Carrier, []const u8).init(.{ .reliant = "ne
 const capture = "int.bik";
 const shuttle = "fortbearshuttle_.bik";
 
+/// The co-op outcome film before the shared debrief (WinMain, 0x004A9EC7 to 0x004AA099).
+pub fn cooperativeEndingFilm(mission: u16, ending: Ending, rating: vm.Variables.Outcome, reliant_alive: bool) ?xtrabits.movie.Name {
+    const carrier = rooms.Carrier.of(mission);
+    const previous = if (reliant_alive) carrier else .yamato;
+    const name = switch (ending) {
+        .destroyed => funeral.get(carrier),
+        .captured => capture,
+        .friendly_fire => execution.get(carrier),
+        ._unknown_7, .total_failure => transfer.get(previous),
+        .playing, .rescued => if (rating == .total_failure) transfer.get(previous) else return null,
+        else => return null,
+    };
+    return xtrabits.movie.nameOf(name);
+}
+
 /// The movie of a total failure (`0x004AA5AD` on): after missions 25 and 27, the shuttle at Fort
 /// Bear where the landing would be none (`landing.lastWithoutLanding`); on the Reliant, the pilot's
 /// transfer off it where `reliant_alive` is set, and otherwise, as on the Yamato, off the

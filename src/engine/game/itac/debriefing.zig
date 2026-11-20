@@ -58,7 +58,6 @@ const list = 2;
 const from_string = 0x8C;
 const to_string = 0x8D;
 const header_labels_x = 1;
-const header_values_x = 46;
 const header_line = 15;
 const header_colour = itac_module.header_colour;
 const between = itac_module.between;
@@ -224,11 +223,8 @@ pub const Debriefing = struct {
         const number = debriefing.chosen() orelse return;
         const record = itac.pilot.campaign.kept(number);
         if (record.pickups != 0) {
-            const met = itac.pilot.campaign.variables.objectives_met != 0;
-            writer.writeAll(between) catch {};
-            writer.writeAll(itac.string(if (met) objectives_met_text else objectives_missed_text)) catch {};
-            writer.writeAll(between) catch {};
-            writer.writeAll(itac.string(pickup_texts[@min(record.pickups, pickup_texts.len - 1)])) catch {};
+            writer.writeAll(between) catch return;
+            writePickup(&writer, itac.context.strings.*, itac.pilot.campaign.variables.objectives_met != 0, record.pickups);
         } else {
             itac.writeParagraphsTo(&writer, textOf(record, number));
             if (gameflow.campaignField(number, .medal)) |medal| if (record.rating == .success_bonus) addParagraph(&writer, itac, medal_texts[@backingInt(medal)]);
@@ -312,11 +308,7 @@ pub const Debriefing = struct {
     fn drawPanes(debriefing: *Debriefing, itac: *Itac, canvas: Canvas, small: *hud.Opened) canvas_module.Error!void {
         if (itac.panes[header].showing()) |shown| if (debriefing.chosen() != null) {
             const in_pane = canvas.within(shown);
-            const top = header_pane.y + 1;
-            try in_pane.text(small, .{ header_pane.x + header_labels_x, top }, itac.string(from_string), header_colour, .left);
-            try in_pane.text(small, .{ header_pane.x + header_values_x, top }, itac.string(from_enriquez), header_colour, .left);
-            try in_pane.text(small, .{ header_pane.x + header_labels_x, top + header_line }, itac.string(to_string), header_colour, .left);
-            try in_pane.text(small, .{ header_pane.x + header_values_x, top + header_line }, itac.pilot.call_sign, header_colour, .left);
+            try drawLetterHeader(in_pane, small, itac.context.strings.*, .{ header_pane.x + header_labels_x, header_pane.y + 1 }, itac.pilot.call_sign);
         };
         if (itac.panes[body].showing()) |shown| try debriefing.box.drawText(canvas, small, body_pane, shown, debriefing.bodyText());
         if (itac.panes[list].showing()) |shown| {
@@ -329,6 +321,16 @@ pub const Debriefing = struct {
         }
     }
 };
+
+/// The FROM and TO lines shared by `debrief_text_draw` and `multiplayer_debrief_text`.
+pub fn drawLetterHeader(canvas: Canvas, font: *hud.Opened, strings: language.Language, at: [2]i32, recipient: []const u8) canvas_module.Error!void {
+    const x, const y = at;
+    const values = x + 45;
+    try canvas.text(font, at, strings.stringOr(from_string, "FROM:"), header_colour, .left);
+    try canvas.text(font, .{ values, y }, strings.stringOr(from_enriquez, ""), header_colour, .left);
+    try canvas.text(font, .{ x, y + header_line }, strings.stringOr(to_string, "TO:"), header_colour, .left);
+    try canvas.text(font, .{ values, y + header_line }, recipient, header_colour, .left);
+}
 
 /// Enriquez's debriefing of a mission: its paragraphs for each rating its script can give it, from
 /// a failure (0) to a success with its bonus (4).
@@ -361,9 +363,16 @@ fn ratingOf(record: gameflow.MissionRecord) usize {
     return @intCast(std.math.clamp(@backingInt(rating), 0, ratings - 1));
 }
 
+/// The original's objective and recovery paragraphs for a rescued pilot (0x00424ED4).
+pub fn writePickup(writer: *std.Io.Writer, strings: language.Language, objectives_met: bool, pickups: u8) void {
+    writer.writeAll(strings.string(if (objectives_met) objectives_met_text else objectives_missed_text) orelse "") catch return;
+    writer.writeAll(between) catch return;
+    writer.writeAll(strings.string(pickup_texts[@min(pickups, pickup_texts.len - 1)]) orelse "") catch return;
+}
+
 /// The paragraphs of mission `number`'s debriefing for the rating its record has
 /// (`gameflow.CampaignMission.debriefing`).
-fn textOf(record: gameflow.MissionRecord, number: u16) []const language.Words {
+pub fn textOf(record: gameflow.MissionRecord, number: u16) []const language.Words {
     return gameflow.campaignField(number, .debriefing)[ratingOf(record)];
 }
 

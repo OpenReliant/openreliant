@@ -48,7 +48,7 @@ pub const Membership = union(enum) {
         ping_ms: ?u16 = null,
         pickups_after: i32 = 0,
         ending: @import("main.zig").Ending = .playing,
-        destroyed_at: ?u32 = null,
+        lost_at: ?u32 = null,
     };
 };
 
@@ -114,7 +114,7 @@ pub const State = struct {
         if (state.membership == .joined) {
             state.membership.joined.kills.mission = 0;
             state.membership.joined.ending = .playing;
-            state.membership.joined.destroyed_at = null;
+            state.membership.joined.lost_at = null;
             return state.unbindShip();
         }
         state.shield_reserves = .{};

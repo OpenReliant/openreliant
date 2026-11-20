@@ -12,6 +12,7 @@ drawn: game.main.Drawn,
 rays_drawing: game.erayfx.Drawing,
 tables: game.create.Stats,
 random: engine.random.Random = .{},
+round_start: u32 = 0,
 tick: ?u32 = null,
 scenery_tick: u32 = 0,
 bomb_was_active: ?bool = null,
@@ -43,6 +44,7 @@ host_mines: [powerups.mine_count]?u32 = @splat(null),
 shot_ended_at: [game.guns.max_bullets]i32 = @splat(-1),
 wreck_seen_at: [wire.slots]i32 = @splat(-1),
 death_view: ?DeathView = null,
+eject_view: ?struct { started: i32, offset: engine.surrender.math.Vector } = null,
 effect_tick: ?i32 = null,
 blast_started: ?i32 = null,
 sounds: ?*game.hog_snd.commands.Commands = null,
@@ -478,7 +480,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         frame.drawn.display.readyPrompt(ready);
     }
     const scene = frame.world();
-    const ticks = snapshot.tick *| game.gameobj.ticks_per_step;
+    const ticks = (snapshot.tick -| frame.round_start) *| game.gameobj.ticks_per_step;
     frame.drawn.clock.drawn_duration = if (frame.tick == null) game.gameobj.ticks_per_step else @intCast(@min(ticks -| frame.drawn.clock.game_ticks, std.math.maxInt(i32)));
     frame.drawn.clock.game_ticks = ticks;
     frame.drawn.clock.mission_ticks = @intCast(@min(ticks, std.math.maxInt(i32)));
@@ -525,6 +527,16 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
             }
         }
         const slot = &all.slots[index];
+        if (ship.pod and !slot.object.flags.ejected) {
+            game.aieject.showPod(slot);
+            if (index == admission.slot) frame.eject_view = .{
+                .started = scene.clock.frame_start,
+                .offset = engine.surrender.math.xAxis(ship.orientationMatrix()) * @as(engine.surrender.math.Vector, @splat(game.camera.eject_reach)),
+            };
+        }
+        slot.object.flags.ejected = ship.pod;
+        slot.object.flags.hidden = ship.pod_clear and index != admission.slot;
+        if (ship.pod) slot.object.flags.targetable = !ship.pod_clear;
         game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = ship.position, .orientation = ship.orientationMatrix() });
         if ((before == 0 or ship.respawn > before) and ship.respawn + game.gameobj.ticks_per_step >= game.deathmatch.respawn.duration)
             game.deathmatch.respawn.sound(scene, index);
@@ -574,6 +586,8 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         game.camera.deathmatch_respawn_view
     else if (frame.death_view) |death|
         (if (death.watching_from == null) .pull_back else .watch)
+    else if (frame.eject_view != null)
+        .eject
     else
         .cockpit;
     if (snapshot.blast) |blast| frame.presentBlast(scene, blast);

@@ -20,6 +20,7 @@ const Campaign = struct {
     travel: wire.MissionView.Travel = .{},
     ready_since: u32 = 0,
     finished: bool = false,
+    started_after: u32 = 0,
 
     fn say(context: *anyopaque, tick: i32, line: game.radio.RoutedLine) void {
         const campaign: *Campaign = @ptrCast(@alignCast(context));
@@ -179,8 +180,15 @@ fn carryAdmissions(next: *Arena, staging: *const Arena) void {
     }
 }
 
+/// Keep the lobby admissions while unloading the finished mission and its objects.
+pub fn betweenMissions(arena: *const Arena, io: std.Io, directory: std.Io.Dir) !*Arena {
+    const staging = try create(arena.mission.objects.gpa, .training, io, directory);
+    staging.carryAdmissions(arena);
+    return staging;
+}
+
 /// Start a campaign mission from the installed data and bind its created ships to the lobby crew.
-pub fn prepareCampaign(staging: *const Arena, number: u16, io: std.Io, directory: std.Io.Dir) !*Arena {
+pub fn prepareCampaign(staging: *const Arena, number: u16, io: std.Io, directory: std.Io.Dir, checkpoint: *const game.gameflow.Campaign) !*Arena {
     const gpa = staging.mission.objects.gpa;
     const arena = try create(gpa, .training, io, directory);
     errdefer arena.destroy();
@@ -219,6 +227,7 @@ pub fn prepareCampaign(staging: *const Arena, number: u16, io: std.Io, directory
         .tables = &arena.mission.tables,
         .types = &assets.library,
         .display = &campaign.display,
+        .campaign = checkpoint,
         .seed = seed,
     }, file.image, number);
     for (&arena.pilots, 0..) |*entry, slot| {
@@ -478,6 +487,8 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
             .travel = campaign.travel,
             .objectives = campaign.display.objectives.states,
             .rating = arena.loaded.?.script.variables.mission_success,
+            .objectives_met = arena.loaded.?.script.variables.objectives_met != 0,
+            .reliant_alive = arena.loaded.?.script.variables.reliant_alive != 0,
             .nebula = campaign.nebula,
             .director = if (arena.mission.player.viewing.view == .director) .{
                 .position = campaign.camera.place.position,
@@ -502,6 +513,7 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
         }
         const object = &all.slots[index].object;
         const score = all.player_states[index].membership.joined;
+        const pod = arena.campaign != null and object.flags.ejected and all.slots[index].running(.eject) != null;
         ship.* = .{
             .generation = pilot.participant.generation,
             .reuse = all.reuses[index],
@@ -518,6 +530,8 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
             .respawn = game.deathmatch.respawn.remaining(&all.slots[index], arena.mission.clock.frame_start),
             .at_wall = if (all.arena_boundary) |*boundary| boundary.outside(object.nextPosition()) else false,
             .dying = object.flags.exploding,
+            .pod = pod,
+            .pod_clear = pod and all.slots[index].state.eject.stage != .clearing,
         };
         ship.*.?.face(object.root.next_orientation);
     }
@@ -583,7 +597,7 @@ pub fn scenery(arena: *const Arena, tick: u32) ?wire.Scenery {
 
 pub fn crewJump(arena: *Arena, slot: u8, tick: u32, request: wire.CrewRequest) void {
     const campaign = arena.campaign orelse return;
-    if (request.view_tick < campaign.ready_since or request.view_tick > tick) return;
+    if (request.view_tick <= campaign.started_after or request.view_tick < campaign.ready_since or request.view_tick > tick) return;
     const pilot = arena.pilots[slot] orelse return;
     if (engine.input.crewJump(arena.world(), .{
         .participant = pilot.participant,
@@ -596,10 +610,20 @@ pub fn crewJump(arena: *Arena, slot: u8, tick: u32, request: wire.CrewRequest) v
 }
 
 pub fn crewLand(arena: *Arena, slot: u8, tick: u32, request: wire.CrewRequest) void {
-    if (arena.campaign == null or request.view_tick == 0 or request.view_tick > tick) return;
+    const campaign = arena.campaign orelse return;
+    if (request.view_tick <= campaign.started_after or request.view_tick > tick) return;
     const lead = engine.input.missionLead(arena.mission.objects) orelse return;
     if (lead.participant.slot != slot or lead.ship.reuse != request.reuse) return;
     game.radio.crewLanding(arena.world(), slot);
+}
+
+pub fn crewEject(arena: *Arena, slot: u8, tick: u32, request: wire.CrewRequest) void {
+    const campaign = arena.campaign orelse return;
+    if (request.view_tick <= campaign.started_after or request.view_tick > tick) return;
+    const all = arena.mission.objects;
+    const pilot = all.playerBinding(slot) orelse return;
+    if (pilot.ship.reuse != request.reuse) return;
+    engine.input.eject(arena.world(), slot);
 }
 
 pub fn guide(arena: *const Arena, index: u8) wire.MissionView.Guide {
