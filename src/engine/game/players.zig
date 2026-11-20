@@ -49,7 +49,29 @@ pub const Membership = union(enum) {
         pickups_after: i32 = 0,
         ending: @import("main.zig").Ending = .playing,
         lost_at: ?u32 = null,
+        ending_scene: EndingScene = .none,
     };
+};
+
+/// The stock ending scene shown only to the affected co-op pilot.
+pub const EndingScene = enum(u8) {
+    none,
+    rescue,
+    capture,
+    pod_shot,
+    reliant_landing,
+    yamato_landing,
+    jump_out,
+    jump_to_reliant,
+    jump_to_yamato,
+
+    pub fn pickup(fate: @import("aieject.zig").Fate) EndingScene {
+        return switch (fate) {
+            .rescued => .rescue,
+            .captured => .capture,
+            .killed => .pod_shot,
+        };
+    }
 };
 
 /// The pilot's skull count and their kills in the current mission.
@@ -115,6 +137,7 @@ pub const State = struct {
             state.membership.joined.kills.mission = 0;
             state.membership.joined.ending = .playing;
             state.membership.joined.lost_at = null;
+            state.membership.joined.ending_scene = .none;
             return state.unbindShip();
         }
         state.shield_reserves = .{};

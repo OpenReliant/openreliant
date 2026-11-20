@@ -18,7 +18,7 @@ pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
 pub const CampaignCheckpoint = campaign.Checkpoint;
-pub const revision: u16 = 23;
+pub const revision: u16 = 24;
 pub const slots = engine.game.deathmatch.spawn.positions;
 pub const cooperative_slots = campaign.Crew.size;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
@@ -957,6 +957,7 @@ pub const Message = union(enum(u8)) {
     campaign_next: NextMission,
     campaign_end: u32,
     lobby_ready: bool,
+    campaign_retired: u32,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -1022,7 +1023,7 @@ pub const Message = union(enum(u8)) {
                 }
             },
             .leave => {},
-            .received_final, .campaign_end => |tick| try w.writeInt(u32, tick, .little),
+            .received_final, .campaign_end, .campaign_retired => |tick| try w.writeInt(u32, tick, .little),
             .flight_press => |presses| try w.writeByte(@bitCast(presses)),
             .roster => |roster| {
                 try writeMode(&w, roster.lobby, roster.mission != null);
@@ -1207,6 +1208,7 @@ pub const Message = union(enum(u8)) {
             .leave => .leave,
             .received_final => .{ .received_final = try r.takeInt(u32, .little) },
             .campaign_end => .{ .campaign_end = try r.takeInt(u32, .little) },
+            .campaign_retired => .{ .campaign_retired = try r.takeInt(u32, .little) },
             .flight_press => presses: {
                 const value: flight_input.Presses = @bitCast(try r.takeByte());
                 if (value.reserved != 0 or !value.any()) return error.InvalidFlightInput;

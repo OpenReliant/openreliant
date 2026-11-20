@@ -124,9 +124,14 @@ pub const LocalGame = struct {
         game.host.launch();
     }
 
-    pub fn stop(game: *LocalGame, client: *Client) void {
-        current = .{};
+    pub fn detachPilot(client: *Client) void {
+        current.client = null;
         client.close();
+    }
+
+    pub fn stop(game: *LocalGame, client: ?*Client) void {
+        current = .{};
+        if (client) |local_pilot| local_pilot.close();
         game.host.close();
         net.session_deinit();
         game.host.arena.destroy();

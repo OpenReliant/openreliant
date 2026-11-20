@@ -339,6 +339,15 @@ those points. A model without both points shows no rings. The three squares star
 planes and turn 0.052 radians per mission tick. They follow the pickup when it moves and
 disappear while it is disabled (0x004B18E0).
 
+## Co-op recalls
+
+The host runs the normal flight controls for 300 ticks while the recall line plays, then mixes
+steering toward each affected pilot's launch carrier for 700 ticks (`order_friendly_fire`,
+`0x00474F20`). The rest of the wing sees the ship leave. Carrier recall and crew abort show the
+affected pilot the stock Reliant or Yamato landing on their own copy of the scene. Ordinary
+friendly fire, including the script's `FriendlyFire` command, ends with the ship jumping away.
+The host keeps running the shared mission without moving the carrier into the cutaway.
+
 ## Remaining work
 
 The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/955).
@@ -347,7 +356,6 @@ The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/95
   participant outcomes and game mode rules for ship disposition and respawn.
 - [#1368](https://github.com/OpenReliant/openreliant/issues/1368): wingman loss, target feedback,
   device notifications and the remaining local combat rules.
-- [#1401](https://github.com/OpenReliant/openreliant/issues/1401): the recalled pilot's cockpit return to the carrier.
 - [#1400](https://github.com/OpenReliant/openreliant/issues/1400): team rules, standings and badges.
 
 This state split does not add a network session or change mission files. Single player remains

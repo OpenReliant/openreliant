@@ -45,6 +45,7 @@ shot_ended_at: [game.guns.max_bullets]i32 = @splat(-1),
 wreck_seen_at: [wire.slots]i32 = @splat(-1),
 death_view: ?DeathView = null,
 eject_view: ?struct { started: i32, offset: engine.surrender.math.Vector } = null,
+ending_scene: ?EndingScene = null,
 effect_tick: ?i32 = null,
 blast_started: ?i32 = null,
 sounds: ?*game.hog_snd.commands.Commands = null,
@@ -55,6 +56,129 @@ pub const DeathView = struct {
     started: i32,
     watching_from: ?engine.surrender.math.Vector,
 };
+
+const EndingScene = struct {
+    const most_ticks = 60 * game.main.ticks_per_second;
+
+    camera: game.camera.Camera = .{},
+    controls: engine.input.Devices = .{},
+    expires: u64,
+    landing: bool,
+    jump_only: bool = false,
+    landed: bool = false,
+    finished: bool = false,
+};
+
+/// The host chooses the outcome. The stock orders, camera and effects play on this pilot's
+/// presentation copy after the ship has left the shared action.
+pub fn startEnding(frame: *FlightFrame, result: wire.MissionView, types: game.create.Types, textures: *engine.surrender.surrenderlib.srtexture.Table, now: u64) !void {
+    const kind = result.ending_scene;
+    if (kind == .none or frame.ending_scene != null) return;
+    var scene = frame.world();
+    const all = scene.objects;
+    const index = all.player;
+    if (!all.slots[index].object.created) return error.MissingEndingShip;
+    scene.spawn = .{ .tables = &frame.tables, .types = types };
+    const orders: game.aigeneric.Context = .of(scene);
+    const actor = &all.slots[index].object;
+    for (all.slots[0..all.count], 0..) |*slot, at| slot.object.flags.disabled = at != index;
+    frame.drawn.display.target = null;
+    frame.drawn.player.ending = result.ending;
+    all.player_states[index].membership = .local_rules;
+    frame.director = null;
+    actor.flags.sent_off = false;
+    actor.flags.hidden = false;
+    actor.flags.jumping = false;
+    actor.flags.no_collisions = kind != .pod_shot;
+    actor.invulnerable = .none;
+    game.aigeneric.popAll(orders, index);
+    const carrier: ?game.gameobj.Type = switch (kind) {
+        .reliant_landing, .jump_to_reliant => .of(.reliant),
+        .yamato_landing, .jump_to_yamato => .of(.yamato),
+        else => null,
+    };
+    const jumping = switch (kind) {
+        .jump_out, .jump_to_reliant, .jump_to_yamato => true,
+        else => false,
+    };
+    if (carrier) |kind_of_carrier| {
+        const home = (try game.create.make(scene, null, kind_of_carrier)) orelse return error.MissingLandingCarrier;
+        frame.drawn.player.carrier = .of(all, home);
+        if (!game.aigeneric.giveShip(orders, index, .land, home, null)) return error.MissingLandingOrder;
+    } else if (!jumping) {
+        frame.drawn.effects.tractors = try .init(frame.drawn.gpa, textures);
+        scene.tractors = &frame.drawn.effects.tractors.?;
+        game.aieject.beginPickup(.of(scene), index, switch (kind) {
+            .rescue => .rescued,
+            .capture => .captured,
+            .pod_shot => .killed,
+            else => unreachable,
+        }, .queued);
+    }
+    if (jumping) {
+        frame.drawn.effects.jump_effects = @as(game.jump.effect.Effects, undefined);
+        frame.drawn.effects.jump_effects.?.init(frame.drawn.gpa, textures) catch |err| {
+            frame.drawn.effects.jump_effects = null;
+            return err;
+        };
+        scene.jump_effects = &frame.drawn.effects.jump_effects.?;
+        if (!game.aigeneric.giveShip(.of(scene), index, .jump_out, index, null)) return error.MissingJumpOrder;
+        actor.flags.sent_off = true;
+    }
+    const clock = &frame.drawn.clock;
+    clock.timer_at = now;
+    clock.ran_to = clock.game_ticks;
+    frame.ending_scene = .{ .landing = carrier != null, .jump_only = kind == .jump_out, .expires = now + EndingScene.most_ticks };
+    frame.stepEnding(types, now, false);
+}
+
+pub fn skipEnding(frame: *FlightFrame) void {
+    frame.ending_scene = .{ .landing = false, .expires = 0, .finished = true };
+}
+
+pub fn stepEnding(frame: *FlightFrame, types: game.create.Types, now: u64, paused: bool) void {
+    const ending = &frame.ending_scene.?;
+    if (ending.finished) return;
+    const clock = &frame.drawn.clock;
+    if (paused) {
+        ending.expires += now -| clock.timer_at;
+        clock.skipTo(now);
+        return;
+    }
+    if (now >= ending.expires) {
+        std.log.warn("the local co-op ending did not finish in time", .{});
+        ending.finished = true;
+        return;
+    }
+    const drawn = &frame.drawn;
+    var scene = frame.world();
+    scene.spawn = .{ .tables = &frame.tables, .types = types };
+    scene.tractors = if (drawn.effects.tractors) |*effects| effects else null;
+    scene.jump_effects = if (drawn.effects.jump_effects) |*effects| effects else null;
+    scene.variables = &drawn.variables.?;
+    clock.advanceTo(now);
+    _ = game.main.gameFrames(clock, &ending.controls, null, scene, .in_turn, null);
+    ending.landed = ending.landing and scene.variables.?.mission_over != 0;
+    const all = scene.objects;
+    ending.finished = if (ending.jump_only)
+        all.slots[all.player].running(.jump_out) == null
+    else if (ending.landing)
+        ending.landed
+    else
+        game.main.missionOver(scene);
+    const viewing = &drawn.player.viewing;
+    const seen = viewing.objectIn(all) orelse all.player;
+    ending.camera.frame(.{
+        .object = .of(&all.slots[seen]),
+        .player = .of(&all.slots[all.player]),
+        .ticks = clock.frameTicks(),
+        .now = clock.viewTime(),
+        .random = &frame.random,
+        .landing = game.ailand.seen(all, seen),
+        .game = scene,
+        .viewing = viewing,
+    });
+}
 
 pub fn create(gpa: std.mem.Allocator, local: *const game.create.Objects, tables: *const game.create.Stats) !*FlightFrame {
     const frame = try gpa.create(FlightFrame);
@@ -130,6 +254,8 @@ pub fn destroy(frame: *FlightFrame) void {
     if (frame.drawn.effects.sparks) |*sparks| sparks.deinit();
     if (frame.drawn.effects.shockwaves) |*rings| rings.deinit(gpa);
     if (frame.drawn.effects.ion_cannons) |*cannons| cannons.deinit();
+    if (frame.drawn.effects.tractors) |*tractors| tractors.deinit();
+    if (frame.drawn.effects.jump_effects) |*effects| effects.deinit();
     frame.rays_drawing.deinit();
     if (frame.drawn.effects.rays) |*rays| rays.deinit();
     frame.respawns.deinit(gpa);

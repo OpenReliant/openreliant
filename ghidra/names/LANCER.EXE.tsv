@@ -2194,7 +2194,7 @@ address	kind	name	type	comment
 0057e044	data	simulator	byte	Set while the front end runs mission 29 as its simulator: mission_start then gives the wing no pilots, and the wingmen's keys go unheard
 00474b20	function	friendly_fire_reset	void (void)	Clears friendly_fire_warning's damage, count and quiet tick, as mission_run starts a mission
 00474e60	function	order_friendly_fire_init	ObjectRoutine	The init of order 117, Friendly Fire: stage 0 for 300 ticks; Moose says one of ff_013 to ff_023, or where +0x678 is 2 or 3 the carrier aborts, abrt_001 by pilot 27 for the Reliant and 28 otherwise
-00474f20	function	order_friendly_fire	ObjectRoutine	Order 117, Friendly Fire: stage 0 the player flies on; stage 1 for 700 ticks ai_steer toward player_carrier mixed 0.3 with the player's controls 0.7, throttle 0.7 of the player's; stage 2 pops it, clears flag 0x10000000, clears the carrier's flag 0x20, pushes Land on the carrier and Jump Out beyond 1000000 of it, and sets the flag again. In a multiplayer game, Jump Out alone
+00474f20	function	order_friendly_fire	ObjectRoutine	Order 117, Friendly Fire. The pilot flies normally for 300 ticks, then receives 700 ticks of steering help toward the carrier. Ordinary co-op recall ends in Jump Out. Carrier recall and crew abort can land at the carrier, with a jump first beyond 1000000 units.
 00562cec	data	friendly_fire_damage	float	The player's damage to friends since friendly_fire_warning last warned
 00562cf0	data	friendly_fire_count	int	The warnings friendly_fire_warning has given, held at 1
 00562ce8	data	friendly_fire_quiet_until	int	The game tick up to which friendly_fire_warning gives no warning
@@ -2782,11 +2782,15 @@ address	kind	name	type	comment
 00425240	function	multiplayer_debrief_text		Draws the debrief letter header, picks the mission or pilot outcome paragraphs and lays them out in the scroll pane.
 004361e0	function	interface_read_pointer	void (void)	Polls the mouse, clamps the front end's pointer and records both button states.
 004b66d0	function	net_all_ready	bool __fastcall (byte stage)	Sends the local pilot's ready flag for the stage, pumps messages and checks all lobby pilots. Clears the flag for that stage once all pilots are ready.
+004b9830	function	net_write_bits		Appends an arbitrary number of bits to the outgoing message, including writes that start between bytes.
+004b9b40	function	net_begin_message		Selects the outgoing buffer and writes a message kind into it.
+004b9b80	function	net_finish_message		Finishes and sends the outgoing message, then resets its bit count.
 004b9da0	function	net_mark_campaign_out	void (void)	Marks the local pilot as out of the campaign after a fatal, recalled or failed mission. The pilot can ready for a replay.
 004ba1d0	function	net_mark_ready	void __fastcall (byte stage)	Sends local readiness and sets that stage's bit in the local pilot's lobby record.
 004bb160	function	net_send_eject	void __fastcall (int slot)	Sends gameplay message 0x45 with the ejecting object's 9-bit slot. The receiver pushes order 30.
 0051d7b8	data	mp_debrief_lead	int	The pilot who can advance or replay. Prefer the session owner among those who can advance, then the lowest eligible slot. When none can advance, pick the lowest remaining slot for replay.
 0052025c	data	mp_debrief_replay_only	byte	Set when nobody remaining can advance the campaign.
+0051d9e0	data	mp_debrief_leave	int	Set when the pilot leaves the co-op debrief or the first part of mission 25 cannot continue. WinMain leaves the session when this is set.
 005dcc04	data	mp_debrief_action	int	The received debrief action. Value 2 replays the briefing.
 0051d9f8	data	saved_games_selected	int	The saved game selected on the saved games screen, or -1
 0051da1c	data	saved_games_first	int	The saved game the list's first row shows
@@ -3144,6 +3148,9 @@ address	kind	name	type	comment
 005db83c	data	mp_lobby_player_count	int	Number of players in the lobby roster searched by mp_team_for_player_id
 005db8f0	data	mp_first_lobby_player_id	int	Network player ID in the first lobby row, with a 0xFC stride
 005db8f4	data	mp_first_lobby_player_name	char	Start of the first lobby player name, with a 0xFC stride
+005db914	data	mp_first_lobby_player_flags	uint	Lobby flags in the first row. Bit 1 marks a pilot who can replay the mission but cannot continue the campaign.
+005db918	data	mp_first_lobby_player_ready	uint	Readiness bits in the first lobby row. Bit 31 is the co-op debrief readiness flag.
+005db91c	data	mp_first_lobby_player_slot	int	Flight slot in the first lobby row. The debrief chooses the lowest slot when its preferred lead cannot advance.
 005db920	data	mp_first_lobby_player_team	int	Team index in the first lobby row, with a 0xFC stride
 004b3180	function	six_beacons_trigger_nuke	void __fastcall (int slot, bool report)	Starts an Uber blast at the Six Beacons gate, announces its owner with string 0x300, resets the beacons and optionally reports the trigger
 004b32c0	function	six_beacons_check_nuke	void __fastcall (int slot)	On gate contact, fires the nuke if the pilot carries all six beacons and sends the new counts

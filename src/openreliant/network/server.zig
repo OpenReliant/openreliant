@@ -21,6 +21,7 @@ const Results = struct {
     next: ?Crew.Choice = null,
     dirty: bool = true,
 };
+const Retiring = struct { conn: net.Connection, until: i64 };
 
 const timeout = 5 * std.time.us_per_s;
 const held_input_timeout = 250 * std.time.us_per_ms;
@@ -63,6 +64,7 @@ start: union(enum) {
 } = .automatic,
 listener: u32 = 0,
 peers: [wire.slots]?Peer = @splat(null),
+retiring: [wire.cooperative_slots]?Retiring = @splat(null),
 roster_dirty: bool = false,
 paused: bool = false,
 paused_view_pending: bool = false,
@@ -94,7 +96,7 @@ fn release(host: *Host, slot: u8) void {
     host.remove(slot, host.final_tick == null, .normal);
 }
 
-const Departure = enum { normal, dropped };
+const Departure = enum { normal, dropped, retired };
 
 fn remove(host: *Host, slot: u8, announce: bool, departure: Departure) void {
     const peer = host.peers[slot] orelse return;
@@ -118,6 +120,7 @@ fn remove(host: *Host, slot: u8, announce: bool, departure: Departure) void {
     switch (departure) {
         .normal => net.session_close(peer.conn),
         .dropped => net.session_drop(peer.conn),
+        .retired => {},
     }
 }
 
@@ -348,7 +351,15 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
         },
         .closed, .lost, .dropped => {},
     }
-    if (slot) |index| host.release(index) else net.session_close(conn);
+    if (slot) |index| {
+        host.release(index);
+    } else {
+        for (&host.retiring) |*entry| if (entry.* != null and entry.*.?.conn == conn) {
+            entry.* = null;
+            break;
+        };
+        net.session_close(conn);
+    }
 }
 
 /// The player's local LAN host alone can stop the simulation. The network keeps running.
@@ -500,7 +511,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
 
 fn service(host: *Host, slot: u8, time: i64) !void {
     const peer = if (host.peers[slot]) |*peer| peer else return;
-    if (time >= peer.expires) {
+    if (peer.state != .playing and time >= peer.expires) {
         host.release(slot);
         return;
     }
@@ -510,7 +521,7 @@ fn service(host: *Host, slot: u8, time: i64) !void {
         const message = net.receive(peer.conn, &buf) catch {
             host.release(slot);
             return;
-        } orelse return;
+        } orelse break;
         const keep = host.receive(slot, peer, message, time) catch |err| switch (err) {
             error.SendFailed => false,
             else => return err,
@@ -521,10 +532,19 @@ fn service(host: *Host, slot: u8, time: i64) !void {
         }
         if (peer.state == .closing) return;
     }
+    // A headed host can spend time opening a film. Give admitted pilots one bounded receive
+    // pass to deliver queued keepalives before expiring them.
+    if (time >= peer.expires) host.release(slot);
 }
 
 fn servicePeers(host: *Host, time: i64) !void {
     for (0..host.peers.len) |slot| try host.service(@intCast(slot), time);
+    for (&host.retiring) |*entry| {
+        const pilot = entry.* orelse continue;
+        if (time < pilot.until) continue;
+        net.session_close(pilot.conn);
+        entry.* = null;
+    }
 }
 
 fn playingCount(host: *const Host) usize {
@@ -653,6 +673,7 @@ fn sendView(host: *const Host, view: *wire.Snapshot, slot: u8, delivery: Deliver
         if (state.membership == .joined) {
             mission.kills = state.membership.joined.kills.mission;
             mission.ending = state.membership.joined.ending;
+            mission.ending_scene = state.membership.joined.ending_scene;
         }
     }
     const ship = view.hasOrdnance() and all.playerBinding(slot) != null;
@@ -775,6 +796,10 @@ pub fn open(host: *Host, address: [:0]const u8, ticks: ?u32) !void {
 
 pub fn close(host: *Host) void {
     for (0..host.peers.len) |slot| host.remove(@intCast(slot), false, .normal);
+    for (&host.retiring) |*entry| {
+        if (entry.*) |pilot| net.session_close(pilot.conn);
+        entry.* = null;
+    }
     if (host.listener != 0) {
         net.session_listen_close(host.listener);
         host.listener = 0;
@@ -846,6 +871,19 @@ fn serviceDebrief(host: *Host, time: i64) !bool {
         const directory = results.directory;
         const staging = try host.arena.betweenMissions(host.io, directory);
         if (choice == .advance) {
+            // WinMain leaves the session on Next for a pilot marked unable to advance.
+            const crew = host.debriefCrew(results.*);
+            var excluded = crew.present.differenceWith(crew.eligible).iterator(.{});
+            while (excluded.next()) |slot| {
+                const index: u8 = @intCast(slot);
+                const peer = host.peers[index].?;
+                if (net.send(peer.conn, .{ .campaign_retired = host.tick })) |_| {
+                    if (host.retiring[index]) |retired| net.session_close(retired.conn);
+                    host.retiring[index] = .{ .conn = peer.conn, .until = time + timeout };
+                    host.remove(index, false, .retired);
+                } else |_| host.remove(index, false, .normal);
+                staging.leave(index);
+            }
             const kept = &host.campaign_record.?;
             kept.variables = host.arena.loaded.?.script.variables;
             kept.variables.last_success = kept.variables.mission_success;

@@ -157,6 +157,7 @@ pub fn recallComplete(all: *const create.Objects) bool {
     var recalled = false;
     for (all.player_states[0..all.playerSlotCount()], 0..) |state, i| {
         if (state.membership != .joined) continue;
+        if (state.membership.joined.ending == .ejecting) return false;
         recalled = recalled or state.membership.joined.ending.sentHome();
         if (all.playerBinding(@intCast(i)) == null) continue;
         const slot = &all.slots[i];
@@ -264,14 +265,10 @@ fn returnCarrier(world: gameobj.World, index: u16) ?u16 {
     if (world.damage_rules != .cooperative) return ailand.landingCarrier(world);
     const all = world.objects;
     const carrier = (all.player_states[index].carrier orelse return null).resolve(all) orelse return null;
-    return if (all.slots[carrier].landing == .reliant) carrier else null;
-}
-
-fn crewSendingOff(all: *const create.Objects) bool {
-    for (all.slots[0..all.playerSlotCount()], 0..) |*pilot, slot| {
-        if (all.playerBinding(@intCast(slot)) != null and !pilot.object.flags.outOfAction()) return false;
-    }
-    return true;
+    return switch (all.slots[carrier].landing orelse return null) {
+        .reliant, .yamato => carrier,
+        else => null,
+    };
 }
 
 /// `order_friendly_fire` (`0x00474F20`): while Moose speaks, the player flies on
@@ -309,17 +306,16 @@ pub fn update(ctx: aigeneric.Context, index: u16) void {
         .landing => {
             const carrier = returnCarrier(world, index);
             if (world.damage_rules == .cooperative) {
-                const mark = slot.object.sent_home;
-                // In a network campaign, an ordinary friendly-fire recall only jumps out.
-                // A carrier abort can land once the whole active wing is leaving.
-                if (mark == .friend_destroyed or carrier == null) {
-                    slot.object.flags.sent_off = false;
-                    aigeneric.end(ctx, index);
-                    _ = aigeneric.giveShip(ctx, index, .jump_out, index, null);
-                    slot.object.flags.sent_off = true;
-                    return;
-                }
-                if (!crewSendingOff(all)) return;
+                // 0x00474F20 distinguishes a carrier recall from ordinary friendly fire.
+                // Other pilots see the departure (0x00474BFE); only this pilot sees the landing.
+                const membership = &all.player_states[index].membership;
+                if (membership.* == .joined)
+                    membership.joined.ending_scene = recallScene(all, slot, carrier);
+                slot.object.flags.sent_off = false;
+                aigeneric.end(ctx, index);
+                _ = aigeneric.giveShip(ctx, index, .jump_out, index, null);
+                slot.object.flags.sent_off = true;
+                return;
             }
             slot.object.flags.sent_off = false;
             aigeneric.end(ctx, index);
@@ -335,6 +331,20 @@ pub fn update(ctx: aigeneric.Context, index: u16) void {
         },
         _ => {},
     }
+}
+
+fn recallScene(all: *const create.Objects, slot: *const create.Slot, carrier: ?u16) @import("players.zig").EndingScene {
+    switch (slot.object.sent_home) {
+        .told, .crew_abort => {},
+        else => return .jump_out,
+    }
+    const home = &all.slots[carrier orelse return .jump_out];
+    const jumps = math.distance(home.object.nextPosition(), slot.object.nextPosition()) > jump_beyond;
+    return switch (home.landing orelse return .jump_out) {
+        .yamato => if (jumps) .jump_to_yamato else .yamato_landing,
+        .reliant => if (jumps) .jump_to_reliant else .reliant_landing,
+        else => .jump_out,
+    };
 }
 
 /// The ship in slot `index` steered toward `home`, the player's controls, just read, keeping
@@ -616,7 +626,11 @@ test "co-op recall, crew abort and mission-script recall follow the pilots acros
                 _ = try aigeneric.push(ctx, index, .multiplayer_control, .none);
             }
             const reliant = try mission.add(.of(.reliant), @splat(0));
-            mission.slot(reliant).landing = null;
+            mission.slot(reliant).landing = .reliant;
+            const home: math.Vector = .{ 0, 0, if (viewer == 0) 40_000 else 2_000_000 };
+            const yamato = try mission.add(.of(.yamato), home);
+            mission.slot(yamato).landing = .yamato;
+            all.player_states[0].carrier = .of(all, yamato);
             all.player_states[1].carrier = .of(all, reliant);
             const target = mission.slot(heard.enemy);
             target.object.side = .friendly;
@@ -672,6 +686,16 @@ test "co-op recall, crew abort and mission-script recall follow the pilots acros
             try std.testing.expect(all.slots[1].object.flags.disabled);
             try std.testing.expectEqual(case != .ordinary, all.slots[0].object.flags.disabled);
             try std.testing.expectEqual(case != .ordinary, main.missionOver(world));
+            const EndingScene = @import("players.zig").EndingScene;
+            const lead_scene: EndingScene = switch (case) {
+                .ordinary => .none,
+                .scripted => .jump_out,
+                .crew_abort => if (viewer == 0) .yamato_landing else .jump_to_yamato,
+            };
+            try std.testing.expectEqual(lead_scene, all.player_states[0].membership.joined.ending_scene);
+            try std.testing.expectEqual(if (case == .crew_abort) EndingScene.reliant_landing else .jump_out, all.player_states[1].membership.joined.ending_scene);
+            try std.testing.expectEqual(home, all.slots[yamato].object.nextPosition());
+            try std.testing.expectEqual(@as(math.Vector, @splat(0)), all.slots[reliant].object.nextPosition());
             if (case != .ordinary) {
                 try std.testing.expectEqual(.friendly_fire, world.player.ending);
                 try std.testing.expectEqual(all.player_states[viewer].membership.joined.ending, main.displayedEnding(all, world.player));

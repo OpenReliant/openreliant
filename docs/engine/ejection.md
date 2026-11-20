@@ -88,9 +88,10 @@ of a wingman of the player's wing says it is ejecting (`radio_wingman_ejected`,
 | 4 | The pickup under way |
 
 In an arena the order ends at once. In co-op other pilots stop seeing the pod once it clears
-the ship. OpenReliant shows the pod and plays the radio calls for the ejected pilot while the
-mission continues. The pickup cutaway for that pilot is still tracked in
-[#1483](https://github.com/OpenReliant/openreliant/issues/1483).
+the ship (`0x00415CD6`). The host runs the pod timer and rolls the fate using the mission's
+rescue odds. The affected pilot runs the stock pickup scene on their copy of the objects,
+with the host's fate and radio calls. The other pilots keep flying. The debrief waits for the
+local pickup scene where the shared mission ends first.
 
 ## The pickup
 
