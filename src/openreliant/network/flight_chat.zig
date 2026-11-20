@@ -101,7 +101,8 @@ test "the flight menu addresses the admission shown when the pilot was listed" {
     var chat: FlightChat = .{};
     var menu: game.radio.menu.Menu = .{};
     var client: Client = .{ .expected_host = null, .joined = .{ .slot = 0, .generation = 1 } };
-    client.roster.pilots = .{ .{ .generation = 1 }, .{ .generation = 4, .name = wire.lobbyName("Rook") }, null };
+    client.roster.pilots[0] = .{ .generation = 1 };
+    client.roster.pilots[1] = .{ .generation = 4, .name = wire.lobbyName("Rook") };
     chat.showPilots(&menu, &client);
     try std.testing.expectEqual(2, menu.count);
     try std.testing.expectEqual(1, menu.shown()[0].addressed);

@@ -23,7 +23,7 @@ pub fn send(conn: Connection, message: wire.Message) !void {
     var buf: [wire.capacity]u8 = undefined;
     const bytes = try message.encode(&buf);
     const reliable = switch (message) {
-        .input, .view, .combat, .projectiles => false,
+        .input, .view, .combat, .projectiles, .scene_page, .pilot_page => false,
         else => true,
     };
     try sendBytes(conn, bytes, reliable);

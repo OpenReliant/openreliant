@@ -303,8 +303,9 @@ your pilots can reach. Allow incoming UDP on `Port` and use the same port if you
 | `InviteAddress` | `BindAddress` | The IPv4 or IPv6 address to put in the invite. Set this to a specific address when listening on all interfaces |
 | `Port` | `27020` | The UDP port to listen on, from 1 to 65535 |
 | `Arena` | `nuclear-threat` | `nuclear-threat`, `asteroid-field`, `dark-reign`, `tag-bomb`, `hunt-the-shadow` or `vampires` for the stock missions. `six-beacons` and `training` are small transport test arenas |
-| `GameDirectory` | `.` | Installed game folder, relative to `server.ini` or an absolute path. Used by stock missions |
-| `Players` | `3` | The maximum pilots. This build supports 2 or 3, and starts the round once two are admitted |
+| `Mission` | Unset | Installed campaign mission number for co-op. Set either `Arena` or `Mission` |
+| `GameDirectory` | `.` | Installed game folder, relative to `server.ini` or an absolute path. Used by stock arenas and co-op missions |
+| `Players` | `8` for arenas, `2` for co-op | Arenas accept up to this many pilots, from 2 to 8, and start once two are admitted. Co-op starts the briefing when this many pilots, from 2 to 4, have joined |
 | `RoundTicks` | Unset | Keep the host running until stopped. Set a positive tick count to end a test round at that tick |
 
 ### Optional managed identity

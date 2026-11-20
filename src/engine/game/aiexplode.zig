@@ -345,6 +345,13 @@ fn shipInit(ctx: Context, index: u16) void {
         }
         deathmatch.recordDeath(world.objects, index);
     }
+    if (world.damage_rules == .cooperative and world.objects.playerBinding(index) != null) {
+        const pilot = &world.objects.player_states[index].membership.joined;
+        if (pilot.ending == .playing) {
+            pilot.ending = .destroyed;
+            pilot.destroyed_at = world.clock.viewTime();
+        }
+    }
     killCredit(world, index);
     world.objects.wingmen.lose(object.pilot);
     events.destroyed(world, index, null);

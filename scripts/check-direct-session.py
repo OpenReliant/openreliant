@@ -27,7 +27,7 @@ class Session:
             parts = self.last_line.split()
             if len(parts) == 3 and parts[0] == "admitted":
                 self.admission = tuple(map(int, parts[1:]))
-            elif len(parts) == 11 and parts[0] == "view":
+            elif len(parts) >= 5 and (len(parts) - 2) % 3 == 0 and parts[0] == "view":
                 self.views[int(parts[1])] = tuple(
                     (int(parts[i]), float(parts[i + 1]), float(parts[i + 2]))
                     for i in range(2, len(parts), 3)
@@ -282,8 +282,22 @@ Certificate={certificate}
     print(f"Six Beacons: a late pilot saw the pickup, both active pilots saw the drop, and the returning pilot confirmed tick {end}.")
 
 
+async def check_full_arena(binary, credentials):
+    async with Loopback(binary, credentials) as game:
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "server.ini"
+            config.write_text(f"[Server]\nPort={game.port}\nArena=training\nRoundTicks=125\n", encoding="ascii")
+            host = await game.start("--headless", str(config))
+            await host.expect("listening ")
+            pilots = await asyncio.gather(*(game.join_target(game.address, "straight") for _ in range(8)))
+            require({peer.admission[0] for peer in pilots} == set(range(8)), "the arena did not admit eight pilots")
+            end = await finish(host, pilots)
+            require(all(ship[0] for ship in pilots[0].views[end]), "the final view lost an admitted pilot")
+            print(f"Full arena: eight pilots confirmed tick {end}.")
+
+
 async def run(binary, credentials):
-    for check in (check_training, check_beacons, check_invites):
+    for check in (check_training, check_beacons, check_invites, check_full_arena):
         await asyncio.wait_for(check(binary, credentials), 30)
 
 

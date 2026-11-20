@@ -4,11 +4,19 @@ const version = @import("version");
 const flight_input = @import("flight_input.zig");
 const engine = @import("openreliant").engine;
 pub const ordnance = @import("ordnance.zig");
+pub const ScenePage = @import("scene_page.zig");
 const flight = engine.input.flight;
 pub const Fighter = engine.game.dmscenarios.Fighter;
 pub const Scenario = engine.game.dmscenarios.Scenario;
-pub const revision: u16 = 19;
-pub const slots = 3;
+const campaign = @import("campaign_wire.zig");
+pub const MissionView = campaign.MissionView;
+pub const CampaignLoadout = campaign.CampaignLoadout;
+pub const CampaignLine = campaign.CampaignLine;
+pub const CrewRequest = campaign.CrewRequest;
+pub const campaignNumber = campaign.campaignNumber;
+pub const revision: u16 = 20;
+pub const slots = engine.game.deathmatch.spawn.positions;
+pub const cooperative_slots = 4;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
 const guns = engine.game.guns;
@@ -24,14 +32,19 @@ pub const Combat = struct {
         return combat.entries[0..combat.count];
     }
 };
-// A tag, scenario, tick, three ships, and the largest scenario payload.
-const snapshot_header = 2 + @sizeOf(u32) + slots * Ship.encoded_size + 1 + 1;
-const beacon_snapshot_capacity = snapshot_header + beacon_count * (1 + 3 * @sizeOf(f32)) + Blast.encoded_size;
-const power_capacity = @sizeOf(powerups.Pickups.Mask) + @sizeOf(u32) + powerups.mine_count * Mine.encoded_size + 1 + @sizeOf(i32);
-const asteroid_capacity = snapshot_header + slots + 1 + Rocks.asteroid_max * (1 + @sizeOf(Facing)) + power_capacity;
-const dark_reign_capacity = snapshot_header + slots + DarkReign.encoded_size + 1 + Rocks.max * @sizeOf(u32) + power_capacity;
-const snapshot_capacity = @max(beacon_snapshot_capacity, asteroid_capacity, dark_reign_capacity);
-pub const capacity = @max(snapshot_capacity + ordnance.Status.capacity, Combat.capacity, ordnance.Page.capacity);
+// A tag, mode, tick, pilot ships, and the largest mode payload.
+const inline_pilots = @min(slots, PilotPage.width);
+const snapshot_header = 2 + @sizeOf(u32) + 1 + inline_pilots * Ship.encoded_size + 1 + 1;
+const beacon_snapshot_capacity = snapshot_header - inline_pilots + beacon_count * (1 + 3 * @sizeOf(f32)) + Blast.encoded_size;
+const power_capacity = @sizeOf(powerups.Pickups.Mask) + 1 + @sizeOf(i32);
+const arena_capacity = snapshot_header + @max(DarkReign.encoded_size, Blast.encoded_size) + power_capacity;
+const snapshot_capacity = @max(beacon_snapshot_capacity, arena_capacity, snapshot_header + MissionView.capacity);
+const roster_capacity = 6 + slots * (@sizeOf(u64) + 1 + @as(CallSign, .{}).bytes.len);
+pub const capacity = @max(snapshot_capacity + ordnance.Status.capacity, roster_capacity, PilotPage.capacity, Combat.capacity, ordnance.Page.capacity, ScenePage.capacity, Scenery.capacity);
+comptime {
+    std.debug.assert(capacity < 1200);
+    std.debug.assert(slots <= PilotPage.width * (PilotPage.max_extra + 1));
+}
 const max_release = 96;
 
 fn compactRocks(scenario: ?Scenario) bool {
@@ -83,11 +96,15 @@ fn writeChat(writer: *std.Io.Writer, text: *const chat.Line) !void {
 pub const CallSign = engine.game.interface.pilot_roster.CallSign;
 pub const Roster = struct {
     lobby: ?Scenario = null,
+    mission: ?u16 = null,
     paused: bool = false,
+    briefing: bool = false,
+    limit: u8 = slots,
     pilots: [slots]?Pilot = @splat(null),
 
     pub const Pilot = struct { generation: u64, name: CallSign = .{} };
 };
+
 pub const BeaconNotice = struct { event: engine.game.deathmatch.six_beacons.Notice, name: CallSign };
 const ParticipantRef = engine.game.players.ParticipantRef;
 
@@ -297,7 +314,7 @@ pub const Ship = struct {
 
     pub const unknown_ping = std.math.maxInt(u16);
 
-    const encoded_size = @sizeOf(u64) + @sizeOf(u32) + 1 + 13 * @sizeOf(f32) + 3 * @sizeOf(i16) + 3 * @sizeOf(i32) + 2 * @sizeOf(u16) + 1;
+    const encoded_size = @sizeOf(u64) + @sizeOf(u32) + 1 + 13 * @sizeOf(f32) + 3 * @sizeOf(i16) + 3 * @sizeOf(i32) + 2 * @sizeOf(u16) + 2;
 
     pub fn face(ship: *Ship, orientation: engine.surrender.math.Matrix) void {
         ship.angles = packFacing(orientation);
@@ -416,17 +433,183 @@ pub const Rocks = struct {
     }
 };
 
+const Mode = struct {
+    scenario: ?Scenario = null,
+    mission: bool = false,
+
+    fn hasOrdnance(mode: Mode) bool {
+        return mode.scenario != null or mode.mission;
+    }
+};
+
+fn writeShips(w: *std.Io.Writer, ships: []const ?Ship, mode: Mode) !void {
+    for (ships) |entry| {
+        const ship = entry orelse {
+            try w.writeInt(u64, 0, .little);
+            continue;
+        };
+        try w.writeInt(u64, ship.generation, .little);
+        try w.writeInt(u32, ship.reuse, .little);
+        try w.writeByte(@backingInt(ship.fighter));
+        try writePosition(w, ship.position);
+        for (ship.angles) |angle| try w.writeInt(i16, angle, .little);
+        try writeFloat(w, ship.speed);
+        try writeFloat(w, ship.throttle);
+        try w.writeInt(i32, ship.fuel, .little);
+        for (ship.shields.values()) |value| try writeFloat(w, value);
+        for (ship.armor.values()) |value| try writeFloat(w, value);
+        try w.writeInt(i32, ship.kills, .little);
+        try w.writeInt(u32, ship.deaths, .little);
+        if (mode.hasOrdnance()) {
+            try w.writeInt(u16, ship.respawn, .little);
+            const wall: u8 = @intFromBool(ship.at_wall);
+            const dying: u8 = @intFromBool(ship.dying);
+            try w.writeByte(wall | (dying << 1));
+            try w.writeInt(u16, ship.ping_ms orelse Ship.unknown_ping, .little);
+        }
+        if (mode.scenario != null and mode.scenario.?.hasPowerUps()) try w.writeByte(@intFromBool(ship.cloaked));
+    }
+}
+
+fn readShips(r: *std.Io.Reader, ships: []?Ship, mode: Mode) !void {
+    for (ships) |*entry| {
+        const generation = try r.takeInt(u64, .little);
+        if (generation == 0) continue;
+        var ship: Ship = .{ .generation = generation, .reuse = try r.takeInt(u32, .little), .fighter = try r.takeEnum(Fighter, .little), .position = try readPosition(r) };
+        for (&ship.angles) |*angle| angle.* = try r.takeInt(i16, .little);
+        ship.speed = try readFloat(r);
+        ship.throttle = try readFloat(r);
+        ship.fuel = try r.takeInt(i32, .little);
+        for (std.enums.values(engine.game.collision.Quadrant)) |quadrant| ship.shields.at(quadrant).* = try readFloat(r);
+        for (std.enums.values(engine.game.collision.Quadrant)) |quadrant| ship.armor.at(quadrant).* = try readFloat(r);
+        ship.kills = try r.takeInt(i32, .little);
+        ship.deaths = try r.takeInt(u32, .little);
+        if (mode.hasOrdnance()) {
+            ship.respawn = try r.takeInt(u16, .little);
+            if (ship.respawn > engine.game.deathmatch.respawn.duration) return error.InvalidSnapshot;
+            const flags = try r.takeByte();
+            if (flags > 0b11) return error.InvalidSnapshot;
+            ship.at_wall = flags & 1 != 0;
+            ship.dying = flags & 2 != 0;
+            const ping = try r.takeInt(u16, .little);
+            ship.ping_ms = if (ping == Ship.unknown_ping) null else ping;
+        }
+        if (mode.scenario != null and mode.scenario.?.hasPowerUps()) ship.cloaked = switch (try r.takeByte()) {
+            0 => false,
+            1 => true,
+            else => return error.InvalidSnapshot,
+        };
+        const motion = engine.game.motion;
+        if (ship.throttle < motion.reverse_throttle or ship.throttle > motion.afterburner_throttle or ship.fuel < 0)
+            return error.InvalidSnapshot;
+        entry.* = ship;
+    }
+}
+
+/// The first eight pilot slots travel with the view. Larger modes can send more
+/// slots at the same tick without changing the size of any datagram.
+pub const PilotPage = struct {
+    pub const width = 8;
+    pub const max_extra = 2;
+    const capacity = 1 + @sizeOf(u32) + 1 + 1 + width * Ship.encoded_size;
+
+    tick: u32,
+    number: u8,
+    scenario: ?Scenario = null,
+    ships: [width]?Ship = @splat(null),
+
+    pub fn first(page: *const PilotPage) usize {
+        return @as(usize, page.number) * width;
+    }
+
+    fn write(page: *const PilotPage, w: *std.Io.Writer) !void {
+        if (page.number == 0 or page.number > max_extra or page.tick == 0) return error.InvalidPilotPage;
+        try w.writeInt(u32, page.tick, .little);
+        try w.writeByte(page.number);
+        try writeMode(w, page.scenario, false);
+        try writeShips(w, &page.ships, .{ .scenario = page.scenario });
+    }
+
+    fn read(r: *std.Io.Reader) !PilotPage {
+        var page: PilotPage = .{ .tick = try r.takeInt(u32, .little), .number = try r.takeByte() };
+        const mode = try readMode(r);
+        if (page.number == 0 or page.number > max_extra or mode.mission or page.tick == 0) return error.InvalidPilotPage;
+        page.scenario = mode.scenario;
+        try readShips(r, &page.ships, mode);
+        return page;
+    }
+
+    pub fn apply(page: *const PilotPage, ships: []?Ship) !void {
+        if (page.first() >= ships.len) return error.InvalidPilotPage;
+        const dest = ships[page.first()..][0..@min(width, ships.len - page.first())];
+        for (page.ships[dest.len..]) |entry| if (entry != null) return error.InvalidPilotPage;
+        @memcpy(dest, page.ships[0..dest.len]);
+    }
+};
+
+pub const max_pilot_pages = (slots - 1) / PilotPage.width;
+
 pub const Snapshot = struct {
     tick: u32,
     scenario: ?Scenario = null,
     ships: [slots]?Ship,
+    pilot_pages: u8 = 0,
     objectives: Objectives = .none,
-    rocks: Rocks = .{},
     weapons: ?ordnance.Status = null,
     pickups: powerups.Pickups.Mask = 0,
-    mines: [powerups.mine_count]?Mine = @splat(null),
     power: ?Power = null,
     blast: ?Blast = null,
+    mission: ?MissionView = null,
+
+    fn mode(view: *const Snapshot) Mode {
+        return .{ .scenario = view.scenario, .mission = view.mission != null };
+    }
+
+    pub fn hasOrdnance(view: *const Snapshot) bool {
+        return view.mode().hasOrdnance();
+    }
+
+    pub fn countPilotPages(view: *Snapshot) void {
+        view.pilot_pages = 0;
+        for (view.ships[inline_pilots..], inline_pilots..) |ship, slot| {
+            if (ship != null) view.pilot_pages = @intCast(slot / PilotPage.width);
+        }
+    }
+
+    pub fn pilotPage(view: *const Snapshot, number: u8) PilotPage {
+        var page: PilotPage = .{ .tick = view.tick, .number = number, .scenario = view.scenario };
+        const source = view.ships[page.first()..][0..@min(PilotPage.width, slots - page.first())];
+        @memcpy(page.ships[0..source.len], source);
+        return page;
+    }
+
+    fn hasPilot(view: *const Snapshot, slot: usize, complete: bool) bool {
+        if (slot >= slots) return false;
+        if (complete or slot < inline_pilots) return view.ships[slot] != null;
+        return slot / PilotPage.width <= view.pilot_pages;
+    }
+
+    pub fn checkObjectivePilots(view: *const Snapshot, complete: bool) !void {
+        switch (view.objectives) {
+            .none => {},
+            .six_beacons => |beacons| for (beacons) |beacon| {
+                if (beacon == .carried and !view.hasPilot(beacon.carried, complete)) return error.InvalidBeaconCarrier;
+            },
+            .dark_reign => |dark| {
+                if (dark.relay == .carried and !view.hasPilot(dark.relay.carried, complete)) return error.InvalidBeaconCarrier;
+                if (dark.shot) |shot| if (!view.hasPilot(shot.target, complete)) return error.InvalidSnapshot;
+            },
+            .tag_bomb => |active| if (active) |bomb| {
+                if (!view.hasPilot(bomb.carrier, complete)) return error.InvalidSnapshot;
+            },
+            .hunt_the_shadow => |shadow| if (shadow) |slot| {
+                if (!view.hasPilot(slot, complete)) return error.InvalidSnapshot;
+            },
+            .vampires => |infected| for (0..inline_pilots) |slot| {
+                if (infected.isSet(slot) and !view.hasPilot(slot, complete)) return error.InvalidSnapshot;
+            },
+        }
+    }
 };
 
 fn writeBeacon(w: *std.Io.Writer, beacon: Beacon) !void {
@@ -437,14 +620,10 @@ fn writeBeacon(w: *std.Io.Writer, beacon: Beacon) !void {
     }
 }
 
-fn readBeacon(r: *std.Io.Reader, ships: *const [slots]?Ship) !Beacon {
+fn readBeacon(r: *std.Io.Reader) !Beacon {
     return switch (try r.takeEnum(std.meta.Tag(Beacon), .little)) {
         .loose => .{ .loose = try readPosition(r) },
-        .carried => carried: {
-            const slot = try r.takeByte();
-            if (slot >= slots or ships[slot] == null) return error.InvalidBeaconCarrier;
-            break :carried .{ .carried = slot };
-        },
+        .carried => .{ .carried = try r.takeByte() },
     };
 }
 
@@ -505,18 +684,53 @@ pub const Mine = struct {
     const encoded_size = 3 * @sizeOf(f32) + @sizeOf(Facing) + @sizeOf(u32);
 };
 
-fn writeArena(w: *std.Io.Writer, view: *const Snapshot) !void {
-    try w.writeInt(powerups.Pickups.Mask, view.pickups, .little);
-    var mask: u32 = 0;
-    for (view.mines, 0..) |entry, at| {
-        if (entry != null) mask |= @as(u32, 1) << @as(u5, @intCast(at));
+/// Shared arena objects travel once per tick in their own datagram. Eight pilots' flight and
+/// private cockpit state then fit in one datagram even when every mine is active.
+pub const Scenery = struct {
+    pub const capacity = 1 + @sizeOf(u32) + 1 + 1 + Rocks.max * @sizeOf(u32) + @sizeOf(u32) + powerups.mine_count * Mine.encoded_size;
+    tick: u32,
+    scenario: Scenario,
+    rocks: Rocks,
+    mines: [powerups.mine_count]?Mine = @splat(null),
+
+    fn write(scenery: *const Scenery, w: *std.Io.Writer) !void {
+        if (!scenery.scenario.hasPowerUps()) return error.InvalidScenery;
+        try w.writeInt(u32, scenery.tick, .little);
+        try w.writeByte(@backingInt(scenery.scenario));
+        try scenery.rocks.write(w, compactRocks(scenery.scenario));
+        var mask: u32 = 0;
+        for (scenery.mines, 0..) |entry, at| {
+            if (entry != null) mask |= @as(u32, 1) << @as(u5, @intCast(at));
+        }
+        try w.writeInt(u32, mask, .little);
+        for (scenery.mines) |entry| if (entry) |mine| {
+            try writePosition(w, mine.position);
+            for (mine.angles) |axis| try w.writeInt(i16, axis, .little);
+            try w.writeInt(u32, mine.reuse, .little);
+        };
     }
-    try w.writeInt(u32, mask, .little);
-    for (view.mines) |entry| if (entry) |mine| {
-        try writePosition(w, mine.position);
-        for (mine.angles) |axis| try w.writeInt(i16, axis, .little);
-        try w.writeInt(u32, mine.reuse, .little);
-    };
+
+    fn read(r: *std.Io.Reader) !Scenery {
+        const tick = try r.takeInt(u32, .little);
+        const scenario = try r.takeEnum(Scenario, .little);
+        if (!scenario.hasPowerUps() or tick == 0) return error.InvalidScenery;
+        var scenery: Scenery = .{ .tick = tick, .scenario = scenario, .rocks = try .read(r, compactRocks(scenario)) };
+        const mask = try r.takeInt(u32, .little);
+        if (mask >> powerups.mine_count != 0) return error.InvalidArenaMines;
+        for (&scenery.mines, 0..) |*entry, at| {
+            if (mask & (@as(u32, 1) << @as(u5, @intCast(at))) == 0) continue;
+            entry.* = .{
+                .position = try readPosition(r),
+                .angles = .{ try r.takeInt(i16, .little), try r.takeInt(i16, .little), try r.takeInt(i16, .little) },
+                .reuse = try r.takeInt(u32, .little),
+            };
+        }
+        return scenery;
+    }
+};
+
+fn writePower(w: *std.Io.Writer, view: *const Snapshot) !void {
+    try w.writeInt(powerups.Pickups.Mask, view.pickups, .little);
     if (view.power) |held| {
         _ = powerups.rule(held.kind) orelse return error.InvalidPowerUp;
         try w.writeByte(@intCast(@backingInt(held.kind) + 1));
@@ -524,18 +738,8 @@ fn writeArena(w: *std.Io.Writer, view: *const Snapshot) !void {
     } else try w.writeByte(0);
 }
 
-fn readArena(r: *std.Io.Reader, view: *Snapshot) !void {
+fn readPower(r: *std.Io.Reader, view: *Snapshot) !void {
     view.pickups = try r.takeInt(powerups.Pickups.Mask, .little);
-    const mask = try r.takeInt(u32, .little);
-    if (mask >> powerups.mine_count != 0) return error.InvalidArenaMines;
-    for (&view.mines, 0..) |*entry, at| {
-        if (mask & (@as(u32, 1) << @as(u5, @intCast(at))) == 0) continue;
-        entry.* = .{
-            .position = try readPosition(r),
-            .angles = .{ try r.takeInt(i16, .little), try r.takeInt(i16, .little), try r.takeInt(i16, .little) },
-            .reuse = try r.takeInt(u32, .little),
-        };
-    }
     const id = try r.takeByte();
     if (id == 0) return;
     const kind: engine.game.gameobj.PowerUp = @fromBackingInt(id - 1);
@@ -545,21 +749,27 @@ fn readArena(r: *std.Io.Reader, view: *Snapshot) !void {
     view.power = .{ .kind = kind, .since = since };
 }
 
-fn writeScenario(w: *std.Io.Writer, scenario: ?Scenario) !void {
-    try w.writeByte(if (scenario) |value| @backingInt(value) + 1 else 0);
+const mission_mode = 0xfe;
+
+fn writeMode(w: *std.Io.Writer, scenario: ?Scenario, mission: bool) !void {
+    if (mission and scenario != null) return error.InvalidScenario;
+    try w.writeByte(if (mission) mission_mode else if (scenario) |value| @backingInt(value) + 1 else 0);
 }
 
-fn readScenario(r: *std.Io.Reader) !?Scenario {
+fn readMode(r: *std.Io.Reader) !Mode {
     const code = try r.takeByte();
-    if (code == 0) return null;
-    return std.enums.fromInt(Scenario, code - 1) orelse error.InvalidScenario;
+    return switch (code) {
+        0 => .{},
+        mission_mode => .{ .mission = true },
+        else => .{ .scenario = std.enums.fromInt(Scenario, code - 1) orelse return error.InvalidScenario },
+    };
 }
 
-fn writePosition(writer: *std.Io.Writer, position: [3]f32) !void {
+pub fn writePosition(writer: *std.Io.Writer, position: [3]f32) !void {
     for (position) |axis| try writeFloat(writer, axis);
 }
 
-fn readPosition(reader: *std.Io.Reader) ![3]f32 {
+pub fn readPosition(reader: *std.Io.Reader) ![3]f32 {
     var position: [3]f32 = undefined;
     for (&position) |*axis| {
         axis.* = try readFloat(reader);
@@ -567,11 +777,11 @@ fn readPosition(reader: *std.Io.Reader) ![3]f32 {
     return position;
 }
 
-fn writeFloat(writer: *std.Io.Writer, value: f32) !void {
+pub fn writeFloat(writer: *std.Io.Writer, value: f32) !void {
     try writer.writeInt(u32, @bitCast(value), .little);
 }
 
-fn readFloat(reader: *std.Io.Reader) !f32 {
+pub fn readFloat(reader: *std.Io.Reader) !f32 {
     const value: f32 = @bitCast(try reader.takeInt(u32, .little));
     if (!std.math.isFinite(value)) return error.InvalidSnapshot;
     return value;
@@ -719,6 +929,14 @@ pub const Message = union(enum(u8)) {
     shadow_notice: ShadowNotice,
     vampires_notice: VampiresNotice,
     uber_kill: UberKillNotice,
+    scene_page: ScenePage,
+    crew_jump: CrewRequest,
+    crew_land: CrewRequest,
+    briefed: ?CampaignLoadout,
+    campaign_seat: Admission,
+    scenery: Scenery,
+    campaign_line: CampaignLine,
+    pilot_page: PilotPage,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -730,7 +948,7 @@ pub const Message = union(enum(u8)) {
                 try w.writeByte(@intCast(peer.release.len));
                 try w.writeAll(peer.release);
             },
-            .joined => |id| {
+            .joined, .campaign_seat => |id| {
                 try w.writeByte(id.slot);
                 try w.writeInt(u64, id.generation, .little);
             },
@@ -741,33 +959,9 @@ pub const Message = union(enum(u8)) {
             },
             .view, .finished => |view| {
                 try w.writeInt(u32, view.tick, .little);
-                try writeScenario(&w, view.scenario);
-                for (view.ships) |entry| {
-                    const ship = entry orelse {
-                        try w.writeInt(u64, 0, .little);
-                        continue;
-                    };
-                    try w.writeInt(u64, ship.generation, .little);
-                    try w.writeInt(u32, ship.reuse, .little);
-                    try w.writeByte(@backingInt(ship.fighter));
-                    try writePosition(&w, ship.position);
-                    for (ship.angles) |angle| try w.writeInt(i16, angle, .little);
-                    try writeFloat(&w, ship.speed);
-                    try writeFloat(&w, ship.throttle);
-                    try w.writeInt(i32, ship.fuel, .little);
-                    for (ship.shields.values()) |value| try writeFloat(&w, value);
-                    for (ship.armor.values()) |value| try writeFloat(&w, value);
-                    try w.writeInt(i32, ship.kills, .little);
-                    try w.writeInt(u32, ship.deaths, .little);
-                    if (view.scenario != null) {
-                        try w.writeInt(u16, ship.respawn, .little);
-                        const wall: u8 = @intFromBool(ship.at_wall);
-                        const dying: u8 = @intFromBool(ship.dying);
-                        try w.writeByte(wall | (dying << 1));
-                        try w.writeInt(u16, ship.ping_ms orelse Ship.unknown_ping, .little);
-                    }
-                    if (view.scenario != null and view.scenario.?.hasPowerUps()) try w.writeByte(@intFromBool(ship.cloaked));
-                }
+                try writeMode(&w, view.scenario, view.mission != null);
+                try w.writeByte(view.pilot_pages);
+                try writeShips(&w, view.ships[0..inline_pilots], view.mode());
                 if (!acceptsObjectives(view.scenario, std.meta.activeTag(view.objectives))) return error.InvalidSnapshot;
                 try w.writeByte(@backingInt(std.meta.activeTag(view.objectives)));
                 switch (view.objectives) {
@@ -793,11 +987,12 @@ pub const Message = union(enum(u8)) {
                         try w.writeByte(roles.mask);
                     },
                 }
-                if (view.scenario != null and view.scenario.?.hasPowerUps()) {
-                    try view.rocks.write(&w, compactRocks(view.scenario));
-                    try writeArena(&w, &view);
-                }
+                if (view.scenario != null and view.scenario.?.hasPowerUps()) try writePower(&w, &view);
                 if (view.scenario == .nuclear_threat) try Blast.write(view.blast, &w);
+                if (view.mission) |*mission| {
+                    if (view.objectives != .none) return error.InvalidMissionView;
+                    try mission.write(&w);
+                }
                 try w.writeByte(@intFromBool(view.weapons != null));
                 if (view.weapons) |*status| try status.write(&w);
             },
@@ -805,8 +1000,10 @@ pub const Message = union(enum(u8)) {
             .received_final => |tick| try w.writeInt(u32, tick, .little),
             .flight_press => |presses| try w.writeByte(@bitCast(presses)),
             .roster => |roster| {
-                try writeScenario(&w, roster.lobby);
-                try w.writeByte(@intFromBool(roster.paused));
+                try writeMode(&w, roster.lobby, roster.mission != null);
+                if (roster.mission) |number| try w.writeInt(u16, number, .little);
+                try w.writeByte(if (roster.briefing) 2 else @intFromBool(roster.paused));
+                try w.writeByte(roster.limit);
                 for (roster.pilots) |entry| {
                     try w.writeInt(u64, if (entry) |pilot| pilot.generation else 0, .little);
                     if (entry) |pilot| try writeCallSign(&w, &pilot.name);
@@ -814,6 +1011,13 @@ pub const Message = union(enum(u8)) {
             },
             .call_sign => |name| try writeCallSign(&w, &name),
             .pick_ship => |fighter| try w.writeByte(@backingInt(fighter)),
+            .scenery => |scenery| try scenery.write(&w),
+            .pilot_page => |page| try page.write(&w),
+            .campaign_line => |line| try line.write(&w),
+            .briefed => |selected| if (selected) |fit| {
+                try w.writeByte(@backingInt(fit.ship));
+                for (fit.racks) |rack| try w.writeInt(i16, @backingInt(rack), .little);
+            },
             .beacon_notice => |notice| {
                 try w.writeByte(@intCast(notice.event.pilot.slot));
                 try w.writeInt(u64, notice.event.pilot.generation, .little);
@@ -828,6 +1032,11 @@ pub const Message = union(enum(u8)) {
             .combat => |combat| try writeCombat(&w, &combat),
             .weapon_order => |order| try ordnance.writeOrder(&w, order),
             .projectiles => |page| try page.write(&w),
+            .scene_page => |*page| try page.write(&w),
+            .crew_jump, .crew_land => |request| {
+                try w.writeInt(u32, request.view_tick, .little);
+                try w.writeInt(u32, request.reuse, .little);
+            },
             .pilot_notice => |notice| {
                 try w.writeByte(notice.pilot.slot);
                 try w.writeInt(u64, notice.pilot.generation, .little);
@@ -877,11 +1086,12 @@ pub const Message = union(enum(u8)) {
                 const peer: Version = .{ .protocol = protocol, .release = release };
                 break :pair if (tag == .join) .{ .join = peer } else .{ .wrong_protocol = peer };
             },
-            .joined => admitted: {
+            .joined, .campaign_seat => admitted: {
                 const slot = try r.takeByte();
                 const generation = try r.takeInt(u64, .little);
                 if (slot >= slots or generation == 0) return error.InvalidAdmission;
-                break :admitted .{ .joined = .{ .slot = slot, .generation = generation } };
+                const id: Admission = .{ .slot = slot, .generation = generation };
+                break :admitted if (tag == .joined) .{ .joined = id } else .{ .campaign_seat = id };
             },
             .input => .{ .input = .{
                 .sequence = try r.takeInt(u32, .little),
@@ -889,53 +1099,26 @@ pub const Message = union(enum(u8)) {
                 .fire_for = if (r.bufferedLen() == 0) null else try r.takeInt(u32, .little),
             } },
             .view, .finished => snapshot: {
-                var view: Snapshot = .{ .tick = try r.takeInt(u32, .little), .scenario = try readScenario(&r), .ships = @splat(null) };
-                for (&view.ships) |*entry| {
-                    const generation = try r.takeInt(u64, .little);
-                    if (generation == 0) continue;
-                    var ship: Ship = .{ .generation = generation, .reuse = try r.takeInt(u32, .little), .fighter = try r.takeEnum(Fighter, .little), .position = try readPosition(&r) };
-                    for (&ship.angles) |*angle| angle.* = try r.takeInt(i16, .little);
-                    ship.speed = try readFloat(&r);
-                    ship.throttle = try readFloat(&r);
-                    ship.fuel = try r.takeInt(i32, .little);
-                    for (std.enums.values(engine.game.collision.Quadrant)) |quadrant| ship.shields.at(quadrant).* = try readFloat(&r);
-                    for (std.enums.values(engine.game.collision.Quadrant)) |quadrant| ship.armor.at(quadrant).* = try readFloat(&r);
-                    ship.kills = try r.takeInt(i32, .little);
-                    ship.deaths = try r.takeInt(u32, .little);
-                    if (view.scenario != null) {
-                        ship.respawn = try r.takeInt(u16, .little);
-                        if (ship.respawn > engine.game.deathmatch.respawn.duration) return error.InvalidSnapshot;
-                        const flags = try r.takeByte();
-                        if (flags > 0b11) return error.InvalidSnapshot;
-                        ship.at_wall = flags & 1 != 0;
-                        ship.dying = flags & 2 != 0;
-                        const ping = try r.takeInt(u16, .little);
-                        ship.ping_ms = if (ping == Ship.unknown_ping) null else ping;
-                    }
-                    if (view.scenario != null and view.scenario.?.hasPowerUps()) ship.cloaked = switch (try r.takeByte()) {
-                        0 => false,
-                        1 => true,
-                        else => return error.InvalidSnapshot,
-                    };
-                    const motion = engine.game.motion;
-                    if (ship.throttle < motion.reverse_throttle or ship.throttle > motion.afterburner_throttle or ship.fuel < 0)
-                        return error.InvalidSnapshot;
-                    entry.* = ship;
-                }
+                const tick = try r.takeInt(u32, .little);
+                const session_mode = try readMode(&r);
+                var view: Snapshot = .{ .tick = tick, .scenario = session_mode.scenario, .ships = @splat(null) };
+                view.pilot_pages = try r.takeByte();
+                if (view.pilot_pages > max_pilot_pages or (session_mode.mission and view.pilot_pages != 0))
+                    return error.InvalidSnapshot;
+                try readShips(&r, view.ships[0..inline_pilots], session_mode);
                 const objectives = try r.takeEnum(std.meta.Tag(Objectives), .little);
                 if (!acceptsObjectives(view.scenario, objectives)) return error.InvalidSnapshot;
                 view.objectives = switch (objectives) {
                     .none => .none,
                     .six_beacons => objectives: {
                         var beacons: [beacon_count]Beacon = undefined;
-                        for (&beacons) |*beacon| beacon.* = try readBeacon(&r, &view.ships);
+                        for (&beacons) |*beacon| beacon.* = try readBeacon(&r);
                         break :objectives .{ .six_beacons = beacons };
                     },
                     .dark_reign => objectives: {
-                        var mode: DarkReign = .{ .relay = try readBeacon(&r, &view.ships), .yaw = try r.takeInt(i16, .little) };
+                        var mode: DarkReign = .{ .relay = try readBeacon(&r), .yaw = try r.takeInt(i16, .little) };
                         const target = try r.takeByte();
                         if (target != slots) {
-                            if (target >= slots or view.ships[target] == null) return error.InvalidSnapshot;
                             if (mode.relay == .carried and mode.relay.carried == target) return error.InvalidSnapshot;
                             const step = try r.takeByte();
                             if (step > @backingInt(engine.game.aiioncan.Step.destroy)) return error.InvalidSnapshot;
@@ -947,30 +1130,28 @@ pub const Message = union(enum(u8)) {
                         const slot = try r.takeByte();
                         if (slot == slots) break :objectives .{ .tag_bomb = null };
                         const remaining = try r.takeInt(u16, .little);
-                        if (slot >= slots or view.ships[slot] == null or remaining > engine.game.deathmatch.tag_bomb.fuse)
+                        if (remaining > engine.game.deathmatch.tag_bomb.fuse)
                             return error.InvalidSnapshot;
                         break :objectives .{ .tag_bomb = .{ .carrier = slot, .remaining = remaining } };
                     },
                     .hunt_the_shadow => shadow: {
                         const slot = try r.takeByte();
                         if (slot == slots) break :shadow .{ .hunt_the_shadow = null };
-                        if (slot >= slots or view.ships[slot] == null) return error.InvalidSnapshot;
                         break :shadow .{ .hunt_the_shadow = slot };
                     },
-                    .vampires => roles: {
-                        const infected: vampires.Roles = .{ .mask = try r.takeByte() };
-                        if (infected.mask >> slots != 0) return error.InvalidSnapshot;
-                        for (&view.ships, 0..) |*ship, slot| {
-                            if (ship.* == null and infected.isSet(slot)) return error.InvalidSnapshot;
-                        }
-                        break :roles .{ .vampires = infected };
-                    },
+                    .vampires => .{ .vampires = .{ .mask = try r.takeByte() } },
                 };
-                if (view.scenario != null and view.scenario.?.hasPowerUps()) {
-                    view.rocks = try .read(&r, compactRocks(view.scenario));
-                    try readArena(&r, &view);
-                }
+                try view.checkObjectivePilots(false);
+                if (view.scenario != null and view.scenario.?.hasPowerUps()) try readPower(&r, &view);
                 if (view.scenario == .nuclear_threat) view.blast = try Blast.read(&r, view.tick);
+                if (session_mode.mission) {
+                    if (view.objectives != .none) return error.InvalidMissionView;
+                    view.mission = try .read(&r);
+                    if (view.mission.?.lead) |lead| if (view.ships[lead] == null) return error.InvalidMissionView;
+                    for (view.ships[view.mission.?.pilot_slots..]) |ship| {
+                        if (ship != null) return error.InvalidMissionView;
+                    }
+                }
                 view.weapons = switch (try r.takeByte()) {
                     0 => null,
                     1 => try ordnance.Status.read(&r),
@@ -986,22 +1167,40 @@ pub const Message = union(enum(u8)) {
                 break :presses .{ .flight_press = value };
             },
             .roster => roster: {
-                var view: Roster = .{ .lobby = try readScenario(&r) };
-                view.paused = switch (try r.takeByte()) {
-                    0 => false,
-                    1 => true,
+                const mode = try readMode(&r);
+                var view: Roster = .{ .lobby = mode.scenario, .mission = if (mode.mission) try campaign.readMissionNumber(&r) else null };
+                switch (try r.takeByte()) {
+                    0 => {},
+                    1 => view.paused = true,
+                    2 => view.briefing = true,
                     else => return error.InvalidRoster,
-                };
-                if (view.paused and view.lobby != null) return error.InvalidRoster;
-                for (&view.pilots) |*entry| {
+                }
+                if (view.paused and (view.lobby != null or view.mission != null)) return error.InvalidRoster;
+                if (view.briefing and view.mission == null) return error.InvalidRoster;
+                view.limit = try r.takeByte();
+                const limit: u8 = if (view.mission != null) cooperative_slots else slots;
+                if (view.limit < 2 or view.limit > limit) return error.InvalidRoster;
+                for (&view.pilots, 0..) |*entry, slot| {
                     const generation = try r.takeInt(u64, .little);
-                    if (generation != 0) entry.* = .{ .generation = generation, .name = try readCallSign(&r) };
+                    if (generation == 0) continue;
+                    if (slot >= view.limit) return error.InvalidRoster;
+                    entry.* = .{ .generation = generation, .name = try readCallSign(&r) };
                 }
                 if (view.paused and view.pilots[0] == null) return error.InvalidRoster;
                 break :roster .{ .roster = view };
             },
             .call_sign => .{ .call_sign = try readCallSign(&r) },
             .pick_ship => .{ .pick_ship = try r.takeEnum(Fighter, .little) },
+            .scenery => .{ .scenery = try .read(&r) },
+            .pilot_page => .{ .pilot_page = try .read(&r) },
+            .campaign_line => .{ .campaign_line = try .read(&r) },
+            .briefed => ready: {
+                if (r.bufferedLen() == 0) break :ready .{ .briefed = null };
+                var fit: CampaignLoadout = .{ .ship = try r.takeEnum(Fighter, .little), .racks = undefined };
+                for (&fit.racks) |*rack| rack.* = @fromBackingInt(try r.takeInt(i16, .little));
+                if (!fit.valid()) return error.InvalidCampaignLoadout;
+                break :ready .{ .briefed = fit };
+            },
             .beacon_notice => notice: {
                 const slot = try r.takeByte();
                 const generation = try r.takeInt(u64, .little);
@@ -1015,8 +1214,11 @@ pub const Message = union(enum(u8)) {
             .uber_kill => .{ .uber_kill = try .read(&r) },
             .vampires_notice => .{ .vampires_notice = try .read(&r) },
             .combat => .{ .combat = try readCombat(&r) },
-            .weapon_order => .{ .weapon_order = try ordnance.readOrder(&r, slots) },
+            .weapon_order => .{ .weapon_order = try ordnance.readOrder(&r, engine.game.gameobj.max_objects) },
             .projectiles => .{ .projectiles = try ordnance.Page.read(&r) },
+            .scene_page => .{ .scene_page = try ScenePage.read(&r) },
+            .crew_jump => .{ .crew_jump = .{ .view_tick = try r.takeInt(u32, .little), .reuse = try r.takeInt(u32, .little) } },
+            .crew_land => .{ .crew_land = .{ .view_tick = try r.takeInt(u32, .little), .reuse = try r.takeInt(u32, .little) } },
             .pilot_notice => notice: {
                 const slot = try r.takeByte();
                 const generation = try r.takeInt(u64, .little);
@@ -1078,20 +1280,38 @@ pub const Message = union(enum(u8)) {
     }
 };
 
+test "campaign views name a present lead and carry the mission's readiness" {
+    var view: Snapshot = .{
+        .tick = 24,
+        .ships = @splat(null),
+        .mission = .{ .number = engine.game.gameflow.first_mission, .pilot_slots = 4, .lead = 3, .travel = .{ .warp = true } },
+    };
+    view.ships[3] = .{ .generation = 7, .reuse = 3, .position = @splat(0) };
+    var bytes: [capacity]u8 = undefined;
+    const encoded = try (Message{ .view = view }).encode(&bytes);
+    try std.testing.expectEqualDeep(view, (try Message.decode(encoded)).view);
+    view.mission.?.lead = 0;
+    try std.testing.expectError(error.InvalidMissionView, Message.decode(try (Message{ .view = view }).encode(&bytes)));
+    view.mission.?.lead = 3;
+    view.ships[4] = .{ .generation = 8, .position = @splat(0) };
+    try std.testing.expectError(error.InvalidMissionView, Message.decode(try (Message{ .view = view }).encode(&bytes)));
+}
+
 test "versions compare by protocol and snapshots retain slot identities" {
     var buffer: [capacity]u8 = undefined;
     const local: Message = .{ .join = .{ .protocol = revision, .release = "1.0.1" } };
     try std.testing.expect((try Message.decode(try local.encode(&buffer))).join.compatible());
     const old: Message = .{ .join = .{ .protocol = revision - 1, .release = "next" } };
     try std.testing.expect(!(try Message.decode(try old.encode(&buffer))).join.compatible());
-    const view: Message = .{ .view = .{ .tick = 12, .ships = .{ .{
+    var view: Message = .{ .view = .{ .tick = 12, .ships = @splat(null) } };
+    view.view.ships[0] = .{
         .generation = 4,
         .position = .{ 1, 2, 3 },
         .angles = .{ -1234, 5, 678 },
         .speed = 37.5,
         .throttle = engine.game.motion.afterburner_throttle,
         .fuel = 650,
-    }, null, null } } };
+    };
     const bytes = try view.encode(&buffer);
     try std.testing.expectEqualDeep(view, try Message.decode(bytes));
     try std.testing.expectError(error.EndOfStream, Message.decode(bytes[0 .. bytes.len - 1]));
@@ -1162,9 +1382,9 @@ test "combat batches carry visual effects with bounded counts and pool indices" 
 test "a lobby preserves occupied slots and treats callsigns as bounded display text" {
     const host_name = lobbyName("  Falcon\x00  ");
     const guest_name = lobbyName("\xc9toile");
-    const message: Message = .{ .roster = .{ .lobby = .asteroid_field, .pilots = .{
-        .{ .generation = 1, .name = host_name }, null, .{ .generation = 4, .name = guest_name },
-    } } };
+    var message: Message = .{ .roster = .{ .lobby = .asteroid_field } };
+    message.roster.pilots[0] = .{ .generation = 1, .name = host_name };
+    message.roster.pilots[2] = .{ .generation = 4, .name = guest_name };
     var buffer: [capacity]u8 = undefined;
     const decoded = (try Message.decode(try message.encode(&buffer))).roster;
     try std.testing.expectEqual(.asteroid_field, decoded.lobby);
@@ -1201,8 +1421,8 @@ test "a final receipt names the applied tick" {
 test "flight updates fit the direct-IP payload budget" {
     const input_bytes = 25;
     // A fighter byte and a ship reuse count distinguish a respawn from a new admission.
-    const full_snapshot_bytes = 257;
-    const objective_snapshot_budget = 336;
+    const full_snapshot_bytes = 9 + 83 * inline_pilots;
+    const objective_snapshot_budget = full_snapshot_bytes + 79;
     var buffer: [capacity]u8 = undefined;
     const input: Message = .{ .input = .{ .sequence = 1, .command = .{
         .steering = .{ .axes = .{ 0.2, -0.5, 0.8 } },
@@ -1221,6 +1441,30 @@ test "flight updates fit the direct-IP payload budget" {
     var with_objectives = view;
     with_objectives.view.objectives = .{ .six_beacons = @splat(.{ .loose = .{ 1, 2, 3 } }) };
     try std.testing.expect((try with_objectives.encode(&buffer)).len <= objective_snapshot_budget);
+}
+
+test "pilot continuation datagrams retain every ship in a twenty-four pilot view" {
+    const count = PilotPage.width * (PilotPage.max_extra + 1);
+    var ships: [count]?Ship = @splat(null);
+    for (1..PilotPage.max_extra + 1) |number| {
+        var page: PilotPage = .{ .tick = 42, .number = @intCast(number), .scenario = .asteroid_field };
+        for (&page.ships, page.first()..) |*ship, slot| ship.* = .{
+            .generation = slot + 1,
+            .reuse = @intCast(slot),
+            .position = .{ 1, 2, 3 },
+            .cloaked = true,
+        };
+        var buffer: [PilotPage.capacity]u8 = undefined;
+        const bytes = try (Message{ .pilot_page = page }).encode(&buffer);
+        try std.testing.expectEqual(PilotPage.capacity, bytes.len);
+        const received = (try Message.decode(bytes)).pilot_page;
+        try std.testing.expectEqualDeep(page, received);
+        try received.apply(&ships);
+        try std.testing.expectError(error.InvalidPilotPage, received.apply(ships[0 .. received.first() + 1]));
+    }
+    for (ships[PilotPage.width..], PilotPage.width..) |ship, slot| {
+        try std.testing.expectEqual(slot + 1, ship.?.generation);
+    }
 }
 
 test "the objective view fits one packet and a carrier needs a current ship" {
@@ -1253,15 +1497,17 @@ test "ship angles round-trip the host orientation" {
 test "asteroid views include the stock mode and keep absent rock slots" {
     var buffer: [capacity]u8 = undefined;
     var view: Snapshot = .{ .tick = 7, .scenario = .asteroid_field, .ships = @splat(null) };
-    view.rocks.count = Rocks.asteroid_max;
-    @memset(view.rocks.angles[0..Rocks.asteroid_max], .{ 123, 456, -789 });
-    view.rocks.angles[1] = null;
     view.pickups = 0b1011;
-    view.mines[powerups.mine_count - 1] = .{ .position = .{ 100, 200, -300 }, .angles = .{ 10, -15, 20 }, .reuse = 19 };
     view.power = .{ .kind = .missile, .since = 1 };
     const bytes = try (Message{ .view = view }).encode(&buffer);
     try std.testing.expectEqualDeep(view, (try Message.decode(bytes)).view);
     try std.testing.expectError(error.EndOfStream, Message.decode(bytes[0 .. bytes.len - 1]));
+
+    var scenery: Scenery = .{ .tick = view.tick, .scenario = .asteroid_field, .rocks = .{ .count = Rocks.asteroid_max } };
+    @memset(scenery.rocks.angles[0..Rocks.asteroid_max], .{ 123, 456, -789 });
+    scenery.rocks.angles[1] = null;
+    scenery.mines[powerups.mine_count - 1] = .{ .position = .{ 100, 200, -300 }, .angles = .{ 10, -15, 20 }, .reuse = 19 };
+    try std.testing.expectEqualDeep(scenery, (try Message.decode(try (Message{ .scenery = scenery }).encode(&buffer))).scenery);
 }
 
 test "ordnance orders address both ship lifetimes and carry bounded cockpit commands" {
@@ -1274,9 +1520,10 @@ test "ordnance orders address both ship lifetimes and carry bounded cockpit comm
     const bytes = try order.encode(&buffer);
     try std.testing.expectEqualDeep(order, try Message.decode(bytes));
     try std.testing.expectError(error.EndOfStream, Message.decode(bytes[0 .. bytes.len - 1]));
-    buffer[2 + @sizeOf(u32)] = 0b0011_1000;
+    const presses_at = 1 + 2 * @sizeOf(u32);
+    buffer[presses_at + 1] = 0b0011_1000;
     try std.testing.expectError(error.InvalidWeaponOrder, Message.decode(bytes));
-    buffer[1 + @sizeOf(u32)] = 0xff;
+    buffer[presses_at] = 0xff;
     try std.testing.expectError(error.InvalidWeaponOrder, Message.decode(bytes));
 }
 
@@ -1364,14 +1611,21 @@ test "Dark Reign views carry the live relay and cannon phase with bounded scener
         .ships = @splat(.{ .generation = 1, .position = @splat(1) }),
         .objectives = .{ .dark_reign = .{ .relay = .{ .carried = 0 }, .yaw = -2500, .shot = .{ .target = 2, .step = .fire, .elapsed = 50 } } },
     };
-    view.rocks = .{ .count = Rocks.max, .angles = @splat(.{ 256, -1024, 2048 }) };
-    view.rocks.angles[5] = null;
-    view.mines = @splat(.{ .position = @splat(1), .angles = @splat(0), .reuse = 19 });
     const bytes = try (Message{ .view = view }).encode(&buffer);
     try std.testing.expect(bytes.len < 1200);
     try std.testing.expectEqualDeep(view, (try Message.decode(bytes)).view);
     view.objectives.dark_reign.shot.?.target = 0;
     try std.testing.expectError(error.InvalidSnapshot, Message.decode(try (Message{ .view = view }).encode(&buffer)));
+
+    const scenery: Scenery = .{
+        .tick = 400,
+        .scenario = .dark_reign,
+        .rocks = .{ .count = Rocks.max, .angles = @splat(.{ 256, -1024, 2048 }) },
+        .mines = @splat(.{ .position = @splat(1), .angles = @splat(0), .reuse = 19 }),
+    };
+    const scenery_bytes = try (Message{ .scenery = scenery }).encode(&buffer);
+    try std.testing.expect(scenery_bytes.len < 1200);
+    try std.testing.expectEqualDeep(scenery, (try Message.decode(scenery_bytes)).scenery);
 }
 
 test "Tag Bomb snapshots require a present carrier and cap the remaining fuse" {
@@ -1405,9 +1659,7 @@ test "Shadow snapshots carry an admitted slot and the arena's thirty-three rocks
         .scenario = .hunt_the_shadow,
         .ships = @splat(null),
         .objectives = .{ .hunt_the_shadow = null },
-        .rocks = .{ .count = 33 },
     };
-    view.rocks.angles[32] = .{ -128, 256, 512 };
     try std.testing.expectEqualDeep(view, (try Message.decode(try (Message{ .view = view }).encode(&buffer))).view);
     view.ships[1] = .{ .generation = 2, .position = @splat(0), .cloaked = true };
     view.objectives = .{ .hunt_the_shadow = 1 };
@@ -1450,8 +1702,9 @@ test "Vampires snapshots can show two roles and reject absent pilots" {
     view.objectives.vampires.set(1);
     try std.testing.expectError(error.InvalidSnapshot, Message.decode(try (Message{ .view = view }).encode(&buffer)));
     view.objectives.vampires.unset(1);
-    view.objectives.vampires.set(slots);
-    try std.testing.expectError(error.InvalidSnapshot, Message.decode(try (Message{ .view = view }).encode(&buffer)));
+    view.objectives.vampires.set(slots - 1);
+    view.ships[slots - 1] = .{ .generation = 8, .position = @splat(0) };
+    try std.testing.expectEqualDeep(view, (try Message.decode(try (Message{ .view = view }).encode(&buffer))).view);
 }
 
 test "Vampires notices carry a last human or a departure without a pilot" {

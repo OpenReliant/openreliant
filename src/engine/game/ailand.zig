@@ -213,6 +213,10 @@ pub fn update(ctx: Context, index: u16) void {
 /// `index`, locked (`camera.switchView`).
 pub fn watch(world: gameobj.World, index: u16, views: [2]camera.View) void {
     const pick = if (world.random.oneIn(2)) views[0] else views[1];
+    if (world.damage_rules == .cooperative) {
+        world.objects.player_states[index].landing_view = pick;
+        return;
+    }
     _ = camera.switchView(world, pick, index, true, true);
 }
 
@@ -241,6 +245,19 @@ pub fn stopCarrier(ctx: Context, carrier: u16) void {
 /// object but the ship in slot `index` and the carrier in slot `carrier` is disabled, and those two
 /// are enabled.
 pub fn showLanding(world: gameobj.World, index: u16, carrier: u16) void {
+    if (world.damage_rules == .cooperative) {
+        if (world.player.showing == .landing) return;
+        world.player.showing = .landing;
+        const all = world.objects;
+        for (all.slots[0..all.count]) |*slot| slot.object.flags.disabled = true;
+        for (all.slots[0..all.playerSlotCount()]) |*pilot| {
+            const landing = pilot.running(.land) orelse continue;
+            const target = landing.target.slotIn(all) orelse continue;
+            pilot.object.flags.disabled = false;
+            all.slots[target].object.flags.disabled = false;
+        }
+        return;
+    }
     world.player.showing = .landing;
     const all = world.objects;
     for (all.slots[0..all.count], 0..) |*each, at| each.object.flags.disabled = at != index and at != carrier;
@@ -251,6 +268,18 @@ pub fn showLanding(world: gameobj.World, index: u16, carrier: u16) void {
 pub fn endAfter(world: gameobj.World, due: i32) void {
     if (world.clock.frame_start <= due) return;
     if (world.variables) |variables| variables.mission_over = 1;
+}
+
+/// A hosted landing is done once all remaining pilots who entered it are down.
+pub fn finishReliant(world: gameobj.World, index: u16, due: i32) void {
+    if (world.damage_rules != .cooperative) return endAfter(world, due);
+    if (world.clock.frame_start <= due) return;
+    const all = world.objects;
+    all.player_states[index].landed = true;
+    for (all.slots[0..all.playerSlotCount()], all.player_states[0..all.playerSlotCount()]) |*pilot, state| {
+        if (state.membership == .joined and pilot.running(.land) != null and !state.landed) return;
+    }
+    endAfter(world, due);
 }
 
 /// The ship the player's ship can land on: the player's carrier (`gameobj.Player.carrier`), where

@@ -48,8 +48,14 @@ pub const Movies = struct {
     /// The player and menu scripts, which hear the keys the movies' and the rooms' loops read, and
     /// draw over their screens; null without them.
     scripts: ?*ScriptFrames = null,
+    /// A co-op briefing keeps its connection running while rooms and movies own the UI loop.
+    service: ?Service = null,
 
     pub const Timer = struct { clock: *game.main.Clock, sound: *hog_snd.Sound };
+    pub const Service = struct {
+        context: *anyopaque,
+        tick: *const fn (*anyopaque) bool,
+    };
 
     /// Plays the movie `name` names as `kind` has it, until it ends or is skipped; null where the
     /// window was closed meanwhile, which quits the game, as it quits the game's loop
@@ -72,6 +78,7 @@ pub const Movies = struct {
     /// last pass let go, and a controller connected or taken out noted. Null where the window was
     /// closed, which quits the game (`game_exit`).
     pub fn pump(movies: *Movies) ?Pumped {
+        if (movies.service) |service| if (!service.tick(service.context)) return null;
         const devices = movies.devices;
         var pumped: Pumped = .{};
         _ = devices.mouse.notches();

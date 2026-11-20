@@ -3,14 +3,14 @@ const engine = @import("openreliant").engine;
 const game = engine.game;
 const beacons = game.deathmatch.six_beacons;
 
-pub const beacon_spawn_x = [_]f32{ 5000, -8000, -6000 };
+pub const beacon_spawn_x = [_]f32{ 5000, -8000, -6000, -10000, -12000, -14000, -16000, -18000 };
 pub const beacon_ship_radius: f32 = 10;
 const beacon_spacing = 1000;
 const gate_radius: f32 = 100;
 const pickup_radius: f32 = 20;
 const inactive_pickup_x: f32 = 20000;
 
-/// Set up the small headless Six Beacons arena and its three reserved launch positions.
+/// Set up the headless Six Beacons test arena and its reserved launch positions.
 pub fn prepareSixBeacons(mission: *game.gameobj.testing.Mission, explosions: *game.explode.Explosions) !void {
     const all = mission.objects;
     all.players = beacon_spawn_x.len;

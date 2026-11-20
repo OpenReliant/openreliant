@@ -82,7 +82,7 @@ pub const Screen = enum(u8) {
 /// What the front end ends in, which `interface_run` returns to WinMain.
 pub const Outcome = union(enum) {
     join_server: []const u8,
-    host_lan,
+    host_lan: game.interface.Connection.HostChoice.Kind,
     leave_session,
     launch_session,
     choose_ship: game.dmscenarios.Fighter,
@@ -453,7 +453,7 @@ pub const Interface = struct {
                 const action = front.connection.frame(pointer, &context.devices.keyboard, context.typed, context.window) orelse return null;
                 switch (action) {
                     .join => |target| return .{ .join_server = target },
-                    .host_lan => return .host_lan,
+                    .host_lan => |kind| return .{ .host_lan = kind },
                     .leave_session => return .leave_session,
                     .launch_session => return .launch_session,
                     .send_chat => |line| return .{ .send_chat = line },
@@ -812,7 +812,7 @@ pub const Interface = struct {
         if (front.scripted_shown != null) return;
         switch (front.screen) {
             .main_menu => try front.main_menu.draw(drawn, art, &resources.dialog, &resources.developer.font),
-            .connection => try front.connection.draw(drawn, art, &resources.dialog, .{
+            .connection => try front.connection.draw(drawn, art, &resources.dialog, if (front.connection.lobby != null) resources.pagingArt() else null, .{
                 .pictures = if (resources.fighter_pictures) |*pictures| pictures else null,
                 .strings = resources.itac_strings,
             }, front.ticks),

@@ -335,6 +335,7 @@ pub fn launched(world: gameobj.World, index: u16) void {
 /// Its ship's JumpedIn, with the ship, goes on to its groups.
 pub fn jumpedIn(world: gameobj.World, index: u16) void {
     postNaming(world, index, .jumped_in, index, .{ .object = .of(index) });
+    leadArrival(world, index, index, .jumped_in);
 }
 
 /// `event_fixed_gate_jumped_in` (`0x0045ABD0`): the object in slot `index` has come in through the
@@ -342,6 +343,19 @@ pub fn jumpedIn(world: gameobj.World, index: u16) void {
 /// goes on to its groups.
 pub fn fixedGateJumpedIn(world: gameobj.World, index: u16, gate: u16) void {
     postNaming(world, index, .fixed_gate_jumped_in, gate, .{ .object = .of(index), .gate = .of(gate) });
+    leadArrival(world, index, gate, .fixed_gate_jumped_in);
+}
+
+/// The host keeps the campaign's slot-zero triggers when another pilot takes over the flight.
+/// Their arrival advances those triggers. Their own event has already reached their groups.
+fn leadArrival(world: gameobj.World, index: u16, named: u16, condition: dte.Condition) void {
+    if (world.damage_rules != .cooperative or index == 0) return;
+    const events = world.events orelse return;
+    const lead = @import("../../input.zig").missionLead(world.objects) orelse return;
+    if (lead.participant.slot != index) return;
+    const mission_pilot = events.shipOf(0) orelse return;
+    var values = [_]u32{events.value(named)};
+    events.post(mission_pilot, .{ .condition = condition, .values = &values });
 }
 
 /// The ship of the object in slot `index` posts `condition` with the ship of the object in slot
@@ -761,6 +775,58 @@ test "JUMP DRIVE takes the jump the mission has ready" {
     try std.testing.expectEqual(1, mission.game.fixture.global(0));
     try std.testing.expectEqual(.no, machine.variables.ready.jump);
     try std.testing.expectEqual(7, machine.last_jumped);
+}
+
+test "the current co-op lead alone can take the mission's ready jump or warp" {
+    const gpa = std.testing.allocator;
+    const code = try vm.machine.testing.counting(gpa, 0);
+    defer gpa.free(code);
+    const parts = [_]vm.machine.testing.Part{.{ .code = code }};
+    var mission: TestMission = undefined;
+    try mission.init(&parts, .{
+        .globals = &.{0},
+        .ships = &dte.testing.ships(2, 0),
+        .objects = &.{ dte.testing.object(.ship, 0, 3), dte.testing.object(.ship, 3, 0) },
+        .triggers = &.{
+            triggers.testing.trigger(&parts, 0, .player_ready_to_jump, .always),
+            triggers.testing.trigger(&parts, 0, .player_ready_to_warp, .always),
+            triggers.testing.trigger(&parts, 0, .jumped_in, .always),
+        },
+    }, &.{ @splat(0), .{ 5000, 0, 0 } });
+    defer mission.deinit();
+    const input = @import("../../input.zig");
+    var world = mission.world();
+    world.damage_rules = .cooperative;
+    const all = world.objects;
+    all.players = 2;
+    const lead = all.bindParticipant(all.joinParticipant(0).?, .of(all, 0)).?;
+    const wing = all.bindParticipant(all.joinParticipant(1).?, .of(all, 1)).?;
+    const machine = &mission.game.fixture.machine;
+    machine.variables.ready.jump = .shown;
+    machine.clock = 5;
+
+    try std.testing.expect(!input.crewJump(world, wing));
+    try std.testing.expectEqual(.shown, machine.variables.ready.jump);
+    try std.testing.expect(input.crewJump(world, lead));
+    try std.testing.expect(!input.crewJump(world, lead));
+    mission.events.flush();
+    try std.testing.expectEqual(1, mission.game.fixture.global(0));
+    try std.testing.expectEqual(5, machine.last_jumped);
+
+    all.slots[0].object.flags.ejected = true;
+    try std.testing.expectEqual(wing, input.missionLead(all).?);
+    try std.testing.expect(create.Objects.leaveParticipant(world, lead.participant));
+    machine.variables.ready.warp = .shown;
+    machine.clock = 9;
+    try std.testing.expect(!input.crewJump(world, lead));
+    try std.testing.expect(input.crewJump(world, wing));
+    mission.events.flush();
+    try std.testing.expectEqual(2, mission.game.fixture.global(0));
+    try std.testing.expectEqual(9, machine.last_jumped);
+
+    jumpedIn(world, wing.participant.slot);
+    mission.events.flush();
+    try std.testing.expectEqual(3, mission.game.fixture.global(0));
 }
 
 test "the director's camera reaching a ship" {

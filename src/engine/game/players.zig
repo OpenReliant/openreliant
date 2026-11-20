@@ -48,6 +48,7 @@ pub const Membership = union(enum) {
         ping_ms: ?u16 = null,
         pickups_after: i32 = 0,
         ending: @import("main.zig").Ending = .playing,
+        destroyed_at: ?u32 = null,
     };
 };
 
@@ -94,6 +95,12 @@ pub const State = struct {
     /// A recall waiting for the bound ship's current order to give way.
     recall: gameobj.SentHome = .none,
     carrier: ?gameobj.ObjectRef = null,
+    /// A co-op pilot's view and completion of an authorised carrier landing.
+    landing_view: ?@import("camera.zig").View = null,
+    landed: bool = false,
+    permission_heard_from: u32 = 0,
+    /// Advances when the mission script selects a target for this pilot.
+    script_aim: u32 = 0,
 
     /// Drops all state tied to the old ship while keeping the participant's admission.
     pub fn unbindShip(state: *State) void {
@@ -107,6 +114,7 @@ pub const State = struct {
         if (state.membership == .joined) {
             state.membership.joined.kills.mission = 0;
             state.membership.joined.ending = .playing;
+            state.membership.joined.destroyed_at = null;
             return state.unbindShip();
         }
         state.shield_reserves = .{};

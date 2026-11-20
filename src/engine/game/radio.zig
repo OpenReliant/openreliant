@@ -122,6 +122,36 @@ pub fn permissionToLand(world: gameobj.World, game_ticks: u32) void {
     if (cleared) land(world);
 }
 
+/// The lead's PERMISSION TO LAND request in co-op (0x00454041). The host validates it and
+/// gives the landing order to the wing as one operation. The radio report has its own delay.
+pub fn crewLanding(world: gameobj.World, lead: u16) void {
+    const all = world.objects;
+    const variables = world.variables orelse return;
+    if (variables.mission_over != 0 or all.slots[lead].running(.land) != null) return;
+    const pilot = &all.player_states[lead];
+    const now = world.clock.game_ticks;
+    if (now < pilot.permission_heard_from) return;
+    pilot.permission_heard_from = now + permission_every;
+    const carrier = pilot.carrier orelse return;
+    const at = carrier.resolve(all) orelse return;
+    if (all.slots[at].landing != .reliant) return;
+    const cleared = variables.landing_cleared != 0;
+    playerSays(world, request_line);
+    if (world.radio) |heard| {
+        const lines = if (cleared) clearances(variables.mission_success) else &refusals;
+        if (!reportBridge(world, heard, at, lines, now)) return;
+    }
+    if (!cleared) return;
+    for (all.player_states[0..all.playerSlotCount()], 0..) |*state, index| {
+        const slot: u16 = @intCast(index);
+        if (!all.hasBoundPlayerShip(slot) or all.slots[slot].object.flags.outOfAction() or all.slots[slot].running(.land) != null) continue;
+        const launched_from = state.carrier orelse continue;
+        const home = launched_from.resolve(all) orelse continue;
+        if (all.slots[home].landing != .reliant) continue;
+        _ = aigeneric.giveShip(.of(world), slot, .land, home, null);
+    }
+}
+
 /// A report of the bridge of `carrier` to the player, said `report_delay` ticks after
 /// `game_ticks`: one of `lines`, as its officer says it (`bridgeLine`), under the name of the
 /// Yamato's officer where the carrier is a Yamato and the Reliant's otherwise. False where the
@@ -1034,6 +1064,7 @@ pub const Destination = union(enum) {
                 said.speech = std.mem.sliceTo(&speech, 0);
                 said.film = std.mem.sliceTo(&film, 0);
                 radio.deliver(ctx, said, mode, lineDeadline(ctx.frame_start, said.expiry));
+                if (radio.output) |output| output.send(output.context, ctx.frame_start, routed);
             },
             .participant => |route| {
                 const current = ctx.all.playerBinding(route.recipient.participant.slot) orelse return;
@@ -1213,6 +1244,13 @@ pub const Radio = struct {
     read: usize = 0,
     /// The reports waiting their time.
     reports: [report_count]?Report = @splat(null),
+    /// Presents the script's radio on each listener while the host keeps the timing.
+    output: ?Output = null,
+
+    pub const Output = struct {
+        context: *anyopaque,
+        send: *const fn (*anyopaque, i32, RoutedLine) void,
+    };
 
     /// Opens the radio, with its lines from `speech_archive` and its films from
     /// `hudmovie.archive_path` in `dir` (without either if it can't be opened), and with `mods`

@@ -4,7 +4,7 @@ const Incoming = @This();
 
 // Room for the three playing pilots and one connection negotiating admission.
 const capacity = 4;
-const HandshakeBudget = @import("handshake_budget");
+const HandshakeBudget = @import("handshake_budget").Window(capacity);
 
 connections: [capacity]?u32 = @splat(null),
 budget: HandshakeBudget = .{},

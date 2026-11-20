@@ -1072,12 +1072,12 @@ pub const Camera = struct {
             // carrier is, looking at the player's ship and at the view's object. A landing in a
             // hangar bay uses the same two, standing off the gate's launch point and its doors.
             .landing_tube => if (world.landing) |landing| switch (landing) {
-                .reliant => |tube| camera.place = lookingAt(tube.tube + math.transform(tube.carrier, landing_tube_offset), world.player.position),
+                .reliant => |tube| camera.place = reliantLanding(tube.tube, tube.carrier, world.player.position, .landing_tube),
                 .bay => |bay| camera.place = lookingAt(bay.gate.point(bay_tube_radii * @as(Vector, @splat(world.player.radius))), world.player.position),
                 .yamato => {},
             },
             .landing_aside => if (world.landing) |landing| switch (landing) {
-                .reliant => |tube| camera.place = lookingAt(tube.tube + math.transform(tube.carrier, landing_aside_offset), world.object.position),
+                .reliant => |tube| camera.place = reliantLanding(tube.tube, tube.carrier, world.object.position, .landing_aside),
                 .bay => |bay| camera.place = lookingAt(bay.mouth + math.transform(bay.gate.orientation, bay_aside_share * @as(Vector, @splat(bayReach(bay, world.object.radius)))), world.object.position),
                 .yamato => {},
             },
@@ -1641,6 +1641,12 @@ fn behind(point: Vector, orientation: Matrix, angle: f32, back: f32) Place {
 /// point from where they stand.
 pub fn lookingAt(at: Vector, target: Vector) Place {
     return .{ .position = at, .orientation = math.lookAt(target - at) };
+}
+
+/// The tube and exterior views of a Reliant landing use the same shot in a hosted mission.
+pub fn reliantLanding(tube: Vector, carrier: Matrix, ship: Vector, view: View) Place {
+    const offset = if (view == .landing_tube) landing_tube_offset else landing_aside_offset;
+    return lookingAt(tube + math.transform(carrier, offset), ship);
 }
 
 test pullBack {
