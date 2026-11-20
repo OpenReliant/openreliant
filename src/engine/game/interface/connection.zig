@@ -275,7 +275,7 @@ fn drawBrowser(screen: *const Connection, canvas: ui.Canvas, art: *hud.Art, layo
     }
     const choose = fighterField(layout);
     const choose_label: Label = .{ .english = "SHIP", .installed = 0x2C3 };
-    try canvas.text(canvas.fonts.small, .{ choose.x - 9, choose.y + 3 }, choose_label.text(canvas.strings.*), ui.blue, .right);
+    try canvas.text(canvas.fonts.small, .{ choose.x - 9, choose.y }, choose_label.text(canvas.strings.*), ui.blue, .right);
     try widgets.button(canvas, art, choose, ShipPicker.label(screen.fighter), !screen.busy, screen.ship_picker != null);
 }
 
