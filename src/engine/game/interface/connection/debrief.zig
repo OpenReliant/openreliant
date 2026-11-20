@@ -11,7 +11,7 @@ const itac = @import("../../itac.zig");
 const widgets = @import("widgets.zig");
 const chat = @import("chat_panel.zig");
 const Crew = @import("debrief_crew.zig");
-const CallSign = @import("../pilot_roster.zig").CallSign;
+const Pilot = @import("lobby.zig").Pilot;
 const Debrief = @This();
 
 pub const Action = union(enum) { choice: Crew.Choice, leave, message: @import("../../chat.zig").Line };
@@ -25,7 +25,7 @@ ending: Ending,
 objectives_met: bool,
 record: game.MissionRecord,
 overall_kills: i32,
-names: *const [Crew.size]?CallSign,
+pilots: *const [Crew.size]?Pilot,
 notices: *const History,
 editor: chat.Editor = .{ .focused = true },
 letter_strings: language.Language = .{ .strings = &.{} },
@@ -176,7 +176,7 @@ pub fn draw(debrief: *const Debrief, canvas: ui.Canvas, panel_font: *hud.Opened,
 }
 
 fn name(debrief: *const Debrief, strings: language.Language, slot: usize, buffer: []u8) []const u8 {
-    if (debrief.names[slot]) |*sign| if (sign.len != 0) return sign.slice();
+    if (debrief.pilots[slot]) |*pilot| if (pilot.name.len != 0) return pilot.name.slice();
     const label = strings.stringOr(0xBF, "Pilot");
     return std.fmt.bufPrint(buffer, "{s} {d}", .{ label, slot + 1 }) catch label;
 }

@@ -17,7 +17,7 @@ pub const campaignNumber = campaign.campaignNumber;
 pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
-pub const revision: u16 = 21;
+pub const revision: u16 = 22;
 pub const slots = engine.game.deathmatch.spawn.positions;
 pub const cooperative_slots = campaign.Crew.size;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
@@ -42,7 +42,7 @@ const beacon_snapshot_capacity = snapshot_header - inline_pilots + beacon_count 
 const power_capacity = @sizeOf(powerups.Pickups.Mask) + 1 + @sizeOf(i32);
 const arena_capacity = snapshot_header + @max(DarkReign.encoded_size, Blast.encoded_size) + power_capacity;
 const snapshot_capacity = @max(beacon_snapshot_capacity, arena_capacity, snapshot_header + MissionView.capacity);
-const roster_capacity = 6 + slots * (@sizeOf(u64) + 1 + @as(CallSign, .{}).bytes.len);
+const roster_capacity = 7 + slots * (@sizeOf(u64) + 1 + @as(CallSign, .{}).bytes.len);
 pub const capacity = @max(snapshot_capacity + ordnance.Status.capacity, roster_capacity, PilotPage.capacity, Combat.capacity, ordnance.Page.capacity, ScenePage.capacity, Scenery.capacity);
 comptime {
     std.debug.assert(capacity < 1200);
@@ -103,9 +103,10 @@ pub const Roster = struct {
     paused: bool = false,
     briefing: bool = false,
     limit: u8 = slots,
+    ready: engine.game.interface.Connection.DebriefCrew.Pilots = .empty,
     pilots: [slots]?Pilot = @splat(null),
 
-    pub const Pilot = struct { generation: u64, name: CallSign = .{} };
+    pub const Pilot = engine.game.interface.Connection.Lobby.Pilot;
 };
 
 pub const BeaconNotice = struct { event: engine.game.deathmatch.six_beacons.Notice, name: CallSign };
@@ -952,6 +953,7 @@ pub const Message = union(enum(u8)) {
     debrief_choice: DebriefChoice,
     campaign_next: NextMission,
     campaign_end: u32,
+    lobby_ready: bool,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -1020,12 +1022,14 @@ pub const Message = union(enum(u8)) {
                 if (roster.mission) |number| try w.writeInt(u16, number, .little);
                 try w.writeByte(if (roster.briefing) 2 else @intFromBool(roster.paused));
                 try w.writeByte(roster.limit);
+                try w.writeByte(roster.ready.mask);
                 for (roster.pilots) |entry| {
                     try w.writeInt(u64, if (entry) |pilot| pilot.generation else 0, .little);
                     if (entry) |pilot| try writeCallSign(&w, &pilot.name);
                 }
             },
             .call_sign => |name| try writeCallSign(&w, &name),
+            .lobby_ready => |ready| try w.writeByte(@intFromBool(ready)),
             .pick_ship => |fighter| try w.writeByte(@backingInt(fighter)),
             .scenery => |scenery| try scenery.write(&w),
             .pilot_page => |page| try page.write(&w),
@@ -1211,9 +1215,16 @@ pub const Message = union(enum(u8)) {
                 view.limit = try r.takeByte();
                 const limit: u8 = if (view.mission != null) cooperative_slots else slots;
                 if (view.limit < 2 or view.limit > limit) return error.InvalidRoster;
+                const ready = try r.takeByte();
+                if (ready >= @as(u16, 1) << @as(u4, @intCast(@min(view.limit, cooperative_slots))) or
+                    (ready != 0 and (view.mission == null or view.briefing))) return error.InvalidRoster;
+                view.ready.mask = @intCast(ready);
                 for (&view.pilots, 0..) |*entry, slot| {
                     const generation = try r.takeInt(u64, .little);
-                    if (generation == 0) continue;
+                    if (generation == 0) {
+                        if (slot < cooperative_slots and view.ready.isSet(slot)) return error.InvalidRoster;
+                        continue;
+                    }
                     if (slot >= view.limit) return error.InvalidRoster;
                     entry.* = .{ .generation = generation, .name = try readCallSign(&r) };
                 }
@@ -1221,6 +1232,11 @@ pub const Message = union(enum(u8)) {
                 break :roster .{ .roster = view };
             },
             .call_sign => .{ .call_sign = try readCallSign(&r) },
+            .lobby_ready => .{ .lobby_ready = switch (try r.takeByte()) {
+                0 => false,
+                1 => true,
+                else => return error.InvalidRoster,
+            } },
             .pick_ship => .{ .pick_ship = try r.takeEnum(Fighter, .little) },
             .scenery => .{ .scenery = try .read(&r) },
             .pilot_page => .{ .pilot_page = try .read(&r) },
@@ -1356,6 +1372,19 @@ test "versions compare by protocol and snapshots retain slot identities" {
     const bytes = try view.encode(&buffer);
     try std.testing.expectEqualDeep(view, try Message.decode(bytes));
     try std.testing.expectError(error.EndOfStream, Message.decode(bytes[0 .. bytes.len - 1]));
+}
+
+test "co-op lobby readiness round-trips and requires a present seat" {
+    var buffer: [capacity]u8 = undefined;
+    var message: Message = .{ .roster = .{ .mission = 1, .limit = cooperative_slots } };
+    message.roster.pilots[2] = .{ .generation = 13, .name = lobbyName("Viper") };
+    message.roster.ready.set(2);
+    const decoded = (try Message.decode(try message.encode(&buffer))).roster;
+    try std.testing.expect(decoded.ready.isSet(2));
+    message.roster.ready.set(1);
+    try std.testing.expectError(error.InvalidRoster, Message.decode(try message.encode(&buffer)));
+    const click: Message = .{ .lobby_ready = true };
+    try std.testing.expect((try Message.decode(try click.encode(&buffer))).lobby_ready);
 }
 
 test "a fighter breakup retains the destroyed ship even after a slot is reused" {

@@ -1,33 +1,39 @@
-//! **Improvement:** OpenReliant combines game setup and the waiting roster, as the original
-//! deathmatch loadout (`session_loadout_screen`, 0x0044B950) does. The host starts the match here.
+//! The co-op session and deathmatch loadout screens. Both show a roster and the front-end chat.
 const std = @import("std");
 const ui = @import("../canvas.zig");
 const hud = @import("../../hud.zig");
 const chat = @import("../../chat.zig");
+const Language = @import("../../language.zig").Language;
 pub const chat_panel = @import("chat_panel.zig");
 const Typed = @import("../../winmain.zig").Typed;
 const input = @import("../../../input.zig");
 const scenarios = @import("../../dmscenarios.zig");
 const CallSign = @import("../pilot_roster.zig").CallSign;
-const Layout = @import("layout.zig");
 const widgets = @import("widgets.zig");
 const choices = @import("choice_list.zig");
 const ShipPicker = @import("ship_picker.zig");
 const pager_widgets = @import("../settings/widgets.zig");
+const tooltips = @import("../../itac/tooltips.zig");
 const Label = widgets.Label;
 const Lobby = @This();
 pub const History = chat_panel.History;
 
-const Control = enum { leave, launch };
-const Field = enum { scenario, ship };
-pub const Action = union(enum) { leave, launch, choose_ship, send_chat: chat.Line };
+const Crew = @import("debrief_crew.zig");
+pub const Pilot = struct { generation: u64, name: CallSign = .{} };
+pub const Admission = @import("../../players.zig").ParticipantRef;
+pub const Action = union(enum) { leave, main_menu, quit, launch, ready: bool, remove: Admission, choose_ship, send_chat: chat.Line };
 const Role = union(enum) { host: struct { can_launch: bool = false, port: u16 }, guest };
+const Control = enum { back, main_menu, quit, launch, ready, remove, ship, mode };
 
 role: Role,
-roster: []const ?CallSign,
+roster: []const ?Pilot,
 notices: ?*const History = null,
 editor: chat_panel.Editor = .{},
+caret: chat_panel.Caret = .{},
+older_chat: usize = 0,
+chat_hover: ?ui.Arrow = null,
 local_slot: usize,
+ready: Crew.Pilots = .empty,
 scenario: scenarios.Scenario = .nuclear_threat,
 mission: ?u16 = null,
 ship: scenarios.Fighter = .predator,
@@ -37,40 +43,33 @@ option_under: ?usize = null,
 preview: scenarios.Scenario = .nuclear_threat,
 first_pilot: usize = 0,
 page_under: ?pager_widgets.Step = null,
+selected: ?Admission = null,
+pointer_held: bool = false,
+description_y: i32 = 0,
+description_for: ?scenarios.Scenario = null,
+description_hover: ?ui.Arrow = null,
+help: tooltips.Tooltips = .{},
+shown_help: ?tooltips.Tooltip = null,
 
-const panel_top = 153;
-const panel_bottom = 291;
-const chat_top = 297;
-const chat_bottom = 408;
-const left_edge = 48;
-const divider = 343;
-const right_edge = 592;
-const gap = 14;
-const heading_y = 9;
-const heading_height = 34;
-const first_row = heading_height + heading_y;
-const row_height = 21;
-const RosterWindow = ui.Scrolled(usize);
-const line_height = 17;
-const control_height = 20;
-const control_width = 180;
-
-const host_title: Label = .{ .english = "DEATHMATCH HOST", .installed = 0x2C1 };
-const guest_title: Label = .{ .english = "DEATHMATCH JOIN", .installed = 0x2D3 };
-const coop_title: Label = .{ .english = "CO-OP", .installed = 0x13D };
+const coop_chat: chat_panel.Setup = .{ .history = .{ .x = 45, .y = 264, .width = 379, .height = 117 }, .rows = 9 };
+const arena_chat: chat_panel.Setup = .{ .history = .{ .x = 45, .y = 300, .width = 379, .height = 81 }, .rows = 6 };
+const coop_roster: ui.Rect = .{ .x = 355, .y = 179, .width = 240, .height = 59 };
+const arena_roster: ui.Rect = .{ .x = 431, .y = 126, .width = 164, .height = 120 };
+const coop_row_height = 13;
+const arena_row_height = 14;
+const role_label: Label = .{ .english = "HOST CALLSIGN", .installed = 0x13F };
+const callsign: Label = .{ .english = "CALLSIGN", .installed = 0x143 };
 const players_label: Label = .{ .english = "PLAYERS", .installed = 0x141 };
 const fallback_player: Label = .{ .english = "PILOT", .installed = 0xBF };
-const host_label: Label = .{ .english = "HOST", .installed = 0x13C };
-const launch_label: Label = .{ .english = "START GAME", .installed = 0xB9 };
-const scenario_label: Label = .{ .english = "GAME TYPE", .installed = 0x139 };
-const mission_label: Label = .{ .english = "MISSION" };
+const ready_label: Label = .{ .english = "READY", .installed = 0x145 };
+const unready_label: Label = .{ .english = "NOT READY", .installed = 0x5A8 };
+const game_label: Label = .{ .english = "GAME", .installed = 0xC0 };
 const ship_label: Label = .{ .english = "SHIP", .installed = 0x2C3 };
-const waiting_label: Label = .{ .english = "WAITING", .installed = 0x30E };
-const for_host_label: Label = .{ .english = "FOR HOST", .installed = 0x30F };
-const change_mode: Label = .{ .english = "CHANGE GAME MODE" };
-const select_mode: Label = .{ .english = "SELECT MODE" };
-const cancel: Label = .{ .english = "CANCEL" };
+const cancel: Label = .{ .english = "BACK", .installed = 0xF7 };
+const change_mode: Label = .{ .english = "GAME TYPE", .installed = 0x139 };
+const select_mode: Label = .{ .english = "OK", .installed = 0x316 };
 const team_play: Label = .{ .english = "TEAM PLAY", .installed = 0x2C6 };
+const control_height = 20;
 const modal_rows: ui.Rect = .{ .x = 72, .y = 168, .width = 168, .height = choices.height * scenario_options.len };
 const details_y = 194;
 const details_lines: ui.Canvas.Lines = .{ .width = 302, .height = 15, .most = 8 };
@@ -87,27 +86,141 @@ const scenario_options = options: {
     break :options options;
 };
 
-fn box(layout: Layout, x: i16, right: i16) ui.Rect {
-    const left, const top = layout.point(.{ x, panel_top });
-    const end, const bottom = layout.point(.{ right, panel_bottom });
-    return .{ .x = @intCast(left), .y = @intCast(top), .width = @intCast(end - left), .height = @intCast(bottom - top) };
+fn sceneChat(lobby: Lobby) chat_panel.Setup {
+    return if (lobby.mission == null) arena_chat else coop_chat;
 }
 
-fn control(layout: Layout, action: Control) ui.Rect {
-    const panel = switch (action) {
-        .leave => box(layout, left_edge, divider),
-        .launch => box(layout, divider + gap, right_edge),
+fn rosterPanel(lobby: Lobby) ui.Rect {
+    return if (lobby.mission == null) arena_roster else coop_roster;
+}
+
+fn rowHeight(lobby: Lobby) i16 {
+    return if (lobby.mission == null) arena_row_height else coop_row_height;
+}
+
+const Field = struct {
+    box: ui.Rect,
+    label: Label,
+
+    fn draw(field: Field, canvas: ui.Canvas, value: []const u8, lit: bool) !void {
+        try write(canvas, .{ field.box.x + 4, field.box.y - 17 }, field.label, ui.blue, .left);
+        outline(canvas, field.box);
+        try widgets.fittedLabel(canvas, .{ field.box.x + 4, field.box.y + 2 }, field.box.width - 8, value, if (lit) ui.white else ui.blue, .left);
+    }
+};
+
+const ArtButton = struct {
+    at: [2]i32,
+    box: ui.Rect,
+    shapes: ui.Button.Pair,
+
+    fn draw(button: ArtButton, canvas: ui.Canvas, art: *hud.Art, lit: bool, enabled: bool) !void {
+        try canvas.dimmedUnless(enabled).shape(art, if (lit) button.shapes.lit else button.shapes.off, button.at);
+    }
+};
+
+const standard: ui.Button.Pair = .{ .off = 0x17, .lit = 0x18 };
+const large: ui.Button.Pair = .{ .off = 0x13, .lit = 0x14 };
+const dropdown: ui.Button.Pair = .{ .off = 0x15, .lit = 0x16 };
+const coop_back: ArtButton = .{ .at = .{ 324, 421 }, .box = .{ .x = 323, .y = 420, .width = 82, .height = 16 }, .shapes = standard };
+const arena_back: ArtButton = .{ .at = .{ 323, 421 }, .box = coop_back.box, .shapes = standard };
+const main_menu_button: ArtButton = .{ .at = .{ 292, 441 }, .box = .{ .x = 198, .y = 441, .width = 119, .height = 16 }, .shapes = standard };
+const quit_button: ArtButton = .{ .at = .{ 324, 441 }, .box = .{ .x = 323, .y = 441, .width = 81, .height = 16 }, .shapes = standard };
+const coop_start: ArtButton = .{ .at = .{ 464, 386 }, .box = .{ .x = 463, .y = 380, .width = 107, .height = 27 }, .shapes = large };
+const coop_remove: ArtButton = .{ .at = .{ 567, 242 }, .box = .{ .x = 495, .y = 239, .width = 101, .height = 24 }, .shapes = large };
+const coop_new: ArtButton = .{ .at = .{ 469, 300 }, .box = .{ .x = 468, .y = 300, .width = 86, .height = 16 }, .shapes = standard };
+const coop_load: ArtButton = .{ .at = .{ 469, 343 }, .box = .{ .x = 468, .y = 343, .width = 86, .height = 16 }, .shapes = standard };
+const arena_start: ArtButton = .{ .at = .{ 463, 388 }, .box = coop_start.box, .shapes = large };
+const ship_arrow: ArtButton = .{ .at = .{ 399, 168 }, .box = .{ .x = 398, .y = 164, .width = 27, .height = 21 }, .shapes = dropdown };
+const ship_field: Field = .{ .box = .{ .x = 201, .y = 164, .width = 192, .height = 21 }, .label = ship_label };
+const coop_lead: Field = .{ .box = .{ .x = 45, .y = 179, .width = 149, .height = 21 }, .label = role_label };
+const coop_game: Field = .{ .box = .{ .x = 45, .y = 217, .width = 149, .height = 21 }, .label = game_label };
+const coop_mission: Field = .{ .box = .{ .x = 201, .y = 217, .width = 84, .height = 21 }, .label = .{ .english = "MISSION", .installed = 0xE5 } };
+const arena_lead: Field = .{ .box = .{ .x = 45, .y = 164, .width = 149, .height = 21 }, .label = role_label };
+
+const help_start: tooltips.Tooltip = .{ .rect = arena_start.box, .string = 0x598, .fallback = "Click to start the game currently selected." };
+const help_lead = "Displays the host's callsign.";
+
+/// The original setup screens register their controls with `tooltip_add` (0x0043CFE2,
+/// 0x0043D060, 0x0044C210 and 0x0044C22C). Use the game's strings and the ITAC tooltip style.
+pub fn updateHelp(lobby: *Lobby, at: ?[2]i32, ticks: u32) void {
+    lobby.shown_help = null;
+    const pointer = at orelse {
+        lobby.help = .{};
+        return;
     };
-    return .{ .x = panel.x, .y = @intCast(layout.point(.{ 0, 415 })[1]), .width = control_width, .height = control_height };
+    const host = lobby.role == .host;
+    const start_help: tooltips.Tooltip = if (host)
+        .{ .rect = coop_start.box, .string = 0x599, .fallback = "Click to start the game" }
+    else if (lobby.isReady(lobby.local_slot))
+        .{ .rect = coop_start.box, .string = 0x5A7, .fallback = "Click if not ready to start game" }
+    else
+        help_start;
+    const coop = [_]tooltips.Tooltip{
+        .{ .rect = coop_lead.box, .string = 0x592, .fallback = help_lead },
+        .{ .rect = coop_mission.box, .string = 0x594, .fallback = "Displays the mission number." },
+        start_help,
+        .{ .rect = coop_game.box, .string = 0x59C, .fallback = "Displays the session name." },
+        .{ .rect = coop_remove.box, .string = 0x595, .fallback = "Click to remove the player currently selected in Players box from the session." },
+    };
+    const arena = [_]tooltips.Tooltip{
+        .{ .rect = ship_arrow.box, .string = 0x5A3, .fallback = "Click to select a list of ships to fly" },
+        if (host) help_start else .{ .rect = arena_lead.box, .string = 0x592, .fallback = help_lead },
+    };
+    const help = if (lobby.mission == null) &arena else if (host) coop[0..] else coop[0 .. coop.len - 1];
+    if (lobby.help.update(help, pointer, ticks)) |index| lobby.shown_help = help[index];
 }
 
-fn fieldBox(layout: Layout, field: Field) ui.Rect {
-    const panel = box(layout, divider + gap, right_edge);
-    const inset = Layout.footer_inset;
-    return .{ .x = panel.x + inset, .y = panel.y + switch (field) {
-        .scenario => @as(i16, 28),
-        .ship => 95,
-    }, .width = panel.width - 2 * inset, .height = choices.height };
+const mode_list: ui.Rect = .{ .x = 45, .y = 164, .width = 149, .height = 90 };
+const mode_first_y = 166;
+const mode_step = 14;
+const description_box: ui.Rect = .{ .x = 201, .y = 202, .width = 223, .height = 81 };
+const description_arrows: widgets.ScrollArrows = .{ .x = 428, .y = 251 };
+// Match the neighbouring fields' text inset and leave room for the outline edges.
+const description_inset = 4;
+const description_text: ui.Rect = .{
+    .x = description_box.x + description_inset,
+    .y = description_box.y + description_inset,
+    .width = description_box.width - 2 * description_inset,
+    .height = description_box.height - 2 * description_inset,
+};
+const description_lines: ui.Canvas.Lines = .{ .width = description_text.width, .height = 12, .most = 14 };
+
+/// The stock description arrows move the text in the clipped pane (0x0044C7C5).
+pub fn scrollDescription(lobby: *Lobby, pointer: ui.Pointer, font: *hud.Opened, strings: Language) void {
+    if (lobby.mission != null or lobby.mode_open) return;
+    if (lobby.description_for != lobby.scenario) {
+        lobby.description_for = lobby.scenario;
+        lobby.description_y = 0;
+    }
+    lobby.description_hover = description_arrows.under(pointer.at);
+    var change: i32 = 0;
+    if (pointer.down) if (lobby.description_hover) |way| {
+        change = if (way == .up) -1 else 1;
+    };
+    const max_notches: i32 = @intCast(description_lines.most);
+    if (description_box.holds(pointer.at)) change -= std.math.clamp(pointer.wheel, -max_notches, max_notches) * description_lines.height;
+    if (change == 0) return;
+    var buffer: [2048]u8 = undefined;
+    const words = descriptionText(lobby.scenario, strings, &buffer);
+    const lines: i32 = @intCast(description_lines.count(font, words));
+    const limit = @max(0, lines - 3) * description_lines.height;
+    lobby.description_y = std.math.clamp(lobby.description_y + change, 0, limit);
+}
+
+fn controlAt(lobby: *const Lobby, at: [2]i32) ?Control {
+    const coop = lobby.mission != null;
+    if (coop_back.box.holds(at)) return .back;
+    if (main_menu_button.box.holds(at)) return .main_menu;
+    if (quit_button.box.holds(at)) return .quit;
+    if (coop_start.box.holds(at)) {
+        if (lobby.role == .host and lobby.role.host.can_launch) return .launch;
+        if (coop and lobby.role == .guest and lobby.local_slot < Crew.size) return .ready;
+    }
+    if (coop and lobby.role == .host and coop_remove.box.holds(at) and lobby.selectedPilot() != null) return .remove;
+    if (!coop and (ship_field.box.holds(at) or ship_arrow.box.holds(at))) return .ship;
+    if (!coop and lobby.role == .host and mode_list.holds(at)) return .mode;
+    return null;
 }
 
 fn modeFrame(lobby: *Lobby, pointer: ui.Pointer, escape: bool) void {
@@ -126,94 +239,260 @@ fn modeFrame(lobby: *Lobby, pointer: ui.Pointer, escape: bool) void {
     }
 }
 
-fn canLaunch(lobby: *const Lobby) bool {
-    return lobby.role == .host and lobby.role.host.can_launch;
+fn isReady(lobby: Lobby, slot: usize) bool {
+    return slot == 0 or (slot < Crew.size and lobby.ready.isSet(slot));
 }
 
-fn playerWindow(lobby: *const Lobby, panel: ui.Rect) RosterWindow {
+fn playerWindow(lobby: Lobby) ui.Scrolled(usize) {
     var count: usize = 0;
     for (lobby.roster) |entry| count += @intFromBool(entry != null);
-    const shown: usize = @intCast(@divFloor(@max(panel.height - first_row - Layout.footer_inset, 0), row_height));
+    const shown: usize = @intCast(@divFloor(lobby.rosterPanel().height - 3, lobby.rowHeight()));
     return .{ .first = @min(lobby.first_pilot, count -| shown), .count = count, .shown = shown };
 }
 
-fn playerPager(panel: ui.Rect) pager_widgets.Line {
-    const top = @divFloor(heading_height - pager_widgets.Line.arrows_height, 2);
-    return .withArrowsAt(.{ panel.x + panel.width - 100, panel.y + top });
+fn selectedPilot(lobby: *const Lobby) ?Admission {
+    const selected = lobby.selected orelse return null;
+    if (selected.slot == 0 or selected.slot >= lobby.roster.len) return null;
+    const pilot = lobby.roster[selected.slot] orelse return null;
+    return if (pilot.generation == selected.generation) selected else null;
 }
 
-fn scrollPlayers(lobby: *Lobby, panel: ui.Rect, at: Layout.Point, pointer: ui.Pointer) void {
-    var list = lobby.playerWindow(panel);
+fn pilotAt(lobby: *const Lobby, at: [2]i32) ?Admission {
+    const panel = lobby.rosterPanel();
+    if (!panel.holds(at)) return null;
+    const list = lobby.playerWindow();
+    const selected = list.first + @as(usize, @intCast(@divFloor(at[1] - panel.y, lobby.rowHeight())));
+    if (selected >= list.end()) return null;
+    var row: usize = 0;
+    for (lobby.roster, 0..) |entry, slot| {
+        const pilot = entry orelse continue;
+        if (row == selected) return .{ .slot = @intCast(slot), .generation = pilot.generation };
+        row += 1;
+    }
+    return null;
+}
+
+fn playerPager(panel: ui.Rect) pager_widgets.Line {
+    return .withArrowsAt(.{ panel.x + panel.width - 50, panel.y - 16 });
+}
+
+fn scrollPlayers(lobby: *Lobby, pointer: ui.Pointer) void {
+    var list = lobby.playerWindow();
+    const panel = lobby.rosterPanel();
     lobby.page_under = null;
-    if (list.count > list.shown and panel.holds(at)) {
-        list.wheel(pointer.wheel);
-        if (playerPager(panel).arrowAt(at)) |arrow| {
-            if (arrow == .back and list.first > 0 or arrow == .on and list.end() < list.count) {
-                lobby.page_under = arrow;
-                if (pointer.down) list.scroll(if (arrow == .back) .up else .down);
-            }
+    if (list.count > list.shown) {
+        if (panel.holds(pointer.at)) list.wheel(pointer.wheel);
+        if (playerPager(panel).arrowAt(pointer.at)) |arrow| {
+            lobby.page_under = arrow;
+            if (pointer.down) list.scroll(if (arrow == .back) .up else .down);
         }
     }
     lobby.first_pilot = list.first;
 }
 
-pub fn frame(lobby: *Lobby, pointer: ui.Pointer, keys: *input.Keyboard, typed: *Typed, window: [2]u32) ?Action {
-    const layout = Layout.init(window);
-    const at = layout.point(pointer.at);
+pub fn frame(lobby: *Lobby, mouse: ui.Pointer, keys: *input.Keyboard, typed: *Typed, _: [2]u32) ?Action {
+    var pointer = mouse;
+    pointer.down = mouse.down and !lobby.pointer_held;
+    lobby.pointer_held = mouse.down;
     const escape = keys.pressed(input.scan.escape, .none, true);
     if (lobby.mode_open) {
         typed.clear();
         lobby.modeFrame(pointer, escape);
         return null;
     }
-    lobby.scrollPlayers(box(layout, left_edge, divider), at, pointer);
+    lobby.scrollPlayers(pointer);
+    const setup = lobby.sceneChat();
+    setup.frame(lobby.notices, &lobby.older_chat, pointer, &lobby.chat_hover);
     const was_focused = lobby.editor.focused;
-    var chat_pointer = pointer;
-    chat_pointer.at = at;
-    if (lobby.editor.frame(chatPanel(layout), chat_pointer, keys, typed, escape)) |line| return .{ .send_chat = line };
-    if (lobby.editor.focused or (escape and was_focused)) return null;
-    lobby.hover = if (control(layout, .leave).holds(at)) .leave else if (lobby.canLaunch() and control(layout, .launch).holds(at)) .launch else null;
-    if (escape) return .leave;
-    if (!pointer.down) return null;
-    if (lobby.hover) |hover| return switch (hover) {
-        .leave => .leave,
-        .launch => .launch,
-    };
-    if (lobby.mission == null and fieldBox(layout, .ship).holds(at)) return .choose_ship;
-    if (lobby.mission == null and lobby.role == .host and modeButton(layout).holds(at)) {
-        lobby.mode_open = true;
-        lobby.preview = lobby.scenario;
-        lobby.option_under = null;
+    if (lobby.editor.frameIn(setup.entry(), pointer, keys, typed, escape)) |line| {
+        lobby.older_chat = 0;
+        return .{ .send_chat = line };
     }
-    return null;
+    if (escape) return if (was_focused) null else .leave;
+    lobby.hover = lobby.controlAt(pointer.at);
+    if (!pointer.down) return null;
+    if (lobby.mission != null and lobby.role == .host and lobby.rosterPanel().holds(pointer.at)) {
+        lobby.selected = lobby.pilotAt(pointer.at);
+    }
+    return switch (lobby.hover orelse return null) {
+        .back => .leave,
+        .main_menu => .main_menu,
+        .quit => .quit,
+        .launch => .launch,
+        .ready => .{ .ready = !lobby.isReady(lobby.local_slot) },
+        .remove => .{ .remove = lobby.selectedPilot().? },
+        .ship => .choose_ship,
+        .mode => mode: {
+            // The original list and description remain visible. Use the approved picker for
+            // expanded descriptions and confirmation.
+            lobby.mode_open = true;
+            lobby.preview = @fromBackingInt(@as(u8, @intCast(@min(scenario_options.len - 1, @divFloor(@max(pointer.at[1] - mode_first_y, 0), mode_step)))));
+            lobby.option_under = null;
+            break :mode null;
+        },
+    };
 }
 
-pub fn draw(lobby: *const Lobby, original: ui.Canvas, art: *hud.Art, paging_art: ?*hud.Art) !void {
-    const layout = Layout.init(original.window);
-    var canvas = original;
-    canvas.share = layout.share;
-    const players_box = box(layout, left_edge, divider);
-    const game_box = box(layout, divider + gap, right_edge);
-    try widgets.title(canvas, layout.title(), if (lobby.mission != null) coop_title else if (lobby.role == .host) host_title else guest_title);
-    widgets.panel(canvas, players_box);
-    widgets.panel(canvas, game_box);
-    try lobby.drawPlayers(canvas, players_box, paging_art);
-    try lobby.drawGame(canvas, game_box, layout, art);
-    try chat_panel.draw(canvas, chatPanel(layout), lobby.notices, &lobby.editor);
-    const leave: Label = .{ .english = if (lobby.role == .host) "STOP HOSTING" else "LEAVE GAME" };
-    try widgets.button(canvas, art, control(layout, .leave), leave, true, lobby.hover == .leave);
-    if (lobby.role == .host) try widgets.button(canvas, art, control(layout, .launch), launch_label, lobby.canLaunch(), lobby.hover == .launch);
-    if (lobby.mode_open) try lobby.drawModes(original, art);
+fn write(canvas: ui.Canvas, at: [2]i32, label: Label, colour: [3]f32, alignment: hud.Align) !void {
+    try canvas.text(canvas.fonts.small, at, label.text(canvas.strings.*), colour, alignment);
 }
 
-fn modeButton(layout: Layout) ui.Rect {
-    var rect = fieldBox(layout, .scenario);
-    rect.y += choices.height + 5;
-    return rect;
+fn outline(canvas: ui.Canvas, box: ui.Rect) void {
+    canvas.box(.{ box.x, box.y }, .{ box.width, box.height });
+}
+
+fn pilotName(canvas: ui.Canvas, slot: usize, name: *const CallSign, fallback: []u8) []const u8 {
+    if (name.len != 0) return name.slice();
+    const label = fallback_player.text(canvas.strings.*);
+    return std.fmt.bufPrint(fallback, "{s} {d}", .{ label, slot + 1 }) catch label;
+}
+
+fn nameAt(lobby: Lobby, slot: usize) []const u8 {
+    if (slot >= lobby.roster.len) return "";
+    return if (lobby.roster[slot]) |*pilot| pilot.name.slice() else "";
+}
+
+fn drawPlayers(lobby: *const Lobby, canvas: ui.Canvas, paging_art: ?*hud.Art) !void {
+    const coop = lobby.mission != null;
+    const panel = lobby.rosterPanel();
+    const left = panel.x + 4;
+    const right = panel.x + panel.width - 4;
+    const heading = panel.y - 17;
+    const list = lobby.playerWindow();
+    const label: Label = if (coop) .{ .english = "STATUS", .installed = 0x142 } else .{ .english = "TEAM", .installed = 0x2C2 };
+    try write(canvas, .{ left, heading }, players_label, ui.blue, .left);
+    try write(canvas, .{ right, heading }, label, ui.blue, .right);
+    outline(canvas, panel);
+    if (list.count > list.shown) {
+        const pager = playerPager(panel);
+        if (paging_art) |art| {
+            try pager.drawArrows(canvas, art);
+            if (lobby.page_under) |which| try pager.drawLit(canvas, art, which);
+        }
+    }
+    if (list.count == 0) try write(canvas, .{ left, panel.y }, .{ .english = "No players found.", .installed = 0x144 }, ui.blue, .left);
+    var row: usize = 0;
+    for (lobby.roster, 0..) |*entry, slot| {
+        const pilot = if (entry.*) |*present| present else continue;
+        defer row += 1;
+        if (row < list.first) continue;
+        if (row == list.end()) break;
+        const y = panel.y + @as(i16, if (coop) 0 else 2) + @as(i16, @intCast(row - list.first)) * lobby.rowHeight();
+        var fallback: [64]u8 = undefined;
+        const selected = if (lobby.selectedPilot()) |adm| adm.slot == slot else false;
+        const colour = if (slot == lobby.local_slot or selected) ui.white else ui.blue;
+        const status: Label = if (coop) ready_label else .{ .english = "N/A", .installed = 0x310 };
+        const available: i16 = if (coop) 167 else 118;
+        try widgets.fittedLabel(canvas, .{ left, y }, available, pilotName(canvas, slot, &pilot.name, &fallback), colour, .left);
+        if (!coop or lobby.isReady(slot)) try write(canvas, .{ right, y }, status, ui.blue, .right);
+    }
+}
+
+/// `multiplayer_sessions_draw` (0x0043DA40) uses the stock co-op positions and palette. The
+/// transport has already opened the session. It uses the profile callsign and sets the mission
+/// when the host starts a new campaign.
+fn drawCoop(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
+    const host = lobby.role == .host;
+    const title: Label = if (host) .{ .english = "COOPERATIVE MULTIPLAYER HOST", .installed = 0x147 } else .{ .english = "COOPERATIVE MULTIPLAYER JOIN", .installed = 0x146 };
+    try write(canvas, .{ 320, 98 }, title, ui.blue, .centre);
+    const call: Field = .{ .box = .{ .x = 45, .y = 140, .width = 149, .height = 21 }, .label = callsign };
+    if (!host) try call.draw(canvas, lobby.nameAt(lobby.local_slot), false);
+    try coop_lead.draw(canvas, lobby.nameAt(0), false);
+    // multiplayer_sessions_screen starts with the installed default (0x0043D020).
+    try coop_game.draw(canvas, canvas.strings.stringOr(0x414, "New Session"), false);
+    var number: [16]u8 = undefined;
+    try coop_mission.draw(canvas, std.fmt.bufPrint(&number, "{d}", .{lobby.mission.?}) catch unreachable, false);
+    const lit = lobby.hover == .launch or lobby.hover == .ready;
+    try coop_start.draw(canvas, art, lit, !host or lobby.role.host.can_launch);
+    if (host) {
+        // The connection flow starts a new campaign when hosting. The retail Load button is
+        // present but stays dim until saved campaigns can be hosted (#475).
+        try coop_new.draw(canvas, art, true, true);
+        try write(canvas, .{ 499, 300 }, .{ .english = "NEW", .installed = 0x148 }, ui.blue, .left);
+        try coop_load.draw(canvas, art, false, false);
+        try write(canvas.dimmedUnless(false), .{ 499, 343 }, .{ .english = "LOAD", .installed = 0x149 }, ui.blue, .left);
+        try coop_remove.draw(canvas, art, lobby.hover == .remove, lobby.selectedPilot() != null);
+        try write(canvas, .{ 563, 237 }, .{ .english = "REMOVE", .installed = 0x2C5 }, ui.blue, .right);
+        try write(canvas, .{ 563, 249 }, fallback_player, ui.blue, .right);
+        try write(canvas, .{ 498, 382 }, .{ .english = "START", .installed = 0x14A }, ui.blue, .left);
+        try write(canvas, .{ 498, 394 }, game_label, ui.blue, .left);
+    } else {
+        try write(canvas, .{ 494, 390 }, if (lobby.isReady(lobby.local_slot)) unready_label else ready_label, ui.blue, .left);
+    }
+}
+
+/// `session_loadout_draw` (0x0044CB60) places setup controls and chat beside the pilot list.
+/// The detailed mode and illustrated fighter pickers are OpenReliant additions.
+fn drawArena(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
+    const host = lobby.role == .host;
+    const title: Label = if (host) .{ .english = "DEATHMATCH HOST", .installed = 0x2C1 } else .{ .english = "DEATHMATCH JOIN", .installed = 0x2D3 };
+    try write(canvas, .{ 320, if (host) 98 else 95 }, title, ui.blue, .centre);
+    const local: Field = .{ .box = .{ .x = 45, .y = 126, .width = 149, .height = 21 }, .label = if (host) role_label else callsign };
+    try local.draw(canvas, lobby.nameAt(lobby.local_slot), false);
+    const selected: Field = .{ .box = .{ .x = 45, .y = 202, .width = 149, .height = 18 }, .label = game_label };
+    if (host) {
+        try write(canvas, .{ 49, 147 }, game_label, ui.blue, .left);
+        outline(canvas, mode_list);
+        for (scenario_options, 0..) |label, index| {
+            const colour = if (@backingInt(lobby.scenario) == index) ui.white else ui.blue;
+            try widgets.fittedLabel(canvas, .{ 48, mode_first_y + mode_step * @as(i32, @intCast(index)) }, mode_list.width - 6, label.text(canvas.strings.*), colour, .left);
+        }
+    } else {
+        try arena_lead.draw(canvas, lobby.nameAt(0), false);
+        try selected.draw(canvas, scenario_options[@backingInt(lobby.scenario)].text(canvas.strings.*), false);
+    }
+    const team: Field = .{ .box = .{ .x = 201, .y = 126, .width = 59, .height = 21 }, .label = .{ .english = "TEAM", .installed = 0x2C2 } };
+    try team.draw(canvas, canvas.strings.stringOr(0x310, "N/A"), false);
+    try ship_field.draw(canvas, ShipPicker.label(lobby.ship).text(canvas.strings.*), lobby.hover == .ship);
+    try ship_arrow.draw(canvas, art, lobby.hover == .ship, true);
+    try write(canvas, .{ 205, 185 }, .{ .english = "GAME DESCRIPTION", .installed = 0x2C4 }, ui.blue, .left);
+    outline(canvas, description_box);
+    var room: [2048]u8 = undefined;
+    const words = descriptionText(lobby.scenario, canvas.strings.*, &room);
+    const scroll = if (lobby.description_for == lobby.scenario) lobby.description_y else 0;
+    try canvas.within(description_text).wrapped(canvas.fonts.small, .{ description_text.x, description_text.y - scroll }, words, ui.blue, .left, description_lines);
+    try description_arrows.draw(canvas, art, lobby.description_hover);
+    if (host) try arena_start.draw(canvas, art, lobby.hover == .launch, lobby.role.host.can_launch);
+    const top: Label = if (host) .{ .english = "START", .installed = 0x5B6 } else .{ .english = "WAITING", .installed = 0x30E };
+    const bottom: Label = if (host) .{ .english = "GAME", .installed = 0x5B7 } else .{ .english = "FOR HOST", .installed = 0x30F };
+    try write(canvas, .{ 496, 384 }, top, ui.blue, .left);
+    try write(canvas, .{ 496, 396 }, bottom, ui.blue, .left);
+}
+
+pub fn draw(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art, paging_art: ?*hud.Art) !void {
+    if (lobby.mission == null) try lobby.drawArena(canvas, art) else try lobby.drawCoop(canvas, art);
+    try lobby.drawPlayers(canvas, paging_art);
+    try lobby.sceneChat().draw(canvas, art, lobby.notices, lobby.older_chat, lobby.chat_hover, &lobby.editor, lobby.caret);
+    const back = if (lobby.mission == null) arena_back else coop_back;
+    try back.draw(canvas, art, lobby.hover == .back, true);
+    try write(canvas, .{ if (lobby.mission == null) 351 else 353, 421 }, cancel, ui.blue, .left);
+    try main_menu_button.draw(canvas, art, lobby.hover == .main_menu, true);
+    try write(canvas, .{ 287, 441 }, .{ .english = "MAIN MENU", .installed = 0xBB }, ui.blue, .right);
+    try quit_button.draw(canvas, art, lobby.hover == .quit, true);
+    try write(canvas, .{ if (lobby.mission == null) 351 else 353, 441 }, .{ .english = "QUIT", .installed = 0xBC }, ui.blue, .left);
+    if (lobby.role == .host) {
+        var port: [16]u8 = undefined;
+        try write(canvas, .{ 460, 427 }, .{ .english = "PORT", .installed = 0x1A7 }, ui.blue, .left);
+        try canvas.text(canvas.fonts.small, .{ 460, 441 }, std.fmt.bufPrint(&port, "UDP {d}", .{lobby.role.host.port}) catch unreachable, ui.blue, .left);
+    }
+    if (lobby.mode_open) try lobby.drawModes(canvas, art);
 }
 
 fn description(mode: scenarios.Scenario) Label {
     return .{ .english = mode.record().description, .installed = mode.descriptionString() };
+}
+
+fn teamDescription(mode: scenarios.Scenario) Label {
+    return .{ .installed = mode.teamPlayString(), .english = switch (mode.record().teams) {
+        .most_frags => "The team with the most frags wins.",
+        .controls_tower => "The tower cannot target the team carrying the relay.",
+        .none => "No.",
+    } };
+}
+
+fn descriptionText(mode: scenarios.Scenario, strings: Language, room: []u8) []const u8 {
+    const text = description(mode).text(strings);
+    return std.fmt.bufPrint(room, "{s}\n\n{s}\n{s}", .{ text, team_play.text(strings), teamDescription(mode).text(strings) }) catch text;
 }
 
 fn drawModes(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
@@ -227,134 +506,68 @@ fn drawModes(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
     try canvas.text(canvas.fonts.small, .{ 261, modal_rows.y + 3 }, heading.text(strings), ui.white, .left);
     try canvas.wrapped(canvas.fonts.small, .{ 261, details_y }, description(lobby.preview).text(strings), ui.blue, .left, details_lines);
     try canvas.text(canvas.fonts.small, .{ 261, team_heading_y }, team_play.text(strings), ui.white, .left);
-    const teams: Label = .{ .installed = lobby.preview.teamPlayString(), .english = switch (lobby.preview.record().teams) {
-        .most_frags => "The team with the most frags wins.",
-        .controls_tower => "The tower cannot target the team carrying the relay.",
-        .none => "No.",
-    } };
-    try canvas.wrapped(canvas.fonts.small, .{ 261, team_heading_y + 15 }, teams.text(strings), ui.blue, .left, .{ .width = 302, .height = 14, .most = 2 });
+    try canvas.wrapped(canvas.fonts.small, .{ 261, team_heading_y + 15 }, teamDescription(lobby.preview).text(strings), ui.blue, .left, .{ .width = 302, .height = 14, .most = 2 });
     try widgets.button(canvas, art, modal_cancel, cancel, true, false);
     try widgets.button(canvas, art, modal_select, select_mode, true, false);
 }
 
-fn drawPlayers(lobby: *const Lobby, canvas: ui.Canvas, panel: ui.Rect, paging_art: ?*hud.Art) !void {
-    const font = canvas.fonts.small;
-    const inset = Layout.footer_inset;
-    const left = panel.x + inset;
-    const right = panel.x + panel.width - inset;
-    const strings = canvas.strings.*;
-    try canvas.text(font, .{ left, panel.y + heading_y }, players_label.text(strings), ui.white, .left);
-    const list = lobby.playerWindow(panel);
-    var count_buf: [64]u8 = undefined;
-    const population = std.fmt.bufPrint(&count_buf, "{d} / {d}", .{ list.count, lobby.roster.len }) catch unreachable;
-    try canvas.text(font, .{ right, panel.y + heading_y }, population, ui.blue, .right);
-    if (list.count > list.shown) {
-        const pager = playerPager(panel);
-        if (paging_art) |art| {
-            try pager.drawArrows(canvas, art);
-            if (lobby.page_under) |under| try pager.drawLit(canvas, art, under);
-        } else {
-            for ([_]pager_widgets.Step{ .back, .on }, [_][]const u8{ "<", ">" }) |arrow, label| {
-                try canvas.text(font, .{ pager.arrow(arrow).centre()[0], panel.y + heading_y }, label, ui.blue, .centre);
-            }
-        }
-    }
-    canvas.line(.{ left, panel.y + heading_height }, .{ right, panel.y + heading_height }, hud.rgb(0x324A55));
-    const host = host_label.text(strings);
-    const tags_width: i16 = @intCast(@max(font.textWidth(host), font.textWidth("YOU")));
-    const rows = canvas.within(.{ .x = panel.x, .y = panel.y + first_row - 3, .width = panel.width, .height = @intCast(list.shown * row_height) });
-    var row: usize = 0;
-    for (lobby.roster, 0..) |entry, slot| {
-        const name = entry orelse continue;
-        defer row += 1;
-        if (row < list.first) continue;
-        if (row == list.end()) break;
-        const y = panel.y + first_row + @as(i16, @intCast(row - list.first)) * row_height;
-        var fallback: [64]u8 = undefined;
-        const words = if (name.len != 0) name.slice() else std.fmt.bufPrint(&fallback, "{s} {d}", .{ fallback_player.text(strings), slot + 1 }) catch fallback_player.text(strings);
-        if (slot == lobby.local_slot) rows.wipe(.{ left - 3, y - 3 }, .{ right + 3, y + row_height - 5 }, hud.rgb(0x193C4C));
-        try widgets.fittedLabel(rows, .{ left, y }, right - left - tags_width - inset, words, ui.white, .left);
-        if (slot == 0 or slot == lobby.local_slot) try rows.text(font, .{ right, y }, if (slot == 0) host else "YOU", ui.blue, .right);
-    }
-}
-
-fn chatPanel(layout: Layout) ui.Rect {
-    const left, const top = layout.point(.{ left_edge, chat_top });
-    const right, const bottom = layout.point(.{ right_edge, chat_bottom });
-    return .{ .x = @intCast(left), .y = @intCast(top), .width = @intCast(right - left), .height = @intCast(bottom - top) };
-}
-
-fn drawGame(lobby: *const Lobby, canvas: ui.Canvas, panel: ui.Rect, layout: Layout, art: *hud.Art) !void {
-    const font = canvas.fonts.small;
-    const strings = canvas.strings.*;
-    const inset = Layout.footer_inset;
-    const x = panel.x + inset;
-    const width = panel.width - 2 * inset;
-    const heading = if (lobby.mission != null) mission_label else scenario_label;
-    try widgets.fittedLabel(canvas, .{ x, panel.y + heading_y }, width, heading.text(strings), ui.white, .left);
-    const mode = fieldBox(layout, .scenario);
-    const ship = fieldBox(layout, .ship);
-    if (lobby.mission) |number| {
-        var name: [32]u8 = undefined;
-        try widgets.fittedLabel(canvas, .{ x, mode.y }, width, std.fmt.bufPrint(&name, "{s} {d}", .{ mission_label.text(strings), number }) catch unreachable, ui.blue, .left);
-    } else {
-        try widgets.fittedLabel(canvas, .{ x, mode.y }, width, scenario_options[@backingInt(lobby.scenario)].text(strings), ui.blue, .left);
-        if (lobby.role == .host) try widgets.button(canvas, art, modeButton(layout), change_mode, true, lobby.mode_open);
-        try widgets.fittedLabel(canvas, .{ x, ship.y - 18 }, width, ship_label.text(strings), ui.white, .left);
-        try widgets.button(canvas, art, ship, ShipPicker.label(lobby.ship), true, false);
-    }
-    var buffer: [128]u8 = undefined;
-    const status = switch (lobby.role) {
-        .host => |host| std.fmt.bufPrint(&buffer, "Join by LAN IP (UDP {d})", .{host.port}) catch unreachable,
-        .guest => std.fmt.bufPrint(&buffer, "{s} {s}", .{ waiting_label.text(strings), for_host_label.text(strings) }) catch "Waiting for host",
-    };
-    try canvas.wrapped(font, .{ x, panel.y + panel.height - inset - line_height }, status, ui.blue, .left, .{ .width = width, .height = line_height, .most = 2 });
-}
-
-test "the launch control belongs to a host that has joined its lobby" {
-    const window = [2]u32{ 640, 480 };
-    const layout = Layout.init(window);
-    const click: ui.Pointer = .{ .at = control(layout, .launch).centre(), .down = true };
-    var keys: input.Keyboard = .{};
-    var typed: Typed = .{};
-    var lobby: Lobby = .{ .role = .guest, .roster = &.{}, .local_slot = 1 };
-    try std.testing.expectEqual(null, lobby.frame(click, &keys, &typed, window));
+test "the retail lobby gates launch, host options and guest readiness" {
+    const guests = [_]?Pilot{ .{ .generation = 1 }, .{ .generation = 2 } };
+    var lobby: Lobby = .{ .role = .guest, .roster = &guests, .local_slot = 1 };
+    try std.testing.expectEqual(Control.ship, lobby.controlAt(ship_field.box.centre()).?);
+    try std.testing.expectEqual(null, lobby.controlAt(mode_list.centre()));
     lobby.role = .{ .host = .{ .port = 27020 } };
-    try std.testing.expectEqual(null, lobby.frame(click, &keys, &typed, window));
+    try std.testing.expectEqual(Control.mode, lobby.controlAt(mode_list.centre()).?);
+    try std.testing.expectEqual(null, lobby.controlAt(arena_start.box.centre()));
     lobby.role.host.can_launch = true;
-    try std.testing.expect(lobby.frame(click, &keys, &typed, window).? == .launch);
-    try std.testing.expect(lobby.frame(.{ .at = control(layout, .leave).centre(), .down = true }, &keys, &typed, window).? == .leave);
+    try std.testing.expectEqual(Control.launch, lobby.controlAt(arena_start.box.centre()).?);
+    lobby.role = .guest;
+    lobby.mission = 1;
+    try std.testing.expectEqual(Control.ready, lobby.controlAt(coop_start.box.centre()).?);
+    try std.testing.expectEqual(null, lobby.controlAt(ship_field.box.centre()));
 }
 
-test "guests can choose a ship, while only the host can open the scenario selector" {
-    const window = [2]u32{ 640, 480 };
-    const layout = Layout.init(window);
-    var lobby: Lobby = .{ .role = .guest, .roster = &.{}, .local_slot = 1 };
+test "the retail roster fits all stock slots and scrolls within its frame" {
+    const names: [10]?Pilot = @splat(.{ .generation = 1 });
+    var lobby: Lobby = .{ .role = .guest, .roster = &names, .local_slot = 7 };
+    const panel = lobby.rosterPanel();
+    try std.testing.expectEqual(8, lobby.playerWindow().shown);
+    lobby.scrollPlayers(.{ .at = panel.centre(), .wheel = -8 });
+    try std.testing.expectEqual(names.len, lobby.playerWindow().end());
+    lobby.roster = names[0..2];
+    lobby.scrollPlayers(.{});
+    try std.testing.expectEqual(0, lobby.first_pilot);
+    lobby.mission = 1;
+    try std.testing.expectEqual(4, lobby.playerWindow().shown);
+}
+
+test "each click requests readiness once even while the mouse is held" {
+    var lobby: Lobby = .{ .role = .guest, .roster = &.{}, .local_slot = 1, .mission = 1 };
     var keys: input.Keyboard = .{};
     var typed: Typed = .{};
-    const mode = modeButton(layout);
-    try std.testing.expectEqual(null, lobby.frame(.{ .at = mode.centre(), .down = true }, &keys, &typed, window));
-    try std.testing.expect(!lobby.mode_open);
-    const ship = fieldBox(layout, .ship);
-    try std.testing.expectEqual(.choose_ship, lobby.frame(.{ .at = ship.centre(), .down = true }, &keys, &typed, window).?);
+    const click: ui.Pointer = .{ .at = coop_start.box.centre(), .down = true };
+    const window = ui.size;
+    try std.testing.expect(lobby.frame(click, &keys, &typed, window).?.ready);
+    lobby.ready.set(1);
+    try std.testing.expectEqual(null, lobby.frame(click, &keys, &typed, window));
+    try std.testing.expectEqual(null, lobby.frame(.{}, &keys, &typed, window));
+    try std.testing.expect(!lobby.frame(click, &keys, &typed, window).?.ready);
 }
 
-test "the lobby scrolls a full roster within the player panel and clamps after departures" {
-    const names: [8]?CallSign = @splat(.{});
-    const window: [2]u32 = .{ 800, 600 };
-    const panel = box(.init(window), left_edge, divider);
-    var lobby: Lobby = .{ .role = .guest, .roster = &names, .local_slot = 7 };
-    const beginning = lobby.playerWindow(panel);
-    try std.testing.expect(beginning.shown >= 1 and beginning.end() < names.len);
-    try std.testing.expect(first_row + beginning.shown * row_height < @as(usize, @intCast(panel.height)));
-    lobby.scrollPlayers(panel, panel.centre(), .{ .wheel = -8 });
-    try std.testing.expectEqual(names.len, lobby.playerWindow(panel).end());
-    const back = playerPager(panel).arrow(.back).centre();
-    lobby.scrollPlayers(panel, back, .{ .down = true });
-    try std.testing.expectEqual(names.len - 1, lobby.playerWindow(panel).end());
-    lobby.roster = names[0..2];
-    lobby.scrollPlayers(panel, panel.centre(), .{});
-    try std.testing.expectEqual(0, lobby.first_pilot);
+test "co-op help follows the guest's readiness and clears behind a modal" {
+    var lobby: Lobby = .{ .role = .guest, .roster = &.{}, .local_slot = 1, .mission = 1 };
+    const start = coop_start.box.centre();
+    lobby.updateHelp(start, 1000);
+    try std.testing.expectEqual(null, lobby.shown_help);
+    lobby.updateHelp(start, 1100);
+    try std.testing.expectEqual(0x598, lobby.shown_help.?.string);
+    lobby.ready.set(1);
+    lobby.updateHelp(start, 1101);
+    try std.testing.expectEqual(0x5A7, lobby.shown_help.?.string);
+    lobby.updateHelp(null, 1102);
+    try std.testing.expectEqual(null, lobby.shown_help);
+    lobby.updateHelp(start, 1103);
+    try std.testing.expectEqual(null, lobby.shown_help);
 }
 
 test {

@@ -85,6 +85,8 @@ pub const Outcome = union(enum) {
     host_lan: game.interface.Connection.HostChoice.Kind,
     leave_session,
     launch_session,
+    lobby_ready: bool,
+    remove_lobby_pilot: interface.Connection.Lobby.Admission,
     debrief_choice: game.interface.Connection.DebriefCrew.Choice,
     choose_ship: game.dmscenarios.Fighter,
     send_chat: game.chat.Line,
@@ -194,6 +196,11 @@ pub const Resources = struct {
     itac_strings: language.Language = .{ .strings = &.{} },
     outlines: ?*hud.outline.Outlines = null,
     debrief_background: matmanager.Background = .{},
+    lobby_background: matmanager.Background = .{},
+    tried_lobby_background: bool = false,
+    lobby_help_font: ?hud.FontFile = null,
+    lobby_help_shapes: ?canvas.Shapes = null,
+    tried_lobby_help: bool = false,
     debrief_large: ?hud.FontFile = null,
     debrief_small: ?hud.FontFile = null,
     debrief_shapes: ?canvas.Shapes = null,
@@ -271,6 +278,20 @@ pub const Resources = struct {
         return if (resources.paging_shapes) |*loaded| &loaded.art else null;
     }
 
+    fn drawLobbyHelp(resources: *Resources, drawn: canvas.Canvas, lobby: *const interface.Connection.Lobby) canvas.Error!void {
+        const tip = lobby.shown_help orelse return;
+        if (!resources.tried_lobby_help) {
+            resources.tried_lobby_help = true;
+            resources.lobby_help_font = .read(resources.gpa, resources.archive, game.itac.tooltips.font_name, resources.outlines);
+            resources.lobby_help_shapes = canvas.Shapes.read(resources.gpa, &resources.archive, game.itac.shapes_name);
+        }
+        if (resources.lobby_help_font) |*font| {
+            if (resources.lobby_help_shapes) |*shapes| {
+                try lobby.help.draw(drawn, &font.font, shapes, drawn.strings.stringOr(tip.string, tip.fallback));
+            }
+        }
+    }
+
     /// The separate co-op debrief uses the installed ITAC fonts and mpdebr backdrop
     /// (multiplayer_debriefing, 0x004297B8 to 0x00429863).
     fn debriefResources(resources: *Resources) void {
@@ -294,6 +315,9 @@ pub const Resources = struct {
         const gpa = resources.gpa;
         resources.background.deinit(gpa);
         resources.debrief_background.deinit(gpa);
+        resources.lobby_background.deinit(gpa);
+        if (resources.lobby_help_font) |*font| font.deinit(gpa);
+        if (resources.lobby_help_shapes) |*shapes| shapes.deinit(gpa);
         if (resources.debrief_large) |*font| font.deinit(gpa);
         if (resources.debrief_small) |*font| font.deinit(gpa);
         if (resources.debrief_shapes) |*art| art.deinit(gpa);
@@ -327,6 +351,7 @@ fn screenFiles(screen: Screen) ?struct { shapes: []const u8, background: []const
 /// What a frame of the front end reads and plays through.
 pub const Context = struct {
     devices: *input.Devices,
+    strings: language.Language = .{ .strings = &.{} },
     /// The characters typed into the window.
     typed: *winmain.Typed,
     /// The window's size in pixels.
@@ -473,6 +498,14 @@ pub const Interface = struct {
                 };
             },
             .connection => {
+                if (front.connection.lobby) |*lobby| {
+                    lobby.caret.update(front.ticks);
+                    const uncovered = !lobby.mode_open and front.connection.ship_picker == null and front.connection.quit_prompt == null;
+                    lobby.updateHelp(if (uncovered) pointer.at else null, front.ticks);
+                    if (uncovered) if (context.resources) |resources| {
+                        lobby.scrollDescription(pointer, &resources.small.font, context.strings);
+                    };
+                }
                 if (front.connection.debrief) |*debrief| {
                     if (context.resources) |resources| {
                         resources.debriefResources();
@@ -484,8 +517,11 @@ pub const Interface = struct {
                 switch (action) {
                     .join => |target| return .{ .join_server = target },
                     .host_lan => |kind| return .{ .host_lan = kind },
+                    .quit => return .quit,
                     .leave_session => return .leave_session,
                     .launch_session => return .launch_session,
+                    .lobby_ready => |ready| return .{ .lobby_ready = ready },
+                    .remove_lobby_pilot => |pilot| return .{ .remove_lobby_pilot = pilot },
                     .debrief_choice => |choice| return .{ .debrief_choice = choice },
                     .send_chat => |line| return .{ .send_chat = line },
                     .choose_ship => |ship| return .{ .choose_ship = ship },
@@ -843,6 +879,14 @@ pub const Interface = struct {
             if (resources.debrief_background.image != null) background = &resources.debrief_background;
             if (resources.debrief_large) |*file| drawn.fonts.large = &file.font;
             if (resources.debrief_small) |*file| drawn.fonts.small = &file.font;
+        } else if (front.screen == .connection and front.connection.lobby != null) {
+            // Both multiplayer_sessions_screen (0x0043CA50) and session_loadout_screen
+            // (0x0044B950) load this picture.
+            if (!resources.tried_lobby_background) {
+                resources.tried_lobby_background = true;
+                resources.lobby_background.show(resources.gpa, resources.archive, "interface\\mulfade.tga");
+            }
+            if (resources.lobby_background.image != null) background = &resources.lobby_background;
         }
         if (background.image) |*picture| drawn.fill(picture);
         const art = if (resources.shapes) |*shapes| shapes else return;
@@ -859,6 +903,10 @@ pub const Interface = struct {
                         .pictures = if (resources.fighter_pictures) |*pictures| pictures else null,
                         .strings = resources.itac_strings,
                     }, front.ticks);
+                    if (front.connection.lobby) |*lobby| {
+                        if (!lobby.mode_open and front.connection.ship_picker == null and front.connection.quit_prompt == null)
+                            try resources.drawLobbyHelp(drawn, lobby);
+                    }
                 }
             },
             .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about),

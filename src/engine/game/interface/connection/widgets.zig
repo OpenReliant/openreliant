@@ -13,6 +13,26 @@ pub const Label = struct {
     }
 };
 
+/// The vertical arrow pair in frntend3.spr, shared by the setup description and chat.
+pub const ScrollArrows = struct {
+    x: i16,
+    y: i16,
+
+    pub fn under(arrows: ScrollArrows, at: [2]i32) ?ui.Arrow {
+        const top: ui.Rect = .{ .x = arrows.x, .y = arrows.y, .width = 28, .height = 14 };
+        var bottom = top;
+        bottom.y += 15;
+        if (top.holds(at)) return .up;
+        if (bottom.holds(at)) return .down;
+        return null;
+    }
+
+    pub fn draw(arrows: ScrollArrows, canvas: ui.Canvas, art: *hud.Art, hover: ?ui.Arrow) !void {
+        try canvas.shape(art, if (hover == .up) 0x1A else 0x19, .{ arrows.x, arrows.y });
+        if (hover == .down) try canvas.shape(art, 0x16, .{ arrows.x, arrows.y + 17 });
+    }
+};
+
 pub fn panel(canvas: ui.Canvas, rect: ui.Rect) void {
     const start = canvas.point(.{ rect.x, rect.y });
     const end = canvas.point(.{ rect.x + rect.width, rect.y + rect.height });

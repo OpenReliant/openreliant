@@ -919,6 +919,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // last pass given each pass.
     var front_context: engine.genilib.interf.Context = .{
         .devices = &devices,
+        .strings = strings,
         .typed = &typed,
         .window = .{ 0, 0 },
         .elapsed = 0,
@@ -1224,7 +1225,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         through.mode_saved = .unchosen;
                         try game_scripts.start();
                     },
-                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .debrief_choice, .choose_ship, .send_chat => {},
+                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .lobby_ready, .remove_lobby_pilot, .debrief_choice, .choose_ship, .send_chat => {},
                 }
                 flow.next = switch (outcome) {
                     .host_lan => |kind| {
@@ -1241,6 +1242,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     },
                     .debrief_choice => |choice| {
                         if (network_enabled) if (network_pilot.client) |*client| client.chooseDebrief(choice);
+                        continue;
+                    },
+                    .lobby_ready => |ready| {
+                        if (network_enabled) if (network_pilot.client) |*client| client.setLobbyReady(ready);
+                        continue;
+                    },
+                    .remove_lobby_pilot => |pilot| {
+                        if (network_enabled) if (network_pilot.hosted) |hosted| hosted.host.removeLobbyPilot(pilot);
                         continue;
                     },
                     .send_chat => |line| {
@@ -2913,6 +2922,7 @@ const Display = struct {
 };
 
 test {
+    _ = NetworkPilot;
     _ = @import("network/wire.zig");
     _ = @import("network/chat_budget.zig");
     _ = @import("network/flight_chat.zig");

@@ -7,6 +7,7 @@ const language = @import("../language.zig");
 const winmain = @import("../winmain.zig");
 const input = @import("../../input.zig");
 const Layout = @import("connection/layout.zig");
+const dialog = @import("dialog.zig");
 const widgets = @import("connection/widgets.zig");
 pub const ShipPicker = @import("connection/ship_picker.zig");
 const scenarios = @import("../dmscenarios.zig");
@@ -31,7 +32,7 @@ const chat = @import("../chat.zig");
 pub const Debrief = @import("connection/debrief.zig");
 pub const DebriefCrew = @import("connection/debrief_crew.zig");
 
-pub const Action = union(enum) { send_chat: chat.Line, back, host_lan: HostChoice.Kind, leave_session, launch_session, debrief_choice: DebriefCrew.Choice, choose_ship: scenarios.Fighter, join: []const u8 };
+pub const Action = union(enum) { send_chat: chat.Line, back, quit, host_lan: HostChoice.Kind, leave_session, launch_session, lobby_ready: bool, remove_lobby_pilot: Lobby.Admission, debrief_choice: DebriefCrew.Choice, choose_ship: scenarios.Fighter, join: []const u8 };
 pub const Label = widgets.Label;
 
 address: language.Text(128) = .{},
@@ -50,9 +51,10 @@ selected: usize = 0,
 first: usize = 0,
 editing: bool = true,
 hover: ?Layout.Control = null,
+quit_prompt: ?dialog.Confirm = null,
 
 pub fn takesText(screen: *const Connection) bool {
-    if (screen.host_choice != null or screen.ship_picker != null) return false;
+    if (screen.host_choice != null or screen.ship_picker != null or screen.quit_prompt != null) return false;
     if (screen.debrief) |debrief| return debrief.editor.focused;
     if (screen.lobby) |lobby| return lobby.editor.focused and !lobby.mode_open;
     return screen.editing and !screen.busy;
@@ -80,6 +82,12 @@ fn fighterField(layout: Layout) ui.Rect {
 }
 
 pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, typed: *winmain.Typed, window: [2]u32) ?Action {
+    if (screen.quit_prompt) |*prompt| {
+        typed.clear();
+        const confirmed = prompt.frame(mouse, keys.pressed(input.scan.escape, .none, true)) orelse return null;
+        screen.quit_prompt = null;
+        return if (confirmed) .quit else null;
+    }
     if (screen.host_choice) |*choice| {
         typed.clear();
         const action = choice.frame(mouse, keys) orelse return null;
@@ -113,7 +121,14 @@ pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, type
     };
     if (screen.lobby) |*lobby| return switch (lobby.frame(mouse, keys, typed, window) orelse return null) {
         .leave => .leave_session,
+        .main_menu => .back,
+        .quit => ask: {
+            screen.quit_prompt = .{ .message = .{ .string = @import("main_menu.zig").quit_question } };
+            break :ask null;
+        },
         .launch => .launch_session,
+        .ready => |ready| .{ .lobby_ready = ready },
+        .remove => |pilot| .{ .remove_lobby_pilot = pilot },
         .send_chat => |line| .{ .send_chat = line },
         .choose_ship => open: {
             screen.ship_picker = .{ .preview = lobby.ship };
@@ -234,6 +249,7 @@ pub fn draw(screen: *const Connection, original: ui.Canvas, art: *hud.Art, dialo
         if (screen.host_choice) |choice| try choice.draw(original, art, dialog_art);
     }
     if (screen.ship_picker) |picker| try picker.draw(original, art, fighters);
+    if (screen.quit_prompt) |prompt| try prompt.draw(original, dialog_art);
 }
 
 fn drawBrowser(screen: *const Connection, canvas: ui.Canvas, art: *hud.Art, layout: Layout, ticks: u32) !void {

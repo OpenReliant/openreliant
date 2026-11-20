@@ -12,7 +12,7 @@ OpenReliant opens in the front end unless `--mission` names a mission. The pilot
 
 Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GAME OPTIONS ([GAME OPTIONS](#game-options)), the audio, the controls and the video, on OpenReliant's settings screen ([The settings screen](#the-settings-screen)), the mods screen ([The mods screen](#the-mods-screen)), the pilot roster with SET GAME DIFFICULTY, the saved games ([The saved games](#the-saved-games)), the Reliant's rooms with a new pilot's induction, the news report and the in-game options, the briefing ([Briefing](briefing.md)), the loading screens, the intro and the transitions between the screens ported, the movies around a mission ([Movies](movies.md)), and the restart screen. Not yet:
 
-- Co-op lobby setup and multiplayer loadout selection ([#404](https://github.com/OpenReliant/openreliant/issues/404)).
+- Loading a saved co-op campaign into a lobby ([#475](https://github.com/OpenReliant/openreliant/issues/475)) and the remaining multiplayer setup controls ([#404](https://github.com/OpenReliant/openreliant/issues/404)).
 - The movies between the screens not yet ported, which come with their screens ([Movies](movies.md)).
 
 **Fix:** a screen takes no press until the button held as it was entered comes up. The movie between two screens gives the press that chose the second time to end; where the transitions are off, the game lets it go on to what lies under the pointer on the new screen.
@@ -45,9 +45,11 @@ HUD. Escape leaves the server.
 **Host** opens a game type chooser. **Deathmatch** opens the lobby immediately, starts a LAN
 listener on UDP port 27020 and reserves a place for the local pilot. **Co-op** opens a lobby for
 the campaign with four seats. Friends use Direct Connect with the host's LAN IP. The lobby shows
-them the same roster, with the host marked and their own row highlighted. The host
-selects **Start Game** when they are ready to fly. Joining a match in progress takes the pilot
-straight to flight. **Stop Hosting** or Escape in the lobby or in flight closes the listener.
+them the same roster and writes their own callsign in white. In co-op, guests click **Ready**.
+The host can select **Start Game** once at least two pilots are present and all guests are ready.
+The co-op host can select a guest in the roster and remove them from the lobby.
+Joining a deathmatch in progress takes the pilot straight to flight. **Back** or Escape
+leaves the lobby for the browser. **Main Menu** leaves the lobby for the main menu.
 The dedicated server uses the same simulation and admission checks and starts on its existing
 two-pilot threshold.
 
@@ -56,20 +58,36 @@ opens `session_loadout_screen` (`0x0044B950`). Both screens open the network ses
 for the host (`directplay_create_session`, `0x004BC550`). The deathmatch screen combines setup
 and the waiting roster. Its Start Game action returns to `WinMain` to launch (`0x0044CAC2`).
 The co-op screen has a ready check and needs at least two pilots before launch (`0x0043D680`).
+These setup screens are the lobbies. Co-op opens the campaign briefing and deathmatch starts
+the selected arena from its setup screen.
+Both screens use `interface\\mulfade.tga` and the controls from `interface\\frntend3.spr`.
+The co-op roster starts at (355, 179) and spaces its four rows 13 pixels apart. The
+deathmatch roster starts at (431, 126) and spaces its eight rows 14 pixels apart.
+The co-op draw function uses string `0xC0` both above the game name and on the second line
+of **Start Game**. The French disc translates that entry as **OPTIONS**.
 
-**Improvement:** the LAN lobby uses OpenReliant's multiplayer layout. **Change Game Mode**
-opens the original mode list with the descriptions and team-play notes from the installed
-language file. Nuclear Threat is available to host. The ship selector shows the installed
+The deathmatch description uses the original scroll arrows and appends the mode's team rules.
+Its text shares the ship field's inset, so the outline glyphs clear the frame on every side.
+The mouse wheel can also scroll the description when the pointer is over it.
+
+**Improvement:** clicking the mode list opens the detailed mode picker with the descriptions
+and team-play notes from the installed language file. The ship selector shows the installed
 ITAC fighter pictures, class, armament and special abilities. Pilots joining a dedicated
-server or a match already in progress can open the same selector from the browser. Co-op setup is
-tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404), and the other arena rules in
+server or a match already in progress can open the same selector from the browser. The lobby
+uses the pilot's profile callsign and the original translated New Session name.
+The host opens a fresh campaign when choosing Co-op. Loading a saved campaign is tracked in
+[#475](https://github.com/OpenReliant/openreliant/issues/475), remaining setup controls in
+[#404](https://github.com/OpenReliant/openreliant/issues/404), and team and arena rules in
 [#1400](https://github.com/OpenReliant/openreliant/issues/1400).
 
-The lobby keeps the last six chat and system lines above its text field, as the deathmatch layout
-of `multiplayer_chat_panel` (0x004AE2D0) does. Click the field or press Enter to start typing,
-then press Enter to send. Escape leaves the field. The host supplies the sender's callsign and
-the lobby shows the original `%s: %s` format (0x00503184). The CHAT label comes from installed
-string 0x140.
+The co-op lobby shows nine chat lines and the deathmatch lobby six, as variants 0 and 2 of
+`multiplayer_chat_panel` (0x004AE2D0) do. The stock arrows scroll the last 30 lines. Click the
+field or press Enter to start typing, then press Enter to send. Escape leaves the field. The
+host supplies the sender's callsign and the lobby shows the original `%s: %s` format (0x00503184).
+The cursor blinks every 25 game ticks (`0x004AE652`). When a co-op guest changes readiness,
+chat shows the installed system message for that callsign (`0x004B7160` and `0x004B721A`).
+**Improvement:** readiness notices have a separate display budget so repeated toggles cannot
+fill the chat history. The host still applies every readiness change.
 
 The browser reads matching labels from the installed language table, with English fallbacks.
 A pilot returns to the browser with the host-departure message (string `0x3B7` from the
@@ -96,14 +114,15 @@ Use the stills to check the display and the executable's draw functions for the 
 | Screen | Retail reference | OpenReliant behavior and remaining differences |
 |---|---|---|
 | Connection | `multiplayer_connection_screen` (`0x00432FC0`) | The Internet and LAN lists, IP and invite entry and hologram backdrop are deliberate replacements for the legacy provider choices. The browser uses installed button art and labels. |
-| Co-op setup | `multiplayer_sessions_draw` (`0x0043DA40`) | The shared lobby currently uses the browser style. The retail host and guest have different fields and use a separate ready flag, different roster coordinates and a separate chat panel. These differences are tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404). |
-| Deathmatch setup | `session_loadout_screen` (`0x0044B950`) and `session_loadout_draw` (`0x0044CB60`) | The mode description and ITAC fighter picker are deliberate additions to the lobby. The original setup has separate game options, pilot readiness and team selection. Stock setup details are tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404) and team rules in [#1400](https://github.com/OpenReliant/openreliant/issues/1400). |
+| Co-op setup | `multiplayer_sessions_draw` (`0x0043DA40`) | The host and guest have the stock field and roster positions, Ready, chat and navigation. The roster uses host-validated readiness. The host can remove the selected guest. The Load button stays dim pending [#475](https://github.com/OpenReliant/openreliant/issues/475). |
+| Deathmatch setup | `session_loadout_screen` (`0x0044B950`) and `session_loadout_draw` (`0x0044CB60`) | The mode list, description, ship field, roster, chat and navigation use the stock layout. The detailed mode and ITAC fighter pickers remain deliberate additions. The original's extra game options are tracked in [#404](https://github.com/OpenReliant/openreliant/issues/404) and team rules in [#1400](https://github.com/OpenReliant/openreliant/issues/1400). |
 | Co-op briefing and loadout | `WinMain` (`0x004A9AB0`) and `interface_briefing` (`0x00437010`) | The existing campaign briefing and loadout code supplies the rooms, ship and rack views. The host coordinates launch and the crew's choices over the current network protocol. |
 | Co-op debrief | `multiplayer_debrief_render` (`0x00429DC0`), `multiplayer_debrief_text` (`0x00425240`), and `multiplayer_chat_panel` variant 1 (`0x004AE2D0`) | The retail backdrop, letter, two scroll controls, chat, figures, roster, and buttons use the original art and coordinates. The save action is tracked in [#475](https://github.com/OpenReliant/openreliant/issues/475), and the profile values that carry between sessions in [#804](https://github.com/OpenReliant/openreliant/issues/804). |
 | Pause, session loss, and standings | `pause_screen_multiplayer` (`0x0048E510`), `pause_session_lost` (`0x0048E370`), and `mp_draw_scoreboard` (`0x004AF650`) | The pause and flight standings use the stock sprites. The pause controls and connection-loss dialog use the original pause art. Host-only shared pause and scrolling beyond stock capacity are deliberate changes. See [Pause menu](pause-menu.md#multiplayer-9). |
 
-Retail tooltips for the multiplayer front end are tracked in
-[#813](https://github.com/OpenReliant/openreliant/issues/813).
+The lobby uses the installed tooltip strings and the ITAC tooltip art, as registered by
+`multiplayer_sessions_screen` and `session_loadout_screen`. Help for the redesigned browser
+is tracked in [#813](https://github.com/OpenReliant/openreliant/issues/813).
 
 ## The screens
 

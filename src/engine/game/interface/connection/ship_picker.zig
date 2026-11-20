@@ -21,9 +21,9 @@ const panel: ui.Rect = .{ .x = 44, .y = 85, .width = 552, .height = 320 };
 const rows: ui.Rect = .{ .x = 72, .y = 145, .width = 168, .height = choices.height * options.len };
 const cancel: ui.Rect = .{ .x = 72, .y = 375, .width = 160, .height = 20 };
 const confirm: ui.Rect = .{ .x = 261, .y = 375, .width = 160, .height = 20 };
-const title: widgets.Label = .{ .english = "CHOOSE SHIP" };
-const pick_label: widgets.Label = .{ .english = "SELECT SHIP" };
-const cancel_label: widgets.Label = .{ .english = "CANCEL" };
+const title: widgets.Label = .{ .english = "SHIP", .installed = 0x2C3 };
+const pick_label: widgets.Label = .{ .english = "OK", .installed = 0x316 };
+const cancel_label: widgets.Label = .{ .english = "BACK", .installed = 0xF7 };
 const preview_scale = 0.82;
 
 pub fn label(ship: Fighter) widgets.Label {

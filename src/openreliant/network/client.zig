@@ -140,6 +140,12 @@ pub fn sendChat(client: *Client, request: wire.ChatRequest) void {
     net.send(client.conn, .{ .chat_request = request }) catch return;
 }
 
+pub fn setLobbyReady(client: *Client, ready: bool) void {
+    const pilot = client.joined orelse return;
+    if (pilot.slot == 0 or client.leaving or client.latest != null or client.roster.mission == null or client.roster.briefing) return;
+    net.send(client.conn, .{ .lobby_ready = ready }) catch return;
+}
+
 pub fn requestCrewAction(client: *Client, action: enum { jump, land, eject }) void {
     const admission = client.joined orelse return;
     const view = &(client.latest orelse return);

@@ -46,6 +46,7 @@ const Peer = struct {
     presses: flight_input.Presses = .{},
     weapons: ?wire.ordnance.Order = null,
     briefed: bool = false,
+    lobby_ready: bool = false,
     ping_ms: ?u16 = null,
     chat_budget: ChatBudget = .{},
 };
@@ -206,8 +207,29 @@ fn localInLobby(host: *const Host) bool {
 }
 
 pub fn canLaunch(host: *const Host) bool {
-    return !host.campaign_briefing and host.localInLobby() and
-        (host.start.lobby.mission == null or host.playingCount() >= pilots_to_start);
+    if (host.campaign_briefing or !host.localInLobby()) return false;
+    if (host.start.lobby.mission == null) return true;
+    if (host.playingCount() < pilots_to_start) return false;
+    for (host.peers[1..]) |entry| {
+        const peer = entry orelse continue;
+        if (peer.state == .playing and !peer.lobby_ready) return false;
+    }
+    return true;
+}
+
+fn markLobbyReady(host: *Host, slot: u8, peer: *Peer, ready: bool) void {
+    if (host.start != .lobby or host.start.lobby.mission == null or host.campaign_briefing or slot == 0) return;
+    if (peer.lobby_ready == ready) return;
+    peer.lobby_ready = ready;
+    host.roster_dirty = true;
+}
+
+/// The co-op host can remove the selected guest from the waiting lobby. Check the admission
+/// again so a click from an old screen cannot remove a newcomer in the same slot.
+pub fn removeLobbyPilot(host: *Host, admission: game.players.ParticipantRef) void {
+    if (!host.localInLobby() or host.start.lobby.mission == null or host.campaign_briefing or admission.slot == 0 or admission.slot >= host.player_limit) return;
+    const pilot = host.arena.pilots[admission.slot] orelse return;
+    if (pilot.participant.generation == admission.generation) host.remove(@intCast(admission.slot), true, .dropped);
 }
 
 pub fn beginBriefing(host: *Host, number: u16, directory: Io.Dir) void {
@@ -409,7 +431,10 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
         .playing => {
             if (host.final_tick) |tick| {
                 if (message == .received_final and message.received_final == tick) host.final_receipts += 1;
-                return message == .input or message == .flight_press or message == .weapon_order or message == .call_sign or message == .chat_request or message == .crew_jump or message == .crew_land or message == .crew_eject or message == .debrief_choice;
+                return switch (message) {
+                    .input, .flight_press, .weapon_order, .call_sign, .chat_request, .crew_jump, .crew_land, .crew_eject, .debrief_choice, .lobby_ready => true,
+                    else => false,
+                };
             }
             switch (message) {
                 .input => |input| {
@@ -427,6 +452,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                 },
                 .chat_request => |request| host.relayChat(slot, peer, request, time),
                 .debrief_choice => |choice| host.takeDebriefChoice(slot, choice),
+                .lobby_ready => |ready| host.markLobbyReady(slot, peer, ready),
                 .crew_jump => |request| if (host.acceptsFlight()) host.arena.crewJump(slot, host.tick, request),
                 .crew_land => |request| if (host.acceptsFlight()) host.arena.crewLand(slot, host.tick, request),
                 .crew_eject => |request| if (host.acceptsFlight()) host.arena.crewEject(slot, host.tick, request),
@@ -504,10 +530,12 @@ fn publishRoster(host: *Host) !void {
     if (host.start == .lobby) {
         if (host.start.lobby.mission) |number| roster.mission = number else roster.lobby = host.start.lobby.scenario;
     } else if (host.campaign_start) |pending| roster.mission = pending.number;
-    for (host.peers, host.arena.pilots, &roster.pilots) |entry, participant, *listed| {
+    for (host.peers, host.arena.pilots, &roster.pilots, 0..) |entry, participant, *listed, slot| {
         const peer = entry orelse continue;
         const pilot = participant orelse continue;
-        if (peer.state == .playing) listed.* = .{ .generation = pilot.participant.generation, .name = peer.call_sign orelse .{} };
+        if (peer.state != .playing) continue;
+        listed.* = .{ .generation = pilot.participant.generation, .name = peer.call_sign orelse .{} };
+        if (roster.mission != null and !roster.briefing and (slot == 0 or peer.lobby_ready)) roster.ready.set(slot);
     }
     var buffer: [wire.capacity]u8 = undefined;
     const bytes = try (wire.Message{ .roster = roster }).encode(&buffer);
@@ -1040,6 +1068,25 @@ test "only a launched local LAN host pauses and drops stale flight commands" {
     try std.testing.expect(host.acceptsFlight());
     try std.testing.expect(!host.paused_view_pending);
     try std.testing.expectEqual(8, host.tick);
+}
+
+test "co-op waits for every guest and discards a departed guest's readiness" {
+    var host: Host = .{ .io = std.testing.io, .arena = undefined, .start = .{ .lobby = .{ .mission = 1 } } };
+    const pilot: Peer = .{ .conn = 1, .state = .playing, .expires = 0 };
+    host.peers[0] = pilot;
+    try std.testing.expect(!host.canLaunch());
+    host.peers[1] = pilot;
+    host.peers[2] = pilot;
+    host.markLobbyReady(1, &host.peers[1].?, true);
+    try std.testing.expect(!host.canLaunch());
+    host.markLobbyReady(2, &host.peers[2].?, true);
+    try std.testing.expect(host.canLaunch());
+    host.markLobbyReady(1, &host.peers[1].?, false);
+    try std.testing.expect(!host.canLaunch());
+    host.peers[1] = null;
+    try std.testing.expect(host.canLaunch());
+    host.peers[1] = pilot;
+    try std.testing.expect(!host.canLaunch());
 }
 
 test "an undeliverable private message spends only the sender's allowance" {

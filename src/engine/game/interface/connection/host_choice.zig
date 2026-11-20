@@ -15,7 +15,7 @@ const cancel: ui.Rect = .{ .x = 270, .y = 274, .width = 100, .height = 20 };
 const heading: widgets.Label = .{ .english = "GAME TYPE", .installed = 0x139 };
 const coop_label: widgets.Label = .{ .english = "CO-OP", .installed = 0x13D };
 const deathmatch_label: widgets.Label = .{ .english = "DEATHMATCH", .installed = 0x13E };
-const cancel_label: widgets.Label = .{ .english = "CANCEL" };
+const cancel_label: widgets.Label = .{ .english = "BACK", .installed = 0xF7 };
 
 hover: ?Action = null,
 
