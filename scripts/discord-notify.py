@@ -55,7 +55,7 @@ def post_commits(webhook, repository_url):
 def post_release(webhook, repository_url):
     tag = os.environ["TAG"]
     release_url = f"{repository_url}/releases/tag/{quote(tag, safe='')}"
-    download_page = "https://openreliant.github.io/openreliant/#download"
+    download_page = "https://openreliant.space/#download"
     content = f"**OpenReliant {tag}**\n[Downloads]({download_page}) · [Release notes]({release_url})"
     post(webhook, content)
 

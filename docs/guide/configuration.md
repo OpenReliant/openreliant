@@ -209,7 +209,7 @@ The mods screen keeps which mods are on, and the order they load in, in a sectio
 
 ```ini
 [OpenReliantModRepositories]
-openreliant-mods=https://openreliant.github.io/openreliant-mods/mods.json
+openreliant-mods=https://mods.openreliant.space/mods.json
 
 [OpenReliantInstalledMods]
 viper.hog=openreliant-mods

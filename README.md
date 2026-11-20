@@ -4,7 +4,7 @@ OpenReliant is an open-source, faithful engine reimplementation of **StarLancer*
 
 Written in **Zig** and built on **SDL3**, OpenReliant renders with Vulkan (Metal on macOS) via SDL's GPU API. It runs natively on Linux, macOS, and Windows using assets directly from your retail copy of the game.
 
-**[Website](https://openreliant.github.io/openreliant/)** · **[Download](../../releases/latest)** · **[Mods](https://openreliant.github.io/openreliant-mods/)**
+**[Website](https://openreliant.space/)** · **[Download](../../releases/latest)** · **[Mods](https://mods.openreliant.space/)**
 
 <p align="center">
   <img src="docs/images/predator-wireframe.svg" width="560"
