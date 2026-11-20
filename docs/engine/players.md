@@ -194,9 +194,11 @@ installed mission record (`counts_kills`).
 **Improvement:** the host credits the admission and ship that owned the last damage source.
 Co-op pilots get credit even when their channels are closed or the host has no radio.
 The cockpit skull and the existing `hud.kills` script field show the displayed pilot's total.
-A replacement ship keeps both counts. A new mission clears the mission count, and a new
-admission starts both counts at zero. Co-op saves and profile loading are tracked in
-[#475](https://github.com/OpenReliant/openreliant/issues/475) and [#804](https://github.com/OpenReliant/openreliant/issues/804).
+A replacement ship keeps both counts. At the start of a co-op mission, the pilot's own profile
+supplies the starting rank, campaign tier, kills, awards and mission records (`WinMain`, 0x004A99CC).
+The cockpit adds the host's kill credit for this attempt to the local career tally. The
+debrief writes the pilot's new record to the profile. Replaying restores the starting record
+for that attempt.
 
 ### Arena scores
 

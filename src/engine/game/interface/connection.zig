@@ -32,7 +32,7 @@ const chat = @import("../chat.zig");
 pub const Debrief = @import("connection/debrief.zig");
 pub const DebriefCrew = @import("connection/debrief_crew.zig");
 
-pub const Action = union(enum) { send_chat: chat.Line, back, quit, host_lan: HostChoice.Kind, leave_session, launch_session, lobby_ready: bool, remove_lobby_pilot: Lobby.Admission, debrief_choice: DebriefCrew.Choice, choose_ship: scenarios.Fighter, join: []const u8 };
+pub const Action = union(enum) { send_chat: chat.Line, back, quit, host_lan: HostChoice.Kind, leave_session, launch_session, new_campaign, load_campaign, save_campaign, lobby_ready: bool, remove_lobby_pilot: Lobby.Admission, debrief_choice: DebriefCrew.Choice, choose_ship: scenarios.Fighter, join: []const u8 };
 pub const Label = widgets.Label;
 
 address: language.Text(128) = .{},
@@ -116,6 +116,7 @@ pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, type
     }
     if (screen.debrief) |*debrief| return switch (debrief.frame(mouse, keys, typed) orelse return null) {
         .leave => .leave_session,
+        .save => .save_campaign,
         .choice => |choice| .{ .debrief_choice = choice },
         .message => |line| .{ .send_chat = line },
     };
@@ -127,6 +128,8 @@ pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, type
             break :ask null;
         },
         .launch => .launch_session,
+        .new_campaign => .new_campaign,
+        .load_campaign => .load_campaign,
         .ready => |ready| .{ .lobby_ready = ready },
         .remove => |pilot| .{ .remove_lobby_pilot = pilot },
         .send_chat => |line| .{ .send_chat = line },
@@ -216,7 +219,7 @@ const headers = [4]Label{
     .{ .english = "PING" },
 };
 
-fn cells(canvas: ui.Canvas, layout: Layout, y: i16, words: [4][]const u8, colour: [3]f32, heading: bool) !void {
+fn cells(canvas: ui.Canvas, layout: Layout, y: i16, words: [4][]const u8, colour: [3]f32, text_offset: ?i32) !void {
     const list = layout.list;
     var columns: [5]i16 = undefined;
     for (&columns, [_]i32{ 0, 46, 68, 88, 100 }) |*column, percent| column.* = @intCast(@divTrunc(@as(i32, list.width) * percent, 100));
@@ -228,10 +231,10 @@ fn cells(canvas: ui.Canvas, layout: Layout, y: i16, words: [4][]const u8, colour
             .centre => cell.centre()[0],
             else => cell.x,
         };
-        if (heading) {
-            try widgets.fittedLabel(canvas, .{ x, y }, cell.width, word, colour, alignment);
+        if (text_offset) |offset| {
+            try canvas.within(cell).text(canvas.fonts.small, .{ x, y + offset }, word, colour, alignment);
         } else {
-            try canvas.within(cell).text(canvas.fonts.small, .{ x, y }, word, colour, alignment);
+            try widgets.fittedLabel(canvas, .{ x, y }, cell.width, word, colour, alignment);
         }
     }
 }
@@ -268,11 +271,14 @@ fn drawBrowser(screen: *const Connection, canvas: ui.Canvas, art: *hud.Art, layo
             .selected => screen.enabled(.selected),
             else => false,
         };
-        try widgets.button(canvas, art, box, labels.get(control), screen.enabled(control), lit);
+        try widgets.alignedButton(canvas, art, box, labels.get(control), screen.enabled(control), lit, switch (control) {
+            .refresh, .host => .right,
+            else => .left,
+        });
     }
     const choose = fighterField(layout);
     const choose_label: Label = .{ .english = "SHIP", .installed = 0x2C3 };
-    try canvas.text(canvas.fonts.small, .{ choose.x - 9, choose.y + 3 }, choose_label.text(canvas.strings.*), ui.blue, .right);
+    try canvas.text(canvas.fonts.small, .{ choose.x - 9, choose.y }, choose_label.text(canvas.strings.*), ui.blue, .right);
     try widgets.button(canvas, art, choose, ShipPicker.label(screen.fighter), !screen.busy, screen.ship_picker != null);
 }
 
@@ -280,25 +286,26 @@ fn drawList(screen: *const Connection, canvas: ui.Canvas, layout: Layout) !void 
     const font = canvas.fonts.small;
     var column_names: [headers.len][]const u8 = undefined;
     for (&column_names, headers) |*name, label| name.* = label.text(canvas.strings.*);
-    try cells(canvas, layout, layout.list.y + 3, column_names, hud.rgb(0x85A7B5), true);
+    try cells(canvas, layout, layout.list.y + 3, column_names, hud.rgb(0x85A7B5), null);
+    const text_offset = try canvas.rowTextOffset(font, Layout.row_height);
     const list = screen.servers();
     const first = @min(screen.first, list.len -| layout.rows());
     for (list[first..][0..@min(list.len - first, layout.rows())], first..) |server, i| {
         const y = layout.rowTop(i - first);
         const chosen = i == screen.selected;
-        if (chosen) canvas.wipe(.{ layout.list.x + 2, y }, .{ layout.list.x + layout.list.width - 2, y + Layout.row_height - 1 }, hud.rgb(0x193C4C));
+        if (chosen) canvas.highlightRow(layout.list.framedRow(y, Layout.row_height));
         var counts: [16]u8 = undefined;
         var ping: [5]u8 = undefined;
         const population = std.fmt.bufPrint(&counts, "{d} / {d}", .{ server.players, server.capacity }) catch unreachable;
         const latency = if (server.ping_ms) |ms| std.fmt.bufPrint(&ping, "{d}", .{ms}) catch unreachable else "?";
-        try cells(canvas, layout, y + 2, .{ server.name, server.mode, population, latency }, if (chosen) ui.white else ui.blue, false);
+        try cells(canvas, layout, y, .{ server.name, server.mode, population, latency }, if (chosen) ui.white else ui.blue, text_offset);
     }
     if (list.len == 0) {
         const empty = if (screen.source == .internet)
             "Internet discovery unavailable"
         else
             "LAN discovery unavailable";
-        try canvas.text(font, .{ layout.list.x + Layout.inset, layout.rowTop(0) + 2 }, empty, ui.blue, .left);
+        try canvas.text(font, .{ layout.list.x + Layout.inset, layout.rowTop(0) + text_offset }, empty, ui.blue, .left);
     }
 }
 
@@ -404,6 +411,13 @@ test "browser panels, columns of controls and hit targets keep their alignment" 
         try std.testing.expectEqual(layout.list.height, layout.details.height);
         try std.testing.expectEqual(layout.list.x, layout.field.x);
         try std.testing.expectEqual(layout.list.width, layout.field.width);
+        const refresh = layout.control(.refresh);
+        const host = layout.control(.host);
+        try std.testing.expectEqual(layout.control(.internet).y, host.y);
+        try std.testing.expectEqual(layout.control(.lan).y, host.y);
+        try std.testing.expectEqual(refresh.y, host.y);
+        try std.testing.expectEqual(layout.list.x + layout.list.width, refresh.x + refresh.width);
+        try std.testing.expectEqual(layout.details.x + layout.details.width, host.x + host.width);
         const join = layout.control(.selected);
         const left_gap = join.x - Layout.button_left_overhang - layout.details.x;
         const bottom_gap = layout.details.y + layout.details.height - (join.y + Layout.button_last_row);

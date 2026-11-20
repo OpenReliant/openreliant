@@ -82,6 +82,8 @@ reports how many pilots confirmed it before shutdown.
 Held flight controls and interim snapshots use unreliable delivery. The host releases held
 controls if no fresh input arrives for 250 milliseconds. Throttle presets and afterburner
 toggles use reliable delivery, as do admission, departures and the final result.
+A co-op result also carries the host's saved campaign flags and wing data. Each pilot
+combines those with their own profile when saving at debrief.
 A held input takes up to 25 bytes and a three-pilot training snapshot takes 120 bytes before
 transport headers. At 25 updates per second in both directions that is up to 3,625 payload bytes
 per second per pilot for those messages. A Six Beacons snapshot takes at most 198 bytes and

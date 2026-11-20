@@ -201,6 +201,21 @@ pub const kept_variables = vm.Variables.numbers(.{
 /// (`0x004754DA`).
 const cleared_variables = 32;
 
+/// The stock campaign flags shared by the co-op crew and written to the VARS chunk.
+pub fn captureVariables(variables: *const vm.Variables) Vars {
+    const values: *const [vm.Variables.count]u32 = @ptrCast(variables);
+    var kept: Vars = @splat(0);
+    for (kept_variables, kept[0..kept_variables.len]) |number, *value| value.* = @bitCast(values[number]);
+    return kept;
+}
+
+pub fn applyVariables(variables: *vm.Variables, kept: Vars) void {
+    for (0..cleared_variables) |number| variables.slot(@intCast(number)).* = 0;
+    for (kept_variables, kept[0..kept_variables.len]) |number, value| {
+        if (gameflow.variableRecord(number).saved) variables.slot(number).* = @bitCast(value);
+    }
+}
+
 comptime {
     assert(kept_variables.len <= @typeInfo(Vars).array.len);
 }
@@ -528,13 +543,12 @@ pub const Game = struct {
     pub fn capture(game: Game, name: []const u8) Save {
         var save: Save = .{
             .miss = game.campaignRecord(),
-            .vars = @splat(0),
+            .vars = captureVariables(&game.campaign.variables),
             .pilo = game.wingmen.pool[0],
             .alph = game.wingmen.alpha,
         };
         save.name.set(name);
         save.mods = .{ .choice = .of(game.saved.*), .variables = .of(&game.campaign.variables) };
-        for (kept_variables, save.vars[0..kept_variables.len]) |number, *value| value.* = @bitCast(game.campaign.variables.slot(number).*);
         return save;
     }
 
@@ -583,6 +597,34 @@ pub const Game = struct {
         const miss = &save.miss;
         campaign.mission = miss.missionNumber();
         game.pilot.call_sign.set(std.mem.sliceTo(&miss.call_sign, 0));
+        game.applyPilot(miss);
+        game.pilot.difficulty = miss.difficulty;
+        game.pilot.female = miss.female != 0;
+        game.saved.ship = if (miss.saved_ship >= 0 and miss.saved_ship < loadout_tables.ship_count) @intCast(miss.saved_ship) else (loadout.Saved{}).ship;
+        for (&game.saved.racks, miss.saved_racks) |*rack, missile| rack.* = if (std.math.cast(u32, missile)) |id| loadout_tables.Missile.ofId(id) else null;
+        save.mods.choice.apply(game.saved);
+        game.wingmen.pool[0] = save.pilo;
+        game.wingmen.alpha = save.alph;
+        applyVariables(&campaign.variables, save.vars);
+        save.mods.variables.apply(&campaign.variables);
+    }
+
+    /// WinMain overlays the local pilot's career on the shared co-op mission (0x004A99CC).
+    pub fn applyProfile(game: Game, stored: *const gameflow.Profile) void {
+        var miss = game.campaignRecord();
+        miss.rank = stored.rank;
+        miss.tier = stored.tier;
+        miss.kills = stored.kills;
+        miss.medals = stored.medals;
+        miss.ribbons = stored.ribbons;
+        miss.ratings = stored.ratings;
+        miss.mission_kills = stored.mission_kills;
+        game.applyPilot(&miss);
+        game.pilot.difficulty = .easy;
+    }
+
+    fn applyPilot(game: Game, miss: *const Miss) void {
+        const campaign = game.campaign;
         game.player.rank = miss.pilotRank();
         game.tier.* = miss.campaignTier();
         game.player.kills.count = miss.kills;
@@ -600,19 +642,6 @@ pub const Game = struct {
         };
         campaign.pickups = std.math.lossyCast(u8, miss.pickups);
         campaign.killboard_seed = miss.killboard_seed;
-        game.pilot.difficulty = miss.difficulty;
-        game.pilot.female = miss.female != 0;
-        game.saved.ship = if (miss.saved_ship >= 0 and miss.saved_ship < loadout_tables.ship_count) @intCast(miss.saved_ship) else (loadout.Saved{}).ship;
-        for (&game.saved.racks, miss.saved_racks) |*rack, missile| rack.* = if (std.math.cast(u32, missile)) |id| loadout_tables.Missile.ofId(id) else null;
-        save.mods.choice.apply(game.saved);
-        game.wingmen.pool[0] = save.pilo;
-        game.wingmen.alpha = save.alph;
-        const variables = &campaign.variables;
-        for (0..cleared_variables) |number| variables.slot(@intCast(number)).* = 0;
-        for (kept_variables, save.vars[0..kept_variables.len]) |number, value| {
-            if (gameflow.variableRecord(number).saved) variables.slot(number).* = @bitCast(value);
-        }
-        save.mods.variables.apply(variables);
     }
 };
 

@@ -176,6 +176,7 @@ pub const State = struct {
                 try canvas.wrapped(canvas.fonts.small, .{ 320, 200 }, reason.text(canvas.strings.*), hud.rgb(0x40BCFF), .centre, .{ .width = 400, .height = 14, .most = 10 });
             },
         }
+        try canvas.drawVersion();
     }
 
     pub fn drawPointer(state: *const State, canvas: ui.Canvas, art: Art) !void {

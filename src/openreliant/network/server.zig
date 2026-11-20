@@ -74,6 +74,7 @@ campaign_start: ?struct { number: u16, directory: Io.Dir } = null,
 campaign_briefing: bool = false,
 campaign_directory: ?Io.Dir = null,
 campaign_record: ?game.gameflow.Campaign = null,
+campaign_wing: game.pilots.Wingmen = .{},
 debrief: ?Results = null,
 budget: HandshakeBudget = .{},
 chat_budget: ChatBudget = .{},
@@ -238,6 +239,18 @@ pub fn beginBriefing(host: *Host, number: u16, directory: Io.Dir) void {
     if (host.campaign_record == null) host.campaign_record = game.gameflow.Campaign.begin();
     host.campaign_briefing = true;
     host.roster_dirty = true;
+}
+
+/// The co-op lobby's New and Load actions (0x0043D555 and 0x0043D586).
+/// Only the host selects the campaign. The roster sends the selected mission to the crew.
+pub fn selectCampaign(host: *Host, checkpoint: *const game.gameflow.Campaign, wingmen: *const game.pilots.Wingmen) bool {
+    if (!host.localInLobby() or host.start.lobby.mission == null or host.campaign_briefing) return false;
+    if (!game.gameflow.campaignOrder().has(checkpoint.mission)) return false;
+    host.campaign_record = checkpoint.*;
+    host.campaign_wing = wingmen.*;
+    host.start.lobby.mission = checkpoint.mission;
+    host.roster_dirty = true;
+    return true;
 }
 
 fn crewBriefed(host: *const Host) bool {
@@ -572,6 +585,9 @@ fn broadcast(host: *Host, view: wire.Snapshot, delivery: Delivery) !void {
     const reliable = delivery != .flight;
     var buffer: [wire.capacity]u8 = undefined;
     var outgoing = view;
+    if (delivery == .debrief) {
+        outgoing.campaign_checkpoint = .capture(&host.arena.loaded.?.script.variables, &host.arena.mission.objects.wingmen);
+    }
     host.fillPings(&outgoing, host.tick == 1 or host.tick % (game.main.ticks_per_second / game.gameobj.ticks_per_step) == 0);
     outgoing.countPilotPages();
     var pilots: PilotPackets = undefined;
@@ -834,6 +850,7 @@ fn serviceDebrief(host: *Host, time: i64) !bool {
             kept.variables = host.arena.loaded.?.script.variables;
             kept.variables.last_success = kept.variables.mission_success;
             kept.mission = number;
+            host.campaign_wing = host.arena.mission.objects.wingmen;
         }
         host.arena.destroy();
         host.arena = staging;
@@ -919,7 +936,7 @@ pub fn pump(host: *Host) !enum { running, finished } {
     }
     if (host.campaign_start) |pending| {
         const staging = host.arena;
-        host.arena = try staging.prepareCampaign(pending.number, host.io, pending.directory, &host.campaign_record.?);
+        host.arena = try staging.prepareCampaign(pending.number, host.io, pending.directory, &host.campaign_record.?, &host.campaign_wing);
         host.arena.campaign.?.started_after = host.tick;
         host.campaign_start = null;
         staging.destroy();

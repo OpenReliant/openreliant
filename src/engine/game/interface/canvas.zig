@@ -35,6 +35,7 @@ pub const blue = hud.rgb(0x40BCFF);
 pub const gold = hud.rgb(0xFDB951);
 pub const red = hud.rgb(0xFF0000);
 pub const white = hud.rgb(0xFFFFFF);
+const selected_row_colour = hud.rgb(0x193C4C);
 
 /// The black the pilot roster's list rows are wiped to, and the middle of ABOUT OPENRELIANT's box.
 pub const black = hud.rgb(0x000000);
@@ -68,6 +69,7 @@ pub const Canvas = struct {
     /// The palette's brightness the screen's shapes and text are drawn at
     /// (`palette_ramp_brightness`): 1, but as a screen fades in or out.
     brightness: f32 = 1,
+    original_look: bool = false,
     /// The rectangle of the front end's screen its shapes and text are cut to, as a VFX pane
     /// clips what is drawn into it; null for the whole screen.
     clip: ?Rect = null,
@@ -144,6 +146,20 @@ pub const Canvas = struct {
         const start = canvas.pixelAt(from);
         const end = canvas.pixelAt(to);
         hud.drawFilled(canvas.target, .{ .left = start[0], .top = start[1], .right = end[0] + s, .bottom = end[1] + s }, hud.atBrightness(colour, 1));
+    }
+
+    /// Fills a selected menu row with the shared highlight colour.
+    pub fn highlightRow(canvas: Canvas, row: Rect) void {
+        if (row.width == 0 or row.height == 0) return;
+        canvas.wipe(.{ row.x, row.y }, .{ row.x + row.width - 1, row.y + row.height - 1 }, selected_row_colour);
+    }
+
+    /// Offset from the top of a row to the text origin. Use the same baseline for every
+    /// label in the row, including columns with digits or short names.
+    pub fn rowTextOffset(canvas: Canvas, font: *hud.Opened, height: i16) Allocator.Error!i32 {
+        const factor = canvas.scale();
+        const pixels = try centredInkOffset(font, @as(f32, @floatFromInt(height)) * factor, factor);
+        return hud.round(pixels / factor);
     }
 
     /// `interface_box` (`0x00435C60`): the frame round a box `extent` across and down from `at`, at a
@@ -257,6 +273,14 @@ pub const Canvas = struct {
         try canvas.labelText(words);
     }
 };
+
+/// The top offset for the visible glyphs, in pixels. A capital and a descender establish a
+/// common baseline for all the labels drawn at this font size.
+pub fn centredInkOffset(font: *hud.Opened, height: f32, scale: f32) Allocator.Error!f32 {
+    const ink = try hud.textInk(font, .{ 0, 0 }, "Hg", .left, scale);
+    const ends = if (ink) |box| box.top + box.bottom else @as(f32, @floatFromInt(font.font.header.height)) * scale;
+    return (height - ends) / 2;
+}
 
 /// The brightness what can't be used is dimmed to (`dimmedUnless`).
 pub const dimmed = 0.5;
@@ -524,7 +548,21 @@ pub const Rect = extern struct {
         const bottom = @min(@as(i32, a.y) + a.height, @as(i32, b.y) + b.height);
         return .{ .x = left, .y = top, .width = @intCast(@max(right - left, 0)), .height = @intCast(@max(bottom - top, 0)) };
     }
+
+    /// A row clipped to the inside of the two-pixel frame drawn by Canvas.box.
+    pub fn framedRow(frame: Rect, y: i16, height: i16) Rect {
+        const border = 2;
+        const edges = 2 * border - 1;
+        const inner: Rect = .{ .x = frame.x + border, .y = frame.y + border, .width = frame.width - edges, .height = frame.height - edges };
+        return inner.intersect(.{ .x = inner.x, .y = y, .width = inner.width, .height = height });
+    }
 };
+
+test "framed rows meet both inner sides and stop at the top and bottom borders" {
+    const frame: Rect = .{ .x = 45, .y = 126, .width = 530, .height = 36 };
+    try std.testing.expectEqual(Rect{ .x = 47, .y = 128, .width = 527, .height = 16 }, frame.framedRow(126, 18));
+    try std.testing.expectEqual(Rect{ .x = 47, .y = 144, .width = 527, .height = 17 }, frame.framedRow(144, 18));
+}
 
 comptime {
     std.debug.assert(@sizeOf(Rect) == 8);

@@ -85,6 +85,8 @@ pub const Outcome = union(enum) {
     host_lan: game.interface.Connection.HostChoice.Kind,
     leave_session,
     launch_session,
+    new_coop_campaign,
+    loaded_coop_campaign,
     lobby_ready: bool,
     remove_lobby_pilot: interface.Connection.Lobby.Admission,
     debrief_choice: game.interface.Connection.DebriefCrew.Choice,
@@ -198,6 +200,7 @@ pub const Resources = struct {
     debrief_background: matmanager.Background = .{},
     lobby_background: matmanager.Background = .{},
     tried_lobby_background: bool = false,
+    original_look: bool = false,
     lobby_help_font: ?hud.FontFile = null,
     lobby_help_shapes: ?canvas.Shapes = null,
     tried_lobby_help: bool = false,
@@ -376,6 +379,7 @@ pub const Context = struct {
     /// The saved games LOAD GAME lists, and the game it loads into; none leaves LOAD GAME on the
     /// roster.
     saves: ?saved_games.Saves = null,
+    coop_saves: ?saved_games.Saves = null,
     /// The mods OpenReliant started with and where to find them again, which the mods screen lists
     /// and orders; none leaves the screen shut.
     mods: ?mod_manager.Source = null,
@@ -414,6 +418,7 @@ pub const Interface = struct {
     catalogue_of: ?[]const u8 = null,
     pilot_roster: pilot_roster.Roster = .{},
     saved_games: saved_games.SavedGames = .{},
+    save_source: saved_games.From = .roster,
     /// The pilot the roster sets, which every mission the front end starts is flown by.
     pilot: pilot_roster.Pilot = .{},
     /// The timer's ticks since the front end began, which the saved games' cursor blinks by, and
@@ -520,6 +525,13 @@ pub const Interface = struct {
                     .quit => return .quit,
                     .leave_session => return .leave_session,
                     .launch_session => return .launch_session,
+                    .new_campaign => return .new_coop_campaign,
+                    .load_campaign, .save_campaign => {
+                        if (context.coop_saves == null) return null;
+                        front.save_source = if (action == .load_campaign) .coop_lobby else .coop_debrief;
+                        front.screen = .saved_games;
+                        return null;
+                    },
                     .lobby_ready => |ready| return .{ .lobby_ready = ready },
                     .remove_lobby_pilot => |pilot| return .{ .remove_lobby_pilot = pilot },
                     .debrief_choice => |choice| return .{ .debrief_choice = choice },
@@ -633,6 +645,7 @@ pub const Interface = struct {
                         front.movie = movie.single_to_main;
                     },
                     .saved_games => if (context.saves != null) {
+                        front.save_source = .roster;
                         front.screen = .saved_games;
                         front.movie = saved_games.opening(.roster).movie;
                     },
@@ -648,11 +661,32 @@ pub const Interface = struct {
                 return null;
             },
             .saved_games => {
-                const saves = context.saves orelse {
-                    front.screen = .pilot_roster;
+                const source = front.save_source;
+                const saves = (if (source.cooperative()) context.coop_saves else context.saves) orelse {
+                    front.screen = if (source.cooperative()) .connection else .pilot_roster;
                     return null;
                 };
+                if ((source == .coop_debrief and front.connection.debrief == null) or
+                    (source == .coop_lobby and front.connection.lobby == null))
+                {
+                    front.saved_games.cancel(saves);
+                    front.screen = .connection;
+                    return null;
+                }
                 const end = front.saved_games.frame(savesContext(front, context, saves, pointer)) orelse return null;
+                if (source.cooperative()) {
+                    front.screen = .connection;
+                    switch (end) {
+                        .back => {},
+                        .main_menu => {
+                            front.screen = .main_menu;
+                            return .leave_session;
+                        },
+                        .quit => return .quit,
+                        .done => if (source == .coop_lobby) return .loaded_coop_campaign,
+                    }
+                    return null;
+                }
                 front.movie = saved_games.leavingMovie(.load, .roster, end);
                 switch (end) {
                     .back => front.screen = .pilot_roster,
@@ -795,12 +829,20 @@ pub const Interface = struct {
             },
             .pilot_roster => front.pilot_roster.enter(context.typed, &front.pilot),
             .game_modes => front.game_modes.enter(modesContext(front, context, front.pointer)),
-            .saved_games => if (context.saves) |saves| front.saved_games.enter(.load, .roster, savesContext(front, context, saves, front.pointer)),
+            .saved_games => {
+                const source = front.save_source;
+                if (if (source.cooperative()) context.coop_saves else context.saves) |saves| {
+                    front.saved_games.enter(if (source == .coop_debrief) .save else .load, source, savesContext(front, context, saves, front.pointer));
+                }
+            },
             else => {},
         }
         if (context.resources) |resources| resources.show(front.screen) catch |err| {
             log.warn("{f}'s shapes and background are left out: {s}", .{ front.screen, @errorName(err) });
         };
+        if (front.screen == .saved_games and front.save_source.cooperative()) {
+            if (context.resources) |resources| resources.background.show(resources.gpa, resources.archive, saved_games.opening(front.save_source).background);
+        }
         front.entered = front.screen;
     }
 
@@ -871,6 +913,7 @@ pub const Interface = struct {
             .window = window,
             .fonts = .{ .large = &resources.large.font, .small = &resources.small.font },
             .strings = strings,
+            .original_look = resources.original_look,
             .version = version,
         };
         var background = &resources.background;
@@ -907,6 +950,7 @@ pub const Interface = struct {
                         if (!lobby.mode_open and front.connection.ship_picker == null and front.connection.quit_prompt == null)
                             try resources.drawLobbyHelp(drawn, lobby);
                     }
+                    try drawn.drawVersion();
                 }
             },
             .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about),
@@ -1084,7 +1128,7 @@ test "LOAD GAME opens the saved games, where there are saves to list" {
     };
     try std.testing.expectEqual(null, click(&front, context, 450, 305));
     try std.testing.expectEqual(Screen.saved_games, front.screen);
-    try std.testing.expectEqualStrings(saved_games.opening(.roster).movie, front.movie.?);
+    try std.testing.expectEqualStrings(saved_games.opening(.roster).movie.?, front.movie.?);
     front.movie = null;
     front.enterShown(context);
     try std.testing.expectEqual(saved_games.Mode.load, front.saved_games.mode);

@@ -87,6 +87,7 @@ pub const Confirm = struct {
 /// games screen puts up over itself as a save fails (`save_error_open`, `0x0052026C`): the dialog's
 /// box, its OK button, lit under the pointer, the message, and OK's label.
 pub const SaveError = struct {
+    words: ?[]const u8 = null,
     /// Whether OK is under the pointer (`dialog_button`).
     under: bool = false,
     /// Set as OK is clicked or Escape pressed, until the pointer's button comes up.
@@ -115,7 +116,7 @@ pub const SaveError = struct {
     pub fn draw(box: SaveError, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
         try drawBox(canvas, art);
         try canvas.shape(art, if (box.under) lit_button_shape else button_shape, .{ ok_button.x, ok_button.y });
-        if (canvas.strings.string(error_text)) |words| try canvas.wrapped(canvas.fonts.small, error_at, words, canvas_module.blue, .centre, message_lines);
+        if (box.words orelse canvas.strings.string(error_text)) |words| try canvas.wrapped(canvas.fonts.small, error_at, words, canvas_module.blue, .centre, message_lines);
         try canvas.string(canvas.fonts.large, ok_at, ok_string, canvas_module.blue, .right);
     }
 };

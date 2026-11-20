@@ -46,10 +46,21 @@ pub fn modal(canvas: ui.Canvas, rect: ui.Rect) void {
 }
 
 pub fn fittedLabel(canvas: ui.Canvas, at: [2]i32, width: i16, words: []const u8, colour: [3]f32, alignment: hud.Align) !void {
+    try drawFittedLabel(canvas, at, width, null, words, colour, alignment);
+}
+
+pub fn fittedRowLabel(canvas: ui.Canvas, cell: ui.Rect, words: []const u8, colour: [3]f32) !void {
+    try drawFittedLabel(canvas, .{ cell.x, cell.y }, cell.width, cell.height, words, colour, .left);
+}
+
+fn drawFittedLabel(canvas: ui.Canvas, at: [2]i32, width: i16, row_height: ?i16, words: []const u8, colour: [3]f32, alignment: hud.Align) !void {
     const font = canvas.fonts.small;
     const measured: f32 = @floatFromInt(@max(1, font.textWidth(words)));
     const fit = @min(1, @as(f32, @floatFromInt(width)) / measured);
-    _ = try hud.drawTextIn(font, canvas.gpa, canvas.target, canvas.point(at), words, hud.atBrightness(colour, canvas.brightness), alignment, canvas.scale() * fit, null);
+    const scale = canvas.scale();
+    var point = canvas.point(at);
+    if (row_height) |height| point[1] += hud.round(try ui.centredInkOffset(font, @as(f32, @floatFromInt(height)) * scale, scale * fit));
+    _ = try hud.drawTextIn(font, canvas.gpa, canvas.target, point, words, hud.atBrightness(colour, canvas.brightness), alignment, scale * fit, null);
 }
 
 pub fn title(canvas: ui.Canvas, at: [2]i32, label: Label) !void {
@@ -57,7 +68,18 @@ pub fn title(canvas: ui.Canvas, at: [2]i32, label: Label) !void {
 }
 
 pub fn button(canvas: ui.Canvas, art: *hud.Art, box: ui.Rect, label: Label, enabled: bool, lit: bool) !void {
+    try alignedButton(canvas, art, box, label, enabled, lit, .left);
+}
+
+pub fn alignedButton(canvas: ui.Canvas, art: *hud.Art, box: ui.Rect, label: Label, enabled: bool, lit: bool, edge: enum { left, right }) !void {
     const painted = canvas.dimmedUnless(enabled);
-    try hud.drawShape(art, painted.gpa, painted.target, if (lit) 0x18 else 0x17, painted.point(.{ box.x, box.y + 2 }), hud.atBrightness(ui.white, painted.brightness), painted.scale() / Layout.text_scale);
-    try fittedLabel(painted, .{ box.x + Layout.label_offset, box.y }, box.width - Layout.label_offset, label.text(canvas.strings.*), if (lit) ui.white else ui.blue, .left);
+    const words = label.text(canvas.strings.*);
+    const width = box.width - Layout.label_offset;
+    const label_x, const shape_x = if (edge == .right) right: {
+        const right_edge = box.x + box.width;
+        const text_width: i16 = @intCast(@min(canvas.fonts.small.textWidth(words), @as(u32, @intCast(width))));
+        break :right .{ right_edge, right_edge - text_width - Layout.label_offset };
+    } else .{ box.x + Layout.label_offset, box.x };
+    try hud.drawShape(art, painted.gpa, painted.target, if (lit) 0x18 else 0x17, painted.point(.{ shape_x, box.y + 2 }), hud.atBrightness(ui.white, painted.brightness), painted.scale() / Layout.text_scale);
+    try fittedLabel(painted, .{ label_x, box.y }, width, words, if (lit) ui.white else ui.blue, if (edge == .right) .right else .left);
 }

@@ -57,6 +57,8 @@ combat_count: usize = 0,
 campaign_lines: [game.radio.queue_size + game.radio.report_count]wire.CampaignLine = undefined,
 campaign_line_count: usize = 0,
 campaign_result: ?wire.MissionView = null,
+coop_kept_kills: i32 = 0,
+coop_rank: game.gameflow.Rank = 0,
 stick: [2]i16 = @splat(0),
 standings_first: ?usize = null,
 
@@ -299,7 +301,8 @@ fn showSessionLoss(pilot: *Graphical, screen: *Connection, presentation: ?*Prese
 
 pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Interface, controls: MultiplayerMenu.ControlFrame, presentation: ?*Presentation, strings: game.language.Language, chat_font: *const game.hud.Opened, reads_controls: bool) void {
     if (pilot.client == null and pilot.session_lost == null) return;
-    if (front.screen != .connection) {
+    const coop_saves = front.screen == .saved_games and front.save_source.cooperative();
+    if (front.screen != .connection and !coop_saves) {
         pilot.returnToBrowser(&front.connection, presentation, .{});
         return;
     }
@@ -491,6 +494,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                     front.connection.lobby.?.local_slot = client.joined.?.slot;
                     if (client.roster.lobby) |scenario| front.connection.lobby.?.scenario = scenario;
                 }
+                front.connection.lobby.?.mission = client.roster.mission;
                 front.connection.lobby.?.ready = client.roster.ready;
             },
             .uber_kill => |notice| pilot.queueNotice(.{ .uber_kill = notice }),
@@ -642,6 +646,10 @@ fn applyFrame(pilot: *Graphical, flight: *FlightFrame, local: *game.create.Objec
         flight.presentRadio(pilot.campaign_lines[0..pilot.campaign_line_count]);
         pilot.campaign_line_count = 0;
         const slot = client.joined.?.slot;
+        const all = flight.drawn.objects;
+        const earned = client.latest.?.ships[slot].?.kills;
+        all.player_states[slot].membership.joined.kills.count = pilot.coop_kept_kills +| earned;
+        flight.drawn.player.rank = pilot.coop_rank;
         // The original announces a takeover once, using string 0x558.
         if (slot != 0 and mission.lead == slot and !flight.lead_announced) {
             flight.lead_announced = true;

@@ -7,6 +7,47 @@ const cooperative_slots = wire.cooperative_slots;
 const Facing = wire.Facing;
 const Fighter = wire.Fighter;
 
+const saved = engine.game.gameflow.save;
+const pilots = engine.game.pilots;
+
+/// The common part of a retail save. Each pilot adds their own profile and result locally.
+pub const Checkpoint = struct {
+    vars: saved.Vars,
+    replacement: saved.Replacement,
+    wing: saved.Wing,
+    pub const capacity = @sizeOf(saved.Vars) + @sizeOf(saved.Replacement) + @sizeOf(saved.Wing);
+
+    pub fn capture(variables: *const engine.vm.Variables, wingmen: *const pilots.Wingmen) Checkpoint {
+        return .{ .vars = saved.captureVariables(variables), .replacement = wingmen.pool[0], .wing = wingmen.alpha };
+    }
+
+    pub fn apply(checkpoint: Checkpoint, variables: *engine.vm.Variables, wingmen: *pilots.Wingmen) void {
+        saved.applyVariables(variables, checkpoint.vars);
+        wingmen.alpha = checkpoint.wing;
+        wingmen.pool[0] = checkpoint.replacement;
+    }
+
+    pub fn write(checkpoint: Checkpoint, w: *std.Io.Writer) !void {
+        for (checkpoint.vars) |value| try w.writeInt(i32, value, .little);
+        try w.writeInt(i16, checkpoint.replacement.pilot, .little);
+        try w.writeByte(@backingInt(checkpoint.replacement.status));
+        try w.writeByte(checkpoint.replacement._unused);
+        for (checkpoint.wing) |pilot| try w.writeInt(i16, pilot, .little);
+    }
+
+    pub fn read(r: *std.Io.Reader) !Checkpoint {
+        var checkpoint: Checkpoint = undefined;
+        for (&checkpoint.vars) |*value| value.* = try r.takeInt(i32, .little);
+        checkpoint.replacement = .{
+            .pilot = try r.takeInt(i16, .little),
+            .status = try r.takeEnum(saved.Replacement.Status, .little),
+            ._unused = try r.takeByte(),
+        };
+        for (&checkpoint.wing) |*pilot| pilot.* = try r.takeInt(i16, .little);
+        return checkpoint;
+    }
+};
+
 /// A pilot's requested stock loadout after the briefing. Void uses the mission's authored fit.
 pub const CampaignLoadout = struct {
     ship: Fighter,

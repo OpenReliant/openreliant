@@ -1662,6 +1662,9 @@ address	kind	name	type	comment
 004baac0	function	net_send_jump_request	void (void)	Sends a jump request in gameplay message 0x25
 004baad0	function	net_send_warp_request	void (void)	Sends a warp request in gameplay message 0x26
 004ba2b0	function	net_send_landing_clearance	void (void)	Sends gameplay message 0x1C from the mission lead after the script clears the crew to land
+004ba2d0	function	net_send_coop_session	void (void)	Sends message 8 with the host's callsign, the session name and the selected mission number
+004ba310	function	net_send_coop_campaign_start	void (void)	Sends message 9 with the shared campaign state and the pilot records needed to start the mission
+00524a58	data	mp_lobby_mission	int	The mission the co-op lobby selects with New or Load and shows to the crew
 005dc1e8	data	net_session	int	Nonzero in a multiplayer session
 005ddd28	data	window_suspended	int	Set while the game's window is put away, from 0x004A8260 until input_init clears it; the message pump pauses the sound, and in a multiplayer session the mission, while it is set and the renderer runs. Unverified: what putting the window away is
 004a8260	function	window_suspend	void (void)	Unverified name: unless an editor is linked (editor_absent clear) or 0x005D60B8 is set, saves the window's style and placement, changes them and sets window_suspended; then acquires the input again

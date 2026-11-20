@@ -8,9 +8,6 @@
 //! **Improvement:** the day's and the month's names in the date are English, where the game takes
 //! the system's language's (`GetDateFormatA`).
 //!
-//! Not ported: what the multiplayer games do with it: the co-op host's load, the multiplayer
-//! debriefing's save, and a load sent to the other players
-//! ([#475](https://github.com/OpenReliant/openreliant/issues/475)).
 
 const std = @import("std");
 
@@ -38,14 +35,30 @@ pub const Mode = enum { load, save };
 
 /// What opened it, which the movies it plays as it is left go by (`in_game_options_open`,
 /// `0x005202A4`): the pilot roster, or the in-game options.
-pub const From = enum { roster, in_game_options };
+pub const From = enum {
+    roster,
+    in_game_options,
+    coop_lobby,
+    coop_debrief,
+
+    pub fn cooperative(from: From) bool {
+        return from == .coop_lobby or from == .coop_debrief;
+    }
+
+    /// The multiplayer debrief sets saved_games_no_exit (0x00429C6C).
+    fn shows(from: From, button: Button) bool {
+        return from != .coop_debrief or (button != .main_menu and button != .quit);
+    }
+};
 
 /// The movie its opener plays before it, and the background that then shows behind it: the pilot
 /// roster's (`0x00430A57`) and the in-game options'.
-pub fn opening(from: From) struct { movie: []const u8, background: []const u8 } {
+pub fn opening(from: From) struct { movie: ?[]const u8, background: []const u8 } {
     return switch (from) {
         .roster => .{ .movie = "interface\\sinfade.bik", .background = "interface\\sinfade.tga" },
         .in_game_options => .{ .movie = "interface\\igofade.bik", .background = "interface\\igoptfad.tga" },
+        .coop_lobby => .{ .movie = null, .background = "interface\\mulfade.tga" },
+        .coop_debrief => .{ .movie = null, .background = "interface\\igoptfad.tga" },
     };
 }
 
@@ -66,14 +79,17 @@ pub const End = enum {
 /// `igofade2.bik` to the in-game options. To the main menu, loading only, `sifad2mm.bik` from the
 /// roster, `igof2mm.bik` from the in-game options. None after a load or a save.
 pub fn leavingMovie(mode: Mode, from: From, end: End) ?[]const u8 {
+    if (from.cooperative()) return null;
     return switch (end) {
         .back => switch (from) {
             .in_game_options => "interface\\igofade2.bik",
             .roster => if (mode == .load) "interface\\sinfade2.bik" else null,
+            .coop_lobby, .coop_debrief => unreachable,
         },
         .main_menu => if (mode == .save) null else switch (from) {
             .in_game_options => "interface\\igof2mm.bik",
             .roster => "interface\\sifad2mm.bik",
+            .coop_lobby, .coop_debrief => unreachable,
         },
         .quit, .done => null,
     };
@@ -86,9 +102,11 @@ const first_row: Rect = .{ .x = 49, .y = 126, .width = 400, .height = 17 };
 const row_spacing = 17;
 const pilot_x = 320;
 const mission_x = 570;
-const bar_from: [2]i32 = .{ 49, 2 };
-const bar_to: [2]i32 = .{ 572, 19 };
-const bar_colour = hud.rgb(0x0000FF);
+const stock_bar_left = 49;
+const stock_bar_right = 572;
+const bar_top = 2;
+const bar_bottom = 19;
+const stock_bar_colour = hud.rgb(0x0000FF);
 
 fn rowRect(row: usize) Rect {
     var rect = first_row;
@@ -153,8 +171,7 @@ const load_title = 0x55F;
 const save_title = 0x560;
 
 /// The frames of the list and of the details.
-const list_box_at: [2]i32 = .{ 45, 126 };
-const list_box_size: [2]i32 = .{ 530, 175 };
+const list_frame: Rect = .{ .x = 45, .y = 126, .width = 530, .height = 175 };
 const details_box_at: [2]i32 = .{ 45, 321 };
 const details_box_size: [2]i32 = .{ 550, 38 };
 
@@ -434,7 +451,7 @@ pub const SavedGames = struct {
         screen.under = if (canvas_module.hit(&rowRects(), pointer.at)) |row|
             .{ .row = @intCast(row) }
         else if (canvas_module.itemAt(Button, &button_rects, pointer.at)) |button|
-            .{ .button = button }
+            if (screen.from.shows(button)) .{ .button = button } else null
         else
             null;
         const under = screen.under orelse return null;
@@ -448,7 +465,7 @@ pub const SavedGames = struct {
                 .back => return screen.leave(context.saves, .back),
                 .act => switch (screen.mode) {
                     .load => if (screen.selected) |slot| {
-                        if (!load(context.saves, slot)) return null;
+                        if (!screen.load(context.saves, slot)) return null;
                         screen.loaded = true;
                         return if (pointer.down) null else .done;
                     },
@@ -464,7 +481,7 @@ pub const SavedGames = struct {
     /// A click on the row of save `slot` (`0x00431D32` on).
     fn choose(screen: *SavedGames, context: Context, slot: u8) ?End {
         if (screen.selected == slot) switch (screen.mode) {
-            .load => return if (load(context.saves, slot)) .done else null,
+            .load => return if (screen.load(context.saves, slot)) .done else null,
             .save => if (slot != save.autosave_slot) screen.startTyping(context, screen.list[slot].name.slice()),
         };
         switch (screen.mode) {
@@ -482,10 +499,14 @@ pub const SavedGames = struct {
     }
 
     /// `game_load` of save `slot` into the game; false where its file can't be read.
-    fn load(saves: Saves, slot: u8) bool {
+    fn load(screen: *SavedGames, saves: Saves, slot: u8) bool {
         var loaded = save.empty();
         if (!saves.folder.load(saves.gpa, saves.callSign(), slot, &loaded)) {
             log.warn("saved game {d} can't be loaded", .{slot});
+            return false;
+        }
+        if (screen.from == .coop_lobby and !gameflow.campaignOrder().has(loaded.miss.missionNumber())) {
+            screen.save_error = .{ .words = "This save has no playable co-op mission." };
             return false;
         }
         saves.game.apply(&loaded);
@@ -530,7 +551,7 @@ pub const SavedGames = struct {
         screen.new_save = .{ .made = slot };
         screen.selected = slot;
         screen.scan(saves);
-        _ = load(saves, slot);
+        _ = screen.load(saves, slot);
         screen.tier = saves.game.tier.*;
         screen.rank = saves.game.player.rank;
         screen.readTime(saves, slot);
@@ -551,6 +572,11 @@ pub const SavedGames = struct {
         return end;
     }
 
+    pub fn cancel(screen: *SavedGames, saves: Saves) void {
+        _ = screen.leave(saves, .back);
+        screen.new_save = null;
+    }
+
     /// Whether the name takes what is typed.
     pub fn takesText(screen: *const SavedGames) bool {
         return screen.mode == .save and screen.typing;
@@ -562,10 +588,11 @@ pub const SavedGames = struct {
     /// the rows shown, the selected one white over a bar; the selected save's details; the arrows;
     /// QUIT's question or the box saying a save failed; and OpenReliant's version. The pointer
     /// goes over it all, after what scripts draw (`canvas.Canvas.drawPointer`).
+    /// **Improvement:** share the front end's muted row highlight. `--original` uses the retail bar.
     pub fn draw(screen: SavedGames, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, call_sign: []const u8) canvas_module.Error!void {
         const large = canvas.fonts.large;
         const small = canvas.fonts.small;
-        canvas.box(list_box_at, list_box_size);
+        canvas.box(.{ list_frame.x, list_frame.y }, .{ list_frame.width, list_frame.height });
         canvas.box(details_box_at, details_box_size);
         var title_buffer: [96]u8 = undefined;
         const heading = canvas.strings.string(if (screen.mode == .load) load_title else save_title) orelse "";
@@ -588,22 +615,31 @@ pub const SavedGames = struct {
         for (labels) |each| try each.write(canvas, small, blue);
         if (screen.time) |time| try canvas.text(small, time_at, time.slice(), blue, .left);
         for (std.enums.values(Button)) |button| {
+            if (!screen.from.shows(button)) continue;
             const lit = if (screen.under) |under| switch (under) {
                 .button => |pointed| pointed == button,
                 .row => false,
             } else false;
             try shownButton(button, screen.mode).draw(canvas, art, button_shapes, lit);
         }
+        const bar_height = bar_bottom - bar_top + 1;
+        const text_offset = if (canvas.original_look) 0 else bar_top + try canvas.rowTextOffset(small, bar_height);
         for (screen.scrolled.first..screen.scrolled.end()) |slot| {
             const y = rowRect(slot - screen.scrolled.first).y;
             const selected = if (screen.selected) |chosen| chosen == slot else false;
             const colour = if (selected) white else blue;
-            if (selected) canvas.wipe(.{ bar_from[0], y + bar_from[1] }, .{ bar_to[0], y + bar_to[1] }, bar_colour);
+            if (selected) {
+                if (canvas.original_look) {
+                    canvas.wipe(.{ stock_bar_left, y + bar_top }, .{ stock_bar_right, y + bar_bottom }, stock_bar_colour);
+                } else {
+                    canvas.highlightRow(list_frame.framedRow(y + bar_top, bar_height));
+                }
+            }
             const listed = &screen.list[slot];
-            try canvas.text(small, .{ first_row.x, y }, listed.name.slice(), colour, .left);
-            try canvas.text(small, .{ pilot_x, y }, listed.pilot.slice(), colour, .centre);
+            try canvas.text(small, .{ first_row.x, y + text_offset }, listed.name.slice(), colour, .left);
+            try canvas.text(small, .{ pilot_x, y + text_offset }, listed.pilot.slice(), colour, .centre);
             var number: [8]u8 = undefined;
-            try canvas.text(small, .{ mission_x, y }, std.mem.print(&number, "{d}", .{gameflow.displayNumber(listed.mission)}) catch "", colour, .right);
+            try canvas.text(small, .{ mission_x, y + text_offset }, std.mem.print(&number, "{d}", .{gameflow.displayNumber(listed.mission)}) catch "", colour, .right);
         }
         if (screen.selected) |slot| {
             try canvas.string(small, rank_at, gameflow.rank_names[screen.rank], blue, .left);
@@ -814,6 +850,23 @@ test "the arrows scroll a row each pass they are held" {
     try std.testing.expectEqual(3, fixture.screen.scrolled.first);
     _ = fixture.frame(.{ .at = .{ 585, 255 }, .down = true });
     try std.testing.expectEqual(2, fixture.screen.scrolled.first);
+}
+
+test "co-op load rejects a finished campaign and debrief save keeps the crew controls out" {
+    var fixture: Fixture = undefined;
+    fixture.init();
+    defer fixture.deinit();
+    try fixture.store(0, "Finished", gameflow.story_end);
+    fixture.campaign.mission = gameflow.first_mission;
+    fixture.screen.enter(.load, .coop_lobby, fixture.context(.{}));
+    try std.testing.expectEqual(null, fixture.click(buttonAt(.act)));
+    try std.testing.expect(fixture.screen.save_error != null);
+    try std.testing.expectEqual(gameflow.first_mission, fixture.campaign.mission);
+
+    fixture.screen.enter(.save, .coop_debrief, fixture.context(.{}));
+    try std.testing.expectEqual(null, fixture.click(buttonAt(.main_menu)));
+    try std.testing.expectEqual(null, fixture.click(buttonAt(.quit)));
+    try std.testing.expectEqual(null, fixture.screen.confirm);
 }
 
 test "Escape leaves, and QUIT asks first" {
