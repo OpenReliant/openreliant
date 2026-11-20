@@ -1162,15 +1162,28 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .standings_scale = display.placements.get(.standings).scale,
                 .menu_art = &display.resources.art,
             }, presentation, strings, &display.resources.font, app.active and !console_up);
+            if (network_enabled) if (network_pilot.client) |*client| if (client.takeMovie()) |tick| {
+                const mission = client.latest.?.mission.?.number;
+                var service: NetworkPilot.Briefing = .{ .pilot = &network_pilot, .io = io };
+                movies.service = .{ .context = &service, .tick = NetworkPilot.Briefing.service };
+                defer movies.service = null;
+                if (try movies.fostersLastStand(mission, &clock, sound, &sound_commands.line)) {
+                    client.finishMovie(tick) catch {
+                        service.failed = true;
+                    };
+                } else if (!service.failed) return;
+                if (service.failed) network_pilot.returnToBrowser(&front.connection, presentation, .{ .english = "Connection lost during movie" });
+                continue;
+            };
             if (network_enabled) if (network_pilot.takeCampaignResult()) |result| {
-                if (front.connection.debrief) |*debrief| {
-                    const finished_view = &network_pilot.client.?.latest.?;
-                    const checkpoint = finished_view.campaign_checkpoint.?;
-                    const earned = finished_view.ships[debrief.local_slot].?.kills;
+                if (network_pilot.client) |*client| if (client.latest) |*finished_view| if (finished_view.campaign_checkpoint) |checkpoint| {
+                    const earned = finished_view.ships[client.joined.?.slot].?.kills;
                     if (coop_saving.record(result, earned, checkpoint)) |record| {
                         pilot_profile.profile.keep(record);
                         pilot_profile.save();
                     }
+                };
+                if (front.connection.debrief) |*debrief| {
                     debrief.overall_kills = coop_saving.player.kills.count;
                     debrief.rank = coop_saving.player.rank;
                     debrief.tier = coop_saving.tier;
@@ -1191,21 +1204,24 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 summary.mission = game.gameflow.nextMission(result.number);
                 if (summary.record(result.number)) |record| record.* = .{ .rating = result.rating, .kills = result.kills };
                 // WinMain (0x004A8B10) plays the co-op return movie after a rescue too.
-                if (if (shared_debrief) game.winmain.landsAfter(result.ending, result.number, false) else result.landed) {
+                if (if (shared_debrief) game.winmain.landsAfter(result.ending, result.number, result.second_part) else result.landed) {
                     sound.end3DAll();
-                    if (game.xtrabits.landing.landing(result.number, false, result.ending, &summary.variables)) |landed| {
+                    if (game.xtrabits.landing.landing(result.number, result.second_part, result.ending, &summary.variables)) |landed| {
                         if (!try movies.land(landed, &resources, sound) and !service.failed) return;
                     }
                 }
                 if (shared_debrief and !service.failed) {
-                    const ending = game.winmain.cooperativeEndingFilm(result.number, result.ending, result.rating, result.reliant_alive);
+                    const ending = game.winmain.cooperativeEndingFilm(result.number, result.ending, result.rating, result.reliant_alive, result.transferred());
                     if (!try movies.playChosen(ending) and !service.failed) return;
-                    if (summary.mission == game.gameflow.story_end and ending == null and !service.failed) {
+                    if (result.finale() and !service.failed) {
                         const played = if (try rooms.?.endBriefing())
-                            try movies.storyEnd(game.xtrabits.ending.movies(&summary.variables))
+                            try movies.storyEnd(game.xtrabits.ending.movies(&summary.variables)) and try rooms.?.credits()
                         else
                             false;
                         if (!played and !service.failed) return;
+                        if (!service.failed) network_pilot.finishCampaign(io, &front.connection) catch {
+                            service.failed = true;
+                        };
                     }
                 }
                 if (service.failed) {
@@ -1298,7 +1314,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                             const loaded = outcome == .loaded_coop_campaign;
                             if (!loaded) coop_saving = .init(front.pilot);
                             coop_saving.pilot = front.pilot;
-                            if (hosted.host.selectCampaign(&coop_saving.campaign, &coop_saving.wingmen)) {
+                            if (hosted.host.selectCampaign(&coop_saving.campaign, &coop_saving.wingmen, coop_saving.rescues)) {
                                 front.connection.lobby.?.mission = coop_saving.campaign.mission;
                                 front.connection.lobby.?.loaded_campaign = loaded;
                             }

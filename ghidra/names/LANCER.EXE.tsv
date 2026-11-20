@@ -65,7 +65,7 @@ address	kind	name	type	comment
 005267c6	data	mission_format_flags_3	byte	The third flag, likewise
 005294e8	data	mission_format_flags_4	byte	The fourth flag, likewise
 00529524	data	mission_image	void *	The bound mission's file, as mission_bind_sections read it
-00587cdc	data	mission25_second_part	byte	Set once mission 25's first part is won: the next start plays mission251.dte
+00587cdc	data	mission25_second_part	byte	Set after the first part of mission 25 unless it ended in total failure. WinMain skips the co-op briefing and hangar movie and loads mission251.dte. The return movie follows the second part.
 00452a20	function	mission_bind_section		Binds the next directory entry to a section's count and pointer, noting its format flags
 0045cb40	function	mission_alloc_part_tables	void __fastcall (void)	Allocates the part tables, 256 entries each
 0045cb80	function	mission_alloc_table		Frees and reallocates a table of count x size bytes
@@ -2785,7 +2785,7 @@ address	kind	name	type	comment
 004b9830	function	net_write_bits		Appends an arbitrary number of bits to the outgoing message, including writes that start between bytes.
 004b9b40	function	net_begin_message		Selects the outgoing buffer and writes a message kind into it.
 004b9b80	function	net_finish_message		Finishes and sends the outgoing message, then resets its bit count.
-004b9da0	function	net_mark_campaign_out	void (void)	Marks the local pilot as out of the campaign after a fatal, recalled or failed mission. The pilot can ready for a replay.
+004b9da0	function	net_mark_campaign_out	void (void)	Marks the local pilot as out of the campaign after a fatal, recalled or failed mission or a third rescue. The pilot can ready for a replay.
 004ba1d0	function	net_mark_ready	void __fastcall (byte stage)	Sends local readiness and sets that stage's bit in the local pilot's lobby record.
 004bb160	function	net_send_eject	void __fastcall (int slot)	Sends gameplay message 0x45 with the ejecting object's 9-bit slot. The receiver pushes order 30.
 0051d7b8	data	mp_debrief_lead	int	The pilot who can advance or replay. Prefer the session owner among those who can advance, then the lowest eligible slot. When none can advance, pick the lowest remaining slot for replay.
@@ -2896,6 +2896,7 @@ address	kind	name	type	comment
 004b58d0	function	mp_script_sync	void (void)	MultiPlayerSync's work: in a network session (net_session), clears 0x00563000 and sets 0x005DCC8C, and on the host (net_session 1) sets the local player's byte of 0x005DC1F0 (player_index); nothing in single player
 00566630	data	fosters_last_stand	int	Set by PlayFostersLastStand: hud_target_keys then pauses the game, the music, the voices, the 3D voices and the radio's line, plays foster_movie_name from the disc's archive (play_bink_movie_resourced), resumes it all and clears it; hud_init clears it too
 00502564	data	foster_movie_name	char[11]	foster.bik, Foster's last stand, which hud_target_keys plays as fosters_last_stand asks
+00459740	function	cmd_PlayFostersLastStand	uint __fastcall (byte **ip, uint *args)	Sets fosters_last_stand so hud_target_keys holds the mission clock and plays foster.bik.
 0055230c	data	next_jump_changes	byte[400]	What DisableObjectAtNextJump asks of each object for the next jump, by its index: 1 to set its flag 0x400 (disabled), 2 to clear it; environment_update makes the changes and clears them, and environment_effects_clear drops them
 00536d58	data	debug_message		The line a debug message writes for the screen, DEBUG: and the text as PrintDebugMessage writes it, which nothing in the retail build draws
 005373dc	data	debug_message_until	int	frame_start plus 500 as a debug message is written (debug_message): until when it was meant to show

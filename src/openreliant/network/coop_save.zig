@@ -13,6 +13,7 @@ pilot: game.interface.pilot_roster.Pilot,
 saved: engine.interface.loadout.Saved = .{},
 wingmen: game.pilots.Wingmen = .{},
 restart: ?save.Save = null,
+rescues: save.CoopRescues = .{},
 
 pub fn init(pilot: game.interface.pilot_roster.Pilot) CoopSave {
     return .{ .campaign = .begin(), .pilot = pilot };
@@ -26,6 +27,7 @@ pub fn saveGame(crew: *CoopSave) save.Game {
         .pilot = &crew.pilot,
         .saved = &crew.saved,
         .wingmen = &crew.wingmen,
+        .coop_rescues = &crew.rescues,
     };
 }
 
@@ -54,11 +56,21 @@ pub fn record(crew: *CoopSave, result: wire.MissionView, earned: i32, checkpoint
     crew.player.ending = result.ending;
     crew.player.kills.count = crew.player.kept_kills +| earned;
     crew.player.kills.mission = result.kills;
+    if (result.transferred()) {
+        crew.player.kills = .{ .count = crew.player.kept_kills };
+        return null;
+    }
+    const picked_up = result.rescues > crew.campaign.pickups;
     const outcome = game.gameflow.endMission(&crew.player, &crew.campaign.variables, result.number, crew.tier, &crew.campaign, &crew.wingmen) orelse {
         crew.player.kills = .{ .count = crew.player.kept_kills };
         return null;
     };
     crew.tier = outcome.tier;
+    crew.rescues = checkpoint.rescues;
+    crew.campaign.pickups = result.rescues;
+    if (picked_up) if (crew.campaign.record(result.number)) |mission| {
+        mission.pickups = result.rescues;
+    };
     if (outcome.next == game.gameflow.story_end) return null;
     return crew.saveGame().campaignRecord();
 }
@@ -87,4 +99,19 @@ test "co-op records follow the local profile and replay starts at the attempt ch
     try std.testing.expectEqual(null, crew.record(lost, 4, checkpoint));
     try std.testing.expectEqual(1, crew.campaign.mission);
     try std.testing.expectEqual(17, crew.player.kills.count);
+}
+
+test "replay restores the local rescue count at the start of the attempt" {
+    var crew: CoopSave = .init(.{});
+    const profile: game.gameflow.Profile = .new("Viper");
+    crew.campaign.pickups = 1;
+    crew.begin(1, &profile);
+    const checkpoint: wire.CampaignCheckpoint = .capture(&crew.campaign.variables, &crew.wingmen);
+    var result: wire.MissionView = .{ .number = 1, .pilot_slots = 1, .lead = 0, .ending = .rescued, .rescues = 2 };
+    try std.testing.expectEqual(2, crew.record(result, 0, checkpoint).?.pickups);
+    crew.begin(1, &profile);
+    try std.testing.expectEqual(1, crew.campaign.pickups);
+    result.rescues = 3;
+    try std.testing.expectEqual(null, crew.record(result, 0, checkpoint));
+    try std.testing.expectEqual(1, crew.campaign.mission);
 }

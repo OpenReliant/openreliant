@@ -411,7 +411,7 @@ pub fn afterMission(campaign: *gameflow.Campaign, player: *input.Player, variabl
         .friendly_fire => return .{ .restart = execution.get(carrier) },
         else => {},
     }
-    if (gameflow.campaignField(mission, .rules).second_part and !second_part.* and variables.mission_success != .total_failure) {
+    if (continuesToSecondPart(mission, second_part.*, variables.mission_success)) {
         second_part.* = true;
         return .second_part;
     }
@@ -419,6 +419,12 @@ pub fn afterMission(campaign: *gameflow.Campaign, player: *input.Player, variabl
     const record = gameflow.endMission(player, variables, mission, tier, campaign, wingmen) orelse return .{ .career_over = careerOver(mission, variables) };
     if (record.next == gameflow.story_end) return .story_end;
     return .{ .goes_on = record };
+}
+
+/// WinMain continues the first part of a split mission unless the script reports total failure
+/// (co-op at 0x004A9F8F, single player at 0x004AA57D).
+pub fn continuesToSecondPart(mission: u16, second_part: bool, rating: vm.Variables.Outcome) bool {
+    return gameflow.campaignField(mission, .rules).second_part and !second_part and rating != .total_failure;
 }
 
 /// The restart screen after `movie`, where there is one, for a pilot lost or a mission left: mission
@@ -438,7 +444,7 @@ const capture = "int.bik";
 const shuttle = "fortbearshuttle_.bik";
 
 /// The co-op outcome film before the shared debrief (WinMain, 0x004A9EC7 to 0x004AA099).
-pub fn cooperativeEndingFilm(mission: u16, ending: Ending, rating: vm.Variables.Outcome, reliant_alive: bool) ?xtrabits.movie.Name {
+pub fn cooperativeEndingFilm(mission: u16, ending: Ending, rating: vm.Variables.Outcome, reliant_alive: bool, transferred: bool) ?xtrabits.movie.Name {
     const carrier = rooms.Carrier.of(mission);
     const previous = if (reliant_alive) carrier else .yamato;
     const name = switch (ending) {
@@ -446,7 +452,8 @@ pub fn cooperativeEndingFilm(mission: u16, ending: Ending, rating: vm.Variables.
         .captured => capture,
         .friendly_fire => execution.get(carrier),
         ._unknown_7, .total_failure => transfer.get(previous),
-        .playing, .rescued => if (rating == .total_failure) transfer.get(previous) else return null,
+        .rescued => if (transferred) transfer.get(carrier) else if (rating == .total_failure) transfer.get(previous) else return null,
+        .playing => if (rating == .total_failure) transfer.get(previous) else return null,
         else => return null,
     };
     return xtrabits.movie.nameOf(name);

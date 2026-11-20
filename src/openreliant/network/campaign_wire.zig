@@ -15,7 +15,8 @@ pub const Checkpoint = struct {
     vars: saved.Vars,
     replacement: saved.Replacement,
     wing: saved.Wing,
-    pub const capacity = @sizeOf(saved.Vars) + @sizeOf(saved.Replacement) + @sizeOf(saved.Wing);
+    rescues: saved.CoopRescues = .{},
+    pub const capacity = @sizeOf(saved.Vars) + @sizeOf(saved.Replacement) + @sizeOf(saved.Wing) + saved.CoopRescues.capacity;
 
     pub fn capture(variables: *const engine.vm.Variables, wingmen: *const pilots.Wingmen) Checkpoint {
         return .{ .vars = saved.captureVariables(variables), .replacement = wingmen.pool[0], .wing = wingmen.alpha };
@@ -33,6 +34,7 @@ pub const Checkpoint = struct {
         try w.writeByte(@backingInt(checkpoint.replacement.status));
         try w.writeByte(checkpoint.replacement._unused);
         for (checkpoint.wing) |pilot| try w.writeInt(i16, pilot, .little);
+        try w.writeAll(&checkpoint.rescues.encode());
     }
 
     pub fn read(r: *std.Io.Reader) !Checkpoint {
@@ -44,6 +46,7 @@ pub const Checkpoint = struct {
             ._unused = try r.takeByte(),
         };
         for (&checkpoint.wing) |*pilot| pilot.* = try r.takeInt(i16, .little);
+        checkpoint.rescues = saved.CoopRescues.decode(try r.takeArray(saved.CoopRescues.capacity)) orelse return error.InvalidRescueCounts;
         return checkpoint;
     }
 };
@@ -70,7 +73,7 @@ pub const CampaignLoadout = struct {
 };
 const ObjectivesDisplay = engine.game.hud.Objectives;
 pub const MissionView = struct {
-    pub const capacity = @sizeOf(u16) + 8 * @sizeOf(u8) + 5 * @sizeOf(f32) + (ObjectivesDisplay.per_mission + 1) * @sizeOf(i16) + @sizeOf(Facing) + Guide.capacity;
+    pub const capacity = @sizeOf(u16) + 9 * @sizeOf(u8) + 5 * @sizeOf(f32) + (ObjectivesDisplay.per_mission + 1) * @sizeOf(i16) + @sizeOf(Facing) + Guide.capacity;
     number: u16,
     pilot_slots: u8,
     lead: ?u8,
@@ -81,11 +84,25 @@ pub const MissionView = struct {
     ending: engine.game.main.Ending = .playing,
     ending_scene: engine.game.players.EndingScene = .none,
     kills: u16 = 0,
+    rescues: u8 = 0,
+    second_part: bool = false,
     landed: bool = false,
     objectives_met: bool = false,
     reliant_alive: bool = true,
     nebula: u8 = engine.game.nebula.default_nebula,
     director: ?Director = null,
+
+    pub fn transferred(mission: MissionView) bool {
+        return engine.game.gameflow.transferredAfterRescues(mission.rescues);
+    }
+
+    pub fn finale(mission: MissionView) bool {
+        return mission.canAdvance() and engine.game.gameflow.nextMission(mission.number) == engine.game.gameflow.story_end;
+    }
+
+    pub fn canAdvance(mission: MissionView) bool {
+        return (mission.ending == .playing or mission.ending == .rescued) and !mission.transferred() and mission.rating != .total_failure;
+    }
 
     pub const Director = struct {
         position: engine.surrender.math.Vector,
@@ -163,10 +180,12 @@ pub const MissionView = struct {
         try w.writeByte(@backingInt(mission.ending));
         try w.writeByte(@backingInt(mission.ending_scene));
         try w.writeInt(u16, mission.kills, .little);
+        try w.writeByte(mission.rescues);
         const landed: u8 = @intFromBool(mission.landed);
         const met: u8 = @intFromBool(mission.objectives_met);
         const reliant: u8 = @intFromBool(mission.reliant_alive);
-        try w.writeByte(landed | (met << 1) | (reliant << 2));
+        const second: u8 = @intFromBool(mission.second_part);
+        try w.writeByte(landed | (met << 1) | (reliant << 2) | (second << 3));
         try w.writeByte(mission.nebula);
         try w.writeByte(@intFromBool(mission.director != null));
         if (mission.director) |director| {
@@ -192,11 +211,14 @@ pub const MissionView = struct {
         mission.ending = @fromBackingInt(ending);
         mission.ending_scene = try r.takeEnum(engine.game.players.EndingScene, .little);
         mission.kills = try r.takeInt(u16, .little);
+        mission.rescues = try r.takeByte();
+        if (mission.rescues > engine.game.gameflow.allowed_rescues + 1) return error.InvalidMissionView;
         const flags = try r.takeByte();
-        if (flags > 0b111) return error.InvalidMissionView;
+        if (flags > 0b1111) return error.InvalidMissionView;
         mission.landed = flags & 1 != 0;
         mission.objectives_met = flags & 2 != 0;
         mission.reliant_alive = flags & 4 != 0;
+        mission.second_part = flags & 8 != 0;
         mission.nebula = try r.takeByte();
         if (mission.nebula >= engine.game.nebula.nebulae.len) return error.InvalidMissionView;
         switch (try r.takeByte()) {
@@ -353,7 +375,7 @@ pub const Debrief = struct {
 };
 
 pub const DebriefChoice = struct { tick: u32, action: Crew.Choice };
-pub const NextMission = struct { after: u32, number: u16 };
+pub const NextMission = struct { after: u32, number: u16, second_part: bool = false };
 
 pub fn readMissionNumber(r: *std.Io.Reader) !u16 {
     const number = try r.takeInt(u16, .little);

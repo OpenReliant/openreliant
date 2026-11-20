@@ -586,10 +586,11 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     if (snapshot.mission) |mission| {
         all.players = mission.pilot_slots;
         all.mission_number = mission.number;
+        all.mission25_second_part = mission.second_part;
         frame.environment.requested = mission.nebula;
         frame.director = mission.director;
         var objectives = &frame.drawn.display.objectives;
-        if (frame.tick == null) objectives.reset(mission.number, false, null);
+        if (frame.tick == null) objectives.reset(mission.number, mission.second_part, null);
         // Only a newly current objective changes the pilot's selected page.
         for (mission.objectives, 0..) |state, index| {
             if (objectives.states[index] != state) _ = objectives.set(@intCast(index), state);
@@ -628,7 +629,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         const index: u16 = @intCast(offset);
         const prior = all.playerBinding(index);
         const before = frame.respawns.left[index];
-        if (prior != null and (entry == null or prior.?.participant.generation != entry.?.generation or frame.host_ship_reuse[index] != entry.?.reuse or all.slots[index].object.type != entry.?.fighter.kind())) {
+        if (prior != null and (entry == null or prior.?.participant.generation != entry.?.generation or frame.host_ship_reuse[index] != entry.?.reuse or all.slots[index].object.type != entry.?.kind())) {
             game.create.resetSlot(.of(scene), index);
             all.player_states[index] = .{ .membership = .vacant };
         }
@@ -638,7 +639,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         };
         if (!all.slots[index].object.created) {
             all.loadout_racks[index] = @splat(.of(.none));
-            _ = try game.create.createObject(all, &frame.tables, types, index, ship.fighter.kind(), 0, ship.position, &frame.random);
+            _ = try game.create.createObject(all, &frame.tables, types, index, ship.kind(), 0, ship.position, &frame.random);
             if (snapshot.hasOrdnance()) all.slots[index].object.countermeasures = 0;
             all.player_states[index] = .{ .membership = .{ .joined = .{
                 .generation = ship.generation,
@@ -647,7 +648,8 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
             frame.host_ship_reuse[index] = ship.reuse;
             if (index == admission.slot) {
                 _ = try game.aigeneric.push(.of(scene), index, .player_control, .none);
-                game.main.fitDevices(&all.player_states[index].charges, &frame.drawn.display, game.main.playerShip(ship.fighter.kind()), false);
+                game.main.fitDevices(&all.player_states[index].charges, &frame.drawn.display, game.main.cockpitShip(all, ship.kind()), false);
+                // Starting and updating the local ship's engine and afterburner loops is in #1491.
             } else if (snapshot.mission == null) {
                 all.slots[index].object.side = .hostile;
             }
