@@ -221,16 +221,6 @@ pub const Canvas = struct {
         _ = try hud.drawTextIn(font, canvas.gpa, canvas.target, canvas.point(at), words, hud.atBrightness(colour, canvas.brightness), alignment, canvas.scale(), canvas.cut());
     }
 
-    /// Centre the visible text in a band whose top is at `at[1]` and whose height is in canvas units.
-    pub fn centredText(canvas: Canvas, font: *hud.Opened, at: [2]i32, height: i32, words: []const u8, colour: [3]f32, alignment: hud.Align) Allocator.Error!void {
-        const factor = canvas.scale();
-        const ink = try hud.textInk(font, .{ 0, 0 }, words, alignment, factor) orelse return;
-        const pixels = @as(f32, @floatFromInt(height)) * factor;
-        var origin = canvas.point(at);
-        origin[1] += hud.round((pixels - ink.top - ink.bottom) / 2);
-        _ = try hud.drawTextIn(font, canvas.gpa, canvas.target, origin, words, hud.atBrightness(colour, canvas.brightness), alignment, factor, canvas.cut());
-    }
-
     /// `hud_text_wrapped` (`0x00480FD0`): `words` broken into lines at most `lines.width` of the
     /// front end's pixels wide, at most `lines.most` of them, each `lines.height` below the last.
     pub fn wrapped(canvas: Canvas, font: *hud.Opened, at: [2]i32, words: []const u8, colour: [3]f32, alignment: hud.Align, lines: Lines) Allocator.Error!void {

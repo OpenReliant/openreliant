@@ -165,17 +165,15 @@ const ArenaSwitch = struct {
             .teams => lobby.teams,
             else => unreachable,
         };
-        // Retail draws a 17-pixel frame with an 11-pixel mark inset by three pixels.
+        // Draw the stock mark underneath the frame so it covers the entire opening.
+        // The mark overlaps the frame's inner edge by one source pixel.
         const factor = canvas.scale();
         const anchor = canvas.point(.{ 578, setting.y });
         const overhang = hud.round(factor);
         const corner = [2]i32{ anchor[0] - overhang, anchor[1] - overhang };
         const size_pixels = hud.round(17 * factor);
+        if (checked) try canvas.squareShape(art, 0x1D, .{ corner[0] + overhang, corner[1] + overhang }, size_pixels - 2 * overhang);
         try canvas.squareShape(art, 0x1C, corner, size_pixels);
-        if (checked) {
-            const inset = hud.round(3 * factor);
-            try canvas.squareShape(art, 0x1D, .{ corner[0] + inset, corner[1] + inset }, size_pixels - 2 * inset);
-        }
         try write(canvas, .{ 572, setting.y - 1 }, setting.label, if (lobby.hover == setting.control) ui.white else ui.blue, .right);
     }
 };
