@@ -950,6 +950,7 @@ pub const Interface = struct {
                         if (!lobby.mode_open and front.connection.ship_picker == null and front.connection.quit_prompt == null)
                             try resources.drawLobbyHelp(drawn, lobby);
                     }
+                    try drawn.drawVersion();
                 }
             },
             .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about),

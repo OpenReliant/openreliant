@@ -271,7 +271,10 @@ fn drawBrowser(screen: *const Connection, canvas: ui.Canvas, art: *hud.Art, layo
             .selected => screen.enabled(.selected),
             else => false,
         };
-        try widgets.button(canvas, art, box, labels.get(control), screen.enabled(control), lit);
+        try widgets.alignedButton(canvas, art, box, labels.get(control), screen.enabled(control), lit, switch (control) {
+            .refresh, .host => .right,
+            else => .left,
+        });
     }
     const choose = fighterField(layout);
     const choose_label: Label = .{ .english = "SHIP", .installed = 0x2C3 };
@@ -290,7 +293,7 @@ fn drawList(screen: *const Connection, canvas: ui.Canvas, layout: Layout) !void 
     for (list[first..][0..@min(list.len - first, layout.rows())], first..) |server, i| {
         const y = layout.rowTop(i - first);
         const chosen = i == screen.selected;
-        if (chosen) canvas.fillRow(layout.list.framedRow(y, Layout.row_height), hud.rgb(0x193C4C));
+        if (chosen) canvas.highlightRow(layout.list.framedRow(y, Layout.row_height));
         var counts: [16]u8 = undefined;
         var ping: [5]u8 = undefined;
         const population = std.fmt.bufPrint(&counts, "{d} / {d}", .{ server.players, server.capacity }) catch unreachable;
@@ -408,6 +411,13 @@ test "browser panels, columns of controls and hit targets keep their alignment" 
         try std.testing.expectEqual(layout.list.height, layout.details.height);
         try std.testing.expectEqual(layout.list.x, layout.field.x);
         try std.testing.expectEqual(layout.list.width, layout.field.width);
+        const refresh = layout.control(.refresh);
+        const host = layout.control(.host);
+        try std.testing.expectEqual(layout.control(.internet).y, host.y);
+        try std.testing.expectEqual(layout.control(.lan).y, host.y);
+        try std.testing.expectEqual(refresh.y, host.y);
+        try std.testing.expectEqual(layout.list.x + layout.list.width, refresh.x + refresh.width);
+        try std.testing.expectEqual(layout.details.x + layout.details.width, host.x + host.width);
         const join = layout.control(.selected);
         const left_gap = join.x - Layout.button_left_overhang - layout.details.x;
         const bottom_gap = layout.details.y + layout.details.height - (join.y + Layout.button_last_row);

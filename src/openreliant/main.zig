@@ -2886,6 +2886,7 @@ const Display = struct {
                 .share = display.ui_scale.share(),
                 .fonts = menu.fonts,
                 .strings = display.strings,
+                .version = version.string,
             };
             const art = game.hudoptions.multiplayer.Art{
                 .menu = &display.resources.art,

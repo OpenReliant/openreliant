@@ -68,7 +68,18 @@ pub fn title(canvas: ui.Canvas, at: [2]i32, label: Label) !void {
 }
 
 pub fn button(canvas: ui.Canvas, art: *hud.Art, box: ui.Rect, label: Label, enabled: bool, lit: bool) !void {
+    try alignedButton(canvas, art, box, label, enabled, lit, .left);
+}
+
+pub fn alignedButton(canvas: ui.Canvas, art: *hud.Art, box: ui.Rect, label: Label, enabled: bool, lit: bool, edge: enum { left, right }) !void {
     const painted = canvas.dimmedUnless(enabled);
-    try hud.drawShape(art, painted.gpa, painted.target, if (lit) 0x18 else 0x17, painted.point(.{ box.x, box.y + 2 }), hud.atBrightness(ui.white, painted.brightness), painted.scale() / Layout.text_scale);
-    try fittedLabel(painted, .{ box.x + Layout.label_offset, box.y }, box.width - Layout.label_offset, label.text(canvas.strings.*), if (lit) ui.white else ui.blue, .left);
+    const words = label.text(canvas.strings.*);
+    const width = box.width - Layout.label_offset;
+    const label_x, const shape_x = if (edge == .right) right: {
+        const right_edge = box.x + box.width;
+        const text_width: i16 = @intCast(@min(canvas.fonts.small.textWidth(words), @as(u32, @intCast(width))));
+        break :right .{ right_edge, right_edge - text_width - Layout.label_offset };
+    } else .{ box.x + Layout.label_offset, box.x };
+    try hud.drawShape(art, painted.gpa, painted.target, if (lit) 0x18 else 0x17, painted.point(.{ shape_x, box.y + 2 }), hud.atBrightness(ui.white, painted.brightness), painted.scale() / Layout.text_scale);
+    try fittedLabel(painted, .{ label_x, box.y }, width, words, if (lit) ui.white else ui.blue, if (edge == .right) .right else .left);
 }

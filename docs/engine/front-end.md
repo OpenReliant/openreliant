@@ -23,7 +23,7 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GA
 - A screen's background picture is scaled to the screen's height, keeping its proportions, and centred horizontally, where the original stretches it over the screen. The original pictures, which are 4:3, cover the screen the same way, and a wider picture from a mod extends past the sides to fill a wider window ([Modding](../guide/modding.md#pictures)).
 - The pointer is where the system's is over the window, rather than DirectInput's movements added up.
 - The mouse's wheel scrolls the lists, the saved games' and the controls', three rows a notch, as the system scrolls text by default; the game reads no wheel.
-- OpenReliant's version is written, dimmed, in the window's bottom right corner, as the pause menu writes it ([Pause menu](pause-menu.md)): on the front end's screens, the loading screens and the in-game options over the Reliant's rooms ([The Reliant's rooms](rooms.md)), though not in the rooms themselves.
+- The front end, loading screens, pause menus and in-game options show OpenReliant's version in dim text at the bottom right of the window ([Pause menu](pause-menu.md), [The Reliant's rooms](rooms.md)). This includes the multiplayer browser and lobbies. The ITAC and the Reliant's rooms omit the tag.
 
 ## Server browser
 
@@ -580,9 +580,9 @@ OpenReliant keeps what the roster sets in `Interface.pilot`, which flies every m
 | Buttons | BACK (292, 421), LOAD GAME or NEW SAVE GAME (324, 421), MAIN MENU (292, 441), QUIT (324, 441), each 25 by 16 | Shape 26, lit 27 under the pointer, the label small, blue, white under the pointer |
 | The name, saving | Its frame (45, 380), 358 by 20; the name at (49, 378), large, white, with `_` after it; OK at (562, 384), 32 by 20 | Shape 22, lit 23; SAVE GAME (`0x54D`) to the left of (562, 384) |
 
-**Improvement:** the selected save fills the list frame to its inner edges. The save name, pilot
-and mission share a vertically centred baseline. `--original` uses the retail inset from x 49
-to 572 and the retail text positions.
+**Improvement:** the selected save uses the multiplayer browser's muted highlight and fills the
+list frame to its inner edges. The save name, pilot and mission share a vertically centred
+baseline. `--original` uses the retail blue, bar inset and text positions.
 
 Each pass, Escape leaves, and Down and Up scroll the list a row while held, where it holds more than ten. A press acts on the pass it is first seen, but for the arrows', which scroll a row each pass it is held. Rows never light under the pointer; a click on a row selects it, and a second click on the row selected loads it, or, saving, starts typing its name. Saving, the autosave can't be selected. LOAD GAME loads the row selected, and waits for the button to come up. The name typed takes 18 characters at most, and its cursor turns every 25 ticks; Enter, or a click on OK, saves the game under it in the slot selected. NEW SAVE GAME, once a visit, saves the game in the slot after the last found, named Empty Save Game (`0x179`), selects it with the game's rank and level, loads it back, and starts typing its name from Empty Save Game; leaving without saving removes it. A save that fails puts up a box saying so (`save_error_dialog`, `0x0042A870`), which OK closes. There is no DELETE, and no question before a save goes over another.
 

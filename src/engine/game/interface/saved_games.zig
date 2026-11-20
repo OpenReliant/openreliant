@@ -106,7 +106,7 @@ const stock_bar_left = 49;
 const stock_bar_right = 572;
 const bar_top = 2;
 const bar_bottom = 19;
-const bar_colour = hud.rgb(0x0000FF);
+const stock_bar_colour = hud.rgb(0x0000FF);
 
 fn rowRect(row: usize) Rect {
     var rect = first_row;
@@ -588,6 +588,7 @@ pub const SavedGames = struct {
     /// the rows shown, the selected one white over a bar; the selected save's details; the arrows;
     /// QUIT's question or the box saying a save failed; and OpenReliant's version. The pointer
     /// goes over it all, after what scripts draw (`canvas.Canvas.drawPointer`).
+    /// **Improvement:** share the front end's muted row highlight. `--original` uses the retail bar.
     pub fn draw(screen: SavedGames, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, call_sign: []const u8) canvas_module.Error!void {
         const large = canvas.fonts.large;
         const small = canvas.fonts.small;
@@ -629,9 +630,9 @@ pub const SavedGames = struct {
             const colour = if (selected) white else blue;
             if (selected) {
                 if (canvas.original_look) {
-                    canvas.wipe(.{ stock_bar_left, y + bar_top }, .{ stock_bar_right, y + bar_bottom }, bar_colour);
+                    canvas.wipe(.{ stock_bar_left, y + bar_top }, .{ stock_bar_right, y + bar_bottom }, stock_bar_colour);
                 } else {
-                    canvas.fillRow(list_frame.framedRow(y + bar_top, bar_height), bar_colour);
+                    canvas.highlightRow(list_frame.framedRow(y + bar_top, bar_height));
                 }
             }
             const listed = &screen.list[slot];

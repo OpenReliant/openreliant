@@ -35,6 +35,7 @@ pub const blue = hud.rgb(0x40BCFF);
 pub const gold = hud.rgb(0xFDB951);
 pub const red = hud.rgb(0xFF0000);
 pub const white = hud.rgb(0xFFFFFF);
+const selected_row_colour = hud.rgb(0x193C4C);
 
 /// The black the pilot roster's list rows are wiped to, and the middle of ABOUT OPENRELIANT's box.
 pub const black = hud.rgb(0x000000);
@@ -147,9 +148,10 @@ pub const Canvas = struct {
         hud.drawFilled(canvas.target, .{ .left = start[0], .top = start[1], .right = end[0] + s, .bottom = end[1] + s }, hud.atBrightness(colour, 1));
     }
 
-    pub fn fillRow(canvas: Canvas, row: Rect, colour: [3]f32) void {
+    /// Fills a selected menu row with the shared highlight colour.
+    pub fn highlightRow(canvas: Canvas, row: Rect) void {
         if (row.width == 0 or row.height == 0) return;
-        canvas.wipe(.{ row.x, row.y }, .{ row.x + row.width - 1, row.y + row.height - 1 }, colour);
+        canvas.wipe(.{ row.x, row.y }, .{ row.x + row.width - 1, row.y + row.height - 1 }, selected_row_colour);
     }
 
     /// Offset from the top of a row to the text origin. Use the same baseline for every

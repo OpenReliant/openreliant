@@ -28,7 +28,7 @@ pub fn drawList(canvas: ui.Canvas, box: ui.Rect, items: []const widgets.Label, s
         const at = box.y + height * @as(i16, @intCast(i));
         const chosen = i == selected;
         const row = box.framedRow(at, height);
-        if (chosen) canvas.fillRow(row, hud.rgb(0x193C4C));
+        if (chosen) canvas.highlightRow(row);
         const cell: ui.Rect = .{ .x = box.x + Layout.inset, .y = row.y, .width = box.width - 2 * Layout.inset, .height = row.height };
         try widgets.fittedRowLabel(canvas, cell, option.text(canvas.strings.*), if (chosen or i == hover) ui.white else ui.blue);
     }

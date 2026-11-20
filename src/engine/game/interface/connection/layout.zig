@@ -64,7 +64,7 @@ pub fn control(layout: Layout, which: Control) ui.Rect {
         .internet => .{ list.x, source_y },
         .lan => .{ list.x + 108, source_y },
         .refresh => .{ list.x + list.width - width, source_y },
-        .host => .{ details.x + details.width - width, @intCast(layout.title()[1]) },
+        .host => .{ details.x + details.width - width, source_y },
         .selected => .{ details.x + footer_inset + button_left_overhang, details.y + details.height - footer_inset - button_last_row },
         .connect => .{ details.x + inset, layout.field.y + 1 },
         .back => .{ list.x, @intCast(layout.point(.{ 0, 437 })[1]) },
