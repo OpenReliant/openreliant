@@ -71,11 +71,12 @@ pub fn start(pilot: *Graphical, io: std.Io, target: []const u8, screen: *Connect
     screen.message = .{ .english = "Connecting..." };
 }
 
-pub fn hostLan(pilot: *Graphical, io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, screen: *Connection, name: *const wire.CallSign) void {
+pub fn hostLan(pilot: *Graphical, io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, screen: *Connection, name: *const wire.CallSign, kind: Connection.HostChoice.Kind) void {
     if (pilot.client != null) return;
     pilot.client = .{ .expected_host = null };
     const call_sign = wire.lobbyName(name.slice());
-    pilot.hosted = session.LocalGame.start(io, gpa, directory, &pilot.client.?, session.default_port, call_sign) catch |err| {
+    const cooperative = kind == .cooperative;
+    pilot.hosted = session.LocalGame.start(io, gpa, directory, &pilot.client.?, session.default_port, call_sign, cooperative) catch |err| {
         std.log.warn("could not host a LAN game: {s}", .{@errorName(err)});
         pilot.client = null;
         screen.message = switch (err) {
@@ -96,16 +97,17 @@ pub fn hostLan(pilot: *Graphical, io: std.Io, gpa: std.mem.Allocator, directory:
         .notices = &pilot.lobby_notices,
         .local_slot = 0,
         .ship = screen.fighter,
+        .cooperative = cooperative,
     };
 }
 
 pub fn launch(pilot: *Graphical, screen: *Connection) void {
     const hosted = pilot.hosted orelse return;
     const lobby = screen.lobby orelse return;
-    hosted.host.selectScenario(lobby.scenario);
+    if (!lobby.cooperative) hosted.host.selectScenario(lobby.scenario);
     hosted.launch() catch |err| {
-        std.log.warn("could not load the LAN arena: {s}", .{@errorName(err)});
-        pilot.returnToBrowser(screen, null, .{ .english = "Could not load the multiplayer arena" });
+        std.log.warn("could not load the multiplayer mission: {s}", .{@errorName(err)});
+        pilot.returnToBrowser(screen, null, .{ .english = "Could not load the multiplayer mission" });
     };
 }
 
@@ -236,14 +238,14 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
     }
     const client = if (pilot.client) |*active| active else return;
     if (pilot.hosted) |hosted| {
-        if (front.connection.lobby) |lobby| hosted.host.selectScenario(lobby.scenario);
+        if (front.connection.lobby) |lobby| if (!lobby.cooperative) hosted.host.selectScenario(lobby.scenario);
         const result = hosted.host.pump() catch |err| {
             std.log.warn("LAN game ended: {s}", .{@errorName(err)});
             pilot.showSessionLoss(&front.connection, presentation, .{ .english = "The LAN game stopped" });
             return;
         };
         if (result == .finished) {
-            pilot.returnToBrowser(&front.connection, presentation, round_finished);
+            pilot.returnToBrowser(&front.connection, presentation, finalMessage(client.latest));
             return;
         }
         if (front.connection.lobby) |*lobby| lobby.role.host.can_launch = hosted.host.canLaunch();
@@ -291,7 +293,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             const scene = flight.world();
             const all = scene.objects;
             const display = &flight.drawn.display;
-            const multiplayer_ordnance = client.latest.?.scenario != null;
+            const multiplayer_ordnance = client.latest.?.hasOrdnance();
             var cockpit: game.players.CockpitCommand = .{};
             game.hud.targetKeys(display, .{
                 .devices = devices,
@@ -311,6 +313,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 .view = scene.view(),
                 .game_ticks = scene.clock.game_ticks,
                 .multiplayer = true,
+                .cooperative = client.latest.?.cooperative != null,
                 .submitted = &cockpit,
                 .world = scene,
                 .all = all,
@@ -349,17 +352,20 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 front.connection.lobby = null;
                 front.connection.ship_picker = null;
             },
-            .lobby => |scenario| {
+            .lobby => {
                 for (client.roster.pilots, &pilot.roster) |entry, *name| name.* = if (entry) |listed| listed.name else null;
                 if (front.connection.lobby == null) front.connection.lobby = .{
                     .role = .guest,
                     .roster = &pilot.roster,
                     .notices = &pilot.lobby_notices,
                     .local_slot = client.joined.?.slot,
-                    .scenario = scenario,
+                    .cooperative = client.roster.cooperative,
                     .ship = client.fighter,
                 };
-                if (front.connection.lobby.?.role == .guest) front.connection.lobby.?.scenario = scenario;
+                if (front.connection.lobby.?.role == .guest)
+                    if (client.roster.lobby) |scenario| {
+                        front.connection.lobby.?.scenario = scenario;
+                    };
             },
             .uber_kill => |notice| pilot.queueNotice(.{ .uber_kill = notice }),
             .beacon_notice => |notice| pilot.queueNotice(.{ .beacon = notice }),
@@ -397,7 +403,13 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             .admitted => if (pilot.hosted == null) {
                 front.connection.message = .{ .english = "Waiting for another pilot" };
             },
-            .finished => front.connection.message = round_finished,
+            .finished => {
+                front.connection.message = finalMessage(client.latest);
+                if (presentation) |shown| {
+                    if (client.latest.?.cooperative) |coop|
+                        shown.missionEnded(.{ .ending = coop.ending, .rating = coop.rating });
+                }
+            },
             .closed => {
                 // The local transport can acknowledge the final view before remote pilots get it.
                 if (pilot.hosted) |hosted| if (hosted.host.final_tick != null) return;
@@ -417,6 +429,14 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
     }
 }
 
+fn finalMessage(view: ?wire.Snapshot) Connection.Label {
+    const coop = (view orelse return round_finished).cooperative orelse return round_finished;
+    return switch (coop.rating) {
+        .partial_success, .success, .success_bonus => .{ .english = "Mission complete" },
+        else => .{ .english = "Mission ended" },
+    };
+}
+
 pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Objects, tables: *const game.create.Stats, types: game.create.Types, files: stock.Files, strings: game.language.Language, presentation: ?*Presentation, combat_assets: FlightFrame.CombatAssets) !?*game.main.Drawn {
     if (!pilot.flying()) return null;
     if (pilot.session_lost != null) return &pilot.flight.?.drawn;
@@ -429,8 +449,8 @@ pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Obje
     errdefer flight.destroy();
     if (client.latest.?.scenario) |scenario| {
         try flight.loadArena(files, scenario, types);
-        try flight.enableCombat(combat_assets, types);
     }
+    if (client.latest.?.hasOrdnance()) try flight.enableCombat(combat_assets, types);
     try pilot.applyFrame(flight, local, types, strings);
     if (presentation) |shown| {
         errdefer shown.endGame();
@@ -439,6 +459,8 @@ pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Obje
             var path: [game.winmain.mission_path_size]u8 = undefined;
             const number = scenario.mission();
             shown.missionStarted(game.main.scriptMission(&path, flight.drawn.objects, number, number));
+        } else if (client.latest.?.cooperative != null) {
+            shown.missionStarted(.{ .number = 0, .file = "coop-survey.dte" });
         }
     }
     pilot.flight = flight;

@@ -31,10 +31,15 @@ const Config = struct {
             std.Io.net.IpAddress.parse(value, port) catch return error.InvalidInviteAddress
         else
             bind;
-        const mode = if (profile.value("Server", "Arena")) |value|
-            std.meta.stringToEnum(Arena.Mode, value) orelse return error.InvalidArena
-        else
-            .@"nuclear-threat";
+        const arena = profile.value("Server", "Arena");
+        const mode: Arena.Mode = if (profile.value("Server", "Mission")) |name| mode: {
+            if (arena != null or !std.ascii.eqlIgnoreCase(name, "relay-survey")) return error.InvalidMission;
+            break :mode .cooperative;
+        } else if (arena) |value| mode: {
+            const selected = std.meta.stringToEnum(Arena.Mode, value) orelse return error.InvalidArena;
+            if (selected == .cooperative) return error.InvalidArena;
+            break :mode selected;
+        } else .@"nuclear-threat";
         const players = if (profile.value("Server", "Players")) |value|
             std.fmt.parseInt(u8, value, 10) catch return error.InvalidPlayerLimit
         else
@@ -75,7 +80,7 @@ pub fn run(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !void
     const text = try directory.readFileAlloc(io, std.fs.path.basename(path), gpa, .limited(max_config_size));
     defer gpa.free(text);
     const config = try Config.parse(.{ .text = text });
-    var game_directory = if (config.mode.scenario() != null) try directory.openDir(io, config.game_directory, .{}) else null;
+    var game_directory = if (config.mode.needsGameFiles()) try directory.openDir(io, config.game_directory, .{}) else null;
     defer if (game_directory) |*opened| opened.close(io);
     var buffer: [128]u8 = undefined;
     const address = try std.fmt.bufPrintSentinel(&buffer, "{f}", .{config.bind}, 0);
@@ -103,6 +108,8 @@ test "headless settings share the game's INI syntax" {
     try std.testing.expectEqual(27200, config.bind.getPort());
     try std.testing.expectEqual(Arena.Mode.@"nuclear-threat", config.mode);
     try std.testing.expectEqual(.asteroid_field, (try Config.parse(.{ .text = "[Server]\nArena=asteroid-field" })).mode.scenario());
+    try std.testing.expectEqual(.cooperative, (try Config.parse(.{ .text = "[Server]\nMission=relay-survey" })).mode);
+    try std.testing.expectError(error.InvalidMission, Config.parse(.{ .text = "[Server]\nArena=training\nMission=relay-survey" }));
     try std.testing.expectEqual(2, config.players);
     try std.testing.expectEqual(175, config.ticks.?);
     try std.testing.expectEqualStrings("certs/session root.pub", config.identity.?.root_path);

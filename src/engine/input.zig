@@ -2622,6 +2622,7 @@ pub const FrameKeys = struct {
     view: camera.View,
     game_ticks: u32,
     multiplayer: bool,
+    cooperative: bool = false,
     /// A network flight sends ship changes to the host. COMMS uses the chat controls.
     submitted: ?*players.CockpitCommand = null,
     /// The world the keys' sounds are heard in; null where nothing is heard.
@@ -2795,7 +2796,7 @@ pub fn frameKeys(keys: FrameKeys) void {
             windows.renew(.objectives);
             display.objectives.page();
         } else {
-            _ = windows.open(.objectives, multiplayer);
+            _ = windows.open(.objectives, multiplayer and !keys.cooperative);
         }
     }
     if (devices.active(.primary_target, true)) primaryTarget(keys);
@@ -2852,7 +2853,7 @@ fn primaryTarget(keys: FrameKeys) void {
     }
     if (display.objectives.current()) |current| display.objectives.shown = current;
     const windows = &display.windows;
-    if (windows.open(.objectives, keys.multiplayer)) windows.status.getPtr(.objectives).held = false;
+    if (windows.open(.objectives, keys.multiplayer and !keys.cooperative)) windows.status.getPtr(.objectives).held = false;
 }
 
 test primaryTarget {

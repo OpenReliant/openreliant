@@ -47,7 +47,7 @@ player_limit: u8 = wire.slots,
 lan_only: bool = false,
 start: union(enum) {
     automatic,
-    lobby: struct { scenario: wire.Scenario = .nuclear_threat },
+    lobby: struct { scenario: wire.Scenario = .nuclear_threat, cooperative: bool = false },
     launched,
 } = .automatic,
 listener: u32 = 0,
@@ -180,7 +180,8 @@ pub fn localCallSign(host: *const Host) wire.CallSign {
 
 pub fn canLaunch(host: *const Host) bool {
     const local = host.peers[0] orelse return false;
-    return host.start == .lobby and local.state == .playing;
+    return host.start == .lobby and local.state == .playing and
+        (!host.start.lobby.cooperative or host.playingCount() >= pilots_to_start);
 }
 
 /// Only the local host's menu calls this. Pilots can join an arena after it starts.
@@ -206,7 +207,7 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
     switch (event) {
         .incoming => {
             if (slot != null) return;
-            if (host.final_tick == null and host.acceptsRemote(conn)) {
+            if (host.final_tick == null and !(host.arena.mode == .cooperative and host.tick != 0) and host.acceptsRemote(conn)) {
                 // A player-hosted game keeps slot zero for the local connection even if it closes.
                 const first_remote: usize = @intFromBool(host.start != .automatic);
                 for (host.peers[first_remote..host.player_limit]) |*entry| {
@@ -310,6 +311,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
         },
         .choosing => {
             if (host.final_tick != null or message != .pick_ship) return false;
+            if (host.arena.mode == .cooperative and host.tick != 0) return false;
             const admitted = host.arena.join(slot, message.pick_ship) catch |err| switch (err) {
                 error.NoFreeSpawn, error.JoinFailed, error.BindFailed => return false,
                 else => return err,
@@ -412,9 +414,14 @@ fn playingCount(host: *const Host) usize {
 }
 
 fn publishRoster(host: *Host) !void {
-    if (!host.roster_dirty or (host.start == .lobby and !host.canLaunch())) return;
+    if (!host.roster_dirty) return;
     host.roster_dirty = false;
-    var roster: wire.Roster = .{ .lobby = if (host.start == .lobby) host.start.lobby.scenario else null, .paused = host.paused };
+    const cooperative = host.start == .lobby and host.start.lobby.cooperative;
+    var roster: wire.Roster = .{
+        .lobby = if (host.start == .lobby and !cooperative) host.start.lobby.scenario else null,
+        .cooperative = cooperative,
+        .paused = host.paused,
+    };
     for (host.peers, host.arena.pilots, &roster.pilots) |entry, participant, *listed| {
         const peer = entry orelse continue;
         const pilot = participant orelse continue;
@@ -470,7 +477,7 @@ fn broadcast(host: *Host, view: wire.Snapshot, final: bool) !void {
 }
 
 fn fillPings(host: *Host, view: *wire.Snapshot, refresh: bool) void {
-    if (view.scenario == null) return;
+    if (!view.hasOrdnance()) return;
     for (&host.peers, &view.ships) |*entry, *ship| {
         const peer = if (entry.*) |*peer| peer else continue;
         if (peer.state != .playing or ship.* == null) continue;
@@ -487,9 +494,9 @@ const Delivery = enum { flight, paused_join, final };
 /// A pilot gets the same private cockpit readings on admission during a pause as in flight.
 fn sendView(host: *const Host, view: *wire.Snapshot, slot: u8, delivery: Delivery, buffer: []u8) !void {
     const all = host.arena.mission.objects;
-    const ship = view.scenario != null and all.playerBinding(slot) != null;
+    const ship = view.hasOrdnance() and all.playerBinding(slot) != null;
     view.weapons = if (ship) wire.ordnance.Status.capture(all, slot) else null;
-    view.power = if (ship and view.scenario.?.hasPowerUps()) wire.Power.capture(&all.slots[slot].object) else null;
+    view.power = if (ship and view.scenario != null and view.scenario.?.hasPowerUps()) wire.Power.capture(&all.slots[slot].object) else null;
     const message: wire.Message = if (delivery == .final) .{ .finished = view.* } else .{ .view = view.* };
     try net.sendBytes(host.peers[slot].?.conn, try message.encode(buffer), delivery != .flight);
 }
@@ -645,7 +652,7 @@ pub fn pump(host: *Host) !enum { running, finished } {
     const view = try host.arena.step(host.tick);
     host.broadcastNotices();
     for (host.arena.wrecks) |entry| if (entry) |wreck| host.sendPlaying(.{ .wreck = wreck }, null);
-    const final = host.tick == host.last_tick;
+    const final = host.arena.finished or host.tick == host.last_tick;
     if (final) {
         host.final_tick = host.tick;
         host.drain_until = time + timeout;
@@ -653,7 +660,7 @@ pub fn pump(host: *Host) !enum { running, finished } {
     try host.broadcast(view, final);
     if (!final) {
         try host.broadcastCombat();
-        if (view.scenario != null) try host.broadcastProjectiles();
+        if (view.hasOrdnance()) try host.broadcastProjectiles();
     }
     return .running;
 }
@@ -685,6 +692,19 @@ test "a LAN listener accepts private, link-local and loopback peers" {
     for (allowed) |ip| try std.testing.expect(isLan(Ip6Address.fromAny(try Io.net.IpAddress.parse(ip, 0)).bytes));
     const denied = [_][]const u8{ "192.0.2.1", "172.32.1.1", "2001:db8::1", "::", "0.0.0.0" };
     for (denied) |ip| try std.testing.expect(!isLan(Ip6Address.fromAny(try Io.net.IpAddress.parse(ip, 0)).bytes));
+}
+
+test "a co-op host waits for a second pilot before launch" {
+    var host: Host = .{
+        .io = std.testing.io,
+        .arena = undefined,
+        .start = .{ .lobby = .{ .cooperative = true } },
+    };
+    host.peers[0] = .{ .conn = 1, .state = .playing, .expires = timeout };
+    host.peers[1] = .{ .conn = 2, .state = .choosing, .expires = timeout };
+    try std.testing.expect(!host.canLaunch());
+    host.peers[1].?.state = .playing;
+    try std.testing.expect(host.canLaunch());
 }
 
 test "only an admitted local pilot can launch a player-hosted match" {

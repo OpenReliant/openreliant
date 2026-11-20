@@ -235,11 +235,14 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
-    const compile_mission0 = b.addRunArtifact(build_mission);
-    compile_mission0.addFileArg(b.path("src/openreliant/mission0.mission.luau"));
-    const mission0_file = compile_mission0.addOutputFileArg2("mission0.dte", .{});
-    openreliant.root_module.addAnonymousImport("mission0.dte", .{ .root_source_file = mission0_file });
-    b.getInstallStep().dependOn(&b.addInstallFile(mission0_file, "missions/mission0.dte").step);
+    for ([_][]const u8{ "mission0", "coop-survey" }) |name| {
+        const compile = b.addRunArtifact(build_mission);
+        const mission_file = b.fmt("{s}.dte", .{name});
+        compile.addFileArg(b.path(b.fmt("src/openreliant/{s}.mission.luau", .{name})));
+        const compiled = compile.addOutputFileArg2(mission_file, .{});
+        openreliant.root_module.addAnonymousImport(mission_file, .{ .root_source_file = compiled });
+        b.getInstallStep().dependOn(&b.addInstallFile(compiled, b.fmt("missions/{s}", .{mission_file})).step);
+    }
     // The icon the window shows where the system takes it from the window rather than from the
     // executable (`src/openreliant/icon.zig`).
     for ([_][]const u8{ "openreliant-256.png", "openreliant-512.png" }) |icon| {

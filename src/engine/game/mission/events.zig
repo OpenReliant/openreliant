@@ -208,7 +208,7 @@ pub const Events = struct {
             for (ships, 0..) |ship, index| {
                 if (ship.flags.destroyed or index >= all.slots.len) continue;
                 const object = &all.slots[index].object;
-                if (object.type.base() == .stand_in) continue;
+                if (object.type.base() == .stand_in or (world.damage_rules == .cooperative and object.flags.disabled)) continue;
                 const id: u16 = @truncate(ship.object_id);
                 switch (watched) {
                     .close => {
@@ -246,7 +246,7 @@ pub const Events = struct {
         for (ships, 0..) |ship, index| {
             if (ship.flags.destroyed or index == subject or index >= all.slots.len) continue;
             const other = &all.slots[index].object;
-            if (other.type.base() == .stand_in) continue;
+            if (other.type.base() == .stand_in or (world.damage_rules == .cooperative and other.flags.disabled)) continue;
             const apart = own.position() - other.position();
             const squared = apart * apart;
             const distance = squared[2] + squared[1] + squared[0];

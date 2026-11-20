@@ -102,7 +102,7 @@ pub fn leave(client: *Client, io: Io) !void {
 pub const Event = union(enum) {
     idle,
     admitted,
-    lobby: wire.Scenario,
+    lobby,
     beacon_notice: wire.BeaconNotice,
     tag_bomb_notice: wire.TagBombNotice,
     shadow_notice: wire.ShadowNotice,
@@ -167,7 +167,10 @@ pub fn poll(client: *Client, io: Io) !Event {
         try net.send(client.conn, .{ .input = .{
             .sequence = client.sequence,
             .command = client.flight_command,
-            .fire_for = if (client.fire_primary and client.latest != null) client.latest.?.ships[client.joined.?.slot].?.reuse else null,
+            .fire_for = if (client.fire_primary and client.latest != null)
+                if (client.latest.?.ships[client.joined.?.slot]) |ship| ship.reuse else null
+            else
+                null,
         } });
         if (client.presses.any()) {
             try net.send(client.conn, .{ .flight_press = client.presses });
@@ -206,7 +209,7 @@ pub fn poll(client: *Client, io: Io) !Event {
             client.roster = roster;
             // A paused session sends roster heartbeats while simulation snapshots are stopped.
             if (roster.paused) client.deadline = now + timeout;
-            if (client.latest == null) if (roster.lobby) |scenario| return .{ .lobby = scenario };
+            if (client.latest == null and (roster.lobby != null or roster.cooperative)) return .lobby;
             return .idle;
         },
         .tag_bomb_notice => |notice| return if (client.joined != null and !client.leaving) .{ .tag_bomb_notice = notice } else .idle,
@@ -226,7 +229,7 @@ pub fn poll(client: *Client, io: Io) !Event {
         .combat => |effects| return if (client.latest != null and !client.leaving) .{ .combat = effects } else .idle,
         .projectiles => |page| {
             const view = client.latest orelse return .idle;
-            if (client.leaving or view.scenario == null or page.tick > view.tick +| wire.ordnance.Page.max_age) return .idle;
+            if (client.leaving or !view.hasOrdnance() or page.tick > view.tick +| wire.ordnance.Page.max_age) return .idle;
             const entry = &client.projectiles[page.index()];
             if (entry.* == null or page.tick > entry.*.?.tick) entry.* = page;
             return .projectiles;
@@ -239,7 +242,9 @@ pub fn poll(client: *Client, io: Io) !Event {
             if (client.leaving or view.tick <= if (client.latest) |last| last.tick else @as(u32, 0)) return .idle;
             const ship = view.ships[admission.slot] orelse return error.MissingShip;
             if (ship.generation != admission.generation) return error.WrongShip;
-            if (client.latest) |last| if (last.scenario != view.scenario) return error.UnexpectedMessage;
+            if (client.latest) |last| {
+                if (last.scenario != view.scenario or (last.cooperative != null) != (view.cooperative != null)) return error.UnexpectedMessage;
+            }
             client.latest = view;
             client.deadline = now + timeout;
             if (message == .finished) {
@@ -267,6 +272,7 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
     if (controls == .keyboard) std.debug.print("A steers left, S flies straight, D steers right, and Q leaves. Press Enter to send a key.\n", .{});
     var views: u32 = 0;
     var objectives: wire.Objectives = .none;
+    var coop_progress: ?u32 = null;
     while (true) {
         if (controls == .keyboard and client.joined != null and !client.leaving) switch (net.session_key()) {
             'a', 'A' => steering = .left,
@@ -304,6 +310,14 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
                 if (!std.meta.eql(objectives, view.objectives)) {
                     objectives = view.objectives;
                     showObjectives(view);
+                }
+                if (view.cooperative) |coop| {
+                    if (coop_progress != coop.progress) {
+                        coop_progress = coop.progress;
+                        std.debug.print("mission-progress {d}\n", .{coop.progress});
+                    }
+                    if (event == .finished)
+                        std.debug.print("mission-result {d} {d}\n", .{ @backingInt(coop.ending), @backingInt(coop.rating) });
                 }
                 if (event == .finished) {
                     std.debug.print("finished {d}\n", .{view.tick});

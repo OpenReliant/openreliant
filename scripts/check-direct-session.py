@@ -282,14 +282,49 @@ Certificate={certificate}
     print(f"Six Beacons: a late pilot saw the pickup, both active pilots saw the drop, and the returning pilot confirmed tick {end}.")
 
 
-async def run(binary, credentials):
+async def check_coop(binary, credentials, directory):
+    for pilot_leaves in (False, True):
+        async with Loopback(binary, credentials) as game:
+            with tempfile.TemporaryDirectory() as tmp:
+                config = Path(tmp) / "server.ini"
+                config.write_text(f"""[Server]
+Port={game.port}
+GameDirectory="{directory}"
+Mission=relay-survey
+""", encoding="utf-8")
+                host = await game.start("--headless", str(config))
+                await host.expect("listening ")
+                first = await game.join_target(game.address, "straight")
+                second = await game.join_target(game.address, "straight", *(["12"] if pilot_leaves else []))
+                if pilot_leaves:
+                    slot, generation = second.admission
+                    await host.expect(f"left {slot} {generation}")
+                    require(await second.wait() == 0, "the co-op pilot could not leave cleanly")
+                    await first.expect("view ", lambda line: int(line.split()[1]) > 15 and line.split()[2 + slot * 3] == "0")
+                    await first.expect("mission-progress 1")
+                    print("Co-op: the remaining pilot reached a relay after the other pilot left.")
+                else:
+                    for pilot in (first, second):
+                        await pilot.expect("mission-progress 1")
+                        await pilot.expect("mission-progress 2")
+                        require(await pilot.expect("mission-result ") == "mission-result 0 3",
+                                "a pilot did not receive a successful mission result")
+                    end = await finish(host, (first, second))
+                    print(f"Co-op: both pilots surveyed the relays and confirmed the same result at tick {end}.")
+
+
+async def run(binary, credentials, directory):
     for check in (check_training, check_beacons, check_invites):
         await asyncio.wait_for(check(binary, credentials), 30)
+    if directory is not None:
+        await asyncio.wait_for(check_coop(binary, credentials, directory), 30)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
     parser.add_argument("credentials", type=Path)
+    parser.add_argument("--game-directory", type=Path, help="also check the co-op mission using this installation")
     args = parser.parse_args()
-    asyncio.run(run(args.binary.resolve(), args.credentials.resolve()))
+    asyncio.run(run(args.binary.resolve(), args.credentials.resolve(),
+                    args.game_directory.resolve() if args.game_directory else None))

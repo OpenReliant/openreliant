@@ -10,6 +10,7 @@ const Arena = @This();
 const spawn_spacing: f32 = 12000;
 pub const Mode = enum {
     training,
+    cooperative,
     @"six-beacons",
     @"nuclear-threat",
     @"asteroid-field",
@@ -20,7 +21,7 @@ pub const Mode = enum {
 
     pub fn scenario(mode: Mode) ?wire.Scenario {
         return switch (mode) {
-            .training, .@"six-beacons" => null,
+            .training, .cooperative, .@"six-beacons" => null,
             .@"nuclear-threat" => .nuclear_threat,
             .@"asteroid-field" => .asteroid_field,
             .@"dark-reign" => .dark_reign,
@@ -35,6 +36,10 @@ pub const Mode = enum {
             if (mode.scenario() == chosen) return mode;
         }
         unreachable;
+    }
+
+    pub fn needsGameFiles(mode: Mode) bool {
+        return mode == .cooperative or mode.scenario() != null;
     }
 };
 const Pilot = struct {
@@ -73,6 +78,7 @@ combat_count: usize = 0,
 decoys: ?game.cloak.Countermeasures = null,
 waves: ?game.shockwave.Shockwaves = null,
 cannons: ?game.aiioncan.Cannons = null,
+finished: bool = false,
 
 pub fn create(gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory: std.Io.Dir) !*Arena {
     const arena = try gpa.create(Arena);
@@ -96,6 +102,7 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
     arena.decoys = null;
     arena.waves = null;
     arena.cannons = null;
+    arena.finished = false;
     errdefer arena.deinit();
     switch (mode) {
         .training => {
@@ -107,7 +114,7 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
             arena.explosions = try .init(gpa, null);
             try simulation.prepareSixBeacons(&arena.mission, &arena.explosions.?);
         },
-        .@"nuclear-threat", .@"asteroid-field", .@"dark-reign", .@"tag-bomb", .@"hunt-the-shadow", .vampires => {
+        .cooperative, .@"nuclear-threat", .@"asteroid-field", .@"dark-reign", .@"tag-bomb", .@"hunt-the-shadow", .vampires => {
             // mission_start seeds the game's random stream afresh (0x004936AE).
             var seed: u64 = undefined;
             io.random(std.mem.asBytes(&seed));
@@ -117,6 +124,10 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
             arena.explosions = try .init(gpa, null);
             arena.decoys = .init(gpa, assets.mounts.mounts());
             arena.waves = try .create(gpa, &assets.images, .round);
+            if (mode == .cooperative) {
+                try arena.loadCoop(gpa);
+                return;
+            }
             const scenario = mode.scenario().?;
             if (scenario == .dark_reign) arena.cannons = try .init(gpa, &assets.images);
             arena.loaded = try assets.files.load(gpa, scenario, arena.world());
@@ -126,18 +137,38 @@ fn init(arena: *Arena, gpa: std.mem.Allocator, mode: Mode, io: std.Io, directory
     }
 }
 
-/// Prepare a stock arena with the lobby's admissions. Its objects hold pointers to its ship tables.
-pub fn prepareStock(arena: *const Arena, scenario: wire.Scenario, io: std.Io, directory: std.Io.Dir) !*Arena {
+fn loadCoop(arena: *Arena, gpa: std.mem.Allocator) !void {
+    const scene = arena.world();
+    const all = scene.objects;
+    all.players = wire.slots;
+    all.player = 0;
+    // The first records in this authored mission are the crew's ships.
+    const loaded = try game.mission.Loaded.create(gpa, try gpa.dupe(u8, @embedFile("coop-survey.dte")), scene.random);
+    errdefer loaded.destroy();
+    loaded.script.variables = game.gameflow.restartPoint();
+    loaded.script.variables.players = all.players;
+    const orders: game.aigeneric.Context = .of(stock.withMission(scene, loaded));
+    try loaded.start(orders);
+    if (all.count < wire.slots or all.count > wire.slots + wire.CoopView.scenery_slots) return error.InvalidCoopScene;
+    for (all.slots[0..wire.slots]) |*slot| {
+        if (!slot.object.created or std.enums.fromInt(wire.Fighter, slot.object.type.number()) == null) return error.InvalidCoopShip;
+        slot.object.flags.disabled = true;
+    }
+    arena.loaded = loaded;
+}
+
+/// Prepare a game with the lobby's admissions. The new world owns its ship tables.
+pub fn prepare(arena: *const Arena, mode: Mode, io: std.Io, directory: std.Io.Dir) !*Arena {
     const gpa = arena.mission.objects.gpa;
-    const next = try create(gpa, .stockMode(scenario), io, directory);
+    const next = try create(gpa, mode, io, directory);
     errdefer next.destroy();
     const all = next.mission.objects;
     all.participant_generation = arena.mission.objects.participant_generation;
     for (arena.pilots, &next.pilots) |entry, *new| {
-        const pilot = entry orelse continue;
+        var pilot = entry orelse continue;
         const slot = pilot.participant.slot;
         all.player_states[slot] = .{ .membership = .{ .joined = .{ .generation = pilot.participant.generation } } };
-        try next.spawnPilot(pilot, true);
+        try next.spawnPilot(&pilot, true);
         new.* = pilot;
     }
     return next;
@@ -166,6 +197,7 @@ fn effects(arena: *Arena) ?*game.explode.Explosions {
 
 fn world(arena: *Arena) game.gameobj.World {
     var scene = simulation.world(&arena.mission, arena.effects());
+    if (arena.mode == .cooperative) scene.damage_rules = .cooperative;
     if (arena.assets) |assets| scene.spawn = .{ .tables = &arena.mission.tables, .types = assets.library.types() };
     if (arena.loaded) |loaded| scene = stock.withMission(scene, loaded);
     scene.uber_kills = .{ .context = arena, .send = noteUberKill };
@@ -246,15 +278,25 @@ pub fn join(arena: *Arena, slot: u8, fighter: wire.Fighter) !wire.Admission {
     const participant = scene.objects.joinParticipant(slot) orelse return error.JoinFailed;
     // A failed spawn never entered the match. Running departure rules here could reset Vampires.
     errdefer scene.objects.player_states[slot] = .{ .membership = .vacant };
-    const pilot: Pilot = .{ .participant = participant, .fighter = fighter };
-    try arena.spawnPilot(pilot, true);
+    var pilot: Pilot = .{ .participant = participant, .fighter = fighter };
+    try arena.spawnPilot(&pilot, true);
     arena.pilots[slot] = pilot;
     return .{ .slot = slot, .generation = participant.generation };
 }
 
-fn spawnPilot(arena: *Arena, pilot: Pilot, first: bool) !void {
+fn spawnPilot(arena: *Arena, pilot: *Pilot, first: bool) !void {
     const scene = arena.world();
     const slot = pilot.participant.slot;
+    if (arena.mode == .cooperative) {
+        const ship = &scene.objects.slots[slot];
+        if (!ship.object.created) return error.JoinFailed;
+        pilot.fighter = std.enums.fromInt(wire.Fighter, ship.object.type.number()) orelse return error.JoinFailed;
+        ship.object.flags.disabled = false;
+        errdefer ship.object.flags.disabled = true;
+        if (!try game.aigeneric.push(.of(scene), slot, .multiplayer_control, .none)) return error.BindFailed;
+        _ = scene.objects.bindParticipant(pilot.participant, .of(scene.objects, slot)) orelse return error.BindFailed;
+        return;
+    }
     if (arena.assets != null) return game.deathmatch.spawn.reset(scene, pilot.participant, pilot.fighter.kind(), if (first and slot == 0) slot else null);
     game.create.resetSlot(.of(scene), slot);
     try arena.createShip(@intCast(slot), pilot.fighter);
@@ -275,15 +317,15 @@ pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire
     if (!all.hasBoundPlayerShip(slot)) return true;
     if (all.slots[slot].running(.deathmatch_respawn_effect) != null) return true;
     const pilot = all.playerBinding(slot).?;
-    const stock_mode = arena.mode.scenario() != null;
+    const real_mission = arena.mode.needsGameFiles();
     var submitted: game.players.Command = .{
         .flight = command,
-        .weapons = .{ .fire_guns = fire_for == pilot.ship.reuse and stock_mode },
+        .weapons = .{ .fire_guns = fire_for == pilot.ship.reuse and real_mission },
     };
-    if (stock_mode) if (order) |weapons| {
+    if (real_mission) if (order) |weapons| {
         if (weapons.aim.reuse == pilot.ship.reuse) {
             submitted.cockpit = weapons.cockpit;
-            const target = if (weapons.aim.target) |ref| weaponTarget(all, slot, ref) else null;
+            const target = if (weapons.aim.target) |ref| arena.weaponTarget(slot, ref) else null;
             if (game.ai.controlEntry(all, slot)) |entry| {
                 if (target) |ref| {
                     if (entry.target.slotIn(all) != ref.slot) submitted.target = .{ .aim = .{ .object = ref } };
@@ -297,9 +339,12 @@ pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire
     return all.submitPlayerCommand(pilot, submitted);
 }
 
-fn weaponTarget(all: *game.create.Objects, source: u16, ref: game.gameobj.ObjectRef) ?game.gameobj.ObjectRef {
+fn weaponTarget(arena: *const Arena, source: u16, ref: game.gameobj.ObjectRef) ?game.gameobj.ObjectRef {
+    const all = arena.mission.objects;
     const slot = ref.resolve(all) orelse return null;
-    if (slot == source or all.playerBinding(slot) == null or !game.ai.targetValid(all, .at(slot, null), .{})) return null;
+    if (slot == source or
+        (arena.mode != .cooperative and all.playerBinding(slot) == null) or
+        !game.ai.targetValid(all, .at(slot, null), .{})) return null;
     return ref;
 }
 
@@ -307,10 +352,13 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
     arena.wrecks = @splat(null);
     arena.combat_count = 0;
     arena.mission.clock.advanceTimer(game.gameobj.ticks_per_step);
-    if (game.main.gameFrames(&arena.mission.clock, &arena.devices, null, arena.world(), .in_turn, arena.loaded) != .played) return error.ArenaEnded;
-    if (arena.assets != null) {
+    if (game.main.gameFrames(&arena.mission.clock, &arena.devices, null, arena.world(), .in_turn, arena.loaded) != .played) {
+        if (arena.mode != .cooperative) return error.ArenaEnded;
+        arena.finished = true;
+    }
+    if (arena.mode.scenario() != null) {
         for (&arena.pilots) |*entry| {
-            const pilot = entry.* orelse continue;
+            const pilot = if (entry.*) |*value| value else continue;
             if (arena.mission.objects.playerBinding(pilot.participant.slot) != null) continue;
             arena.spawnPilot(pilot, false) catch |err| switch (err) {
                 error.NoFreeSpawn => continue,
@@ -329,6 +377,7 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
 pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
     const all = arena.mission.objects;
     var view: wire.Snapshot = .{ .tick = tick, .scenario = arena.mode.scenario(), .ships = @splat(null) };
+    if (arena.mode == .cooperative) view.cooperative = arena.coopView();
     view.rocks = arena.rocks.capture(all);
     if (all.arena_scenario.powerUps()) |round| {
         view.pickups = round.pickups.visible(all);
@@ -419,6 +468,28 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
     return view;
 }
 
+fn coopView(arena: *const Arena) wire.CoopView {
+    const variables = &arena.loaded.?.script.variables;
+    const all = arena.mission.objects;
+    var view: wire.CoopView = .{
+        .progress = variables.objectives_met,
+        .rating = variables.mission_success,
+        .ending = arena.mission.player.ending,
+    };
+    for (&view.objects, wire.slots..) |*entry, index| {
+        const object = &all.slots[index].object;
+        if (!object.created or object.flags.outOfFrame() or object.flags.hidden) continue;
+        entry.* = .{
+            .kind = object.type,
+            .reuse = all.reuses[index],
+            .position = object.nextPosition(),
+            .angles = wire.packFacing(object.root.next_orientation),
+            .targetable = object.flags.targetable,
+        };
+    }
+    return view;
+}
+
 test "the pilot stays admitted through destruction and old trigger input expires on respawn" {
     var arena: Arena = undefined;
     try arena.init(std.testing.allocator, .training, std.testing.io, .cwd());
@@ -432,7 +503,7 @@ test "the pilot stays admitted through destruction and old trigger input expires
     all.slots[0].object.flags.exploding = true;
     try std.testing.expect(arena.input(0, .{}, first, null));
     try std.testing.expectEqual(null, all.playerCommand(0));
-    try arena.spawnPilot(arena.pilots[0].?, false);
+    try arena.spawnPilot(&arena.pilots[0].?, false);
     try std.testing.expect(arena.input(0, .{}, first, .{ .aim = .{ .reuse = first }, .presses = .{ .launch = true, .countermeasures = true } }));
     try std.testing.expect(!all.playerCommand(0).?.weapons.fire_guns);
     try std.testing.expect(!all.playerCommand(0).?.weapons.launch_missile);

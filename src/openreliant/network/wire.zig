@@ -7,7 +7,7 @@ pub const ordnance = @import("ordnance.zig");
 const flight = engine.input.flight;
 pub const Fighter = engine.game.dmscenarios.Fighter;
 pub const Scenario = engine.game.dmscenarios.Scenario;
-pub const revision: u16 = 19;
+pub const revision: u16 = 20;
 pub const slots = 3;
 pub const step_us = engine.game.gameobj.ticks_per_step * std.time.us_per_s / engine.game.main.ticks_per_second;
 pub const beacon_count = engine.game.deathmatch.six_beacons.required;
@@ -30,7 +30,7 @@ const beacon_snapshot_capacity = snapshot_header + beacon_count * (1 + 3 * @size
 const power_capacity = @sizeOf(powerups.Pickups.Mask) + @sizeOf(u32) + powerups.mine_count * Mine.encoded_size + 1 + @sizeOf(i32);
 const asteroid_capacity = snapshot_header + slots + 1 + Rocks.asteroid_max * (1 + @sizeOf(Facing)) + power_capacity;
 const dark_reign_capacity = snapshot_header + slots + DarkReign.encoded_size + 1 + Rocks.max * @sizeOf(u32) + power_capacity;
-const snapshot_capacity = @max(beacon_snapshot_capacity, asteroid_capacity, dark_reign_capacity);
+const snapshot_capacity = @max(beacon_snapshot_capacity, asteroid_capacity, dark_reign_capacity, snapshot_header + CoopView.capacity);
 pub const capacity = @max(snapshot_capacity + ordnance.Status.capacity, Combat.capacity, ordnance.Page.capacity);
 const max_release = 96;
 
@@ -83,6 +83,7 @@ fn writeChat(writer: *std.Io.Writer, text: *const chat.Line) !void {
 pub const CallSign = engine.game.interface.pilot_roster.CallSign;
 pub const Roster = struct {
     lobby: ?Scenario = null,
+    cooperative: bool = false,
     paused: bool = false,
     pilots: [slots]?Pilot = @splat(null),
 
@@ -427,7 +428,105 @@ pub const Snapshot = struct {
     mines: [powerups.mine_count]?Mine = @splat(null),
     power: ?Power = null,
     blast: ?Blast = null,
+    cooperative: ?CoopView = null,
+
+    pub fn hasOrdnance(view: *const Snapshot) bool {
+        return view.scenario != null or view.cooperative != null;
+    }
 };
+
+/// A small co-op mission fits alongside the pilot views in a single snapshot.
+pub const CoopView = struct {
+    pub const scenery_slots = 8;
+    const capacity = 2 * @sizeOf(u32) + @sizeOf(u8) + scenery_slots * Object.capacity;
+
+    pub const Object = struct {
+        const capacity = 1 + @sizeOf(u16) + @sizeOf(u32) + 3 * @sizeOf(f32) + @sizeOf(Facing) + 1;
+        kind: engine.game.gameobj.Type,
+        reuse: u32,
+        position: [3]f32,
+        angles: Facing,
+        targetable: bool,
+    };
+
+    progress: u32 = 0,
+    rating: engine.vm.Variables.Outcome = .failure,
+    ending: engine.game.main.Ending = .playing,
+    objects: [scenery_slots]?Object = @splat(null),
+
+    fn write(view: *const CoopView, w: *std.Io.Writer) !void {
+        try w.writeInt(u32, view.progress, .little);
+        try w.writeInt(i32, @backingInt(view.rating), .little);
+        try w.writeByte(@backingInt(view.ending));
+        for (view.objects) |entry| {
+            try w.writeByte(@intFromBool(entry != null));
+            const object = entry orelse continue;
+            try w.writeInt(u16, @intCast(object.kind.number()), .little);
+            try w.writeInt(u32, object.reuse, .little);
+            try writePosition(w, object.position);
+            for (object.angles) |angle| try w.writeInt(i16, angle, .little);
+            try w.writeByte(@intFromBool(object.targetable));
+        }
+    }
+
+    fn read(r: *std.Io.Reader) !CoopView {
+        var view: CoopView = .{
+            .progress = try r.takeInt(u32, .little),
+            .rating = try r.takeEnum(engine.vm.Variables.Outcome, .little),
+            .ending = try r.takeEnum(engine.game.main.Ending, .little),
+        };
+        for (&view.objects) |*entry| {
+            if (!try readSnapshotBool(r)) continue;
+            const kind = try r.takeInt(u16, .little);
+            if (kind >= engine.game.create.ship_type_count) return error.InvalidSnapshot;
+            const reuse = try r.takeInt(u32, .little);
+            const position = try readPosition(r);
+            var angles: Facing = undefined;
+            for (&angles) |*angle| angle.* = try r.takeInt(i16, .little);
+            entry.* = .{
+                .kind = @fromBackingInt(kind),
+                .reuse = reuse,
+                .position = position,
+                .angles = angles,
+                .targetable = try readSnapshotBool(r),
+            };
+        }
+        return view;
+    }
+};
+
+fn readSnapshotBool(r: *std.Io.Reader) !bool {
+    return switch (try r.takeByte()) {
+        0 => false,
+        1 => true,
+        else => error.InvalidSnapshot,
+    };
+}
+
+test "a co-op view carries the shared mission result and the host's scenery" {
+    var buffer: [capacity]u8 = undefined;
+    var view: Snapshot = .{
+        .tick = 42,
+        .ships = @splat(null),
+        .cooperative = .{ .progress = 2, .rating = .success },
+    };
+    view.cooperative.?.objects[0] = .{
+        .kind = .of(.satellite),
+        .reuse = 4,
+        .position = .{ -4500, 800, 26000 },
+        .angles = @splat(0),
+        .targetable = true,
+    };
+    const finished: Message = .{ .finished = view };
+    const received = try Message.decode(try finished.encode(&buffer));
+    try std.testing.expectEqualDeep(view, received.finished);
+    view.scenario = .nuclear_threat;
+    try std.testing.expectError(error.InvalidSnapshot, (Message{ .view = view }).encode(&buffer));
+
+    const lobby: Message = .{ .roster = .{ .cooperative = true } };
+    const roster = try Message.decode(try lobby.encode(&buffer));
+    try std.testing.expect(roster.roster.cooperative);
+}
 
 fn writeBeacon(w: *std.Io.Writer, beacon: Beacon) !void {
     try w.writeByte(@backingInt(std.meta.activeTag(beacon)));
@@ -545,14 +644,19 @@ fn readArena(r: *std.Io.Reader, view: *Snapshot) !void {
     view.power = .{ .kind = kind, .since = since };
 }
 
-fn writeScenario(w: *std.Io.Writer, scenario: ?Scenario) !void {
-    try w.writeByte(if (scenario) |value| @backingInt(value) + 1 else 0);
+const cooperative_mode = 0xfe;
+
+fn writeMode(w: *std.Io.Writer, scenario: ?Scenario, cooperative: bool) !void {
+    try w.writeByte(if (cooperative) cooperative_mode else if (scenario) |value| @backingInt(value) + 1 else 0);
 }
 
-fn readScenario(r: *std.Io.Reader) !?Scenario {
+fn readMode(r: *std.Io.Reader) !struct { scenario: ?Scenario = null, cooperative: bool = false } {
     const code = try r.takeByte();
-    if (code == 0) return null;
-    return std.enums.fromInt(Scenario, code - 1) orelse error.InvalidScenario;
+    return switch (code) {
+        0 => .{},
+        cooperative_mode => .{ .cooperative = true },
+        else => .{ .scenario = std.enums.fromInt(Scenario, code - 1) orelse return error.InvalidScenario },
+    };
 }
 
 fn writePosition(writer: *std.Io.Writer, position: [3]f32) !void {
@@ -741,7 +845,7 @@ pub const Message = union(enum(u8)) {
             },
             .view, .finished => |view| {
                 try w.writeInt(u32, view.tick, .little);
-                try writeScenario(&w, view.scenario);
+                try writeMode(&w, view.scenario, view.cooperative != null);
                 for (view.ships) |entry| {
                     const ship = entry orelse {
                         try w.writeInt(u64, 0, .little);
@@ -759,7 +863,7 @@ pub const Message = union(enum(u8)) {
                     for (ship.armor.values()) |value| try writeFloat(&w, value);
                     try w.writeInt(i32, ship.kills, .little);
                     try w.writeInt(u32, ship.deaths, .little);
-                    if (view.scenario != null) {
+                    if (view.hasOrdnance()) {
                         try w.writeInt(u16, ship.respawn, .little);
                         const wall: u8 = @intFromBool(ship.at_wall);
                         const dying: u8 = @intFromBool(ship.dying);
@@ -798,6 +902,10 @@ pub const Message = union(enum(u8)) {
                     try writeArena(&w, &view);
                 }
                 if (view.scenario == .nuclear_threat) try Blast.write(view.blast, &w);
+                if (view.cooperative) |*coop| {
+                    if (view.scenario != null or view.objectives != .none) return error.InvalidSnapshot;
+                    try coop.write(&w);
+                }
                 try w.writeByte(@intFromBool(view.weapons != null));
                 if (view.weapons) |*status| try status.write(&w);
             },
@@ -805,7 +913,8 @@ pub const Message = union(enum(u8)) {
             .received_final => |tick| try w.writeInt(u32, tick, .little),
             .flight_press => |presses| try w.writeByte(@bitCast(presses)),
             .roster => |roster| {
-                try writeScenario(&w, roster.lobby);
+                if (roster.cooperative and (roster.lobby != null or roster.paused)) return error.InvalidRoster;
+                try writeMode(&w, roster.lobby, roster.cooperative);
                 try w.writeByte(@intFromBool(roster.paused));
                 for (roster.pilots) |entry| {
                     try w.writeInt(u64, if (entry) |pilot| pilot.generation else 0, .little);
@@ -889,7 +998,14 @@ pub const Message = union(enum(u8)) {
                 .fire_for = if (r.bufferedLen() == 0) null else try r.takeInt(u32, .little),
             } },
             .view, .finished => snapshot: {
-                var view: Snapshot = .{ .tick = try r.takeInt(u32, .little), .scenario = try readScenario(&r), .ships = @splat(null) };
+                const tick = try r.takeInt(u32, .little);
+                const session_mode = try readMode(&r);
+                var view: Snapshot = .{
+                    .tick = tick,
+                    .scenario = session_mode.scenario,
+                    .cooperative = if (session_mode.cooperative) .{} else null,
+                    .ships = @splat(null),
+                };
                 for (&view.ships) |*entry| {
                     const generation = try r.takeInt(u64, .little);
                     if (generation == 0) continue;
@@ -902,7 +1018,7 @@ pub const Message = union(enum(u8)) {
                     for (std.enums.values(engine.game.collision.Quadrant)) |quadrant| ship.armor.at(quadrant).* = try readFloat(&r);
                     ship.kills = try r.takeInt(i32, .little);
                     ship.deaths = try r.takeInt(u32, .little);
-                    if (view.scenario != null) {
+                    if (view.hasOrdnance()) {
                         ship.respawn = try r.takeInt(u16, .little);
                         if (ship.respawn > engine.game.deathmatch.respawn.duration) return error.InvalidSnapshot;
                         const flags = try r.takeByte();
@@ -971,6 +1087,10 @@ pub const Message = union(enum(u8)) {
                     try readArena(&r, &view);
                 }
                 if (view.scenario == .nuclear_threat) view.blast = try Blast.read(&r, view.tick);
+                if (session_mode.cooperative) {
+                    if (view.objectives != .none) return error.InvalidSnapshot;
+                    view.cooperative = try .read(&r);
+                }
                 view.weapons = switch (try r.takeByte()) {
                     0 => null,
                     1 => try ordnance.Status.read(&r),
@@ -986,13 +1106,14 @@ pub const Message = union(enum(u8)) {
                 break :presses .{ .flight_press = value };
             },
             .roster => roster: {
-                var view: Roster = .{ .lobby = try readScenario(&r) };
+                const mode = try readMode(&r);
+                var view: Roster = .{ .lobby = mode.scenario, .cooperative = mode.cooperative };
                 view.paused = switch (try r.takeByte()) {
                     0 => false,
                     1 => true,
                     else => return error.InvalidRoster,
                 };
-                if (view.paused and view.lobby != null) return error.InvalidRoster;
+                if (view.paused and (view.lobby != null or view.cooperative)) return error.InvalidRoster;
                 for (&view.pilots) |*entry| {
                     const generation = try r.takeInt(u64, .little);
                     if (generation != 0) entry.* = .{ .generation = generation, .name = try readCallSign(&r) };
@@ -1015,7 +1136,7 @@ pub const Message = union(enum(u8)) {
             .uber_kill => .{ .uber_kill = try .read(&r) },
             .vampires_notice => .{ .vampires_notice = try .read(&r) },
             .combat => .{ .combat = try readCombat(&r) },
-            .weapon_order => .{ .weapon_order = try ordnance.readOrder(&r, slots) },
+            .weapon_order => .{ .weapon_order = try ordnance.readOrder(&r, slots + CoopView.scenery_slots) },
             .projectiles => .{ .projectiles = try ordnance.Page.read(&r) },
             .pilot_notice => notice: {
                 const slot = try r.takeByte();

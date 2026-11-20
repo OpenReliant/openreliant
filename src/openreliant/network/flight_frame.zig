@@ -17,6 +17,7 @@ bomb_was_active: ?bool = null,
 shadow_was_active: ?bool = null,
 vampires_started: bool = false,
 host_ship_reuse: [wire.slots]u32 = @splat(0),
+coop_reuses: [wire.CoopView.scenery_slots]?u32 = @splat(null),
 respawns: game.deathmatch.respawn.View = .{},
 wall: game.deathmatch.Boundary.Flashes = .{},
 wall_mesh: ?engine.surrender.surrenderlib.srapiext.Mesh = null,
@@ -179,6 +180,10 @@ pub fn weaponAim(frame: *FlightFrame) wire.ordnance.Aim {
     const target = entry.target.slotIn(all) orelse return aim;
     if (target != all.player and target < wire.slots and all.playerBinding(target) != null)
         aim.target = .{ .slot = target, .reuse = frame.host_ship_reuse[target] };
+    if (target >= wire.slots and target < wire.slots + frame.coop_reuses.len)
+        if (frame.coop_reuses[target - wire.slots]) |reuse| {
+            aim.target = .{ .slot = target, .reuse = reuse };
+        };
     return aim;
 }
 
@@ -355,6 +360,38 @@ fn presentDarkReign(frame: *FlightFrame, scene: game.gameobj.World, view: wire.D
     if (scene.rays) |rays| rays.frame(all, scene.clock.frame_start, scene.effectsRandom());
 }
 
+const survey_objectives: game.hud.Objectives.Names =
+    .{ "Survey both relays", "Survey the remaining relay", "Both relays surveyed" } ++ @as([7]?[]const u8, @splat(null));
+
+fn presentCoop(frame: *FlightFrame, coop: *const wire.CoopView, types: game.create.Types) !void {
+    const scene = frame.world();
+    const all = scene.objects;
+    const objectives = &frame.drawn.display.objectives;
+    if (frame.tick == null) objectives.reset(0, false, &survey_objectives);
+    const progress: game.hud.Objectives.Index = @intCast(@min(coop.progress, 2));
+    if (frame.tick == null or objectives.current() != progress) {
+        for (survey_objectives[0..3], 0..) |_, index|
+            _ = objectives.set(@intCast(index), if (index == progress) .current else .hidden);
+    }
+    for (coop.objects, &frame.coop_reuses, wire.slots..) |entry, *previous, index| {
+        const slot: u16 = @intCast(index);
+        if (previous.* != null and (entry == null or previous.* != entry.?.reuse or all.slots[slot].object.type != entry.?.kind)) {
+            game.create.resetSlot(.of(scene), slot);
+            previous.* = null;
+        }
+        const object = entry orelse continue;
+        if (previous.* == null) {
+            _ = try game.create.createObject(all, &frame.tables, types, slot, object.kind, 0, object.position, &frame.random);
+            all.count = @max(all.count, slot + 1);
+            previous.* = object.reuse;
+        }
+        const shown = &all.slots[slot];
+        game.objects.setPlace(&shown.object, &shown.drawn, .{ .position = object.position, .orientation = wire.unpackFacing(object.angles) });
+        shown.object.flags.targetable = object.targetable;
+        if (shown.model) |*model| model.place(shown.drawn.position, shown.drawn.orientation);
+    }
+}
+
 pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wire.Admission, local: *game.create.Objects, types: game.create.Types) !void {
     if (frame.tick == snapshot.tick) return;
     const all = frame.drawn.objects;
@@ -373,6 +410,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     };
     if (scene.flash) |flash| flash.countDown(scene.clock.frame_duration);
     if (scene.sparks) |sparks| sparks.frame(scene.clock);
+    if (snapshot.cooperative) |*coop| try frame.presentCoop(coop, types);
     try frame.rocks.apply(all, &snapshot.rocks);
     if (snapshot.scenario != null and snapshot.scenario.?.hasPowerUps()) {
         try frame.presentPickups(snapshot.pickups);
@@ -395,7 +433,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         if (!all.slots[index].object.created) {
             all.loadout_racks[index] = @splat(.of(.none));
             _ = try game.create.createObject(all, &frame.tables, types, index, ship.fighter.kind(), 0, ship.position, &frame.random);
-            if (snapshot.scenario != null) all.slots[index].object.countermeasures = 0;
+            if (snapshot.hasOrdnance()) all.slots[index].object.countermeasures = 0;
             all.player_states[index] = .{ .membership = .{ .joined = .{
                 .generation = ship.generation,
                 .ship = .of(all, index),
@@ -404,7 +442,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
             if (index == admission.slot) {
                 _ = try game.aigeneric.push(.of(scene), index, .player_control, .none);
                 game.main.fitDevices(&all.player_states[index].charges, &frame.drawn.display, game.main.playerShip(ship.fighter.kind()), false);
-            } else {
+            } else if (snapshot.cooperative == null) {
                 all.slots[index].object.side = .hostile;
             }
         }
@@ -462,7 +500,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     if (scene.explosions) |effects| effects.frame(scene);
     if (scene.particles) |particles| particles.frame(scene.clock);
     if (scene.shockwaves) |rings| rings.frame(scene);
-    if (snapshot.scenario != null) frame.presentWeapons(snapshot.weapons);
+    if (snapshot.hasOrdnance()) frame.presentWeapons(snapshot.weapons);
     if (snapshot.scenario != null and snapshot.scenario.?.hasPowerUps()) frame.presentPower(snapshot.power);
     // Reserve the identities used during the session in the local mission's slot counters.
     for (local.reuses[0..wire.slots], all.reuses[0..wire.slots]) |*reuse, received| reuse.* = received +% 1;

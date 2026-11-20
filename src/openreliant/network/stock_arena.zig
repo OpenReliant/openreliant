@@ -88,7 +88,7 @@ pub fn withMission(original: game.gameobj.World, loaded: *game.mission.Loaded) g
     return world;
 }
 
-/// The stock host loads the same flight tables and models with CPU resources. It has no window,
+/// The host loads the flight tables and models with CPU resources. It has no window,
 /// graphics device or sound device. The player host uses this path too.
 pub const Assets = struct {
     heap: std.heap.ArenaAllocator,
