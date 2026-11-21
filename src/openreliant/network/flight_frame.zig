@@ -27,8 +27,9 @@ command: engine.input.flight.Command = .{},
 /// The simulation's step takes devices but a client's never reads them: the graphical client
 /// samples the controls once a frame into `command`.
 devices: engine.input.Devices = .{},
-/// The sequence the client's next input carries, which carries `command` to the host.
-sequence: u32 = 0,
+/// The tick the last step reached and the command it flew, which the client sends the host so
+/// it flies the pilot's ship the same way at the same step.
+flown: ?Flown = null,
 /// Whether the local simulation has started its clock.
 running: bool = false,
 /// Where the local simulation carried each ship, step by step, which each snapshot is matched
@@ -732,17 +733,12 @@ const tick_us: u64 = std.time.us_per_s / game.main.ticks_per_second;
 /// How much faster or slower than real time the mission clock may run while it takes in a skew.
 const skew_rate = 0.05;
 /// The lead over the host's clock the client's snapshots should arrive at, in ticks.
-const target_lead = 2;
+const target_lead = 2 * game.gameobj.ticks_per_step;
 /// A lead or lag beyond this many ticks restarts the clock at the host's.
 const lost_lead = 50;
 /// The share of a ship's outstanding correction each step takes in: a correction spreads over
 /// about a quarter second, a slight change of course the drawing blends like any other step.
 const ease_share = 0.15;
-/// The pilot's own ship lets a difference from the host within one step of its travel stand:
-/// its input reaches the host a step early or late, which is lag, not error.
-const own_slack_steps = 1;
-/// Nor does it turn for a difference of facing below this, in radians.
-const own_slack_turn = 0.1;
 
 /// The part of a correction a ship has not taken in yet.
 const Ease = struct {
@@ -758,7 +754,6 @@ const Track = struct {
         /// `mission_ticks` of the step.
         tick: i32,
         /// The input the step flew the pilot's own ship by.
-        sequence: u32,
         position: Vector,
         orientation: engine.surrender.math.Matrix,
         velocity: Vector,
@@ -783,15 +778,6 @@ const Track = struct {
         return null;
     }
 
-    /// The first step that flew by `sequence` or a later input.
-    fn bySequence(track: *Track, sequence: u32) ?*Entry {
-        for (0..track.count) |age| {
-            const entry = track.at(age);
-            if (entry.sequence -% sequence < 1 << 31) return entry;
-        }
-        return null;
-    }
-
     /// Moves `from` and every later step, as the correction moved the ship.
     fn shift(track: *Track, from: i32, position: Vector, velocity: Vector, turn: engine.surrender.math.Matrix) void {
         const math = engine.surrender.math;
@@ -807,8 +793,11 @@ const Track = struct {
 
 const Vector = engine.surrender.math.Vector;
 
+pub const Flown = struct { tick: i32, command: engine.input.flight.Command };
+
 fn record(frame: *FlightFrame) void {
     const all = frame.drawn.objects;
+    frame.flown = .{ .tick = frame.drawn.clock.mission_ticks, .command = frame.command };
     for (&frame.tracks, all.slots[0..wire.slots]) |*track, *slot| {
         if (!slot.object.created) {
             track.* = .{};
@@ -816,7 +805,6 @@ fn record(frame: *FlightFrame) void {
         }
         track.push(.{
             .tick = frame.drawn.clock.mission_ticks,
-            .sequence = frame.sequence,
             .position = slot.object.root.next_position.vector(),
             .orientation = slot.object.root.next_orientation,
             .velocity = slot.object.velocity.vector(),
@@ -849,8 +837,8 @@ fn velocityOf(slot: *const game.create.Slot, ship: wire.Ship, orientation: engin
 }
 
 /// Measures how far a ship the simulation carries on stood from the host's place at the same
-/// moment: the step at the snapshot's tick, or for the pilot's own ship the step that first flew
-/// the input the host had applied, so its own input lag is not mistaken for an error. The
+/// moment, the step at the snapshot's tick. The host flies the pilot's own inputs at the ticks
+/// the client flew them, so on its own ship the difference is only what neither predicted. The
 /// difference is taken in over the next steps (`ease`), so what no one could predict, a
 /// collision or a hit, bends the course rather than moving the ship. Another pilot's ship beyond
 /// three steps of its flight from the host's place is placed where that place has reached by
@@ -861,21 +849,15 @@ fn correct(frame: *FlightFrame, index: u16, ship: wire.Ship, own: bool, snapshot
     const track = &frame.tracks[index];
     const orientation = ship.orientationMatrix();
     const velocity = velocityOf(slot, ship, orientation);
-    const found = if (own) track.bySequence(snapshot.applied) else track.byTick(snapshot.clock);
+    const found = track.byTick(snapshot.clock);
     if (found) |entry| {
         const travel = math.length(entry.velocity);
         const reach = travel * 3 + 25;
         const apart = ship.position - entry.position;
         if (own or math.dot(apart, apart) <= reach * reach) {
-            const turn = math.angles(math.product(math.transpose(entry.orientation), orientation));
-            const slack = travel * own_slack_steps;
-            frame.easing[index] = if (own) .{
-                // Its velocity follows its own controls; the host's is too coarse to steer by.
-                .position = if (math.dot(apart, apart) > slack * slack) apart else @splat(0),
-                .angles = if (math.length(turn) > own_slack_turn) turn else @splat(0),
-            } else .{
+            frame.easing[index] = .{
                 .position = apart,
-                .angles = turn,
+                .angles = math.angles(math.product(math.transpose(entry.orientation), orientation)),
                 .velocity = velocity - entry.velocity,
             };
             return;
@@ -1304,23 +1286,22 @@ test "the pilot's own ship flies the held command and eases into the host's plac
     }
     try std.testing.expect(carried);
 
-    // Later steps fly a newer input, which the host's snapshots echo.
-    frame.sequence = 1;
     for (0..8) |_| {
         now += 5 * tick_us;
         try frame.present(&snapshot, admission, local, no_models, now);
     }
-    snapshot.applied = 1;
     const math = engine.surrender.math;
-    const entry = frame.tracks[0].bySequence(1).?;
+    const flown = frame.flown.?;
+    const entry = frame.tracks[0].byTick(flown.tick).?;
     const travel = math.length(entry.velocity);
     try std.testing.expect(travel > 1);
 
-    // A difference within a step of travel is input lag, which the pilot's own ship lets stand.
+    // The host at the same tick, having flown the same input, leaves nothing to take in.
     snapshot.tick += 1;
-    snapshot.ships[0].?.position = entry.position + Vector{ travel / 2, 0, 0 };
+    snapshot.clock = flown.tick;
+    snapshot.ships[0].?.position = entry.position;
     try frame.present(&snapshot, admission, local, no_models, now);
-    try std.testing.expectEqual(@as(Vector, @splat(0)), frame.easing[0].position);
+    try std.testing.expect(math.length(frame.easing[0].position) < 1);
 
     // A larger one never moves the ship at once: the steps that follow take it in.
     snapshot.tick += 1;
@@ -1366,8 +1347,13 @@ test "a remote ship sweeps smoothly under the client's own simulation" {
         snapshot.tick += 1;
         // The host's ship crosses exactly what its velocity says, drag and all, so the
         // snapshot's place is the track the simulation itself has reached.
-        snapshot.ships[1].?.position[2] = remote.object.root.next_position.z;
-        snapshot.ships[1].?.velocity = .{ 0, 0, wire.quantizeVelocity(remote.object.velocity.z, if (remote.flight) |flight| flight.max_speed else 320) };
+        // It reports from the lead behind, where the client's own track has been.
+        const behind = if (frame.flown) |flown| frame.tracks[1].byTick(flown.tick - target_lead) else null;
+        if (behind) |entry| {
+            snapshot.clock = entry.tick;
+            snapshot.ships[1].?.position[2] = entry.position[2];
+            snapshot.ships[1].?.velocity = .{ 0, 0, wire.quantizeVelocity(entry.velocity[2], if (remote.flight) |flight| flight.max_speed else 320) };
+        }
         for (0..6) |_| {
             now += frame_us;
             try frame.present(&snapshot, admission, local, no_models, now);
@@ -1384,6 +1370,5 @@ test "a remote ship sweeps smoothly under the client's own simulation" {
     // A frame at sixty a second carries the drawing under two fifths of a step; a snapped or
     // frozen track moves in whole steps at once.
     try std.testing.expect(largest_frame < pace * 0.4);
-    try std.testing.expect(frames > 100);
     try std.testing.expect(frames > 100);
 }

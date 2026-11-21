@@ -489,9 +489,8 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             });
             if (cooperative and devices.active(.jump_drive, true)) client.requestCrewAction(.jump);
             const held = engine.input.sampleFlight(scene.player, devices, &pilot.stick, scene.player.viewing.view);
-            if (pilot.flight) |shown| shown.command = held;
             client.setFlight(held);
-            if (pilot.flight) |shown| shown.sequence = client.sequence;
+            if (pilot.flight) |shown| shown.command = client.flight_command;
             client.fire_primary = engine.input.primaryHeld(devices);
             if (multiplayer_ordnance) {
                 const weapons = engine.input.sampleOrdnance(scene.player, devices);
@@ -503,6 +502,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             }
         } else {
             client.releaseFlight();
+            if (pilot.flight) |shown| shown.command = client.flight_command;
         }
     }
     const shared_before = pilot.sharedPaused();
@@ -790,6 +790,7 @@ fn applyFrame(pilot: *Graphical, flight: *FlightFrame, local: *game.create.Objec
         return;
     }
     try flight.present(&client.latest.?, client.joined.?, local, types, micros);
+    if (flight.flown) |flown| if (client.flown_tick != flown.tick) try client.sendFlown(micros, flown.tick, flown.command);
     if (client.scenery) |*scenery| {
         if (client.latest.?.scenario == scenery.scenario)
             try flight.presentScenery(scenery, types);

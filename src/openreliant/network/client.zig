@@ -52,6 +52,8 @@ scenery: ?wire.Scenery = null,
 roster: wire.Roster = .{},
 sequence: u32 = 0,
 next_input: i64 = 0,
+/// The tick of the last input the client's own step flew, which a keep-alive repeats.
+flown_tick: ?i32 = null,
 leaving: bool = false,
 briefed: bool = false,
 flight_command: flight.Command = .{},
@@ -178,6 +180,41 @@ pub fn requestCrewAction(client: *Client, action: enum { jump, land, eject }) vo
     net.send(client.conn, message) catch return;
 }
 
+/// Sends the command the client's own step flew to the tick it reached, right after the step.
+pub fn sendFlown(client: *Client, now: i64, tick: i32, command: flight.Command) !void {
+    if (client.joined == null or client.leaving) return;
+    client.flown_tick = tick;
+    client.flight_command = command;
+    try client.sendInput(now, command, tick);
+}
+
+fn sendInput(client: *Client, now: i64, command: flight.Command, tick: ?i32) !void {
+    try net.send(client.conn, .{ .input = .{
+        .sequence = client.sequence,
+        .arena_floor = client.roster.arena_floor,
+        .command = command,
+        .tick = tick,
+        .fire_for = if (client.fire_primary and client.latest != null)
+            if (client.latest.?.ships[client.joined.?.slot]) |ship| ship.reuse else null
+        else
+            null,
+    } });
+    if (client.presses.any()) {
+        try net.send(client.conn, .{ .flight_press = client.presses });
+        client.presses = .{};
+    }
+    if (client.weapons) |*pending| {
+        if (pending.presses.any() or pending.cockpit.any() or !std.meta.eql(client.sent_aim, @as(?wire.ordnance.Aim, pending.aim))) {
+            try net.send(client.conn, .{ .weapon_order = pending.* });
+            client.sent_aim = pending.aim;
+            pending.presses = .{};
+            pending.cockpit = .{};
+        }
+    }
+    client.sequence +%= 1;
+    client.next_input = now + wire.step_us;
+}
+
 pub fn setFlight(client: *Client, command: flight.Command) void {
     client.flight_command = command;
     client.presses.take(&client.flight_command);
@@ -185,6 +222,7 @@ pub fn setFlight(client: *Client, command: flight.Command) void {
 
 pub fn releaseFlight(client: *Client) void {
     client.flight_command = flight_input.release(client.flight_command);
+    client.flown_tick = null;
     client.presses = .{};
     client.fire_primary = false;
     if (client.weapons) |*pending| {
@@ -278,31 +316,8 @@ pub fn poll(client: *Client, io: Io) !Event {
         try net.send(client.conn, .{ .pick_ship = client.fighter });
         client.sent_join = true;
     }
-    if (client.joined != null and !client.leaving and now >= client.next_input) {
-        try net.send(client.conn, .{ .input = .{
-            .sequence = client.sequence,
-            .arena_floor = client.roster.arena_floor,
-            .command = client.flight_command,
-            .fire_for = if (client.fire_primary and client.latest != null)
-                if (client.latest.?.ships[client.joined.?.slot]) |ship| ship.reuse else null
-            else
-                null,
-        } });
-        if (client.presses.any()) {
-            try net.send(client.conn, .{ .flight_press = client.presses });
-            client.presses = .{};
-        }
-        if (client.weapons) |*pending| {
-            if (pending.presses.any() or pending.cockpit.any() or !std.meta.eql(client.sent_aim, @as(?wire.ordnance.Aim, pending.aim))) {
-                try net.send(client.conn, .{ .weapon_order = pending.* });
-                client.sent_aim = pending.aim;
-                pending.presses = .{};
-                pending.cockpit = .{};
-            }
-        }
-        client.sequence +%= 1;
-        client.next_input = now + wire.step_us;
-    }
+    if (client.joined != null and !client.leaving and now >= client.next_input)
+        try client.sendInput(now, client.flight_command, client.flown_tick);
     var buffer: [wire.capacity]u8 = undefined;
     const message = try net.receive(client.conn, &buffer) orelse return .idle;
     switch (message) {

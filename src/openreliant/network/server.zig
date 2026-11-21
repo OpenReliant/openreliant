@@ -50,10 +50,10 @@ const Peer = struct {
     expires: i64,
     loading_until: i64 = 0,
     sequence: ?u32 = null,
-    /// The sequence of the input the last step flew by, which the pilot's views report back.
-    applied: u32 = 0,
     flight_command: flight.Command = .{},
     fire_for: ?u32 = null,
+    /// Inputs tagged with the client's tick, waiting for the step that reaches it.
+    timed: Timed = .{},
     presses: flight_input.Presses = .{},
     weapons: ?wire.ordnance.Order = null,
     briefed: bool = false,
@@ -482,6 +482,7 @@ fn clearFlightControls(host: *Host) void {
     for (&host.peers) |*entry| if (entry.*) |*peer| {
         peer.flight_command = flight_input.release(peer.flight_command);
         peer.fire_for = null;
+        peer.timed = .{};
         peer.presses = .{};
         if (peer.weapons) |*weapons| {
             weapons.presses = .{};
@@ -663,11 +664,46 @@ fn acceptInput(host: *const Host, peer: *Peer, input: wire.Input, time: i64) voi
     if (!input.follows(peer.sequence)) return;
     peer.sequence = input.sequence;
     peer.expires = time + timeout;
-    if (host.acceptsFlight() and input.arena_floor == host.arena_floor) {
+    if (!host.acceptsFlight() or input.arena_floor != host.arena_floor) return;
+    const tick = input.tick orelse {
+        peer.timed = .{};
         peer.flight_command = input.command;
         peer.fire_for = input.fire_for;
-    }
+        return;
+    };
+    peer.timed.push(.{ .tick = tick, .command = input.command, .fire_for = input.fire_for });
 }
+
+/// A pilot's inputs tagged with the ticks the client flew them to. One tagged `t` steers every
+/// step after the one before it up to the step reaching `t`, as the client's own steps did.
+const Timed = struct {
+    const Entry = struct { tick: i32, command: flight.Command, fire_for: ?u32 };
+    const length = 32;
+    entries: [length]Entry = undefined,
+    first: usize = 0,
+    count: usize = 0,
+
+    fn push(timed: *Timed, entry: Entry) void {
+        if (timed.count == length) {
+            timed.first = (timed.first + 1) % length;
+            timed.count -= 1;
+        }
+        timed.entries[(timed.first + timed.count) % length] = entry;
+        timed.count += 1;
+    }
+
+    /// The input that steers the step reaching `tick`, dropping those whose steps have passed.
+    /// None queued means the input is late: the last one holds.
+    fn take(timed: *Timed, tick: i32) ?Entry {
+        while (timed.count > 0) {
+            const entry = timed.entries[timed.first];
+            if (entry.tick -% tick >= 0) return entry;
+            timed.first = (timed.first + 1) % length;
+            timed.count -= 1;
+        }
+        return null;
+    }
+};
 
 fn acknowledgeMovie(host: *Host, slot: u8, tick: u32) void {
     if (slot >= wire.cooperative_slots or tick != host.tick) return;
@@ -763,7 +799,10 @@ fn applyControls(host: *Host, time: i64) void {
     for (&host.peers, 0..) |*entry, slot| {
         const peer = if (entry.*) |*peer| peer else continue;
         if (peer.state != .playing or peer.sequence == null) continue;
-        peer.applied = peer.sequence.?;
+        if (peer.timed.take(host.arena.mission.clock.mission_ticks + game.gameobj.ticks_per_step)) |timed| {
+            peer.flight_command = timed.command;
+            peer.fire_for = timed.fire_for;
+        }
         const expired = time - (peer.expires - timeout) >= held_input_timeout;
         var command = if (expired) flight_input.release(peer.flight_command) else peer.flight_command;
         peer.presses.apply(&command);
@@ -854,7 +893,6 @@ const Delivery = enum {
 /// A pilot gets the same private cockpit readings during a pause as in flight.
 fn sendView(host: *const Host, view: *wire.Snapshot, slot: u8, delivery: Delivery, buffer: []u8) !void {
     const all = host.arena.mission.objects;
-    view.applied = if (host.peers[slot]) |peer| peer.applied else 0;
     if (view.mission) |*mission| {
         const state = &all.player_states[slot];
         mission.guide = host.arena.guide(slot);
@@ -1521,4 +1559,15 @@ test "a reordered command or a command for the previous round leaves other contr
     try std.testing.expectEqualDeep(flight.Command{}, peer.flight_command);
     try std.testing.expectEqual(null, peer.fire_for);
     try std.testing.expect(host.peers[0].?.flight_command.afterburner);
+}
+
+test "a pilot's timed inputs steer the steps up to the ticks the client flew them to" {
+    var timed: Timed = .{};
+    timed.push(.{ .tick = 8, .command = .{ .afterburner = true }, .fire_for = null });
+    timed.push(.{ .tick = 12, .command = .{ .reverse = true }, .fire_for = null });
+    try std.testing.expect(timed.take(4).?.command.afterburner);
+    try std.testing.expect(timed.take(8).?.command.afterburner);
+    try std.testing.expect(timed.take(12).?.command.reverse);
+    // Late: nothing covers the step, so the last command holds.
+    try std.testing.expectEqual(null, timed.take(16));
 }
