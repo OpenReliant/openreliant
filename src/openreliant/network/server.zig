@@ -10,6 +10,7 @@ const Arena = @import("arena.zig");
 const ProjectilePage = wire.ordnance.Page;
 const identity = @import("identity.zig");
 const lan = @import("lan.zig");
+const session = @import("session.zig");
 const HandshakeBudget = @import("handshake_budget").Window(wire.slots);
 const Host = @This();
 const ChatBudget = @import("chat_budget.zig");
@@ -81,10 +82,9 @@ signer: ?*const identity.Server = null,
 directory_session: ?[16]u8 = null,
 player_limit: u8 = wire.slots,
 lan_only: bool = false,
-/// Answers the local network's searches for games, with this name, for the game on this port.
-discovery: ?lan.Responder = null,
+/// Whether the host lists its game in the local network's searches, under `discovery_name`.
+discovery: bool = false,
 discovery_name: lan.Text = .{},
-discovery_port: u16 = 0,
 discovery_this_machine_only: bool = false,
 arena_directory: ?Io.Dir = null,
 arena_floor: u32 = 0,
@@ -253,27 +253,29 @@ fn acceptsJoins(host: *const Host) bool {
     return host.final_tick == null and host.arena.campaign == null and !host.campaign_briefing;
 }
 
-/// Lists the game in the local network's searches (`lan.Responder`), under `name`, for the game
-/// listening on `address`. A game bound to loopback is listed on this machine only. Without a key
-/// of its own (`signer`), such as with a managed identity, the host can't be joined from a list.
+/// Lists the game in the local network's searches, under `name`, for the game listening on
+/// `address`. The host answers the searches on its game port (`lan.answerQuery`). A game bound to
+/// loopback is listed on this machine only. Without a key of its own (`signer`), such as with a
+/// managed identity, the host can't be joined from a list.
 pub fn openDiscovery(host: *Host, address: Io.net.IpAddress, name: []const u8) void {
     if (host.signer == null) {
         log.info("LAN lists show only hosts with a key of their own; join this one by its address", .{});
         return;
     }
-    host.discovery_port = address.getPort();
+    if (!lan.searched(address.getPort())) {
+        log.info("LAN lists show games on ports {d} to {d}; join this one by its address", .{ session.default_port, lan.last_searched_port });
+        return;
+    }
     host.discovery_name = .of(name);
     host.discovery_this_machine_only = lan.isLoopback(address);
-    host.discovery = lan.Responder.open(host.io) catch |err| no: {
-        log.warn("the game won't show in LAN lists: {t}", .{err});
-        break :no null;
-    };
+    host.discovery = true;
+    host.answerDiscovery();
+    net.session_datagram_handler(lan.answerQuery);
 }
 
-/// Answers the local network's searches for games (`lan.Responder`).
+/// Keeps what the host answers the local network's searches with up to date (`lan.publish`).
 fn answerDiscovery(host: *Host) void {
-    const responder = if (host.discovery) |*running| running else return;
-    responder.poll(host.io, host.discoveryGame());
+    if (host.discovery) lan.publish(host.discoveryGame());
 }
 
 /// What the host tells a search about its game, while it has a place for a new pilot.
@@ -294,7 +296,6 @@ fn discoveryGame(host: *const Host) ?lan.Game {
     };
     return .{
         .protocol = wire.revision,
-        .game_port = host.discovery_port,
         .players = @intCast(players),
         .capacity = host.player_limit,
         .key = signer.issuer.public_key,
@@ -1140,8 +1141,11 @@ pub fn close(host: *Host) void {
         net.session_listen_close(host.listener);
         host.listener = 0;
     }
-    if (host.discovery) |*responder| responder.close(host.io);
-    host.discovery = null;
+    if (host.discovery) {
+        net.session_datagram_handler(null);
+        lan.publish(null);
+        host.discovery = false;
+    }
 }
 
 fn sendCampaignPhase(host: *Host, message: wire.Message) void {

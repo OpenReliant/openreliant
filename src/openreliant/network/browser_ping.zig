@@ -8,6 +8,7 @@ const Io = std.Io;
 const net = Io.net;
 const Connection = @import("openreliant").engine.game.interface.Connection;
 const DirectoryInvite = @import("identity.zig").DirectoryInvite;
+const lan = @import("lan.zig");
 
 const max_probes = 256;
 const max_per_address = 16;
@@ -144,7 +145,7 @@ fn measureFamily(io: Io, rows: []Connection.Server, family: std.meta.Tag(net.IpA
         if (!outstanding) break;
         const remaining = end - Io.Clock.awake.now(io).toMicroseconds();
         if (remaining <= 0) break;
-        const message = socket.receiveTimeout(io, &bytes, .{ .duration = .{ .raw = .fromMicroseconds(remaining), .clock = .awake } }) catch break;
+        const message = (lan.receiveWait(socket, io, &bytes, remaining) catch break) orelse break;
         if (message.flags.trunc) continue;
         const nonce = replyNonce(message.data) orelse continue;
         for (probes[0..count]) |*probe| {

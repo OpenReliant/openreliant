@@ -12,6 +12,8 @@ extern "C" void session_status(uint32_t conn, Status status, const char *identit
 extern "C" bool OpenReliant_SetTransportRoot(const char *key, size_t size);
 extern "C" void OpenReliant_ClearTransportRoot();
 extern "C" bool OpenReliant_SetTransportCertificate(const void *certificate, int size);
+using DatagramHandler = int (*)(const uint8_t *packet, int size, const uint8_t *from, uint8_t *answer, int capacity);
+extern "C" void OpenReliant_SetDatagramHandler(DatagramHandler handler);
 
 constexpr int dropped_for_lag = k_ESteamNetConnectionEnd_App_Min + 1;
 constexpr int queued_messages = 32;
@@ -99,6 +101,10 @@ extern "C" int session_ping_ms(uint32_t conn) {
                    k_EResultOK
                ? status.m_nPing
                : -1;
+}
+
+extern "C" void session_datagram_handler(DatagramHandler handler) {
+    OpenReliant_SetDatagramHandler(handler);
 }
 
 extern "C" void session_listen_close(uint32_t listener) {

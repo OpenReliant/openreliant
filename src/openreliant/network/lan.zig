@@ -4,8 +4,10 @@
 //! asks for the sessions of the game's application GUID, and `directplay_join_session`
 //! (`0x004BC720`) joins one of them ([Front end](../../../docs/engine/front-end.md#lan-games)).
 //! OpenReliant has no DirectPlay, so it does the same with its own datagrams. The browser sends
-//! a query to the local network's broadcast address, and every host that would take a new pilot
-//! answers it. **Improvement:** OpenReliant's own protocol in place of DirectPlay's.
+//! a query to the local network's broadcast address, on the game ports, and every host that
+//! would take a new pilot answers it from its game port. So a game uses one UDP port, for its
+//! pilots and for the LAN lists. **Improvement:** OpenReliant's own protocol in place of
+//! DirectPlay's.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -15,9 +17,20 @@ const engine = @import("openreliant").engine;
 const web = engine.web;
 const Connection = engine.game.interface.Connection;
 const identity = @import("identity.zig");
+const session = @import("session.zig");
 
-/// The UDP port hosts listen on for queries, next to the game's own (`session.default_port`).
-pub const port: u16 = 27021;
+/// The first game port a search covers.
+const first_searched_port: u16 = session.default_port;
+/// How many game ports a search covers, from the first.
+const searched_ports = 8;
+/// The last game port a search covers.
+pub const last_searched_port = first_searched_port + searched_ports - 1;
+
+/// Whether a search finds a game on `game_port`.
+pub fn searched(game_port: u16) bool {
+    return game_port >= first_searched_port and game_port <= last_searched_port;
+}
+
 /// How long the browser waits for answers to one query.
 const answer_wait_us = 600 * std.time.us_per_ms;
 /// The most games one search lists. The original keeps ten (`directplay_enum_session_callback`).
@@ -30,12 +43,98 @@ const query_magic = "ORLQ".*;
 const answer_magic = "ORLA".*;
 /// The longest name or mode an answer carries.
 const max_text = 32;
-const answer_header = query_magic.len + @sizeOf(u32) + 2 * @sizeOf(u16) + 2 + identity.PublicKey.encoded_length;
+const answer_header = answer_magic.len + @sizeOf(u32) + @sizeOf(u16) + 2 + identity.PublicKey.encoded_length;
 /// The largest answer.
 pub const max_answer = answer_header + 2 * (1 + max_text);
 /// A query's size. A query is padded to at least an answer's size, so that a host never sends
 /// more than it receives and can't be used to flood another address.
 pub const query_size = 128;
+
+/// Waiting for a datagram on Windows. `std.Io.Threaded` has no timed socket receive there yet:
+/// `receiveTimeout` fails with `error.ConcurrencyUnavailable`. So `readable` asks the socket
+/// driver (AFD) to wait with its poll request, which is what winsock's `select` sends. The
+/// request goes through `Io`, as the standard library's own socket requests do, so `Io` can
+/// cancel it and winsock is never loaded.
+const windows = if (builtin.os.tag == .windows) struct {
+    const os = std.os.windows;
+
+    /// `AFD_POLL_HANDLE_INFO`: a socket to wait on, the events asked for and, on return, the
+    /// events found.
+    const PollHandle = extern struct {
+        handle: os.HANDLE,
+        events: Events,
+        status: os.NTSTATUS,
+    };
+
+    /// `AFD_POLL_INFO` for one socket, the request and the answer of `IOCTL_AFD_POLL`.
+    const Poll = extern struct {
+        /// How long to wait, in units of 100 ns, negative for a time from now.
+        timeout: os.LARGE_INTEGER,
+        count: os.ULONG,
+        exclusive: os.ULONG,
+        handles: [1]PollHandle,
+    };
+
+    /// The `AFD_POLL_*` events.
+    const Events = packed struct(os.ULONG) {
+        receive: bool = false,
+        receive_expedited: bool = false,
+        send: bool = false,
+        disconnect: bool = false,
+        abort: bool = false,
+        local_close: bool = false,
+        connect: bool = false,
+        accept: bool = false,
+        connect_fail: bool = false,
+        _unused: u23 = 0,
+    };
+
+    comptime {
+        assert(@sizeOf(Poll) == 16 + @sizeOf(PollHandle));
+        assert(@offsetOf(PollHandle, "events") == @sizeOf(os.HANDLE));
+    }
+
+    /// Whether a datagram, or the error of an earlier send, waits on `handle` within `wait_us`.
+    fn readable(io: Io, handle: net.Socket.Handle, wait_us: i64) Io.Cancelable!bool {
+        const ticks_per_us = 10;
+        var poll: Poll = .{
+            .timeout = -(std.math.mul(i64, @max(0, wait_us), ticks_per_us) catch std.math.maxInt(i64)),
+            .count = 1,
+            .exclusive = 0,
+            .handles = .{.{ .handle = handle, .events = .{ .receive = true }, .status = .SUCCESS }},
+        };
+        const bytes = std.mem.asBytes(&poll);
+        // The standard library opens its sockets for overlapped requests.
+        const result = try io.operate(.{ .device_io_control = .{
+            .file = .{ .handle = handle, .flags = .{ .nonblocking = true } },
+            .code = os.IOCTL.AFD.POLL,
+            .in = bytes,
+            .out = bytes,
+        } });
+        return result.device_io_control.u.Status == .SUCCESS and poll.count == 1 and poll.handles[0].events.receive;
+    }
+} else struct {};
+
+/// Receives one datagram within `wait_us`, or null when none arrives.
+pub fn receiveWait(socket: net.Socket, io: Io, buffer: []u8, wait_us: i64) !?net.IncomingMessage {
+    if (builtin.os.tag != .windows) {
+        return socket.receiveTimeout(io, buffer, .{ .duration = .{ .raw = .fromMicroseconds(@max(0, wait_us)), .clock = .awake } }) catch |err| switch (err) {
+            error.Timeout => null,
+            else => return err,
+        };
+    }
+    const end = Io.Clock.awake.now(io).toMicroseconds() + @max(0, wait_us);
+    while (true) {
+        const left = end - Io.Clock.awake.now(io).toMicroseconds();
+        if (!try windows.readable(io, socket.handle, left)) return null;
+        return socket.receive(io, buffer) catch |err| switch (err) {
+            // Windows answers a receive with the failure of an earlier send to a port nobody
+            // listens on. That says nothing about the datagrams still to come.
+            error.PortUnreachable, error.ConnectionResetByPeer => continue,
+            else => return err,
+        };
+    }
+}
 
 comptime {
     assert(max_answer <= query_size);
@@ -77,8 +176,6 @@ pub const Text = struct {
 pub const Answer = struct {
     nonce: u32,
     protocol: u16,
-    /// The port the game listens on.
-    game_port: u16,
     players: u8,
     capacity: u8,
     key: [identity.PublicKey.encoded_length]u8,
@@ -90,7 +187,6 @@ pub const Answer = struct {
         writer.writeAll(&answer_magic) catch unreachable;
         writer.writeInt(u32, answer.nonce, .little) catch unreachable;
         writer.writeInt(u16, answer.protocol, .little) catch unreachable;
-        writer.writeInt(u16, answer.game_port, .little) catch unreachable;
         writer.writeByte(answer.players) catch unreachable;
         writer.writeByte(answer.capacity) catch unreachable;
         writer.writeAll(&answer.key) catch unreachable;
@@ -108,10 +204,9 @@ pub const Answer = struct {
         var answer: Answer = .{
             .nonce = std.mem.readInt(u32, packet[4..8], .little),
             .protocol = std.mem.readInt(u16, packet[8..10], .little),
-            .game_port = std.mem.readInt(u16, packet[10..12], .little),
-            .players = packet[12],
-            .capacity = packet[13],
-            .key = packet[14..answer_header].*,
+            .players = packet[10],
+            .capacity = packet[11],
+            .key = packet[12..answer_header].*,
             .name = .{},
             .mode = .{},
         };
@@ -121,7 +216,7 @@ pub const Answer = struct {
             text.* = .of(rest[1..][0..rest[0]]);
             rest = rest[1 + rest[0] ..];
         }
-        if (rest.len != 0 or answer.game_port == 0 or answer.capacity == 0 or answer.players > answer.capacity) return null;
+        if (rest.len != 0 or answer.capacity == 0 or answer.players > answer.capacity) return null;
         if (answer.name.len == 0) return null;
         return answer;
     }
@@ -145,7 +240,12 @@ fn isLanAddress(address: net.IpAddress) bool {
 }
 
 pub fn isLoopback(address: net.IpAddress) bool {
-    const ipv6 = net.Ip6Address.fromAny(address);
+    return isLoopbackBytes(net.Ip6Address.fromAny(address).bytes);
+}
+
+/// `isLoopback` for an IPv6 address, an IPv4 one mapped into it.
+fn isLoopbackBytes(bytes: [16]u8) bool {
+    const ipv6: net.Ip6Address = .{ .bytes = bytes, .port = 0 };
     if (net.Ip4Address.fromIp6(ipv6)) |ipv4| return ipv4.bytes[0] == 127;
     return ipv6.isLoopBack();
 }
@@ -153,7 +253,6 @@ pub fn isLoopback(address: net.IpAddress) bool {
 /// What a host answers with, while it takes new pilots.
 pub const Game = struct {
     protocol: u16,
-    game_port: u16,
     players: u8,
     capacity: u8,
     key: identity.PublicKey,
@@ -163,47 +262,60 @@ pub const Game = struct {
     this_machine_only: bool = false,
 };
 
-/// A host's end: a socket on `port` that answers the browsers' queries.
-pub const Responder = struct {
-    socket: net.Socket,
+/// The game this process's host lists, which the host's loop writes and the transport's thread
+/// reads as a query arrives. A short spin lock guards it: each side only copies the record.
+const Listed = struct {
+    locked: std.atomic.Value(bool) = .init(false),
+    /// The answer to give, its nonce not yet set, or null while the host takes no one.
+    answer: ?Answer = null,
+    this_machine_only: bool = false,
 
-    pub fn open(io: Io) !Responder {
-        const any = try net.IpAddress.parse("0.0.0.0", port);
-        return .{ .socket = try any.bind(io, .{ .mode = .dgram }) };
+    fn lock(state: *Listed) void {
+        while (state.locked.swap(true, .acquire)) std.atomic.spinLoopHint();
     }
 
-    pub fn close(responder: *Responder, io: Io) void {
-        responder.socket.close(io);
-    }
-
-    /// Answers the queries waiting, a few at a time, without waiting for more. A host that takes
-    /// no new pilots (`game` null) reads them and says nothing, as DirectPlay lists only the
-    /// sessions that do (`directplay_enum_sessions`). Only queries from the local network are
-    /// answered.
-    pub fn poll(responder: *Responder, io: Io, game: ?Game) void {
-        var packet: [query_size]u8 = undefined;
-        for (0..answers_per_poll) |_| {
-            const message = responder.socket.receiveTimeout(io, &packet, .{ .duration = .{ .raw = .zero, .clock = .awake } }) catch return;
-            if (message.flags.trunc) continue;
-            const nonce = queryNonce(message.data) orelse continue;
-            const listed = game orelse continue;
-            if (!isLanAddress(message.from)) continue;
-            if (listed.this_machine_only and !isLoopback(message.from)) continue;
-            const answer: Answer = .{
-                .nonce = nonce,
-                .protocol = listed.protocol,
-                .game_port = listed.game_port,
-                .players = listed.players,
-                .capacity = listed.capacity,
-                .key = listed.key.toBytes(),
-                .name = .of(listed.name),
-                .mode = .of(listed.mode),
-            };
-            var buffer: [max_answer]u8 = undefined;
-            responder.socket.send(io, &message.from, answer.encode(&buffer)) catch {};
-        }
+    fn unlock(state: *Listed) void {
+        state.locked.store(false, .release);
     }
 };
+var host_game: Listed = .{};
+
+/// Sets the game this process's host answers the browsers' queries with. A host that takes no
+/// new pilots (`game` null) reads the queries and says nothing, as DirectPlay lists only the
+/// sessions that do (`directplay_enum_sessions`).
+pub fn publish(game: ?Game) void {
+    const answer: ?Answer = if (game) |open| .{
+        .nonce = 0,
+        .protocol = open.protocol,
+        .players = open.players,
+        .capacity = open.capacity,
+        .key = open.key.toBytes(),
+        .name = .of(open.name),
+        .mode = .of(open.mode),
+    } else null;
+    host_game.lock();
+    defer host_game.unlock();
+    host_game.answer = answer;
+    host_game.this_machine_only = if (game) |open| open.this_machine_only else false;
+}
+
+/// The host's end. The transport calls this on its own thread for each datagram on the game
+/// port that isn't its own (`net.session_datagram_handler`). It writes the answer to a query
+/// from the local network into `out` and returns its length, or 0 for anything else. The
+/// answer is never larger than the query.
+pub fn answerQuery(packet: [*]const u8, size: c_int, from: *const [16]u8, out: [*]u8, capacity: c_int) callconv(.c) c_int {
+    if (size < 0 or capacity < max_answer) return 0;
+    const nonce = queryNonce(packet[0..@intCast(size)]) orelse return 0;
+    if (!isLan(from.*)) return 0;
+    var answer = answer: {
+        host_game.lock();
+        defer host_game.unlock();
+        if (host_game.this_machine_only and !isLoopbackBytes(from.*)) return 0;
+        break :answer host_game.answer orelse return 0;
+    };
+    answer.nonce = nonce;
+    return @intCast(answer.encode(out[0..max_answer]).len);
+}
 
 const Result = struct {
     arena: std.heap.ArenaAllocator,
@@ -220,15 +332,14 @@ const Found = struct {
     rows: std.ArrayList(Connection.Server) = .empty,
     keys: std.ArrayList([identity.PublicKey.encoded_length]u8) = .empty,
 
-    /// Adds the game `answer` describes, from `from`, once. A host on the same machine answers
-    /// both the broadcast and the loopback query, under one key.
+    /// Adds the game `answer` describes, once. `from` is the game's own address and port, since
+    /// a host answers from its game port. A host on the same machine answers both the broadcast
+    /// and the loopback query, under one key.
     fn add(found: *Found, from: net.IpAddress, answer: Answer, ping_ms: u16) !void {
         if (found.rows.items.len >= max_games or !isLanAddress(from)) return;
         for (found.keys.items) |key| if (std.mem.eql(u8, &key, &answer.key)) return;
-        var address = from;
-        address.setPort(answer.game_port);
         const key = identity.PublicKey.fromBytes(answer.key) catch return;
-        const target = try std.fmt.allocPrint(found.allocator, "{f}", .{identity.Invite{ .address = address, .key = key }});
+        const target = try std.fmt.allocPrint(found.allocator, "{f}", .{identity.Invite{ .address = from, .key = key }});
         try found.rows.append(found.allocator, .{
             .name = try found.allocator.dupe(u8, answer.name.slice()),
             .description = "",
@@ -261,13 +372,14 @@ const interface_broadcast = 0x2;
 /// The most addresses one search sends its query to.
 const max_targets = 16;
 
-/// Where the browser sends a query: loopback, for a host on this machine; the limited broadcast
-/// address; and each IPv4 network's own broadcast address, since macOS refuses to send to the
-/// limited one ("no route to host"). Windows has no `getifaddrs` but sends to the limited one.
+/// The addresses the browser sends a query to, on each game port it covers: loopback, for a host on this
+/// machine; the limited broadcast address; and each IPv4 network's own broadcast address, since
+/// macOS refuses to send to the limited one ("no route to host"). Windows has no `getifaddrs` but
+/// sends to the limited one.
 fn queryTargets(buffer: *[max_targets]net.IpAddress) []const net.IpAddress {
     var count: usize = 0;
     for ([_][4]u8{ .{ 127, 0, 0, 1 }, @splat(255) }) |bytes| {
-        buffer[count] = .{ .ip4 = .{ .bytes = bytes, .port = port } };
+        buffer[count] = .{ .ip4 = .{ .bytes = bytes, .port = 0 } };
         count += 1;
     }
     if (builtin.os.tag == .windows) return buffer[0..count];
@@ -281,7 +393,7 @@ fn queryTargets(buffer: *[max_targets]net.IpAddress) []const net.IpAddress {
         const address = interface.broadcast orelse continue;
         if (address.family != std.c.AF.INET) continue;
         const ip: *const std.c.sockaddr.in = @ptrCast(@alignCast(address));
-        const target: net.IpAddress = .{ .ip4 = .{ .bytes = @bitCast(ip.addr), .port = port } };
+        const target: net.IpAddress = .{ .ip4 = .{ .bytes = @bitCast(ip.addr), .port = 0 } };
         for (buffer[0..count]) |known| {
             if (known.eql(&target)) break;
         } else {
@@ -314,9 +426,13 @@ const Job = struct {
         // Any of them may fail, such as without a network.
         var targets: [max_targets]net.IpAddress = undefined;
         var reached = false;
-        for (queryTargets(&targets)) |to| {
-            socket.send(io, &to, &packet) catch continue;
-            reached = true;
+        for (queryTargets(&targets)) |address| {
+            for (0..searched_ports) |index| {
+                var to = address;
+                to.setPort(first_searched_port + @as(u16, @intCast(index)));
+                socket.send(io, &to, &packet) catch continue;
+                reached = true;
+            }
         }
         if (!reached) return error.NetworkUnreachable;
         const end = sent + answer_wait_us;
@@ -324,10 +440,7 @@ const Job = struct {
         while (true) {
             const now = Io.Clock.awake.now(io).toMicroseconds();
             if (now >= end) break;
-            const message = socket.receiveTimeout(io, &buffer, .{ .duration = .{ .raw = .fromMicroseconds(end - now), .clock = .awake } }) catch |err| switch (err) {
-                error.Timeout => break,
-                else => return err,
-            };
+            const message = (try receiveWait(socket, io, &buffer, end - now)) orelse break;
             const answer = Answer.decode(message.data) orelse continue;
             if (answer.nonce != nonce) continue;
             const elapsed = Io.Clock.awake.now(io).toMicroseconds() - sent;
@@ -373,13 +486,13 @@ test "a query and an answer round-trip, and malformed packets are refused" {
     try std.testing.expectEqual(@as(?u32, null), queryNonce(packet[0..64]));
 
     const key: [identity.PublicKey.encoded_length]u8 = @splat(7);
-    const answer: Answer = .{ .nonce = 5, .protocol = 37, .game_port = 27020, .players = 2, .capacity = 8, .key = key, .name = .of("Rook"), .mode = .of("Asteroid Field") };
+    const answer: Answer = .{ .nonce = 5, .protocol = 37, .players = 2, .capacity = 8, .key = key, .name = .of("Rook"), .mode = .of("Asteroid Field") };
     var buffer: [max_answer]u8 = undefined;
     const bytes = answer.encode(&buffer);
     try std.testing.expect(bytes.len <= query_size);
     const back = Answer.decode(bytes).?;
     try std.testing.expectEqual(37, back.protocol);
-    try std.testing.expectEqual(27020, back.game_port);
+    try std.testing.expectEqual(2, back.players);
     try std.testing.expectEqualStrings("Rook", back.name.slice());
     try std.testing.expectEqualStrings("Asteroid Field", back.mode.slice());
 
@@ -404,12 +517,16 @@ test "the local network's addresses" {
 test "a search reaches this machine and the local networks' broadcast addresses" {
     var buffer: [max_targets]net.IpAddress = undefined;
     const targets = queryTargets(&buffer);
-    try std.testing.expect(targets[0].eql(&try net.IpAddress.parse("127.0.0.1", port)));
-    try std.testing.expect(targets[1].eql(&try net.IpAddress.parse("255.255.255.255", port)));
+    try std.testing.expect(targets[0].eql(&try net.IpAddress.parse("127.0.0.1", 0)));
+    try std.testing.expect(targets[1].eql(&try net.IpAddress.parse("255.255.255.255", 0)));
     for (targets[2..], 2..) |target, index| {
-        try std.testing.expectEqual(port, target.getPort());
         for (targets[0..index]) |earlier| try std.testing.expect(!earlier.eql(&target));
     }
+}
+
+test "a search covers the default game port and the ports after it" {
+    try std.testing.expect(searched(session.default_port) and searched(last_searched_port));
+    try std.testing.expect(!searched(session.default_port - 1) and !searched(last_searched_port + 1));
 }
 
 test "loopback addresses" {
@@ -424,9 +541,9 @@ test "a game is listed once per host, as an invite to its game port" {
     defer arena.deinit();
     var found: Found = .{ .allocator = arena.allocator() };
     const pair = std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(3)) catch unreachable;
-    const answer: Answer = .{ .nonce = 1, .protocol = 37, .game_port = 27020, .players = 1, .capacity = 4, .key = pair.public_key.toBytes(), .name = .of("Rook"), .mode = .of("Co-op") };
-    try found.add(try net.IpAddress.parse("192.168.1.9", 50000), answer, 3);
-    try found.add(try net.IpAddress.parse("127.0.0.1", 50000), answer, 1);
+    const answer: Answer = .{ .nonce = 1, .protocol = 37, .players = 1, .capacity = 4, .key = pair.public_key.toBytes(), .name = .of("Rook"), .mode = .of("Co-op") };
+    try found.add(try net.IpAddress.parse("192.168.1.9", 27020), answer, 3);
+    try found.add(try net.IpAddress.parse("127.0.0.1", 27020), answer, 1);
     // Nor is a game answering from outside the local network.
     var other = answer;
     other.key = (std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(4)) catch unreachable).public_key.toBytes();
@@ -439,52 +556,87 @@ test "a game is listed once per host, as an invite to its game port" {
     try std.testing.expect(invite.address.eql(&try net.IpAddress.parse("192.168.1.9", 27020)));
 }
 
-test "a host answers a query on loopback, and stays quiet while it takes no one" {
+test "a wait gives null without a datagram, and outlasts a send to a closed port" {
     const io = std.testing.io;
-    var responder = Responder.open(io) catch return error.SkipZigTest;
-    defer responder.close(io);
     const any = try net.IpAddress.parse("127.0.0.1", 0);
     const socket = try any.bind(io, .{ .mode = .dgram });
     defer socket.close(io);
-    const to = try net.IpAddress.parse("127.0.0.1", port);
-    const pair = std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(5)) catch unreachable;
-    const game: Game = .{ .protocol = 37, .game_port = 27020, .players = 1, .capacity = 8, .key = pair.public_key, .name = "Rook", .mode = "Asteroid Field" };
-    var buffer: [max_answer + 1]u8 = undefined;
-    const wait: Io.Timeout = .{ .duration = .{ .raw = .fromMilliseconds(500), .clock = .awake } };
+    const other = try any.bind(io, .{ .mode = .dgram });
+    defer other.close(io);
+    var buffer: [16]u8 = undefined;
 
-    const closed = query(1);
-    try socket.send(io, &to, &closed);
-    try io.sleep(.fromMilliseconds(20), .awake);
-    responder.poll(io, null);
-    try std.testing.expectError(error.Timeout, socket.receiveTimeout(io, &buffer, .{ .duration = .{ .raw = .fromMilliseconds(50), .clock = .awake } }));
+    try std.testing.expect((try receiveWait(socket, io, &buffer, 0)) == null);
+    const before = Io.Clock.awake.now(io).toMicroseconds();
+    try std.testing.expect((try receiveWait(socket, io, &buffer, 50 * std.time.us_per_ms)) == null);
+    try std.testing.expect(Io.Clock.awake.now(io).toMicroseconds() - before >= 40 * std.time.us_per_ms);
 
-    const asked = query(2);
-    try socket.send(io, &to, &asked);
+    // Windows reports this send's failure on the socket's next receive.
+    const gone = gone: {
+        const closed = try any.bind(io, .{ .mode = .dgram });
+        defer closed.close(io);
+        break :gone closed.address;
+    };
+    socket.send(io, &gone, "lost") catch {};
     try io.sleep(.fromMilliseconds(20), .awake);
-    responder.poll(io, game);
-    const message = try socket.receiveTimeout(io, &buffer, wait);
-    const answer = Answer.decode(message.data).?;
-    try std.testing.expectEqual(2, answer.nonce);
-    try std.testing.expectEqualStrings("Rook", answer.name.slice());
+    try other.send(io, &socket.address, "found");
+    const message = (try receiveWait(socket, io, &buffer, 500 * std.time.us_per_ms)) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqualStrings("found", message.data);
+    try std.testing.expectEqual(other.address.getPort(), message.from.getPort());
+    try std.testing.expect((try receiveWait(socket, io, &buffer, 0)) == null);
 }
 
-test "a search lists a host on this machine" {
+test "a host answers a query from the local network, and stays quiet while it takes no one" {
+    defer publish(null);
+    const pair = std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(5)) catch unreachable;
+    const game: Game = .{ .protocol = 37, .players = 1, .capacity = 8, .key = pair.public_key, .name = "Rook", .mode = "Asteroid Field" };
+    const near = net.Ip6Address.fromAny(try net.IpAddress.parse("192.168.1.9", 0)).bytes;
+    const here = net.Ip6Address.fromAny(try net.IpAddress.parse("127.0.0.1", 0)).bytes;
+    const far = net.Ip6Address.fromAny(try net.IpAddress.parse("8.8.8.8", 0)).bytes;
+    const asked = query(2);
+    var out: [query_size]u8 = undefined;
+
+    publish(null);
+    try std.testing.expectEqual(0, answerQuery(&asked, asked.len, &near, &out, out.len));
+
+    publish(game);
+    const size = answerQuery(&asked, asked.len, &near, &out, out.len);
+    const answer = Answer.decode(out[0..@intCast(size)]).?;
+    try std.testing.expectEqual(2, answer.nonce);
+    try std.testing.expectEqualStrings("Rook", answer.name.slice());
+    try std.testing.expectEqualSlices(u8, &pair.public_key.toBytes(), &answer.key);
+    // Only a whole query from the local network gets an answer, and only where it fits.
+    try std.testing.expectEqual(0, answerQuery(&asked, asked.len, &far, &out, out.len));
+    try std.testing.expectEqual(0, answerQuery(&asked, asked.len - 1, &near, &out, out.len));
+    try std.testing.expectEqual(0, answerQuery(&asked, asked.len, &near, &out, max_answer - 1));
+    var other = asked;
+    other[0] = 'X';
+    try std.testing.expectEqual(0, answerQuery(&other, other.len, &near, &out, out.len));
+
+    // A game bound to loopback answers this machine only.
+    var local = game;
+    local.this_machine_only = true;
+    publish(local);
+    try std.testing.expectEqual(0, answerQuery(&asked, asked.len, &near, &out, out.len));
+    try std.testing.expect(answerQuery(&asked, asked.len, &here, &out, out.len) > 0);
+}
+
+test "a search lists a host on this machine, at its game port" {
     const io = std.testing.io;
-    var responder = Responder.open(io) catch return error.SkipZigTest;
-    defer responder.close(io);
+    const transport = @import("transport.zig");
+    // Not the first port, so the search has to cover more than the default.
+    const game_port = session.default_port + 2;
+    if (!transport.session_init(null, 0, null, 0, @import("wire.zig").capacity)) return error.SkipZigTest;
+    defer transport.session_deinit();
+    var address: [16]u8 = undefined;
+    const listener = transport.session_open(try std.fmt.bufPrintSentinel(&address, "[::]:{d}", .{game_port}, 0), true);
+    if (listener == 0) return error.SkipZigTest;
+    defer transport.session_listen_close(listener);
+    transport.session_datagram_handler(answerQuery);
+    defer transport.session_datagram_handler(null);
     const pair = std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(6)) catch unreachable;
-    const game: Game = .{ .protocol = 37, .game_port = 27020, .players = 2, .capacity = 8, .key = pair.public_key, .name = "Rook", .mode = "Tag Bomb" };
-    const Host = struct {
-        fn answer(listening: *Responder, open: Game) void {
-            // The host's loop, answering for longer than the search waits.
-            for (0..80) |_| {
-                listening.poll(std.testing.io, open);
-                std.testing.io.sleep(.fromMilliseconds(10), .awake) catch return;
-            }
-        }
-    };
-    const thread = try std.Thread.spawn(.{}, Host.answer, .{ &responder, game });
-    defer thread.join();
+    publish(.{ .protocol = 37, .players = 2, .capacity = 8, .key = pair.public_key, .name = "Rook", .mode = "Tag Bomb" });
+    defer publish(null);
+
     var job: Job = .{};
     var progress: web.Progress = .{};
     var result = try job.run(io, &progress);
@@ -494,4 +646,5 @@ test "a search lists a host on this machine" {
     try std.testing.expectEqualStrings("Rook", result.rows[0].name);
     try std.testing.expectEqualStrings("Tag Bomb", result.rows[0].mode);
     try std.testing.expectEqual(37, result.rows[0].protocol.?);
+    try std.testing.expectEqual(game_port, (try identity.Invite.parse(result.rows[0].target)).address.getPort());
 }

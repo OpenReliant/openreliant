@@ -54,20 +54,34 @@ players with `EnumPlayers`. Joining a listed game opens its session by its insta
 (`directplay_join_session`, `0x004BC720`).
 
 OpenReliant has no DirectPlay. **Improvement:** it finds LAN games with its own UDP messages, in
-the same way. While the LAN list is shown, the browser sends a query to UDP port 27021 every 1.5
-seconds, and lists the answers that arrive within 0.6 seconds. It sends the query to loopback, to
+the same way, on the game's own port. A game uses one UDP port, for its pilots and for the LAN
+lists. While the LAN list is shown, the browser sends a query every 1.5 seconds to game ports
+27020 to 27027, and lists the answers that arrive within 0.6 seconds. A host on another port
+stays out of the lists and is joined by its address. The browser sends the query to loopback, to
 the limited broadcast address and to each IPv4 network's own broadcast address, since macOS
-refuses to send to the limited one. A query is padded to 128 bytes. A player-hosted game or a
-dedicated server answers from its host loop while it has a place for a new pilot, and only to
-senders on the local network (loopback, the private IPv4 ranges, link-local and unique local IPv6
-addresses). A host bound to loopback answers only queries from the same machine. The answer is
-never larger than the query. It holds the protocol revision, the game's port, the players and
-places, the host's public key, the game's name and the mode. A player-hosted game uses the host's
-call sign as its name, and a dedicated server its `Name`. The list shows each host once, as an
-invite to its game port, with the time the answer took as its ping, and checks its protocol
-revision as the Internet list does. It holds up to 64 games. A dedicated server with a managed
-identity isn't listed, since an invite needs the host's own key. **Unverified:** IPv6-only
-networks, since the query goes to IPv4 broadcast addresses.
+refuses to send to the limited one. A query is padded to 128 bytes.
+
+The game port's socket belongs to the transport, GameNetworkingSockets, which drops datagrams
+that aren't its own. A patch to it ([`lan-query.patch`](../../deps/transport/lan-query.patch))
+hands those from unknown senders to a handler instead, and sends back what the handler writes,
+never more than it received. The host's handler (`lan.answerQuery`) runs on the transport's
+thread, so the host's loop gives it the game to answer with as a copy (`lan.publish`).
+
+A player-hosted game or a dedicated server answers while it has a place for a new pilot, and only
+to senders on the local network (loopback, the private IPv4 ranges, link-local and unique local
+IPv6 addresses). A host bound to loopback answers only queries from the same machine. The answer
+is never larger than the query. It holds the protocol revision, the players and places, the
+host's public key, the game's name and the mode. A player-hosted game uses the host's call sign
+as its name, and a dedicated server its `Name`. The list shows each host once, as an invite to
+the address and port the answer came from, with the time the answer took as its ping, and checks
+its protocol revision as the Internet list does. It holds up to 64 games. A dedicated server with
+a managed identity isn't listed, since an invite needs the host's own key. **Unverified:**
+IPv6-only networks, since the query goes to IPv4 broadcast addresses.
+
+The browser and the Internet list's ping wait for a datagram with `lan.receiveWait`. On Windows
+it waits with the socket driver's poll request (`IOCTL_AFD_POLL`) and then receives, because Zig
+0.17's `Io` has no timed socket receive there. A receive that reports an earlier send to a
+closed port is skipped, and the wait goes on.
 
 ### Session lobby
 

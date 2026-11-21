@@ -1,0 +1,31 @@
+--- a/steamnetworkingsockets_udp.cpp
++++ b/steamnetworkingsockets_udp.cpp
+@@ -5,0 +6 @@
++#include <atomic>
+@@ -11,0 +13,12 @@
++
++// OpenReliant: a listen socket hands the caller the datagrams that are not the transport's own,
++// so that a host can answer the LAN lists' queries on its game port. The handler runs on the
++// transport's thread. It writes at most `capacity` bytes, never more than it was sent, and
++// returns how many to send back, or 0.
++typedef int (*OpenReliantDatagramHandler)( const uint8 *packet, int size, const uint8 *from, uint8 *answer, int capacity );
++static std::atomic<OpenReliantDatagramHandler> s_openReliantDatagramHandler;
++
++extern "C" void OpenReliant_SetDatagramHandler( OpenReliantDatagramHandler handler )
++{
++	s_openReliantDatagramHandler.store( handler );
++}
+@@ -257,0 +271,13 @@
++		if ( OpenReliantDatagramHandler handler = s_openReliantDatagramHandler.load() )
++		{
++			uint8 answer[ 512 ];
++			byte from[ 16 ];
++			adrFrom.GetIPV6( from );
++			int cbAnswer = handler( pPkt, cbPkt, from, answer, cbPkt < (int)sizeof( answer ) ? cbPkt : (int)sizeof( answer ) );
++			if ( cbAnswer > 0 && cbAnswer <= cbPkt && cbAnswer <= (int)sizeof( answer ) )
++			{
++				pSock->m_pSock->BSendRawPacket( answer, cbAnswer, adrFrom );
++				return;
++			}
++		}
++
