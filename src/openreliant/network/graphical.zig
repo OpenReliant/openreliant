@@ -734,7 +734,7 @@ fn applyFrame(pilot: *Graphical, flight: *FlightFrame, local: *game.create.Objec
         flight.stepEnding(types, now, pilot.sharedPaused());
         return;
     }
-    try flight.apply(&client.latest.?, client.joined.?, local, types);
+    try flight.present(&client.latest.?, client.joined.?, local, types, micros);
     if (client.scenery) |*scenery| {
         if (client.latest.?.scenario == scenery.scenario)
             try flight.presentScenery(scenery, types);

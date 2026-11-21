@@ -19,6 +19,13 @@ bomb_was_active: ?bool = null,
 shadow_was_active: ?bool = null,
 vampires_started: bool = false,
 host_ship_reuse: [wire.slots]u32 = @splat(0),
+/// The presentation timeline, which follows the host's ticks one step behind the newest
+/// snapshot, so a frame samples between two known places whatever the network did.
+play: Play = .{},
+/// Each pilot's last two snapshot places, between which it is drawn: the original's
+/// `node_frame_update` (`0x0049A460`) moved a remote player's ship between its last two
+/// messages' places by `simulation_counter`'s share of the step, and this stands in for it.
+motion: [wire.slots]Motion = @splat(.{}),
 scene_replica: wire.ScenePage.Replica = .{},
 lead_announced: bool = false,
 script_aim: u32 = 0,
@@ -56,6 +63,89 @@ projectiles: ?Projectiles = null,
 pub const DeathView = struct {
     started: i32,
     watching_from: ?engine.surrender.math.Vector,
+};
+
+/// The host's clock as the presentation follows it: the timeline holds the game ticks the
+/// newest snapshot has reached, less one step, and passes real time between frames toward it.
+/// The original had one clock for simulation and drawing (`simulation_counter`,
+/// `0x00588718`, the game ticks since the step began); the snapshots stand where its network
+/// messages did, and this timeline keeps their two places the right distance apart however
+/// they arrived.
+const Play = struct {
+    /// Where the timeline stands in game ticks: a whole tick and the part of the next.
+    ticks: f64 = 0,
+    /// The tick the newest snapshot reached, one step back.
+    target: f64 = 0,
+    /// The monotonic reading of the last frame that advanced the timeline.
+    frame: i64 = 0,
+    held: bool = false,
+
+    /// A snapshot arrived: follow its tick, one step behind.
+    fn arrive(play: *Play, snapshot_tick: u32, round_start: u32) void {
+        const reached = @as(f64, @floatFromInt((snapshot_tick -| round_start) *| game.gameobj.ticks_per_step));
+        play.target = reached - game.gameobj.ticks_per_step;
+        if (!play.held) {
+            play.ticks = play.target;
+            play.frame = 0;
+            play.held = true;
+        }
+    }
+
+    fn advance(play: *Play, now: i64) void {
+        if (!play.held) return;
+        const passed = @as(f64, @floatFromInt(@min(@max(now - play.frame, 0), 250 * std.time.us_per_ms))) /
+            std.time.us_per_s * game.main.ticks_per_second;
+        play.frame = now;
+        const gap = play.target - play.ticks;
+        // A stall or a new round moves the timeline at once; otherwise it passes time and
+        // closes a quarter of what gap remains, so early and late snapshots alike are absorbed.
+        const step: f64 = game.gameobj.ticks_per_step;
+        if (@abs(gap) > 3 * step) play.ticks = play.target else play.ticks += passed + gap * 0.25 * @min(passed, 1);
+    }
+};
+
+/// A ship's last two snapshot places and its velocity over them, from which every frame's
+/// drawing is taken.
+const Motion = struct {
+    from: engine.surrender.math.Place = .{},
+    to: engine.surrender.math.Place = .{},
+    /// The timeline's tick at which `to` becomes the place to cross to.
+    arrival: f64 = 0,
+    velocity: engine.surrender.math.Vector = @splat(0),
+    continuous: bool = false,
+
+    /// A new snapshot's place. A different ship is a cut, not motion through the space between.
+    fn update(motion: *Motion, place: engine.surrender.math.Place, velocity: engine.surrender.math.Vector, at: f64, same: bool) void {
+        motion.from = if (same) motion.to else place;
+        motion.to = place;
+        motion.arrival = at;
+        motion.velocity = velocity;
+        motion.continuous = same;
+    }
+
+    /// The ship's place on the timeline: between the two places up to the arrival, and past it
+    /// carried by its velocity until the next snapshot lands, as the original carried a ship
+    /// by the flight state its message held.
+    fn sample(motion: Motion, at: f64) engine.surrender.math.Place {
+        const factor: f32 = @floatCast((at - motion.arrival) / game.gameobj.ticks_per_step + 1);
+        if (!motion.continuous) return motion.to;
+        if (factor <= 0) return motion.from;
+        const from = motion.from;
+        const to = motion.to;
+        if (factor >= 1) {
+            const carried = (factor - 1) * (game.gameobj.ticks_per_step * @as(f32, 1) / game.main.ticks_per_second);
+            return .{
+                .position = to.position + motion.velocity * @as(engine.surrender.math.Vector, @splat(carried)),
+                .orientation = to.orientation,
+            };
+        }
+        const math = engine.surrender.math;
+        const turn = math.angles(math.product(math.transpose(from.orientation), to.orientation)) * @as(math.Vector, @splat(factor));
+        return .{
+            .position = math.lerp(from.position, to.position, factor),
+            .orientation = math.product(from.orientation, math.fromAngleVector(turn)),
+        };
+    }
 };
 
 const EndingScene = struct {
@@ -635,6 +725,74 @@ fn presentDarkReign(frame: *FlightFrame, scene: game.gameobj.World, view: wire.D
     if (scene.rays) |rays| rays.frame(all, scene.clock.frame_start, scene.effectsRandom());
 }
 
+/// Keep the simulation snapshots authoritative while the drawing follows the presentation
+/// timeline: each frame samples every ship between its last two snapshot places, and the
+/// clock-driven behaviour reads a clock that advances with the frames, as the original's
+/// mission loop advanced it (`frame_controls`, `0x00414060`).
+pub fn present(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wire.Admission, local: *game.create.Objects, types: game.create.Types, now: i64) !void {
+    const fresh = frame.tick == null or snapshot.tick != frame.tick.?;
+    if (fresh) {
+        frame.play.arrive(snapshot.tick, frame.round_start);
+        // `apply` reads the clock the previous frame left, which stands a frame behind the
+        // timeline: its starts and windows measure from where the drawing last was.
+        try frame.apply(snapshot, admission, local, types);
+        const all = frame.drawn.objects;
+        for (snapshot.ships, 0..) |entry, index| {
+            const ship = entry orelse {
+                frame.motion[index].continuous = false;
+                continue;
+            };
+            const slot = &all.slots[index];
+            const same = slot.object.created and frame.host_ship_reuse[index] == ship.reuse and slot.object.type == ship.kind();
+            const velocity: engine.surrender.math.Vector = if (slot.flight) |flight|
+                .{
+                    wire.dequantizeVelocity(ship.velocity[0], flight.max_speed),
+                    wire.dequantizeVelocity(ship.velocity[1], flight.max_speed),
+                    wire.dequantizeVelocity(ship.velocity[2], flight.max_speed),
+                }
+            else
+                @splat(0);
+            frame.motion[index].update(
+                .{ .position = ship.position, .orientation = ship.orientationMatrix() },
+                velocity,
+                frame.play.target,
+                same,
+            );
+        }
+    }
+    frame.play.advance(now);
+    setClock(frame, @intFromFloat(@max(frame.play.ticks, 0)));
+    const scene = frame.world();
+    const cockpit = game.camera.Cockpit;
+    frame.drawn.shake = @max(@min(frame.drawn.shake, cockpit.shake_most) - cockpit.shake_fade * @as(f32, @floatFromInt(scene.clock.frame_duration)), 0);
+    if (snapshot.ships[admission.slot]) |ship| if (ship.at_wall) {
+        frame.drawn.shake = 1;
+    };
+    if (scene.flash) |flash| flash.countDown(scene.clock.frame_duration);
+    if (scene.sparks) |sparks| sparks.frame(scene.clock);
+    for (&frame.motion, 0..) |*track, index| {
+        const slot = &frame.drawn.objects.slots[index];
+        if (!slot.object.created or !track.continuous) continue;
+        const place = track.sample(frame.play.ticks);
+        slot.drawn.position = place.position;
+        slot.drawn.orientation = place.orientation;
+        if (slot.model) |*model| model.place(place.position, place.orientation);
+    }
+}
+
+/// The drawn clock for a frame of the presentation timeline: the whole ticks it has reached,
+/// and the ticks this frame covers.
+fn setClock(frame: *FlightFrame, whole: u32) void {
+    const clock = &frame.drawn.clock;
+    const covered: i32 = @as(i32, @intCast(whole)) -| clock.mission_ticks;
+    clock.game_ticks = whole;
+    clock.mission_ticks = @intCast(whole);
+    clock.frame_start = clock.mission_ticks;
+    clock.frame_duration = covered;
+    clock.drawn_duration = covered;
+    clock.play = .fromTicks(whole);
+}
+
 pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wire.Admission, local: *game.create.Objects, types: game.create.Types) !void {
     if (frame.tick == snapshot.tick) return;
     const all = frame.drawn.objects;
@@ -663,19 +821,6 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         frame.drawn.display.readyPrompt(ready);
     }
     const scene = frame.world();
-    const ticks = (snapshot.tick -| frame.round_start) *| game.gameobj.ticks_per_step;
-    frame.drawn.clock.drawn_duration = if (frame.tick == null) game.gameobj.ticks_per_step else @intCast(@min(ticks -| frame.drawn.clock.game_ticks, std.math.maxInt(i32)));
-    frame.drawn.clock.game_ticks = ticks;
-    frame.drawn.clock.mission_ticks = @intCast(@min(ticks, std.math.maxInt(i32)));
-    frame.drawn.clock.frame_start = frame.drawn.clock.mission_ticks;
-    frame.drawn.clock.frame_duration = frame.drawn.clock.drawn_duration;
-    const cockpit = game.camera.Cockpit;
-    frame.drawn.shake = @max(@min(frame.drawn.shake, cockpit.shake_most) - cockpit.shake_fade * @as(f32, @floatFromInt(frame.drawn.clock.frame_duration)), 0);
-    if (snapshot.ships[admission.slot]) |ship| if (ship.at_wall) {
-        frame.drawn.shake = 1;
-    };
-    if (scene.flash) |flash| flash.countDown(scene.clock.frame_duration);
-    if (scene.sparks) |sparks| sparks.frame(scene.clock);
     if (snapshot.scenario != null and snapshot.scenario.?.hasPowerUps()) {
         try frame.presentPickups(snapshot.pickups);
     }
@@ -823,7 +968,6 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     frame.drawn.display.zoomRadar(scene);
     frame.drawn.display.finishGameFrame(scene);
     frame.drawn.display.messages.expire(frame.drawn.clock.frame_start);
-    frame.drawn.clock.play = .fromTicks(ticks);
     frame.tick = snapshot.tick;
 }
 
@@ -960,20 +1104,72 @@ test "the target panel opens and closes as flight snapshots advance" {
     snapshot.ships[0] = .{ .generation = 1, .position = @splat(0) };
     snapshot.ships[1] = .{ .generation = 2, .position = .{ 0, 0, 2000 } };
     try frame.apply(&snapshot, admission, local, no_models);
+    frame.play.arrive(snapshot.tick, frame.round_start);
     try std.testing.expect(engine.input.setPilotTarget(display, all, 0, 1, game.aigeneric.Target.whole, true));
     try std.testing.expectEqual(.opening, display.windows.status.get(.target).phase);
 
     // A duplicate view while paused must leave the window's phase alone.
     try frame.apply(&snapshot, admission, local, no_models);
     try std.testing.expectEqual(0, display.windows.status.get(.target).progress);
-    const animation_steps = std.math.divCeil(u32, game.hud.windows.opening_ticks, game.gameobj.ticks_per_step) catch unreachable;
-    snapshot.tick += animation_steps;
-    try frame.apply(&snapshot, admission, local, no_models);
-    try std.testing.expectEqual(.open, display.windows.status.get(.target).phase);
+    const tick_us = std.time.us_per_s / game.main.ticks_per_second;
+    var now: i64 = 0;
+    var opened = false;
+    for (0..100) |_| {
+        now += 5 * tick_us;
+        snapshot.tick += 1;
+        try frame.present(&snapshot, admission, local, no_models, now);
+        if (display.windows.status.get(.target).phase == .open) {
+            opened = true;
+            break;
+        }
+    }
+    try std.testing.expect(opened);
 
     try std.testing.expect(engine.input.setPilotTarget(display, all, 0, -1, game.aigeneric.Target.whole, true));
     try std.testing.expectEqual(.closing, display.windows.status.get(.target).phase);
-    snapshot.tick += animation_steps;
-    try frame.apply(&snapshot, admission, local, no_models);
-    try std.testing.expectEqual(.shut, display.windows.status.get(.target).phase);
+    var shut = false;
+    for (0..100) |_| {
+        now += 5 * tick_us;
+        snapshot.tick += 1;
+        try frame.present(&snapshot, admission, local, no_models, now);
+        if (display.windows.status.get(.target).phase == .shut) {
+            shut = true;
+            break;
+        }
+    }
+    try std.testing.expect(shut);
+}
+
+test "the presentation timeline follows the host one step behind" {
+    const step: f64 = game.gameobj.ticks_per_step;
+    var play: Play = .{};
+    play.arrive(10, 0);
+    try std.testing.expectEqual(9 * step, play.ticks);
+    // A step of time passes: the timeline reaches where the next snapshot will land.
+    play.advance(4 * std.time.us_per_s / game.main.ticks_per_second);
+    try std.testing.expectEqual(10 * step, play.ticks);
+    play.arrive(11, 0);
+    play.advance(8 * std.time.us_per_s / game.main.ticks_per_second);
+    try std.testing.expectEqual(11 * step, play.ticks);
+    // A round change or a stall moves the timeline at once rather than slewing through it.
+    play.arrive(100, 0);
+    play.advance(0);
+    try std.testing.expectEqual(99 * step, play.ticks);
+}
+
+test "a ship crosses between its last two places and carries past the arrival" {
+    const math = engine.surrender.math;
+    const start: math.Place = .{ .position = .{ 0, 0, 0 }, .orientation = math.rotation(.y, 0) };
+    const crossed: math.Place = .{ .position = .{ 40, 0, 0 }, .orientation = math.rotation(.y, 0) };
+    var motion: Motion = .{};
+    motion.update(start, @splat(0), 36, false);
+    motion.update(crossed, @splat(10), 40, true);
+    try std.testing.expectEqual(@as(f32, 0), motion.sample(36).position[0]);
+    try std.testing.expectEqual(@as(f32, 20), motion.sample(38).position[0]);
+    try std.testing.expectEqual(@as(f32, 40), motion.sample(40).position[0]);
+    // Past the arrival the ship is carried by its velocity: one step at ten a second is 0.4.
+    try std.testing.expectApproxEqAbs(@as(f32, 40.4), motion.sample(44).position[0], 0.001);
+    // A different ship cuts straight to its place.
+    motion.update(start, @splat(0), 44, false);
+    try std.testing.expectEqual(start.position, motion.sample(44).position);
 }

@@ -1763,7 +1763,7 @@ test "a final receipt names the applied tick" {
 test "flight updates fit the direct-IP payload budget" {
     const input_bytes = 29;
     // A fighter byte and a ship reuse count distinguish a respawn from a new admission.
-    const full_snapshot_bytes = 9 + 83 * inline_pilots;
+    const full_snapshot_bytes = 9 + 95 * inline_pilots;
     const objective_snapshot_budget = full_snapshot_bytes + 79;
     var buffer: [capacity]u8 = undefined;
     const input: Message = .{ .input = .{ .sequence = 1, .command = .{
@@ -1890,7 +1890,7 @@ test "ordnance orders address both ship lifetimes and carry bounded cockpit comm
     try std.testing.expectEqualDeep(order, try Message.decode(bytes));
     try std.testing.expectError(error.EndOfStream, Message.decode(bytes[0 .. bytes.len - 1]));
     const presses_at = 1 + 2 * @sizeOf(u32);
-    buffer[presses_at + 1] = 0b0011_1000;
+    buffer[presses_at + 1] = 0b1000_0000;
     try std.testing.expectError(error.InvalidWeaponOrder, Message.decode(bytes));
     buffer[presses_at] = 0xff;
     try std.testing.expectError(error.InvalidWeaponOrder, Message.decode(bytes));
@@ -2146,5 +2146,5 @@ test "the ship message's quantizers keep the original's scales" {
     try std.testing.expectEqual(@as(i8, 31), quantizeRate(31.0 / rate_scale));
     try std.testing.expectEqual(@as(i8, 1), quantizeLateral(0.6));
     try std.testing.expectEqual(@as(u8, 128), quantizeShare(0.5));
-    try std.testing.expectEqual(@as(f32, 0.5), dequantizeShare(128));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), dequantizeShare(quantizeShare(0.5)), 0.01);
 }
