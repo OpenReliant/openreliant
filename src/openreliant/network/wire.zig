@@ -2302,10 +2302,21 @@ fn readOwnFlight(r: *std.Io.Reader) !OwnFlight {
     const tick = try r.takeInt(i32, .little);
     const margin = try r.takeInt(i8, .little);
     var values: [3 + 9 + 3 + 1 + 3 + 3 + 6]f32 = undefined;
-    for (&values) |*value| value.* = @bitCast(try r.takeInt(u32, .little));
+    // The pilot's simulation takes this state as it is, so it gets the checks a snapshot's ship
+    // does: finite values, a facing whose parts a rotation can hold, and a throttle and fuel
+    // the flight model can reach.
+    for (&values) |*value| {
+        value.* = @bitCast(try r.takeInt(u32, .little));
+        if (!std.math.isFinite(value.*)) return error.InvalidOwnFlight;
+    }
+    for (values[3..12]) |part| if (@abs(part) > 1.01) return error.InvalidOwnFlight;
+    const motion = engine.game.motion;
+    for (values[23..25]) |throttle| {
+        if (throttle < motion.reverse_throttle or throttle > motion.afterburner_throttle) return error.InvalidOwnFlight;
+    }
     const fuel = try r.takeInt(i32, .little);
     const flags = try r.takeByte();
-    if (flags >> 4 != 0) return error.InvalidOwnFlight;
+    if (flags >> 4 != 0 or fuel < 0) return error.InvalidOwnFlight;
     return .{
         .tick = tick,
         .margin = margin,
@@ -2364,6 +2375,23 @@ test "an own flight state crosses the wire exactly" {
     var buffer: [capacity]u8 = undefined;
     const bytes = try (Message{ .own_flight = own }).encode(&buffer);
     try std.testing.expectEqualDeep(Message{ .own_flight = own }, try Message.decode(bytes));
+
+    // A state the simulation could not have reached is refused.
+    var bad = own;
+    bad.kinematics.position[1] = std.math.nan(f32);
+    try std.testing.expectError(error.InvalidOwnFlight, Message.decode(try (Message{ .own_flight = bad }).encode(&buffer)));
+    bad = own;
+    bad.kinematics.velocity[2] = std.math.inf(f32);
+    try std.testing.expectError(error.InvalidOwnFlight, Message.decode(try (Message{ .own_flight = bad }).encode(&buffer)));
+    bad = own;
+    bad.kinematics.orientation[4] = 3;
+    try std.testing.expectError(error.InvalidOwnFlight, Message.decode(try (Message{ .own_flight = bad }).encode(&buffer)));
+    bad = own;
+    bad.kinematics.throttle = 5;
+    try std.testing.expectError(error.InvalidOwnFlight, Message.decode(try (Message{ .own_flight = bad }).encode(&buffer)));
+    bad = own;
+    bad.kinematics.afterburner_fuel = -1;
+    try std.testing.expectError(error.InvalidOwnFlight, Message.decode(try (Message{ .own_flight = bad }).encode(&buffer)));
 }
 
 test "an input carries the steps flown before it" {

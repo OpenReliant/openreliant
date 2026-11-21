@@ -138,6 +138,21 @@ admission from the host, so a departure still identifies the right pilot if the 
 The lobby shows system lines in its chat log. The [multiplayer pause screen](pause-menu.md#multiplayer-9)
 keeps recent flight chat and pilot notices, including messages sent during a shared pause.
 
+### Connections waiting to join
+
+**Improvement:** a connection takes a pilot's slot only once it is admitted. Until then it waits
+in a table of its own, 16 entries, for at most 5 seconds: while it connects, sends its protocol
+revision and picks a ship. So connections that never join keep no pilot out. One origin, an IPv4
+address or an IPv6 /64, can have 4 connections waiting and start 4 a second, which leaves room
+for friends behind one router who join together. The host as a whole still starts 8 a second.
+Connections from the same machine are not held to the origin's limits. A player-hosted game keeps
+slot zero for its own pilot.
+
+A failure that concerns one pilot ends that pilot's connection alone: a message the host cannot
+act on, or a ship it cannot make on joining or respawning. The other pilots fly on. Limits for
+admitted pilots, such as how many one origin may fly, are part of
+[#1432](https://github.com/OpenReliant/openreliant/issues/1432).
+
 ### Text chat
 
 **Improvement:** the host relays lobby and flight chat for admitted pilots. Requests carry text
