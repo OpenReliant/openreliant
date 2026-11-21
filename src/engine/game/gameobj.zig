@@ -2124,6 +2124,8 @@ pub const World = struct {
     /// the host's views. It decides nothing: no shots, collisions, shield recharge, missiles or
     /// scripts run, since the host's views bring their outcomes.
     presentation_only: bool = false,
+    /// OpenReliant's: the spin-outs a client carries on (`aiexplode.SpinOuts`).
+    spin_outs: ?*@import("aiexplode.zig").SpinOuts = null,
     arena_options: @import("deathmatch.zig").Options = .{},
     /// How far the launch's hangar's beacons reach.
     hangar_beacons: objects.HangarBeacons = .to_the_ship,
@@ -2324,6 +2326,7 @@ pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool
             aigeneric.objectOrders(.{ .world = world, .devices = devices, .stepping = true }, index);
         }
     }
+    if (world.spin_outs) |outs| outs.step(world);
     create.objectsUpdate(world);
     if (world.presentation_only) return true;
     missiles.move(world.objects);

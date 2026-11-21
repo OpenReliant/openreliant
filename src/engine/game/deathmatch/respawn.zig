@@ -56,12 +56,12 @@ pub fn remaining(slot: *const create.Slot, now: i32) u16 {
     return @intCast(@min(duration, @max(0, slot.state.respawn_until -| now)));
 }
 
-fn phase(left: u16) f32 {
-    return @as(f32, @floatFromInt(left)) / duration;
+fn phase(left: f32) f32 {
+    return left / duration;
 }
 
 /// View 0x28 in `camera_frame` (0x0045FC90). The camera swings round toward the nose.
-pub fn camera(ship: math.Place, left: u16) math.Place {
+pub fn camera(ship: math.Place, left: f32) math.Place {
     const offset: math.Vector = .{ 0, 200, 1150 };
     const quarter_turn = std.math.pi / 2.0;
     const turn = math.rotation(.y, (1 - @sin(phase(left) * quarter_turn)) * std.math.pi);
@@ -72,7 +72,10 @@ pub fn camera(ship: math.Place, left: u16) math.Place {
 /// The fitted clipping plane and sweep from `mp_respawn_effect_create` (0x004B1170).
 pub const View = struct {
     mesh: ?srapiext.Mesh = null,
-    left: [@import("spawn.zig").positions]u16 = @splat(0),
+    /// Ticks the effect has left as of the drawn frame, between the ticks.
+    left: [@import("spawn.zig").positions]f32 = @splat(0),
+    /// OpenReliant's: the mission tick each effect ends on (0 for none), from the host's count.
+    until: [@import("spawn.zig").positions]i32 = @splat(0),
     portal_keys: [@import("spawn.zig").positions]srapiext.Portal = @splat(.{}),
 
     pub fn load(view: *View, gpa: std.mem.Allocator, textures: *srtexture.Table) !void {
@@ -84,13 +87,48 @@ pub const View = struct {
         if (view.mesh) |*mesh| mesh.deinit(gpa);
     }
 
-    fn sweep(slot: *const create.Slot, left: u16) math.Place {
+    fn sweep(slot: *const create.Slot, left: f32) math.Place {
         const eased = (1 - @cos(phase(left) * std.math.pi)) * 0.5;
         const depth = math.lerp(slot.object.bounds_min.z, slot.object.bounds_max.z, eased);
         return .{ .position = slot.drawn.point(.{ 0, 0, depth }), .orientation = slot.drawn.orientation };
     }
 
-    pub fn clip(view: *View, slot: *create.Slot, index: u16, portals: *xtrabits.Portals, left: u16) void {
+    /// A client takes the end of an effect from the host's snapshot: `ticks` after the
+    /// snapshot's `clock`, which counts as the host's does. True when this starts a new effect.
+    pub fn note(view: *View, index: u16, clock: i32, ticks: u16) bool {
+        const held = view.until[index];
+        if (ticks == 0) {
+            view.until[index] = 0;
+            return false;
+        }
+        const ends = clock + ticks;
+        view.until[index] = ends;
+        return held == 0 or ends > held + duration / 2;
+    }
+
+    pub fn forget(view: *View, index: u16) void {
+        view.until[index] = 0;
+    }
+
+    pub fn running(view: *const View, index: u16, mission_ticks: i32) bool {
+        return view.until[index] > mission_ticks;
+    }
+
+    /// A client's effects as of a drawn frame, `past_tick` of a tick past `mission_ticks`, by the
+    /// ends the snapshots gave, so the sweep and the camera move with the frames and not the
+    /// snapshots.
+    pub fn frame(view: *View, all: *create.Objects, portals: *xtrabits.Portals, mission_ticks: i32, past_tick: f32) void {
+        portals.begin();
+        defer portals.end();
+        for (0..view.left.len) |index| {
+            const slot = &all.slots[index];
+            const ahead = @as(f32, @floatFromInt(view.until[index] -% mission_ticks)) - past_tick;
+            const left = if (view.until[index] == 0 or !slot.object.created) 0 else std.math.clamp(ahead, 0, duration);
+            view.clip(slot, @intCast(index), portals, left);
+        }
+    }
+
+    pub fn clip(view: *View, slot: *create.Slot, index: u16, portals: *xtrabits.Portals, left: f32) void {
         const last = view.left[index];
         view.left[index] = left;
         const model = if (slot.model) |*model| model else return;
@@ -131,3 +169,22 @@ pub const View = struct {
         }
     }
 };
+
+test "a client counts an effect down by the host's end tick between snapshots" {
+    var view: View = .{};
+    try std.testing.expect(view.note(0, 1000, 300));
+    try std.testing.expectEqual(1300, view.until[0]);
+    // A later snapshot of the same effect agrees on the end and does not start another.
+    try std.testing.expect(!view.note(0, 1010, 290));
+    try std.testing.expect(view.running(0, 1299));
+    try std.testing.expect(!view.running(0, 1300));
+    // The camera starts behind the ship and swings round to its nose.
+    const ship: math.Place = .{ .position = .{ 0, 0, 0 }, .orientation = math.identity };
+    const start = camera(ship, 300).position;
+    const end = camera(ship, 0).position;
+    try std.testing.expectApproxEqAbs(@as(f32, 1150), start[2], 0.5);
+    try std.testing.expectApproxEqAbs(@as(f32, -1150), end[2], 0.5);
+    // A snapshot with none ends it; a new effect after it starts again.
+    try std.testing.expect(!view.note(0, 1100, 0));
+    try std.testing.expect(view.note(0, 2000, 300));
+}

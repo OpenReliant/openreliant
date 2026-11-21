@@ -595,6 +595,7 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
                 const score = all.player_states[index].membership.joined;
                 ship.* = last;
                 ship.*.?.dying = true;
+                ship.*.?.spin = null;
                 ship.*.?.kills = score.kills.count;
                 ship.*.?.deaths = score.deaths;
             };
@@ -639,6 +640,7 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
             .respawn = game.deathmatch.respawn.remaining(&all.slots[index], arena.mission.clock.frame_start),
             .at_wall = if (all.arena_boundary) |*boundary| boundary.outside(object.nextPosition()) else false,
             .dying = object.flags.exploding,
+            .spin = if (object.flags.exploding) game.aiexplode.spinning(&all.slots[index], arena.mission.clock.frame_start) else null,
             .pod = pod,
             .pod_clear = pod and all.slots[index].state.eject.stage != .clearing,
             .kamov = object.type.base() == .kamov,

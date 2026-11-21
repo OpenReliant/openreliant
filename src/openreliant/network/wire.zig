@@ -19,7 +19,7 @@ pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
 pub const CampaignCheckpoint = campaign.Checkpoint;
-pub const revision: u16 = 35;
+pub const revision: u16 = 36;
 pub const Team = engine.game.players.ArenaTeam;
 
 fn readTeam(reader: *std.Io.Reader) !Team {
@@ -406,6 +406,8 @@ pub const Ship = struct {
     targetable: bool = true,
     at_wall: bool = false,
     dying: bool = false,
+    /// How a spinning ship goes on, while it spins out.
+    spin: ?engine.game.aiexplode.Spin = null,
     pod: bool = false,
     pod_clear: bool = false,
     kamov: bool = false,
@@ -652,6 +654,12 @@ fn writeShips(w: *std.Io.Writer, ships: []const ?Ship, mode: Mode) !void {
             };
             try w.writeByte(@bitCast(flags));
             try w.writeInt(u16, ship.ping_ms orelse Ship.unknown_ping, .little);
+            if (ship.dying) {
+                const spin = ship.spin orelse std.mem.zeroes(engine.game.aiexplode.Spin);
+                try w.writeInt(u16, spin.left, .little);
+                try w.writeByte(spin.trail);
+                for (spin.turn) |angle| try w.writeInt(i16, angle, .little);
+            }
         }
         if (mode.scenario != null and mode.scenario.?.hasPowerUps()) try w.writeByte(@intFromBool(ship.cloaked));
     }
@@ -701,6 +709,12 @@ fn readShips(r: *std.Io.Reader, ships: []?Ship, mode: Mode) !void {
             ship.reverse_thrust = flags.reverse_thrust;
             const ping = try r.takeInt(u16, .little);
             ship.ping_ms = if (ping == Ship.unknown_ping) null else ping;
+            if (flags.dying) {
+                var spin: engine.game.aiexplode.Spin = .{ .left = try r.takeInt(u16, .little), .trail = try r.takeByte(), .turn = undefined };
+                for (&spin.turn) |*angle| angle.* = try r.takeInt(i16, .little);
+                if (!spin.valid()) return error.InvalidSnapshot;
+                if (spin.left != 0) ship.spin = spin;
+            }
         }
         if (mode.scenario != null and mode.scenario.?.hasPowerUps()) ship.cloaked = switch (try r.takeByte()) {
             0 => false,
@@ -1961,6 +1975,18 @@ test "asteroid views include the stock mode and keep absent rock slots" {
     scenery.rocks.angles[1] = null;
     scenery.mines[powerups.mine_count - 1] = .{ .position = .{ 100, 200, -300 }, .angles = .{ 10, -15, 20 }, .reuse = 19 };
     try std.testing.expectEqualDeep(scenery, (try Message.decode(try (Message{ .scenery = scenery }).encode(&buffer))).scenery);
+}
+
+test "a dying ship's spin-out round-trips and a spin past its longest is refused" {
+    var buffer: [capacity]u8 = undefined;
+    var view: Snapshot = .{ .tick = 7, .scenario = .asteroid_field, .ships = @splat(null) };
+    view.ships[0] = .{ .generation = 1, .position = @splat(0), .dying = true, .spin = .{ .left = 321, .trail = 40, .turn = .{ 100, -200, 32767 } } };
+    view.ships[1] = .{ .generation = 2, .position = @splat(0), .dying = true };
+    const bytes = try (Message{ .view = view }).encode(&buffer);
+    try std.testing.expectEqualDeep(view, (try Message.decode(bytes)).view);
+
+    view.ships[0].?.spin.?.left = engine.game.aiexplode.Spin.longest + 1;
+    try std.testing.expectError(error.InvalidSnapshot, Message.decode(try (Message{ .view = view }).encode(&buffer)));
 }
 
 test "ordnance orders address both ship lifetimes and carry bounded cockpit commands" {
