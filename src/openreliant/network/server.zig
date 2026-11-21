@@ -68,7 +68,7 @@ const Peer = struct {
     fire_for: ?u32 = null,
     /// Inputs tagged with the client's tick, waiting for the step that reaches it.
     timed: Timed = .{},
-    /// Ticks the pilot's newest input was ahead of the last step that needed it.
+    /// How long before its step was due the pilot's newest input arrived, in ticks of real time.
     margin: i8 = 0,
     presses: flight_input.Presses = .{},
     /// A MATCH SPEED press the next step flies.
@@ -839,6 +839,40 @@ test "directory joins are bound to the current advertised session" {
     try std.testing.expect(!host.acceptsSession(@splat(2)));
 }
 
+/// Measures how long before its step an input with a tick arrived. The host reads its
+/// connections once a step, so it goes by when the transport received the message (`arrived`),
+/// and by when the step reaching the input's tick is due: the step about to run is due a step
+/// before `next_step`, and reaches `mission_ticks` plus a step. The newest input's margin is
+/// what the pilot's clock keeps to its target (`FlightFrame.reconcile`). Overwatch (GDC 2017)
+/// keeps about a frame of inputs waiting and Rocket League (GDC 2018) asks for a buffer neither
+/// empty nor large; counted in whole steps, this one could not go below a step.
+fn noteArrival(host: *const Host, peer: *Peer, input: wire.Input, arrived: i64) void {
+    const tick = input.tick orelse return;
+    if (!host.acceptsFlight() or input.arena_floor != host.arena_floor or !input.follows(peer.sequence)) return;
+    if (peer.timed.newest) |newest| if (tick -% newest <= 0) return;
+    const reach = host.arena.mission.clock.mission_ticks + game.gameobj.ticks_per_step;
+    peer.margin = arrivalMargin(host.next_step - wire.step_us, reach, tick, arrived);
+}
+
+/// How long before its step an input reaching `tick` arrived, in ticks of real time, where the
+/// step reaching `reach` is due at `due`.
+fn arrivalMargin(due: i64, reach: i32, tick: i32, arrived: i64) i8 {
+    const step_due = due + @divTrunc(@as(i64, tick -% reach) * wire.step_us, game.gameobj.ticks_per_step);
+    const tick_us = std.time.us_per_s / game.main.ticks_per_second;
+    return @intCast(std.math.clamp(@divFloor(step_due - arrived, tick_us), std.math.minInt(i8), std.math.maxInt(i8)));
+}
+
+test "an input's margin is how long before its step it arrived" {
+    const due = 1_000_000;
+    // For the step about to run, 25 ms early and 15 ms late.
+    try std.testing.expectEqual(2, arrivalMargin(due, 400, 400, due - 25_000));
+    try std.testing.expectEqual(-2, arrivalMargin(due, 400, 400, due + 15_000));
+    // An input for the step after has that step's 40 ms more, and one for the step before less.
+    try std.testing.expectEqual(6, arrivalMargin(due, 400, 404, due - 25_000));
+    try std.testing.expectEqual(-2, arrivalMargin(due, 400, 396, due - 25_000));
+    try std.testing.expectEqual(std.math.maxInt(i8), arrivalMargin(due, 400, 4000, due));
+}
+
 fn acceptInput(host: *const Host, peer: *Peer, input: wire.Input, time: i64) void {
     if (!input.follows(peer.sequence)) return;
     peer.sequence = input.sequence;
@@ -941,11 +975,13 @@ fn service(host: *Host, slot: u8, time: i64) void {
     const peer = if (host.peers[slot]) |*peer| peer else return;
     var buf: [wire.capacity]u8 = undefined;
     for (0..packets_per_tick) |_| {
-        const message = host.channel().receive(peer.conn, &buf) catch |err| {
+        var age: i64 = 0;
+        const message = host.channel().receiveAged(peer.conn, &buf, &age) catch |err| {
             log.warn("a playing pilot's connection failed: {t}", .{err});
             host.remove(slot, host.final_tick == null, .rejected);
             return;
         } orelse break;
+        if (message == .input) host.noteArrival(peer, message.input, time - @max(age, 0));
         // Whatever goes wrong with one pilot's message, it is that pilot who leaves.
         const keep = host.receive(slot, peer, message, time) catch |err| failed: {
             if (err != error.SendFailed) log.warn("the message of the pilot in slot {d} failed: {t}", .{ slot, err });
@@ -1023,7 +1059,6 @@ fn applyControls(host: *Host, time: i64) void {
         const peer = if (entry.*) |*peer| peer else continue;
         if (peer.state != .playing or peer.sequence == null) continue;
         const reach = host.arena.mission.clock.mission_ticks + game.gameobj.ticks_per_step;
-        if (peer.timed.newest) |newest| peer.margin = @intCast(std.math.clamp(newest -% reach, std.math.minInt(i8), std.math.maxInt(i8)));
         const taken = peer.timed.take(reach);
         if (taken) |timed| {
             peer.flight_command = timed.command;
@@ -1154,6 +1189,7 @@ fn sendOwnFlight(host: *const Host, slot: u8, buffer: []u8) !void {
     const own: wire.OwnFlight = .{
         .tick = @intCast(host.arena.mission.clock.mission_ticks),
         .margin = host.peers[slot].?.margin,
+        .received = host.peers[slot].?.timed.newest orelse 0,
         .kinematics = .of(&all.slots[slot].object),
         .controls = all.player_states[slot].controls,
     };

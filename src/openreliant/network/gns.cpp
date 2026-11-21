@@ -129,9 +129,9 @@ extern "C" bool session_send(uint32_t conn, const uint8_t *bytes, int size, bool
     return openreliant::gns::send(conn, 0, bytes, size, reliable);
 }
 
-extern "C" int session_receive(uint32_t conn, uint8_t *bytes, int capacity) {
+extern "C" int session_receive(uint32_t conn, uint8_t *bytes, int capacity, int64_t *age) {
     uint16_t lane;
-    return openreliant::gns::receive(conn, bytes, capacity, lane);
+    return openreliant::gns::receive(conn, bytes, capacity, lane, age);
 }
 
 extern "C" uint8_t session_key() {
