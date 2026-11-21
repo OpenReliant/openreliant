@@ -1118,15 +1118,6 @@ fn keepClock(frame: *FlightFrame, snapshot: *const wire.Snapshot) void {
     if (frame.margin == null or stale) frame.owed_us = (target_lead - kept) * @as(f32, @floatFromInt(tick_us));
 }
 
-fn velocityOf(slot: *const game.create.Slot, ship: wire.Ship, orientation: engine.surrender.math.Matrix) Vector {
-    const flight_model = slot.flight orelse return engine.surrender.math.forward(orientation) * @as(Vector, @splat(ship.speed));
-    return .{
-        wire.dequantizeVelocity(ship.velocity[0], flight_model.max_speed),
-        wire.dequantizeVelocity(ship.velocity[1], flight_model.max_speed),
-        wire.dequantizeVelocity(ship.velocity[2], flight_model.max_speed),
-    };
-}
-
 /// Measures how far a ship the simulation carries on stood from the host's place at the same
 /// moment, the step at the snapshot's tick. The host flies the pilot's own inputs at the ticks
 /// the client flew them, so on its own ship the difference is only what neither predicted. The
@@ -1141,7 +1132,7 @@ fn correct(frame: *FlightFrame, index: u16, ship: wire.Ship, own: bool, snapshot
     const slot = &frame.drawn.objects.slots[index];
     const track = &frame.tracks[index];
     const orientation = ship.orientationMatrix();
-    const velocity = velocityOf(slot, ship, orientation);
+    const velocity: Vector = ship.velocity;
     const found = track.byTick(snapshot.clock);
     if (found) |entry| {
         const travel = math.length(entry.velocity);
@@ -1181,15 +1172,15 @@ fn resimulate(frame: *FlightFrame, index: u16, ship: wire.Ship, snapshot: *const
     const slot = &all.slots[index];
     const clock = &frame.drawn.clock;
     const orientation = ship.orientationMatrix();
-    const velocity = velocityOf(slot, ship, orientation);
+    const velocity: Vector = ship.velocity;
     const before = motion.Kinematics.of(&slot.object);
     const seen = math.product(before.orientation, frame.offsets[index].turn);
     game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = ship.position, .orientation = orientation });
     slot.object.velocity = .of(velocity);
     slot.object.speed = ship.speed;
-    slot.object.pitch_rate = wire.dequantizeRate(ship.rates[0]);
-    slot.object.yaw_rate = wire.dequantizeRate(ship.rates[1]);
-    slot.object.roll_rate = wire.dequantizeRate(ship.rates[2]);
+    slot.object.pitch_rate = ship.rates[0];
+    slot.object.yaw_rate = ship.rates[1];
+    slot.object.roll_rate = ship.rates[2];
     const scene = frame.world();
     var tick = snapshot.clock + game.gameobj.ticks_per_step;
     while (clock.mission_ticks -% tick >= 0) : (tick += game.gameobj.ticks_per_step) {
@@ -1385,7 +1376,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         if (carried_on) frame.correct(index, ship, own, snapshot) else {
             const orientation = ship.orientationMatrix();
             game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = ship.position, .orientation = orientation });
-            slot.object.velocity = .of(velocityOf(slot, ship, orientation));
+            slot.object.velocity = .of(ship.velocity);
             frame.tracks[index] = .{};
             frame.easing[index] = .{};
         }
@@ -1401,9 +1392,9 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
             slot.object.speed = ship.speed;
             slot.object.speed_factor = wire.dequantizeShare(ship.speed_factor);
             if (!echoed) {
-                slot.object.pitch_rate = wire.dequantizeRate(ship.rates[0]);
-                slot.object.yaw_rate = wire.dequantizeRate(ship.rates[1]);
-                slot.object.roll_rate = wire.dequantizeRate(ship.rates[2]);
+                slot.object.pitch_rate = ship.rates[0];
+                slot.object.yaw_rate = ship.rates[1];
+                slot.object.roll_rate = ship.rates[2];
                 slot.object.pitch_input = wire.dequantizeInput(ship.inputs[0]);
                 slot.object.yaw_input = wire.dequantizeInput(ship.inputs[1]);
                 slot.object.roll_input = wire.dequantizeInput(ship.inputs[2]);
@@ -1758,7 +1749,10 @@ test "a remote ship sweeps smoothly under the client's own simulation" {
     const admission: wire.Admission = .{ .slot = 0, .generation = 1 };
     var snapshot: wire.Snapshot = .{ .tick = 1, .ships = @splat(null) };
     snapshot.ships[0] = .{ .generation = 1, .position = @splat(0) };
-    snapshot.ships[1] = .{ .generation = 2, .position = @splat(0), .velocity = .{ 0, 0, 25 } };
+    // A ship's velocity is the distance it crosses a step (`motion.move`), so the snapshots
+    // carry the seeded pace forward.
+    const pace: f32 = 63;
+    snapshot.ships[1] = .{ .generation = 2, .position = @splat(0), .velocity = .{ 0, 0, pace } };
     var now: i64 = 0;
     try frame.present(&snapshot, admission, local, no_models, now);
     const remote = &frame.drawn.objects.slots[1];
@@ -1766,9 +1760,6 @@ test "a remote ship sweeps smoothly under the client's own simulation" {
     var frames: usize = 0;
     var largest_frame: f32 = 0;
     const frame_us = tick_us * 5 / 3;
-    // A ship's velocity is the distance it crosses a step (`motion.move`), so the snapshots
-    // carry the seeded pace forward, and the wire's quantization of it round-trips.
-    const pace = wire.dequantizeVelocity(25, if (remote.flight) |flight| flight.max_speed else 320);
     for (1..25) |round| {
         // A snapshot every step of forty milliseconds, frames every sixteen and two thirds as
         // a display at sixty a second shows them.
@@ -1780,7 +1771,7 @@ test "a remote ship sweeps smoothly under the client's own simulation" {
         if (behind) |entry| {
             snapshot.clock = entry.tick;
             snapshot.ships[1].?.position[2] = entry.position[2];
-            snapshot.ships[1].?.velocity = .{ 0, 0, wire.quantizeVelocity(entry.velocity[2], if (remote.flight) |flight| flight.max_speed else 320) };
+            snapshot.ships[1].?.velocity = .{ 0, 0, entry.velocity[2] };
         }
         for (0..6) |_| {
             now += frame_us;

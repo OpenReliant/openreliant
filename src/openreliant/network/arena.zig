@@ -627,16 +627,8 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
             .position = object.nextPosition(),
             .speed = object.speed,
             .throttle = object.last_throttle,
-            .velocity = if (slot.flight) |flight| .{
-                wire.quantizeVelocity(object.velocity.x, flight.max_speed),
-                wire.quantizeVelocity(object.velocity.y, flight.max_speed),
-                wire.quantizeVelocity(object.velocity.z, flight.max_speed),
-            } else @splat(0),
-            .rates = .{
-                wire.quantizeRate(object.pitch_rate),
-                wire.quantizeRate(object.yaw_rate),
-                wire.quantizeRate(object.roll_rate),
-            },
+            .velocity = object.velocity.vector(),
+            .rates = .{ object.pitch_rate, object.yaw_rate, object.roll_rate },
             .inputs = .{
                 wire.quantizeInput(object.pitch_input),
                 wire.quantizeInput(object.yaw_input),

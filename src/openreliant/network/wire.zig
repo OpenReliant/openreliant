@@ -19,7 +19,7 @@ pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
 pub const CampaignCheckpoint = campaign.Checkpoint;
-pub const revision: u16 = 38;
+pub const revision: u16 = 39;
 pub const Team = engine.game.players.ArenaTeam;
 
 fn readTeam(reader: *std.Io.Reader) !Team {
@@ -395,10 +395,15 @@ pub const Ship = struct {
     angles: Facing = @splat(0),
     speed: f32 = 0,
     throttle: f32 = 0,
-    // The original's ship update message carried these at the scales below, so a receiving
+    /// The ship's world velocity and its settled turn rates (pitch, yaw, roll), as the host's
+    /// simulation holds them. A client flies the ship on from this state at every snapshot, so
+    /// they travel exactly: a rounded state would set the two simulations apart each step
+    /// (Fiedler, "State Synchronization"). **Improvement:** the original's ship update message
+    /// (`0x004BB2D0`) held the velocity to 8 bits and each rate to 6.
+    velocity: [3]f32 = @splat(0),
+    rates: [3]f32 = @splat(0),
+    // The original's ship update message carried the inputs at the scale below, so a receiving
     // machine could keep flying the ship between its messages; the snapshots carry the same.
-    velocity: [3]i8 = @splat(0),
-    rates: [3]i8 = @splat(0),
     inputs: [3]i8 = @splat(0),
     lateral: i8 = 0,
     speed_factor: u8 = 255,
@@ -425,7 +430,7 @@ pub const Ship = struct {
 
     pub const unknown_ping = std.math.maxInt(u16);
 
-    const encoded_size = @sizeOf(u64) + @sizeOf(u32) + 1 + 13 * @sizeOf(f32) + 10 * @sizeOf(i8) + 2 * @sizeOf(u8) + 3 * @sizeOf(i16) + 3 * @sizeOf(i32) + 2 * @sizeOf(u16) + 2;
+    const encoded_size = @sizeOf(u64) + @sizeOf(u32) + 1 + 19 * @sizeOf(f32) + 4 * @sizeOf(i8) + 2 * @sizeOf(u8) + 3 * @sizeOf(i16) + 3 * @sizeOf(i32) + 2 * @sizeOf(u16) + 2;
 
     pub fn face(ship: *Ship, orientation: engine.surrender.math.Matrix) void {
         ship.angles = packFacing(orientation);
@@ -574,12 +579,11 @@ const ShipSpawn = packed struct(u16) {
     no_target: bool,
 };
 
-/// The scales of the original's ship update message (`0x004BB2D0`): `sr_round` against the
-/// inputs' 31.0 (`0x004dcae8`), the turn rates' 4.933803081512451 (`0x004dcae4`) and the
-/// velocity's 127.0 over the flight model's top speed (`0x004dc6a0`).
+/// The scale of the inputs in the original's ship update message (`0x004BB2D0`): `sr_round`
+/// against 31.0 (`0x004dcae8`). The message scales the turn rates by 4.933803081512451
+/// (`0x004dcae4`) and the velocity by 127.0 over the flight model's top speed (`0x004dc6a0`);
+/// the snapshots carry those two exactly (`Ship.velocity`).
 const input_scale: f32 = 31.0;
-const rate_scale: f32 = 4.933803081512451;
-const velocity_scale: f32 = 127.0;
 
 /// A steering input, held to the message's six bits.
 pub fn quantizeInput(value: f32) i8 {
@@ -588,24 +592,6 @@ pub fn quantizeInput(value: f32) i8 {
 
 pub fn dequantizeInput(quantized: i8) f32 {
     return @as(f32, @floatFromInt(quantized)) / input_scale;
-}
-
-/// A settled turn rate (`object_steer`'s), held to the message's six bits.
-pub fn quantizeRate(value: f32) i8 {
-    return @intFromFloat(std.math.clamp(@round(value * rate_scale), -input_scale, input_scale));
-}
-
-pub fn dequantizeRate(quantized: i8) f32 {
-    return @as(f32, @floatFromInt(quantized)) / rate_scale;
-}
-
-/// One component of the ship's world velocity against its flight model's top speed.
-pub fn quantizeVelocity(component: f32, max_speed: f32) i8 {
-    return @intFromFloat(std.math.clamp(@round(component * velocity_scale / max_speed), -velocity_scale, velocity_scale));
-}
-
-pub fn dequantizeVelocity(quantized: i8, max_speed: f32) f32 {
-    return @as(f32, @floatFromInt(quantized)) / velocity_scale * max_speed;
 }
 
 /// The lateral input, which `player_controls` leaves at one of three states.
@@ -635,8 +621,8 @@ fn writeShips(w: *std.Io.Writer, ships: []const ?Ship, mode: Mode) !void {
         for (ship.angles) |angle| try w.writeInt(i16, angle, .little);
         try writeFloat(w, ship.speed);
         try writeFloat(w, ship.throttle);
-        for (ship.velocity) |component| try w.writeInt(i8, component, .little);
-        for (ship.rates) |rate| try w.writeInt(i8, rate, .little);
+        try writePosition(w, ship.velocity);
+        try writePosition(w, ship.rates);
         for (ship.inputs) |input| try w.writeInt(i8, input, .little);
         try w.writeInt(i8, ship.lateral, .little);
         try w.writeByte(ship.speed_factor);
@@ -680,11 +666,8 @@ fn readShips(r: *std.Io.Reader, ships: []?Ship, mode: Mode) !void {
         for (&ship.angles) |*angle| angle.* = try r.takeInt(i16, .little);
         ship.speed = try readFloat(r);
         ship.throttle = try readFloat(r);
-        for (&ship.velocity) |*component| component.* = try r.takeInt(i8, .little);
-        for (&ship.rates) |*rate| {
-            rate.* = try r.takeInt(i8, .little);
-            if (@abs(rate.*) > input_scale) return error.InvalidSnapshot;
-        }
+        ship.velocity = try readPosition(r);
+        ship.rates = try readPosition(r);
         for (&ship.inputs) |*input| {
             input.* = try r.takeInt(i8, .little);
             if (@abs(input.*) > input_scale) return error.InvalidSnapshot;
@@ -1875,7 +1858,7 @@ test "flight updates fit the direct-IP payload budget" {
     // The command, and a byte for the step's presses and trigger.
     const input_bytes = 32;
     // A fighter byte and a ship reuse count distinguish a respawn from a new admission.
-    const full_snapshot_bytes = 13 + 95 * inline_pilots;
+    const full_snapshot_bytes = 13 + 113 * inline_pilots;
     const objective_snapshot_budget = full_snapshot_bytes + 79;
     var buffer: [capacity]u8 = undefined;
     const input: Message = .{ .input = .{ .sequence = 1, .command = .{
@@ -2242,8 +2225,8 @@ test "a snapshot carries a ship's motion state at the message's scales" {
     view.ships[1] = .{
         .generation = 5,
         .position = @splat(0),
-        .velocity = .{ 64, -64, 127 },
-        .rates = .{ 8, -8, 31 },
+        .velocity = .{ 64.25, -0.001, 1270.5 },
+        .rates = .{ 0.0125, -8, 3.5 },
         .inputs = .{ -31, 31, 0 },
         .lateral = -1,
         .speed_factor = 128,
@@ -2252,8 +2235,9 @@ test "a snapshot carries a ship's motion state at the message's scales" {
     var buffer: [capacity]u8 = undefined;
     const decoded = (try Message.decode(try (Message{ .view = view }).encode(&buffer))).view;
     const ship = decoded.ships[1].?;
-    try std.testing.expectEqualSlices(i8, &view.ships[1].?.velocity, &ship.velocity);
-    try std.testing.expectEqualSlices(i8, &view.ships[1].?.rates, &ship.rates);
+    // The velocity and the turn rates cross exactly.
+    try std.testing.expectEqual(view.ships[1].?.velocity, ship.velocity);
+    try std.testing.expectEqual(view.ships[1].?.rates, ship.rates);
     try std.testing.expectEqualSlices(i8, &view.ships[1].?.inputs, &ship.inputs);
     try std.testing.expectEqual(@as(i8, -1), ship.lateral);
     try std.testing.expectEqual(@as(u8, 128), ship.speed_factor);
@@ -2261,9 +2245,12 @@ test "a snapshot carries a ship's motion state at the message's scales" {
     view.ships[1].?.lateral = 2;
     try std.testing.expectError(error.InvalidSnapshot, Message.decode(try (Message{ .view = view }).encode(&buffer)));
     view.ships[1].?.lateral = 0;
-    view.ships[1].?.rates[0] = 40;
+    view.ships[1].?.rates[0] = std.math.inf(f32);
     try std.testing.expectError(error.InvalidSnapshot, Message.decode(try (Message{ .view = view }).encode(&buffer)));
     view.ships[1].?.rates[0] = 0;
+    view.ships[1].?.velocity[2] = std.math.nan(f32);
+    try std.testing.expectError(error.InvalidSnapshot, Message.decode(try (Message{ .view = view }).encode(&buffer)));
+    view.ships[1].?.velocity[2] = 0;
     view.ships[1].?.inputs[1] = 32;
     try std.testing.expectError(error.InvalidSnapshot, Message.decode(try (Message{ .view = view }).encode(&buffer)));
 }
@@ -2272,9 +2259,6 @@ test "the ship message's quantizers keep the original's scales" {
     try std.testing.expectEqual(@as(i8, 31), quantizeInput(1.0));
     try std.testing.expectEqual(@as(i8, -31), quantizeInput(-2.0));
     try std.testing.expectEqual(@as(i8, 16), quantizeInput(0.5));
-    try std.testing.expectEqual(@as(i8, 40), quantizeVelocity(100, 320));
-    try std.testing.expectApproxEqAbs(@as(f32, 100), dequantizeVelocity(quantizeVelocity(100, 320), 320), 3);
-    try std.testing.expectEqual(@as(i8, 31), quantizeRate(31.0 / rate_scale));
     try std.testing.expectEqual(@as(i8, 1), quantizeLateral(0.6));
     try std.testing.expectEqual(@as(u8, 128), quantizeShare(0.5));
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), dequantizeShare(quantizeShare(0.5)), 0.01);
