@@ -1454,6 +1454,7 @@ test {
 // --- The player's controls -----------------------------------------------------------------
 
 const gameobj = @import("game/gameobj.zig");
+const motion = @import("game/motion.zig");
 const players = @import("game/players.zig");
 const ship_devices = @import("game/ship_devices.zig");
 const create = @import("game/create.zig");
@@ -1598,11 +1599,17 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
     // A queued participant command takes precedence even for slot zero on a headless host.
     if (all.playerCommand(index)) |pending| {
         const command = pending.*;
-        pending.consumePresses();
+        // The command flies once a step, as each client flies its own ship, whatever ticks or
+        // frames the host runs: key ramps move per pass. Its presses wait for that pass.
+        if (ctx.stepping) pending.consumePresses();
         const state = &all.player_states[index];
         if (world.presentation_only) {
             // A multiplayer client only steers; the host's views bring targets, guns and devices.
+            // Match speed steers too: it is part of how the command flies the ship, which the
+            // client's own simulation must fly the same way (Rocket League GDC 2018).
+            if (!ctx.stepping) return;
             flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, command.flight, world.clock.frame_duration);
+            matchSpeedFor(world, index, command.match_speed, if (index == all.player) world.view() else .cockpit);
             flight.limitArenaThrottle(&slot.object);
             return;
         }
@@ -1621,8 +1628,12 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
         if (command.cockpit.sync_guns) slot.object.gun_mode.synchronised = !slot.object.gun_mode.synchronised;
         if (command.cockpit.full_guns) _ = guns.fullGuns(&slot.object, slot.guns, slot.gun_groups, slot.groupCount());
         if (command.cockpit.power) |preset| power.choose(&slot.object, preset);
-        flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, command.flight, world.clock.frame_duration);
-        matchSpeedFor(world, index, command.match_speed, if (index == all.player) world.view() else .cockpit);
+        if (ctx.stepping) flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, command.flight, world.clock.frame_duration);
+        const view: camera.View = if (index == all.player) world.view() else .cockpit;
+        // The target's speed is matched every pass, as each update runs it; the press
+        // toggles once a step, as a key press does at its own cadence (`0x00413410`).
+        matchTargetSpeed(&state.controls, all, index, view);
+        if (ctx.stepping) toggleMatchSpeed(world, index, &state.controls, command.match_speed, view);
         flight.limitArenaThrottle(&slot.object);
         for ([_]ship_devices.Device{ .ecm, .spectral_shields }) |kind| {
             if (command.devices.contains(kind)) ship_devices.toggle(world, index, kind);
@@ -1638,6 +1649,23 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
     playerControls(world.player, &state.controls, &state.shield_reserves, devices, &slot.object, combat, slot.orders[0].data.words[0..2], world.view(), world.clock.frame_duration);
     matchSpeed(world, devices);
     playerWeapons(world, devices, index);
+}
+
+/// One simulation step of a single ship, as `simulationStep` takes it: the step's place
+/// committed, the pilot's `command` flown as `playerControlOrder` flies it on a client, and the
+/// ship moved. Without a command the ship flies on by the inputs it holds. A client takes the
+/// steps again from a state the host sent, to bring its ships to the present by the same code
+/// that first flew them.
+pub fn stepShip(world: gameobj.World, index: u16, command: ?flight.Command, frame_duration: i32) void {
+    const all = world.objects;
+    const slot = &all.slots[index];
+    slot.object.root.commitNext();
+    if (command) |flown| if (slot.combat) |combat| {
+        const state = &all.player_states[index];
+        flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, flown, frame_duration);
+        flight.limitArenaThrottle(&slot.object);
+    };
+    motion.moveSlotWith(world, index, false);
 }
 
 /// `order_multiplayer_control` (`0x00414F70`): disables a ship once it is sent off.
@@ -2102,6 +2130,24 @@ fn fireGuns(world: gameobj.World, index: u16, held: bool, source: WeaponSource) 
     } else if (object.nova_charge > 0 and object.type.base().carriesNova()) {
         guns.nova.releaseWithFeedback(world, index, presents);
     }
+}
+
+/// The client's held trigger for its own ship, fired through the same gun path single player
+/// fires with: the bolt, its flash and its sound leave the muzzle at once, while the host alone
+/// decides what the shot does and what firing costs (Overwatch GDC 2017). The cloak rule stays
+/// out: that outcome is the host's word.
+pub fn predictOwnGuns(world: gameobj.World, index: u16, held: bool) void {
+    const all = world.objects;
+    const slot = &all.slots[index];
+    const object = &slot.object;
+    if (object.flags.stand_in or object.flags.disabled or object.flags.outOfFrame() or object.flags.jumping) return;
+    if (!held) return;
+    if (index == all.player) if (world.display) |display| {
+        _ = display.windows.open(.gunnery, false);
+    };
+    var trigger = slot.trigger(world.clock.frame_start);
+    if (index == all.player) trigger.shake = world.shake;
+    guns.fire(object, trigger, guns.held_ticks);
 }
 
 fn toggleLocalCloak(world: gameobj.World, index: u16) void {
@@ -3560,7 +3606,7 @@ test "participant commands steer either slot without reading local devices" {
             .flight = .{ .steering = .{ .keys = .{ .yaw = .positive } }, .throttle = .{ .keys = .{ .accelerate = true } }, .toggle_afterburner = true },
             .target = .{ .aim = .{ .object = .of(all, target) } },
         }));
-        multiplayerControlOrder(ctx, remote);
+        multiplayerControlOrder(ctx.inStep(), remote);
         try std.testing.expectApproxEqAbs(0.3, object.yaw_input, 1e-6);
         try std.testing.expectApproxEqAbs(0.27, object.throttle, 1e-6);
         try std.testing.expect(object.afterburner);
@@ -3569,7 +3615,7 @@ test "participant commands steer either slot without reading local devices" {
         try std.testing.expect(all.playerState(local).?.controls.matching_speed);
         try std.testing.expectEqual(null, display.target);
         // Continuous inputs repeat; the toggle and target selection have been consumed.
-        multiplayerControlOrder(ctx, remote);
+        multiplayerControlOrder(ctx.inStep(), remote);
         try std.testing.expectApproxEqAbs(0.6, object.yaw_input, 1e-6);
         try std.testing.expectApproxEqAbs(0.29, object.throttle, 1e-6);
         try std.testing.expect(object.afterburner);
@@ -3577,12 +3623,12 @@ test "participant commands steer either slot without reading local devices" {
         try std.testing.expectEqual(0, all.slots[local].object.yaw_input);
         // No command means the remote ship still does not take local input.
         state.command = null;
-        multiplayerControlOrder(ctx, remote);
-        playerControlOrder(ctx, remote);
+        multiplayerControlOrder(ctx.inStep(), remote);
+        playerControlOrder(ctx.inStep(), remote);
         try std.testing.expectApproxEqAbs(0.6, object.yaw_input, 1e-6);
         // The original remote order disables a ship once it has been sent off.
         object.flags.sent_off = true;
-        multiplayerControlOrder(ctx, remote);
+        multiplayerControlOrder(ctx.inStep(), remote);
         try std.testing.expect(object.flags.disabled);
     }
 }
@@ -3613,10 +3659,10 @@ test "queued targets reject a reused slot and invalid commands leave input intac
     create.resetSlot(mission.orders(), target);
     _ = try create.createObject(all, &mission.tables, create.testing.no_models, target, .of(.sabre), 0, .{ 0, 0, 5000 }, &mission.random);
     all.slots[target].object.flags.targetable = true;
-    multiplayerControlOrder(mission.orders(), second);
+    multiplayerControlOrder(mission.orders().inStep(), second);
     try std.testing.expectEqual(first, ai.controlEntry(all, second).?.target.slotIn(all));
     try std.testing.expectEqual(0.5, all.slots[second].object.throttle);
     try std.testing.expect(all.submitPlayerCommand(source, .{ .target = .clear }));
-    multiplayerControlOrder(mission.orders(), second);
+    multiplayerControlOrder(mission.orders().inStep(), second);
     try std.testing.expectEqual(null, ai.controlEntry(all, second).?.target.slotIn(all));
 }

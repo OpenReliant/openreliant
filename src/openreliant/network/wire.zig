@@ -19,7 +19,7 @@ pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
 pub const CampaignCheckpoint = campaign.Checkpoint;
-pub const revision: u16 = 33;
+pub const revision: u16 = 35;
 pub const Team = engine.game.players.ArenaTeam;
 
 fn readTeam(reader: *std.Io.Reader) !Team {
@@ -55,7 +55,7 @@ const team_scores_capacity = 1 + std.enums.values(Team).len * (@sizeOf(i32) + @s
 const arena_capacity = snapshot_header + team_scores_capacity + @max(DarkReign.encoded_size, Blast.encoded_size) + power_capacity;
 const campaign_capacity = snapshot_header - (inline_pilots - cooperative_slots) * (Ship.encoded_size - @sizeOf(u64)) + MissionView.capacity + CampaignCheckpoint.capacity;
 const roster_capacity = 8 + @sizeOf(u32) + slots * (@sizeOf(u64) + 2 + @as(CallSign, .{}).bytes.len);
-pub const capacity = @max(@max(beacon_snapshot_capacity, arena_capacity, campaign_capacity) + ordnance.Status.capacity, roster_capacity, PilotPage.capacity, Combat.capacity, ordnance.Page.capacity, ScenePage.capacity, Scenery.capacity);
+pub const capacity = @max(@max(beacon_snapshot_capacity, arena_capacity, campaign_capacity) + ordnance.Status.capacity, roster_capacity, PilotPage.capacity, Combat.capacity, ordnance.Page.capacity, ScenePage.capacity, Scenery.capacity, Commands.capacity);
 comptime {
     std.debug.assert(capacity < 1200);
     std.debug.assert(slots <= PilotPage.width * (PilotPage.max_extra + 1));
@@ -77,12 +77,47 @@ pub const Input = struct {
     /// the step reaching the same tick, so both simulations steer alike. Without one, the host
     /// flies it from its next step.
     tick: ?i32 = null,
+    /// The steps flown just before `tick`, oldest first, sent again so a lost packet costs the
+    /// host none of them.
+    earlier: [redundancy]Flown = @splat(.{ .tick = 0, .command = .{} }),
+    earlier_count: u8 = 0,
+
+    pub const redundancy = 3;
 
     /// Compare serial numbers across a wrap. The half-range is ambiguous.
     pub fn follows(input: Input, previous: ?u32) bool {
         const accepted = previous orelse return true;
         return @as(i32, @bitCast(input.sequence -% accepted)) > 0;
     }
+};
+/// A step the client flew: the mission tick it reached and the command it flew.
+pub const Flown = struct { tick: i32, command: flight.Command };
+
+/// Every pilot's held flight command at the step reaching `tick`, exactly as the host flew it,
+/// so each client's simulation carries the other pilots' ships by their real commands instead of
+/// the snapshot's quantized echo of them (Rocket League GDC 2018).
+pub const Commands = struct {
+    /// The most `flight_input.write` gives one command: a tag and three axes of steering, a tag
+    /// and an axis of throttle, a strafe direction, and a drive byte.
+    pub const command_capacity = 1 + 3 * @sizeOf(f32) + 1 + @sizeOf(f32) + 2;
+    pub const capacity = 1 + @sizeOf(i32) + slots * command_capacity;
+
+    tick: i32,
+    /// Which slots carry a command the host flew; a slot with none, a host's own local player
+    /// among them, keeps its snapshot echo.
+    carried: u8 = 0,
+    held: [slots]flight.Command = @splat(.{}),
+};
+
+/// The host's exact state of a pilot's own ship at the end of the step reaching `tick`, which
+/// the pilot's simulation takes up and flies its later inputs on from.
+pub const OwnFlight = struct {
+    tick: i32,
+    /// How many ticks before the host's step needed it the pilot's newest input arrived: the
+    /// pilot's clock runs faster below the target and slower above it.
+    margin: i8,
+    kinematics: engine.game.motion.Kinematics,
+    controls: flight.State,
 };
 pub const Admission = struct { slot: u8, generation: u64 };
 pub const Joined = struct {
@@ -1154,6 +1189,8 @@ pub const Message = union(enum(u8)) {
     campaign_movie_done: u32,
     mission_music: MissionMusic,
     flight_ready: u32,
+    own_flight: OwnFlight,
+    commands: Commands,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -1176,6 +1213,12 @@ pub const Message = union(enum(u8)) {
                 try w.writeInt(u32, input.arena_floor, .little);
                 try w.writeByte(@intFromBool(input.tick != null));
                 if (input.tick) |tick| try w.writeInt(i32, tick, .little);
+                if (input.earlier_count > Input.redundancy) return error.InvalidInput;
+                try w.writeByte(input.earlier_count);
+                for (input.earlier[0..input.earlier_count]) |flown| {
+                    try w.writeInt(i32, flown.tick, .little);
+                    try flight_input.write(&w, flown.command);
+                }
                 try flight_input.write(&w, input.command);
                 if (input.fire_for) |reuse| try w.writeInt(u32, reuse, .little);
             },
@@ -1227,6 +1270,12 @@ pub const Message = union(enum(u8)) {
             },
             .leave => {},
             .received_final, .campaign_end, .campaign_retired, .campaign_movie, .campaign_movie_done, .flight_ready => |tick| try w.writeInt(u32, tick, .little),
+            .own_flight => |own| try writeOwnFlight(&w, own),
+            .commands => |commands| {
+                try w.writeInt(i32, commands.tick, .little);
+                try w.writeByte(commands.carried);
+                for (commands.held) |command| try flight_input.write(&w, command);
+            },
             .flight_press => |presses| try w.writeByte(@bitCast(presses)),
             .roster => |roster| {
                 try writeMode(&w, roster.lobby, roster.mission != null);
@@ -1343,17 +1392,27 @@ pub const Message = union(enum(u8)) {
             },
             .joined => .{ .joined = .{ .admission = try readAdmission(&r), .arena_floor = try r.takeInt(u32, .little) } },
             .campaign_seat => .{ .campaign_seat = try readAdmission(&r) },
-            .input => .{ .input = .{
-                .sequence = try r.takeInt(u32, .little),
-                .arena_floor = try r.takeInt(u32, .little),
-                .tick = switch (try r.takeByte()) {
-                    0 => null,
-                    1 => try r.takeInt(i32, .little),
-                    else => return error.InvalidInput,
-                },
-                .command = try flight_input.read(&r),
-                .fire_for = if (r.bufferedLen() == 0) null else try r.takeInt(u32, .little),
-            } },
+            .input => input: {
+                var input: Input = .{
+                    .sequence = try r.takeInt(u32, .little),
+                    .arena_floor = try r.takeInt(u32, .little),
+                    .tick = switch (try r.takeByte()) {
+                        0 => null,
+                        1 => try r.takeInt(i32, .little),
+                        else => return error.InvalidInput,
+                    },
+                    .command = undefined,
+                };
+                input.earlier_count = try r.takeByte();
+                if (input.earlier_count > Input.redundancy) return error.InvalidInput;
+                for (input.earlier[0..input.earlier_count]) |*flown| flown.* = .{
+                    .tick = try r.takeInt(i32, .little),
+                    .command = try flight_input.read(&r),
+                };
+                input.command = try flight_input.read(&r);
+                input.fire_for = if (r.bufferedLen() == 0) null else try r.takeInt(u32, .little);
+                break :input .{ .input = input };
+            },
             .view, .finished, .campaign_result => snapshot: {
                 const tick = try r.takeInt(u32, .little);
                 const clock = try r.takeInt(i32, .little);
@@ -1433,6 +1492,8 @@ pub const Message = union(enum(u8)) {
             .campaign_movie => .{ .campaign_movie = try r.takeInt(u32, .little) },
             .campaign_movie_done => .{ .campaign_movie_done = try r.takeInt(u32, .little) },
             .flight_ready => .{ .flight_ready = try r.takeInt(u32, .little) },
+            .own_flight => .{ .own_flight = try readOwnFlight(&r) },
+            .commands => .{ .commands = try readCommands(&r) },
             .flight_press => presses: {
                 const value: flight_input.Presses = @bitCast(try r.takeByte());
                 if (value.reserved != 0 or !value.any()) return error.InvalidFlightInput;
@@ -1784,7 +1845,7 @@ test "a final receipt names the applied tick" {
 }
 
 test "flight updates fit the direct-IP payload budget" {
-    const input_bytes = 30;
+    const input_bytes = 31;
     // A fighter byte and a ship reuse count distinguish a respawn from a new admission.
     const full_snapshot_bytes = 13 + 95 * inline_pilots;
     const objective_snapshot_budget = full_snapshot_bytes + 79;
@@ -2170,4 +2231,97 @@ test "the ship message's quantizers keep the original's scales" {
     try std.testing.expectEqual(@as(i8, 1), quantizeLateral(0.6));
     try std.testing.expectEqual(@as(u8, 128), quantizeShare(0.5));
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), dequantizeShare(quantizeShare(0.5)), 0.01);
+}
+
+fn writeOwnFlight(w: *std.Io.Writer, own: OwnFlight) !void {
+    const k = own.kinematics;
+    try w.writeInt(i32, own.tick, .little);
+    try w.writeInt(i8, own.margin, .little);
+    for (k.position ++ k.orientation ++ k.velocity ++ [_]f32{k.speed} ++ k.rates ++ k.inputs ++
+        [_]f32{ k.lateral_input, k.throttle, k.last_throttle, k.speed_factor, own.controls.throttle, own.controls.throttle_before_match }) |value|
+        try w.writeInt(u32, @bitCast(value), .little);
+    try w.writeInt(i32, k.afterburner_fuel, .little);
+    try w.writeByte(@as(u8, @intFromBool(k.afterburner)) | @as(u8, @intFromBool(k.reverse_thrust)) << 1 |
+        @as(u8, @intFromBool(own.controls.matching_speed)) << 2 | @as(u8, @intFromBool(own.controls.afterburner_toggled)) << 3);
+}
+
+fn readOwnFlight(r: *std.Io.Reader) !OwnFlight {
+    const tick = try r.takeInt(i32, .little);
+    const margin = try r.takeInt(i8, .little);
+    var values: [3 + 9 + 3 + 1 + 3 + 3 + 6]f32 = undefined;
+    for (&values) |*value| value.* = @bitCast(try r.takeInt(u32, .little));
+    const fuel = try r.takeInt(i32, .little);
+    const flags = try r.takeByte();
+    if (flags >> 4 != 0) return error.InvalidOwnFlight;
+    return .{
+        .tick = tick,
+        .margin = margin,
+        .kinematics = .{
+            .position = values[0..3].*,
+            .orientation = values[3..12].*,
+            .velocity = values[12..15].*,
+            .speed = values[15],
+            .rates = values[16..19].*,
+            .inputs = values[19..22].*,
+            .lateral_input = values[22],
+            .throttle = values[23],
+            .last_throttle = values[24],
+            .speed_factor = values[25],
+            .afterburner_fuel = fuel,
+            .afterburner = flags & 1 != 0,
+            .reverse_thrust = flags & 2 != 0,
+        },
+        .controls = .{
+            .throttle = values[26],
+            .throttle_before_match = values[27],
+            .matching_speed = flags & 4 != 0,
+            .afterburner_toggled = flags & 8 != 0,
+        },
+    };
+}
+
+fn readCommands(r: *std.Io.Reader) !Commands {
+    var commands: Commands = .{ .tick = try r.takeInt(i32, .little) };
+    commands.carried = try r.takeByte();
+    for (&commands.held) |*command| command.* = try flight_input.read(r);
+    return commands;
+}
+
+test "an own flight state crosses the wire exactly" {
+    const own: OwnFlight = .{
+        .tick = 1234,
+        .margin = -3,
+        .kinematics = .{
+            .position = .{ 1.5, -2.25, 1e6 },
+            .orientation = .{ 0, 1, 0, -1, 0, 0, 0, 0, 1 },
+            .velocity = .{ 0.1, 0.2, -300 },
+            .speed = 300.125,
+            .rates = .{ 0.01, -0.02, 0.03 },
+            .inputs = .{ 1, -0.5, 0 },
+            .lateral_input = 0.25,
+            .throttle = 0.75,
+            .last_throttle = 0.5,
+            .speed_factor = 1,
+            .afterburner_fuel = 4321,
+            .afterburner = true,
+            .reverse_thrust = false,
+        },
+        .controls = .{ .throttle = 0.75, .matching_speed = true, .throttle_before_match = 0.3, .afterburner_toggled = true },
+    };
+    var buffer: [capacity]u8 = undefined;
+    const bytes = try (Message{ .own_flight = own }).encode(&buffer);
+    try std.testing.expectEqualDeep(Message{ .own_flight = own }, try Message.decode(bytes));
+}
+
+test "an input carries the steps flown before it" {
+    var input: Input = .{ .sequence = 7, .command = .{}, .tick = 40 };
+    input.earlier[0] = .{ .tick = 32, .command = .{} };
+    input.earlier[1] = .{ .tick = 36, .command = .{} };
+    input.earlier_count = 2;
+    var buffer: [capacity]u8 = undefined;
+    const decoded = (try Message.decode(try (Message{ .input = input }).encode(&buffer))).input;
+    try std.testing.expectEqual(2, decoded.earlier_count);
+    try std.testing.expectEqual(32, decoded.earlier[0].tick);
+    try std.testing.expectEqual(36, decoded.earlier[1].tick);
+    try std.testing.expectEqual(40, decoded.tick.?);
 }

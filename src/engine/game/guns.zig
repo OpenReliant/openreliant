@@ -2040,8 +2040,9 @@ fn hullSparks(world: gameobj.World, index: u16, at: Vector) void {
     }
 }
 
-/// Start a drawn copy of a host shot. Replica bolts have no collision candidates.
-pub fn showShot(world: gameobj.World, shot: FlightEffect.Shot) void {
+/// Start a drawn copy of a host shot. Replica bolts have no collision candidates. `sound` is
+/// off when the shot replaces a bolt the client already spoke for at the muzzle.
+pub fn showShot(world: gameobj.World, shot: FlightEffect.Shot, sound: bool) void {
     const all = world.objects;
     const bullets = &all.bullets;
     const looks = bullets.looks orelse return;
@@ -2063,7 +2064,7 @@ pub fn showShot(world: gameobj.World, shot: FlightEffect.Shot) void {
     };
     dress(bullet, looks, world.effectsRandom(), math.lookAt(shot.velocity));
     bullets.lightShot(player, shot.index);
-    shotSound(world, shot.index, bullet.kind, bullet.stats(&all.gun_stats).sound, player);
+    if (sound) shotSound(world, shot.index, bullet.kind, bullet.stats(&all.gun_stats).sound, player);
 }
 
 /// End the matching visual bolt and show the impact on its original ship, if it still exists.

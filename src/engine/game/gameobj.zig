@@ -2321,7 +2321,7 @@ pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool
         const slot = &all.slots[index];
         const remote = slot.running(.multiplayer_control) != null and all.playerCommand(index) != null;
         if (slot.running(.player_control) != null or remote) {
-            aigeneric.objectOrders(.{ .world = world, .devices = devices }, index);
+            aigeneric.objectOrders(.{ .world = world, .devices = devices, .stepping = true }, index);
         }
     }
     create.objectsUpdate(world);

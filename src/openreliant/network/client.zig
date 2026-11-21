@@ -54,10 +54,19 @@ sequence: u32 = 0,
 next_input: i64 = 0,
 /// The tick of the last input the client's own step flew, which a keep-alive repeats.
 flown_tick: ?i32 = null,
+/// The steps this pilot flew, oldest first: resent with each input and replayed over the host's
+/// state of the ship.
+flown: History = .{},
+/// The newest host state of this pilot's ship not yet taken up by the simulation.
+own_flight: ?wire.OwnFlight = null,
+/// The host's newest per-step echo of every pilot's command, taken by the flight frame.
+commands: ?wire.Commands = null,
 leaving: bool = false,
 briefed: bool = false,
 flight_command: flight.Command = .{},
 fire_primary: bool = false,
+/// The MATCH SPEED press the local simulation has yet to fly.
+match_press: bool = false,
 weapons: ?wire.ordnance.Order = null,
 sent_aim: ?wire.ordnance.Aim = null,
 projectiles: [wire.ordnance.Page.pages]?wire.ordnance.Page = @splat(null),
@@ -185,11 +194,12 @@ pub fn sendFlown(client: *Client, now: i64, tick: i32, command: flight.Command) 
     if (client.joined == null or client.leaving) return;
     client.flown_tick = tick;
     client.flight_command = command;
+    client.flown.push(.{ .tick = tick, .command = command });
     try client.sendInput(now, command, tick);
 }
 
 fn sendInput(client: *Client, now: i64, command: flight.Command, tick: ?i32) !void {
-    try net.send(client.conn, .{ .input = .{
+    var input: wire.Input = .{
         .sequence = client.sequence,
         .arena_floor = client.roster.arena_floor,
         .command = command,
@@ -198,7 +208,15 @@ fn sendInput(client: *Client, now: i64, command: flight.Command, tick: ?i32) !vo
             if (client.latest.?.ships[client.joined.?.slot]) |ship| ship.reuse else null
         else
             null,
-    } });
+    };
+    // Each input carries the steps before it, so the host loses none to a dropped packet
+    // (Overwatch GDC 2017).
+    if (tick) |newest| {
+        const earlier = client.flown.before(newest, wire.Input.redundancy);
+        @memcpy(input.earlier[0..earlier.len], earlier);
+        input.earlier_count = @intCast(earlier.len);
+    }
+    try net.send(client.conn, .{ .input = input });
     if (client.presses.any()) {
         try net.send(client.conn, .{ .flight_press = client.presses });
         client.presses = .{};
@@ -223,6 +241,8 @@ pub fn setFlight(client: *Client, command: flight.Command) void {
 pub fn releaseFlight(client: *Client) void {
     client.flight_command = flight_input.release(client.flight_command);
     client.flown_tick = null;
+    client.flown = .{};
+    client.own_flight = null;
     client.presses = .{};
     client.fire_primary = false;
     if (client.weapons) |*pending| {
@@ -455,6 +475,18 @@ pub fn poll(client: *Client, io: Io) !Event {
             client.leaving = true;
             return .campaign_retired;
         },
+        .own_flight => |own| {
+            if (client.joined == null or client.leaving or client.result_tick != null) return .idle;
+            if (client.own_flight) |held| if (own.tick -% held.tick <= 0) return .idle;
+            client.own_flight = own;
+            return .idle;
+        },
+        .commands => |commands| {
+            if (client.joined == null or client.leaving or client.result_tick != null) return .idle;
+            if (client.commands) |held| if (commands.tick -% held.tick <= 0) return .idle;
+            client.commands = commands;
+            return .idle;
+        },
         .view, .finished, .campaign_result => |view| {
             if (client.joined == null) {
                 // Flight updates can arrive before the reliable admission.
@@ -476,6 +508,50 @@ pub fn poll(client: *Client, io: Io) !Event {
         },
         else => return error.UnexpectedMessage,
     }
+}
+
+pub const History = struct {
+    pub const length = 64;
+    entries: [length]wire.Flown = undefined,
+    count: usize = 0,
+
+    fn push(history: *History, flown: wire.Flown) void {
+        if (history.count == length) {
+            std.mem.copyForwards(wire.Flown, history.entries[0 .. length - 1], history.entries[1..]);
+            history.count -= 1;
+        }
+        history.entries[history.count] = flown;
+        history.count += 1;
+    }
+
+    /// Up to `limit` steps flown just before `tick`, oldest first.
+    fn before(history: *const History, tick: i32, limit: usize) []const wire.Flown {
+        var end = history.count;
+        while (end > 0 and history.entries[end - 1].tick -% tick >= 0) end -= 1;
+        return history.entries[end -| limit..end];
+    }
+
+    /// The steps flown after `tick`, oldest first, and forgets the rest.
+    pub fn after(history: *History, tick: i32) []const wire.Flown {
+        var start: usize = 0;
+        while (start < history.count and history.entries[start].tick -% tick <= 0) start += 1;
+        std.mem.copyForwards(wire.Flown, history.entries[0 .. history.count - start], history.entries[start..history.count]);
+        history.count -= start;
+        return history.entries[0..history.count];
+    }
+};
+
+test "the flown history hands out the steps before and after a tick" {
+    var history: History = .{};
+    var tick: i32 = 4;
+    while (tick <= 40) : (tick += 4) history.push(.{ .tick = tick, .command = .{} });
+    const earlier = history.before(40, 3);
+    try std.testing.expectEqual(3, earlier.len);
+    try std.testing.expectEqual(28, earlier[0].tick);
+    try std.testing.expectEqual(36, earlier[2].tick);
+    const later = history.after(32);
+    try std.testing.expectEqual(2, later.len);
+    try std.testing.expectEqual(36, later[0].tick);
 }
 
 const PendingView = struct { view: wire.Snapshot, delivery: enum { flight, final, debrief } };
@@ -534,6 +610,7 @@ pub fn run(client: *Client, io: Io, address: [:0]const u8, controls: Controls, l
 }
 
 pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !void {
+    if (client.call_sign == null) client.call_sign = wire.lobbyName("Rook");
     var steering: Steering = switch (controls) {
         .keyboard => .straight,
         .fixed => |value| value,

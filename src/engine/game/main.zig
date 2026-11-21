@@ -3538,7 +3538,7 @@ test "a headless host builds a lock for the requesting pilot and launches only w
     const launch_missile: @import("players.zig").WeaponCommand = .{ .launch_missile = true };
 
     try std.testing.expect(all.submitPlayerCommand(source, .{ .weapons = launch_missile }));
-    input.multiplayerControlOrder(ctx, shooter);
+    input.multiplayerControlOrder(ctx.inStep(), shooter);
     try std.testing.expectEqual(0, stage.armed.live());
     for (0..21) |_| runLock(world);
     try std.testing.expect(state.weapons.lock.locked());
@@ -3546,14 +3546,14 @@ test "a headless host builds a lock for the requesting pilot and launches only w
 
     // Changing targets and launching in one command cannot spend the old lock on the new target.
     try std.testing.expect(all.submitPlayerCommand(source, .{ .weapons = launch_missile, .target = .{ .aim = .{ .object = .of(all, other) } } }));
-    input.multiplayerControlOrder(ctx, shooter);
+    input.multiplayerControlOrder(ctx.inStep(), shooter);
     try std.testing.expectEqual(0, stage.armed.live());
     try std.testing.expectEqual(1, state.weapons.ring.armedEntry().count);
 
     for (0..40) |_| runLock(world);
     try std.testing.expect(state.weapons.lock.locked());
     try std.testing.expect(all.submitPlayerCommand(source, .{ .weapons = launch_missile }));
-    input.multiplayerControlOrder(ctx, shooter);
+    input.multiplayerControlOrder(ctx.inStep(), shooter);
     try std.testing.expectEqual(1, stage.armed.live());
     const missile = stage.armed.missile(0);
     try std.testing.expectEqual(shooter, missile.launcherIn(all));
@@ -3564,7 +3564,7 @@ test "a headless host builds a lock for the requesting pilot and launches only w
 
     // Rotation is a single press, and a changed selection cannot use the previous type's lock.
     try std.testing.expect(all.submitPlayerCommand(source, .{ .weapons = .{ .rotate_missiles = .anticlockwise, .launch_missile = true } }));
-    input.multiplayerControlOrder(ctx, shooter);
+    input.multiplayerControlOrder(ctx.inStep(), shooter);
     try std.testing.expectEqual(missiles.Type.of(.raptor), state.weapons.ring.armedEntry().type);
     try std.testing.expectEqual(1, stage.armed.live());
     try std.testing.expectEqual(null, state.command.?.weapons.rotate_missiles);
@@ -3586,7 +3586,7 @@ test "a headless host fits and drains devices independently for two pilots" {
         const participant = all.joinParticipant(index).?;
         source.* = all.bindParticipant(participant, .of(all, index)).?;
         try std.testing.expect(all.submitPlayerCommand(source.*, .{ .devices = .full }));
-        input.multiplayerControlOrder(mission.orders(), index);
+        input.multiplayerControlOrder(mission.orders().inStep(), index);
     }
 
     const cloaked = &all.slots[first];
@@ -3601,7 +3601,7 @@ test "a headless host fits and drains devices independently for two pilots" {
     try std.testing.expectEqual(.absent, second_charges.get(.cloak).setting);
 
     // The press is consumed even if the same order runs again at the next physical step.
-    input.multiplayerControlOrder(mission.orders(), second);
+    input.multiplayerControlOrder(mission.orders().inStep(), second);
     try std.testing.expect(shielded.object.flags.spectral_shields and shielded.object.flags.ecm);
 
     first_charges.getPtr(.cloak).ticks = 1;
@@ -3618,10 +3618,10 @@ test "a headless host fits and drains devices independently for two pilots" {
     // A further press cannot turn an empty device back on before it has recharged.
     const spectral: ship_devices.Requests = .init(.{ .spectral_shields = true });
     try std.testing.expect(all.submitPlayerCommand(sources[1], .{ .devices = spectral }));
-    input.multiplayerControlOrder(mission.orders(), second);
+    input.multiplayerControlOrder(mission.orders().inStep(), second);
     try std.testing.expect(!shielded.object.flags.spectral_shields);
     runDeviceCharges(mission.world());
     try std.testing.expect(all.submitPlayerCommand(sources[1], .{ .devices = spectral }));
-    input.multiplayerControlOrder(mission.orders(), second);
+    input.multiplayerControlOrder(mission.orders().inStep(), second);
     try std.testing.expect(shielded.object.flags.spectral_shields);
 }

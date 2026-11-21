@@ -8,6 +8,7 @@ const session = @import("session.zig");
 const Resolve = @import("resolve.zig");
 const identity = @import("identity.zig");
 const wire = @import("wire.zig");
+const log = std.log.scoped(.network_graphical);
 const MultiplayerMenu = game.hudoptions.multiplayer;
 const stock = @import("stock_arena.zig");
 const FlightChat = @import("flight_chat.zig");
@@ -41,6 +42,8 @@ pending_call_sign: wire.CallSign = .{},
 hosted: ?*session.LocalGame = null,
 roster: [wire.slots]?wire.Roster.Pilot = @splat(null),
 flight: ?*FlightFrame = null,
+/// The ship type whose cockpit the local cockpit model was loaded for.
+cockpit_kind: ?engine.game.gameobj.Type = null,
 ending_pending: bool = false,
 notices: [game.hud.Messages.capacity]FlightNotice = undefined,
 notice_count: usize = 0,
@@ -462,6 +465,21 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             const multiplayer_ordnance = client.latest.?.hasOrdnance();
             const cooperative = client.latest.?.mission != null;
             var cockpit: game.players.CockpitCommand = .{};
+            // MATCH SPEED is read ahead of the targeting keys, as the simulation's pass reads
+            // it before `hud_target_keys` runs: a key both use is the pilot's to match with.
+            const match_pressed = devices.active(.match_speed, true);
+            // The camera's keys, which `frame_controls` runs ahead of the targeting keys in the
+            // single player loop (`controlsFrame`): a multiplayer client cycles its views the
+            // same way, its presentation being its own.
+            const viewing = &scene.player.viewing;
+            const orbited: ?f32 = switch (viewing.view) {
+                .target => if (display.target) |aimed| all.slots[aimed.slot].object.radius else null,
+                .external => all.slots[all.player].object.radius,
+                else => null,
+            };
+            if (viewing.frameControls(devices, scene.clock.frameTicks(), orbited)) |chosen| {
+                _ = game.camera.switchView(scene, chosen, all.player, false, false);
+            }
             game.hud.targetKeys(display, .{
                 .devices = devices,
                 .player = scene.player,
@@ -497,7 +515,10 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 if (weapons.rotate_missiles != null and display.windows.open(.missiles, false))
                     display.windows.status.getPtr(.missiles).held = true;
                 var presses: wire.ordnance.Presses = .from(weapons);
-                presses.match_speed = devices.active(.match_speed, true);
+                presses.match_speed = match_pressed;
+                // The press reaches the host on the wire; the local simulation flies it the
+                // same frame, as the host flies the wire's.
+                client.match_press = client.match_press or presses.match_speed;
                 client.setWeapons(.{ .aim = flight.weaponAim(), .presses = presses, .cockpit = cockpit });
             }
         } else {
@@ -745,7 +766,19 @@ fn finalMessage(view: ?wire.Snapshot) Connection.Label {
     };
 }
 
-pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Objects, tables: *const game.create.Stats, types: game.create.Types, files: stock.Files, strings: game.language.Language, presentation: ?*Presentation, combat_assets: FlightFrame.CombatAssets) !?*game.main.Drawn {
+/// The driver's loading screen, shown between the multiplayer arena's loads as `loading_step`
+/// (`0x004AB470`) runs between the mission's: a frame with `line` and `players` drawn and the
+/// window's messages pumped, the picture the screen's width picked where the frame left it empty.
+pub const LoadingScreen = struct {
+    context: *anyopaque,
+    showFn: *const fn (context: *anyopaque, frame: game.xtrabits.loading.Frame) anyerror!void,
+
+    pub fn show(screen: LoadingScreen, shown: game.xtrabits.loading.Frame) anyerror!void {
+        return screen.showFn(screen.context, shown);
+    }
+};
+
+pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Objects, tables: *const game.create.Stats, types: game.create.Types, files: stock.Files, strings: game.language.Language, presentation: ?*Presentation, loading: ?LoadingScreen, combat_assets: FlightFrame.CombatAssets) !?*game.main.Drawn {
     if (!pilot.flying()) return null;
     if (pilot.session_lost != null) return &pilot.flight.?.drawn;
     const client = &pilot.client.?;
@@ -753,17 +786,38 @@ pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Obje
         try pilot.applyFrame(flight, local, types, strings, files.io, combat_assets);
         return &flight.drawn;
     }
+    // The loading screen's roster: the session's pilots down the left, READY beside each ready
+    // one (`loading_players_draw`, `0x004AB300`).
+    var roster: [wire.slots]game.xtrabits.loading.Player = @splat(.{ .name = "", .ready = false });
+    var roster_len: usize = 0;
+    // Captured by pointer: the names are slices of the client's own roster, which outlives the
+    // frame, where a by-value capture would lend the loop's copy.
+    for (&client.roster.pilots) |*entry| {
+        const peer = if (entry.*) |*listed| listed else continue;
+        // Every pilot the roster lists is in the session's flight already, the state the game's
+        // own loading screen reaches once every player is in (`0x005D5E7C`): READY beside all.
+        roster[roster_len] = .{ .name = peer.name.slice(), .ready = true };
+        roster_len += 1;
+    }
+    const players = roster[0..roster_len];
     const flight = try FlightFrame.create(gpa, local, tables);
     errdefer flight.destroy();
     flight.beginAudio(combat_assets.audio);
     flight.round_start = @max(client.campaign_floor, client.roster.arena_floor);
+    // The first loading frame stands alone (`loading_screen`, `0x004AB3F0`), then one before
+    // each of the arena's loads after it, as `loading_step` (`0x004AB470`) has it: the window's
+    // messages pump between the loads, so the join draws the screen instead of standing still.
+    if (loading) |screen| try screen.show(.{ .line = .loading, .players = players });
     if (client.latest.?.scenario) |scenario| {
         try flight.loadArena(files, scenario, types);
     }
+    if (loading) |screen| try screen.show(.{ .line = .loading, .players = players });
     if (client.latest.?.mission != null)
         flight.drawn.radio = .openAt(gpa, files.io, files.directory, game.radio.speech_archive, game.hudmovie.archive_path);
     if (client.latest.?.hasOrdnance()) try flight.enableCombat(combat_assets, types);
+    if (loading) |screen| try screen.show(.{ .line = .loading, .players = players });
     try pilot.applyFrame(flight, local, types, strings, files.io, combat_assets);
+    if (loading) |screen| try screen.show(.{ .line = .loading, .players = players });
     if (presentation) |shown| {
         errdefer shown.endGame();
         try shown.startGame(null, flight.drawn.objects, false);
@@ -789,6 +843,28 @@ fn applyFrame(pilot: *Graphical, flight: *FlightFrame, local: *game.create.Objec
         flight.stepEnding(types, now, pilot.sharedPaused());
         return;
     }
+    if (client.own_flight) |own| {
+        client.own_flight = null;
+        flight.reconcile(own, client.flown.after(own.tick), client.joined.?.slot);
+    }
+    if (client.commands) |commands| {
+        client.commands = null;
+        flight.noteCommands(commands);
+    }
+    flight.own_trigger = client.fire_primary;
+    flight.own_match = flight.own_match or client.match_press;
+    client.match_press = false;
+    // The cockpit of the pilot's own ship, which a mission's start loads in single player: the
+    // client loads it once its own ship stands there, and again should the ship change.
+    if (combat_assets.cockpit) |pit| if (combat_assets.archive) |archive| {
+        const all = flight.drawn.objects;
+        const own = &all.slots[all.player];
+        if (own.object.created and (pilot.cockpit_kind == null or !std.meta.eql(pilot.cockpit_kind.?, own.object.type))) {
+            const ship = game.main.cockpitShip(all, own.object.type);
+            try pit.load(archive, combat_assets.textures, ship, combat_assets.models);
+            pilot.cockpit_kind = own.object.type;
+        }
+    };
     try flight.present(&client.latest.?, client.joined.?, local, types, micros);
     if (flight.flown) |flown| if (client.flown_tick != flown.tick) try client.sendFlown(micros, flown.tick, flown.command);
     if (client.scenery) |*scenery| {
@@ -947,16 +1023,16 @@ fn presentNotices(pilot: *Graphical, flight: *FlightFrame, strings: game.languag
     pilot.notice_count = 0;
 }
 
-pub fn cameraPlace(pilot: *Graphical, drawn: *const game.main.Drawn) game.camera.Place {
+pub fn cameraPlace(pilot: *Graphical, drawn: *const game.main.Drawn, seat: ?*game.main.cockpit.Cockpit.Shown) game.camera.Place {
     if (pilot.sharedPaused() or pilot.session_lost != null) {
         if (pilot.last_camera) |place| return place;
     }
-    const place = pilot.flightCamera(drawn);
+    const place = pilot.flightCamera(drawn, seat);
     pilot.last_camera = place;
     return place;
 }
 
-fn flightCamera(pilot: *Graphical, drawn: *const game.main.Drawn) game.camera.Place {
+fn flightCamera(pilot: *Graphical, drawn: *const game.main.Drawn, seat: ?*game.main.cockpit.Cockpit.Shown) game.camera.Place {
     const slot = &drawn.objects.slots[drawn.objects.player];
     const flight = pilot.flight.?;
     if (flight.ending_scene) |ending| return ending.camera.place;
@@ -976,12 +1052,18 @@ fn flightCamera(pilot: *Graphical, drawn: *const game.main.Drawn) game.camera.Pl
     const subject = game.camera.Subject.of(slot);
     flight.camera.frame(.{
         .object = subject,
+        // The flight's world, through which the director's shots place the camera while the
+        // mission's intro runs (`camera.frame`'s director case).
+        .game = flight.world(),
         .player = subject,
         .ticks = drawn.clock.drawnTicks(),
         .now = drawn.clock.viewTime(),
         .random = &flight.random,
         .viewing = &drawn.player.viewing,
         .shake = drawn.shake,
+        // The cockpit rides the camera as it does in a mission's frame, so its modes place
+        // the camera at the eye and give the pit its place (`camera.frame`).
+        .cockpit = if (seat) |shown| shown.inputFor(slot, drawn.player.viewing.view) else null,
     });
     return flight.camera.place;
 }

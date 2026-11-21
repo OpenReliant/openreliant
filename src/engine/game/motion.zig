@@ -252,6 +252,9 @@ pub const full_input: f32 = 1;
 /// steering slows it (`object_steer`, `0x004DC3D8`): the divisor falls from this to 1 as the
 /// throttle rises.
 const idle_turn_slowing: f32 = 3;
+/// Exposed for the client's rock prediction, which sets a rock's turn rates directly and needs
+/// the divisor `steer` applies to a resting object's rates.
+pub const turn_slowing_at_rest = idle_turn_slowing;
 
 /// The rule every quantity of the flight model moves by: it gives up `inertia` of the way it was
 /// going and takes the rest from where it is headed, once per update.
@@ -388,6 +391,12 @@ const fighters_flight_type = 0;
 /// at hand (`gameobj.World.spawn`): the player's ship shakes the camera. `objects_update` moves
 /// each object so, and `objects_collide` moves a pair again once it has shoved them.
 pub fn moveSlot(world: gameobj.World, index: u16) void {
+    moveSlotWith(world, index, true);
+}
+
+/// `moveSlot`, with the player's shake left alone when `shaking` is false: a step taken again
+/// shook the camera already when it was first taken.
+pub fn moveSlotWith(world: gameobj.World, index: u16, shaking: bool) void {
     const all = world.objects;
     const slot = &all.slots[index];
     const own = slot.flight orelse return;
@@ -400,8 +409,65 @@ pub fn moveSlot(world: gameobj.World, index: u16) void {
         .jumping = .{ .state = &slot.state.jump, .clock = world.clock },
         .following = .{ .world = world, .index = index },
     };
-    move(&slot.object, flight, world.view(), slot.motion, if (index == all.player) world.shake else null, by);
+    move(&slot.object, flight, world.view(), slot.motion, if (shaking and index == all.player) world.shake else null, by);
 }
+
+/// Everything about a ship one step carries into the next: where it stands at the end of the
+/// step and the motion and controls its flight goes on from. Set back into a ship, the steps
+/// after it run as they ran on the machine it was taken on.
+pub const Kinematics = struct {
+    position: [3]f32,
+    orientation: [9]f32,
+    velocity: [3]f32,
+    speed: f32,
+    rates: [3]f32,
+    inputs: [3]f32,
+    lateral_input: f32,
+    throttle: f32,
+    last_throttle: f32,
+    speed_factor: f32,
+    afterburner_fuel: i32,
+    afterburner: bool,
+    reverse_thrust: bool,
+
+    pub fn of(object: *const GameObject) Kinematics {
+        const root = &object.root;
+        return .{
+            .position = root.next_position.vector(),
+            .orientation = root.next_orientation,
+            .velocity = object.velocity.vector(),
+            .speed = object.speed,
+            .rates = .{ object.pitch_rate, object.yaw_rate, object.roll_rate },
+            .inputs = .{ object.pitch_input, object.yaw_input, object.roll_input },
+            .lateral_input = object.lateral_input,
+            .throttle = object.throttle,
+            .last_throttle = object.last_throttle,
+            .speed_factor = object.speed_factor,
+            .afterburner_fuel = object.afterburner_fuel,
+            .afterburner = object.afterburner,
+            .reverse_thrust = object.reverse_thrust,
+        };
+    }
+
+    /// Sets it into `object` as the end of the step just taken.
+    pub fn put(kinematics: Kinematics, object: *GameObject) void {
+        const root = &object.root;
+        root.next_position = .of(kinematics.position);
+        root.next_orientation = kinematics.orientation;
+        root.flags.next_pending = true;
+        object.velocity = .of(kinematics.velocity);
+        object.speed = kinematics.speed;
+        object.pitch_rate, object.yaw_rate, object.roll_rate = kinematics.rates;
+        object.pitch_input, object.yaw_input, object.roll_input = kinematics.inputs;
+        object.lateral_input = kinematics.lateral_input;
+        object.throttle = kinematics.throttle;
+        object.last_throttle = kinematics.last_throttle;
+        object.speed_factor = kinematics.speed_factor;
+        object.afterburner_fuel = kinematics.afterburner_fuel;
+        object.afterburner = kinematics.afterburner;
+        object.reverse_thrust = kinematics.reverse_thrust;
+    }
+};
 
 test steer {
     var object = gameobj.testing.object();

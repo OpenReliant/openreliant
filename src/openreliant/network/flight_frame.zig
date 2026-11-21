@@ -1,11 +1,15 @@
 //! The client's view of a host snapshot, in the records the flight renderer and HUD already read.
 const std = @import("std");
+const log = std.log.scoped(.flight_frame);
 const engine = @import("openreliant").engine;
 const game = engine.game;
 const wire = @import("wire.zig");
 const stock = @import("stock_arena.zig");
 const Projectiles = @import("projectiles.zig");
 const FlightFrame = @This();
+
+/// One predict-and-correct lane per pilot slot, then one per arena rock.
+const lanes = wire.slots + wire.Rocks.max;
 const powerups = game.deathmatch.powerups;
 
 drawn: game.main.Drawn,
@@ -33,10 +37,43 @@ flown: ?Flown = null,
 /// Whether the local simulation has started its clock.
 running: bool = false,
 /// Where the local simulation carried each ship, step by step, which each snapshot is matched
-/// against at the same moment (`correct`).
-tracks: [wire.slots]Track = @splat(.{}),
-/// What each ship still has to take in of its last correction, a share every step (`ease`).
-easing: [wire.slots]Ease = @splat(.{}),
+/// against at the same moment (`correct`); rocks share the lanes (Rocket League GDC 2018
+/// predicts every object; Fiedler, "Snapshot Interpolation").
+tracks: [lanes]Track = @splat(.{}),
+/// What each tracked object still has to take in of its last correction, a share every step (`ease`).
+easing: [lanes]Ease = @splat(.{}),
+/// The facing and tick each rock was last seen at, and the filtered turn carried between them.
+rock_seen: [wire.Rocks.max]?RockPrior = @splat(null),
+rock_spin: [wire.Rocks.max]?Vector = @splat(null),
+/// The mission clock of the snapshot last applied, whose step the scenery rides.
+applied_clock: i32 = 0,
+/// How far each ship is drawn from where its simulation flies it, taken away over the next
+/// frames so a correction never moves a drawn ship at once (Fiedler, "Networked Physics"):
+/// `position` in world space, `turn` applied after the ship's orientation. The pilot's own ship
+/// is one of these: its offset is the camera's.
+offsets: [wire.slots]struct { position: Vector = @splat(0), turn: engine.surrender.math.Matrix = engine.surrender.math.identity } = @splat(.{}),
+/// The host's echo of every pilot's command, step by step, which the simulation flies the
+/// other pilots' ships by (Rocket League GDC 2018).
+commands: CommandRing = .{},
+/// The pilot's held trigger this frame, which the muzzle prediction fires through the single
+/// player path while the host alone decides what each shot does (Overwatch GDC 2017).
+own_trigger: bool = false,
+/// The MATCH SPEED press of this frame, which the local command flies once, as the host flies
+/// the press the wire brought it.
+own_match: bool = false,
+/// The client's own predicted bolts, oldest first, each given up when the host's shot for it
+/// arrives: `index` the local bullets pool slot, `fired_at` the client tick it left at.
+own_muzzles: struct {
+    const depth = 16;
+    entries: [depth]struct { index: u8, fired_at: i32 } = undefined,
+    count: u8 = 0,
+    next: u8 = 0,
+} = .{},
+/// The host's margin of the pilot's inputs, in ticks, while the clock takes in its last
+/// correction (`reconcile`).
+margin: ?f32 = null,
+/// The host tick the last margin report rode.
+margin_tick: i32 = 0,
 /// Microseconds the mission clock runs ahead of real time, so the host's snapshots arrive at a
 /// steady lead (`keepClock`).
 skew_us: i64 = 0,
@@ -244,6 +281,11 @@ pub const CombatAssets = struct {
     audio: ?Audio = null,
     explosions: game.explode.Settings,
     particles: game.particles.Pool.Settings,
+    /// The local cockpit, which the client loads for its own ship once it is known, as a
+    /// mission's start does in single player (`start.cockpit`); null where there is none.
+    cockpit: ?*game.main.cockpit.Cockpit = null,
+    archive: ?*const game.bigfile.Hog = null,
+    models: game.srofiles.Settings = .{},
 };
 
 pub const Audio = struct {
@@ -479,9 +521,96 @@ pub fn presentScene(frame: *FlightFrame, pages: *const [wire.ScenePage.count]?wi
 pub fn presentScenery(frame: *FlightFrame, scenery: *const wire.Scenery, types: game.create.Types) !void {
     const tick = frame.tick orelse return;
     if (scenery.tick > tick or scenery.tick <= frame.scenery_tick) return;
-    try frame.rocks.apply(frame.drawn.objects, &scenery.rocks);
+    // The scenery rides the step of the last applied snapshot, whose clock carries the same
+    // moment in mission ticks the tracks are recorded in.
+    try frame.presentRocks(&scenery.rocks, frame.applied_clock);
     try frame.presentMines(&scenery.mines, types);
     frame.scenery_tick = scenery.tick;
+}
+
+/// The shortest signed way from one angle to another.
+fn angleDelta(from: f32, to: f32) f32 {
+    const tau = 2 * std.math.pi;
+    return @mod(to - from + std.math.pi, tau) - std.math.pi;
+}
+
+/// A rock the host sends once places it exactly; the next pair of sceneries measures its turn,
+/// which the simulation carries it by from then (Rocket League GDC 2018), and every later
+/// scenery only eases the drift the wire's quantized angles leave (`correctRock`).
+fn presentRocks(frame: *FlightFrame, rocks: *const wire.Rocks, tick: i32) !void {
+    const math = engine.surrender.math;
+    const all = frame.drawn.objects;
+    if (rocks.count != frame.rocks.count) return error.ArenaRockCountMismatch;
+    for (rocks.angles[0..rocks.count], 0..) |entry, at| {
+        const lane = wire.slots + at;
+        const index: u16 = @intCast(frame.rocks.entries[at].resolve(all) orelse continue);
+        const slot = &all.slots[index];
+        slot.object.flags.disabled = entry == null;
+        const facing = entry orelse {
+            frame.rock_seen[at] = null;
+            frame.rock_spin[at] = null;
+            frame.tracks[lane] = .{};
+            frame.easing[lane] = .{};
+            continue;
+        };
+        const angles = math.angles(wire.unpackFacing(facing));
+        const prior = frame.rock_seen[at];
+        frame.rock_seen[at] = .{ .tick = tick, .angles = angles };
+        if (prior == null or !slot.object.created) {
+            game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = slot.drawn.position, .orientation = wire.unpackFacing(facing) });
+            if (slot.model) |*model| model.place(slot.drawn.position, slot.drawn.orientation);
+            frame.tracks[lane] = .{};
+            frame.easing[lane] = .{};
+            continue;
+        }
+        frame.spinRock(at, index, prior.?, tick, angles);
+        frame.correctRock(lane, index, facing, tick);
+    }
+}
+
+/// Feeds the rock the rates the host was seen turning it by: with each rate already at its
+/// settle target, `steer` holds it there, so both simulations turn the rock identically.
+fn spinRock(frame: *FlightFrame, at: usize, index: u16, prior: RockPrior, tick: i32, angles: Vector) void {
+    const flight = frame.drawn.objects.slots[index].flight orelse return;
+    const steps: f32 = @floatFromInt(@max(1, @divTrunc(tick -% prior.tick, game.gameobj.ticks_per_step)));
+    const seen: Vector = .{
+        angleDelta(prior.angles[0], angles[0]) / steps,
+        angleDelta(prior.angles[1], angles[1]) / steps,
+        angleDelta(prior.angles[2], angles[2]) / steps,
+    };
+    // The wire quantizes each axis, so the rate is filtered toward what the sceneries keep saying.
+    const held = if (frame.rock_spin[at]) |kept| kept + (seen - kept) * @as(Vector, @splat(0.25)) else seen;
+    frame.rock_spin[at] = held;
+    const full: Vector = .{ flight.pitch_rate, flight.yaw_rate, flight.roll_rate };
+    const object = &frame.drawn.objects.slots[index].object;
+    const reach = held * @as(Vector, @splat(motion.turn_slowing_at_rest)) / full;
+    if (@abs(reach[0]) > 1 or @abs(reach[1]) > 1 or @abs(reach[2]) > 1) return;
+    object.pitch_input = reach[0];
+    object.yaw_input = reach[1];
+    object.roll_input = reach[2];
+    object.pitch_rate = held[0];
+    object.yaw_rate = held[1];
+    object.roll_rate = held[2];
+    object.throttle = 0;
+}
+
+/// Measures the simulated rock against the host's facing at the same tick and eases the
+/// difference in like a ship's correction; a torn-off rock is placed exactly and starts over.
+fn correctRock(frame: *FlightFrame, lane: usize, index: u16, facing: wire.Facing, tick: i32) void {
+    const math = engine.surrender.math;
+    const all = frame.drawn.objects;
+    const track = &frame.tracks[lane];
+    const entry = track.byTick(tick) orelse track.byTick(tick - game.gameobj.ticks_per_step) orelse return;
+    const turn = math.angles(math.product(math.transpose(entry.orientation), wire.unpackFacing(facing)));
+    if (@reduce(.Max, @abs(turn)) > std.math.pi * 0.5) {
+        const slot = &all.slots[index];
+        game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = slot.drawn.position, .orientation = wire.unpackFacing(facing) });
+        if (slot.model) |*model| model.place(slot.drawn.position, slot.drawn.orientation);
+        frame.tracks[lane] = .{};
+        frame.easing[lane] = .{};
+        return;
+    }
+    frame.easing[lane] = .{ .angles = turn };
 }
 
 fn presentWeapons(frame: *FlightFrame, status: ?wire.ordnance.Status) void {
@@ -572,7 +701,38 @@ pub fn world(frame: *FlightFrame) game.gameobj.World {
         .rays = if (frame.drawn.effects.rays) |*rays| rays else null,
         .ion_cannons = if (frame.drawn.effects.ion_cannons) |*cannons| cannons else null,
         .display = &frame.drawn.display,
+        .gun_effects = .{ .context = frame, .send = noteOwnShot },
     };
+}
+
+/// Records the client's own predicted muzzle shots as they leave (`guns.shoot` on this world),
+/// so the host's authoritative shot for each can end its predicted bolt instead of doubling it.
+fn noteOwnShot(context: *anyopaque, effect: game.guns.FlightEffect) void {
+    const frame: *FlightFrame = @ptrCast(@alignCast(context));
+    const shot = switch (effect) {
+        .shot => |shot| shot,
+        else => return,
+    };
+    if (shot.owner != frame.drawn.objects.player) return;
+    const queue = &frame.own_muzzles;
+    if (queue.count == queue.entries.len) {
+        queue.next = @intCast((queue.next + 1) % queue.entries.len);
+        queue.count -= 1;
+    }
+    queue.entries[(queue.next + queue.count) % queue.entries.len] = .{ .index = shot.index, .fired_at = shot.fired_at };
+    queue.count += 1;
+}
+
+/// Ends the oldest predicted own bolt still flying, which the client's lead over the host makes
+/// the one the arriving shot speaks for; false when nothing was predicted for it.
+fn endPredictedShot(frame: *FlightFrame) bool {
+    const queue = &frame.own_muzzles;
+    if (queue.count == 0) return false;
+    const entry = queue.entries[queue.next];
+    queue.next = @intCast((queue.next + 1) % queue.entries.len);
+    queue.count -= 1;
+    game.guns.endReplica(frame.world(), entry.index, entry.fired_at);
+    return true;
 }
 
 pub fn presentWreck(frame: *FlightFrame, wreck: wire.Wreck, types: game.create.Types) !void {
@@ -614,7 +774,10 @@ pub fn presentCombat(frame: *FlightFrame, effects: []const game.guns.FlightEffec
     for (effects) |effect| switch (effect) {
         .shot => |shot| {
             if (shot.fired_at > frame.shot_ended_at[shot.index]) {
-                game.guns.showShot(scene, shot);
+                // The host's own shot takes the place of the predicted bolt that already spoke
+                // for it at the muzzle (Overwatch GDC 2017).
+                const spoke = shot.owner == scene.objects.player and frame.endPredictedShot();
+                game.guns.showShot(scene, shot, !spoke);
                 if (shot.owner == scene.objects.player) _ = frame.drawn.display.windows.open(.gunnery, false);
             }
         },
@@ -683,6 +846,9 @@ pub fn present(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: w
         frame.skew_us = 0;
         frame.owed_us = 0;
         frame.lead = null;
+        frame.margin = null;
+        frame.offsets = @splat(.{});
+        frame.own_muzzles = .{};
         frame.frame_us = now;
         for (&frame.tracks) |*track| track.* = .{};
         frame.easing = @splat(.{});
@@ -695,17 +861,27 @@ pub fn present(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: w
     frame.owed_us -= slew;
     frame.skew_us += @intFromFloat(slew);
     if (frame.lead) |*lead| lead.* += slew / @as(f32, @floatFromInt(tick_us));
+    if (frame.margin) |*margin| margin.* += slew / @as(f32, @floatFromInt(tick_us));
     clock.advanceToFine(@intCast(@max(now + frame.skew_us, 0)), tick_us);
     const scene = frame.world();
     const all = scene.objects;
     if (all.playerBinding(admission.slot)) |binding|
-        _ = all.submitPlayerCommand(binding, .{ .flight = frame.command });
-    while (clock.nextTick(&frame.devices, scene)) |stepped| {
-        if (stepped) {
+        _ = all.submitPlayerCommand(binding, .{ .flight = frame.command, .match_speed = frame.own_match });
+    var stepped = false;
+    while (clock.nextTick(&frame.devices, scene)) |stepped_tick| {
+        // The client's own guns fire through the single player path each tick (Overwatch GDC
+        // 2017): the muzzle speaks at once, and the host's word on the shot replaces the bolt.
+        engine.input.predictOwnGuns(scene, admission.slot, frame.own_trigger);
+        game.guns.step(scene, clock, admission.slot);
+        if (stepped_tick) {
             frame.ease();
             frame.record();
+            stepped = true;
         }
     }
+    // The MATCH SPEED press rides the command until a step has flown it, as a press lasts
+    // until the key is read.
+    if (stepped) frame.own_match = false;
     clock.frameBegin();
     clock.drawBegin();
     const cockpit = game.camera.Cockpit;
@@ -722,6 +898,7 @@ pub fn present(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: w
         if (slot.cloak != null) game.cloak.frame(slot, clock.frame_start);
     }
     game.main.frameDrawn(all, .of(clock, true, .together), clock.frame_start);
+    frame.drawOffsets(@as(f32, @floatFromInt(clock.frame_duration)) / game.main.ticks_per_second);
     game.guns.frameReplicas(scene);
     frame.drawn.display.followTarget(all, true);
     frame.drawn.display.zoomRadar(scene);
@@ -792,18 +969,78 @@ const Track = struct {
 };
 
 const Vector = engine.surrender.math.Vector;
+const motion = game.motion;
+
+/// The host's per-step echo of every pilot's command, newest last (Rocket League GDC 2018).
+const CommandRing = struct {
+    const depth = 32;
+
+    entries: [depth]wire.Commands = undefined,
+    count: u8 = 0,
+    newest: u8 = depth - 1,
+
+    fn push(ring: *CommandRing, entry: wire.Commands) void {
+        if (ring.count > 0 and ring.entries[ring.newest].tick == entry.tick) {
+            ring.entries[ring.newest] = entry;
+            return;
+        }
+        ring.newest = (ring.newest + 1) % depth;
+        ring.entries[ring.newest] = entry;
+        ring.count = @min(ring.count + 1, depth);
+    }
+
+    /// The command the pilot of `slot` held at `tick`: the newest echo at or before it.
+    fn held(ring: *const CommandRing, slot: usize, tick: i32) ?engine.input.flight.Command {
+        for (0..ring.count) |age| {
+            const entry = &ring.entries[(ring.newest + depth - age) % depth];
+            if (entry.tick > tick) continue;
+            return if (entry.carried >> @intCast(slot) & 1 != 0) entry.held[slot] else null;
+        }
+        return null;
+    }
+};
+
+/// Takes the host's per-step echo of the pilots' commands: the simulation flies the other
+/// pilots' ships by them through the order the host flies them with (Rocket League GDC 2018).
+pub fn noteCommands(frame: *FlightFrame, entry: wire.Commands) void {
+    frame.commands.push(entry);
+    const all = frame.drawn.objects;
+    for (0..wire.slots) |slot| {
+        const index: u16 = @intCast(slot);
+        if (index == all.player) continue;
+        const binding = all.playerBinding(index) orelse continue;
+        const command = frame.commands.held(slot, frame.drawn.clock.mission_ticks) orelse continue;
+        _ = all.submitPlayerCommand(binding, .{ .flight = command });
+    }
+}
 
 pub const Flown = struct { tick: i32, command: engine.input.flight.Command };
+
+/// A rock's last two sceneries measure the turn it carried between them.
+const RockPrior = struct { tick: i32, angles: Vector };
+
+/// The object slot a lane tracks: a pilot's slot, or the rock at that place in the arena's list.
+fn laneSlot(frame: *const FlightFrame, lane: usize) ?u16 {
+    if (lane < wire.slots) return @intCast(lane);
+    const rock = lane - wire.slots;
+    if (rock >= frame.rocks.count) return null;
+    return @intCast(frame.rocks.entries[rock].resolve(frame.drawn.objects) orelse return null);
+}
 
 fn record(frame: *FlightFrame) void {
     const all = frame.drawn.objects;
     frame.flown = .{ .tick = frame.drawn.clock.mission_ticks, .command = frame.command };
-    for (&frame.tracks, all.slots[0..wire.slots]) |*track, *slot| {
+    for (0..lanes) |lane| {
+        const index = frame.laneSlot(lane) orelse {
+            frame.tracks[lane] = .{};
+            continue;
+        };
+        const slot = &all.slots[index];
         if (!slot.object.created) {
-            track.* = .{};
+            frame.tracks[lane] = .{};
             continue;
         }
-        track.push(.{
+        frame.tracks[lane].push(.{
             .tick = frame.drawn.clock.mission_ticks,
             .position = slot.object.root.next_position.vector(),
             .orientation = slot.object.root.next_orientation,
@@ -824,7 +1061,10 @@ fn keepClock(frame: *FlightFrame, snapshot: *const wire.Snapshot) void {
     }
     const kept = if (frame.lead) |held| if (lead < held) lead else held + (lead - held) * 0.02 else lead;
     frame.lead = kept;
-    frame.owed_us = (target_lead - kept) * @as(f32, @floatFromInt(tick_us));
+    // The host's margin of the inputs steers the clock once it flows; without a fresh report
+    // for a while the measured lead takes over again, so a lost stream never strands the clock.
+    const stale = frame.margin != null and clock.mission_ticks -% frame.margin_tick > lost_lead;
+    if (frame.margin == null or stale) frame.owed_us = (target_lead - kept) * @as(f32, @floatFromInt(tick_us));
 }
 
 fn velocityOf(slot: *const game.create.Slot, ship: wire.Ship, orientation: engine.surrender.math.Matrix) Vector {
@@ -842,8 +1082,10 @@ fn velocityOf(slot: *const game.create.Slot, ship: wire.Ship, orientation: engin
 /// difference is taken in over the next steps (`ease`), so what no one could predict, a
 /// collision or a hit, bends the course rather than moving the ship. Another pilot's ship beyond
 /// three steps of its flight from the host's place is placed where that place has reached by
-/// now; the pilot's own ship always eases, since its camera must never jump.
+/// now.
 fn correct(frame: *FlightFrame, index: u16, ship: wire.Ship, own: bool, snapshot: *const wire.Snapshot) void {
+    // The pilot's own ship takes the host's state from `reconcile`.
+    if (own) return;
     const math = engine.surrender.math;
     const slot = &frame.drawn.objects.slots[index];
     const track = &frame.tracks[index];
@@ -854,7 +1096,14 @@ fn correct(frame: *FlightFrame, index: u16, ship: wire.Ship, own: bool, snapshot
         const travel = math.length(entry.velocity);
         const reach = travel * 3 + 25;
         const apart = ship.position - entry.position;
-        if (own or math.dot(apart, apart) <= reach * reach) {
+        if (math.dot(apart, apart) <= reach * reach) {
+            // With the host's echoed commands the ship is flown back from the host's place
+            // rather than eased toward it (Rocket League GDC 2018); the drawn ship holds its
+            // place while the difference fades (Fiedler, "Networked Physics").
+            if (frame.commands.held(index, snapshot.clock) != null) {
+                frame.resimulate(index, ship, snapshot);
+                return;
+            }
             frame.easing[index] = .{
                 .position = apart,
                 .angles = math.angles(math.product(math.transpose(entry.orientation), orientation)),
@@ -871,12 +1120,112 @@ fn correct(frame: *FlightFrame, index: u16, ship: wire.Ship, own: bool, snapshot
     frame.easing[index] = .{};
 }
 
+/// Rewinds another pilot's ship to the host's state at the snapshot's tick and flies the steps
+/// since by the host's echoed commands, through the code every ship flies with (Rocket League
+/// GDC 2018). The drawn ship keeps its place; the difference goes to its offset, which fades
+/// (Fiedler, "Networked Physics").
+fn resimulate(frame: *FlightFrame, index: u16, ship: wire.Ship, snapshot: *const wire.Snapshot) void {
+    const math = engine.surrender.math;
+    const all = frame.drawn.objects;
+    const slot = &all.slots[index];
+    const clock = &frame.drawn.clock;
+    const orientation = ship.orientationMatrix();
+    const velocity = velocityOf(slot, ship, orientation);
+    const before = motion.Kinematics.of(&slot.object);
+    const seen = math.product(before.orientation, frame.offsets[index].turn);
+    game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = ship.position, .orientation = orientation });
+    slot.object.velocity = .of(velocity);
+    slot.object.speed = ship.speed;
+    slot.object.pitch_rate = wire.dequantizeRate(ship.rates[0]);
+    slot.object.yaw_rate = wire.dequantizeRate(ship.rates[1]);
+    slot.object.roll_rate = wire.dequantizeRate(ship.rates[2]);
+    const scene = frame.world();
+    var tick = snapshot.clock + game.gameobj.ticks_per_step;
+    while (clock.mission_ticks -% tick >= 0) : (tick += game.gameobj.ticks_per_step) {
+        engine.input.stepShip(scene, index, frame.commands.held(index, tick), game.gameobj.ticks_per_step);
+    }
+    const after = &slot.object.root;
+    frame.offsets[index].position += before.position - after.next_position.vector();
+    frame.offsets[index].turn = math.product(math.transpose(after.next_orientation), seen);
+    frame.tracks[index] = .{};
+    frame.easing[index] = .{};
+}
+
+/// The margin of the pilot's inputs the host should hold, in ticks: one step absorbs the jitter
+/// of their arrival and adds the least delay (Overwatch GDC 2017).
+const target_margin: f32 = game.gameobj.ticks_per_step;
+/// The time the drawn offset of the pilot's own ship takes to fall to about a third.
+const offset_fade_s = 0.1;
+
+/// Takes up the host's state of the pilot's own ship at `own.tick` and flies it again through
+/// `replay`, the steps the pilot flew since, by the code single player flies it with
+/// (`engine.input.stepShip`), so the ship stands where the host will have it once those inputs
+/// arrive (Overwatch GDC 2017; Rocket League GDC 2018). The difference from where it stood moves
+/// to the drawn offset (`own_offset`), and the host's margin of the inputs steers the clock.
+pub fn reconcile(frame: *FlightFrame, own: wire.OwnFlight, replay: []const wire.Flown, index: u16) void {
+    if (!frame.running) return;
+    const math = engine.surrender.math;
+    const all = frame.drawn.objects;
+    const slot = &all.slots[index];
+    const clock = &frame.drawn.clock;
+    if (!slot.object.created or slot.combat == null) return;
+    const now = clock.mission_ticks;
+    // A state from ahead of the simulation is taken up once the clock reaches it.
+    if (now -% own.tick < 0) return;
+    const before = motion.Kinematics.of(&slot.object);
+    const seen = math.product(before.orientation, frame.offsets[index].turn);
+    own.kinematics.put(&slot.object);
+    all.player_states[index].controls = own.controls;
+    const scene = frame.world();
+    var tick = own.tick + game.gameobj.ticks_per_step;
+    var flown: usize = 0;
+    var command: ?engine.input.flight.Command = null;
+    while (now -% tick >= 0) : (tick += game.gameobj.ticks_per_step) {
+        while (flown < replay.len and replay[flown].tick -% tick <= 0) : (flown += 1) command = replay[flown].command;
+        engine.input.stepShip(scene, index, command, game.gameobj.ticks_per_step);
+    }
+    const after = &slot.object.root;
+    frame.offsets[index].position += before.position - after.next_position.vector();
+    frame.offsets[index].turn = math.product(math.transpose(after.next_orientation), seen);
+    frame.tracks[index] = .{};
+    frame.easing[index] = .{};
+    const margin: f32 = @floatFromInt(own.margin);
+    const kept = if (frame.margin) |held| if (margin < held) margin else held + (margin - held) * 0.05 else margin;
+    frame.margin = kept;
+    frame.margin_tick = own.tick;
+    frame.owed_us = (target_margin - kept) * @as(f32, @floatFromInt(tick_us));
+}
+
+/// Draws each ship by its offset from where its simulation flies it, then lets the offset fade
+/// by `seconds`: a correction never moves a drawn ship at once, the pilot's own ship and the
+/// camera least of all (Fiedler, "Networked Physics").
+fn drawOffsets(frame: *FlightFrame, seconds: f32) void {
+    const math = engine.surrender.math;
+    for (frame.drawn.objects.slots[0..wire.slots], &frame.offsets) |*slot, *offset| {
+        if (!slot.object.created) {
+            offset.* = .{};
+            continue;
+        }
+        slot.drawn.position += offset.position;
+        slot.drawn.orientation = math.product(slot.drawn.orientation, offset.turn);
+        if (slot.model) |*model| model.place(slot.drawn.position, slot.drawn.orientation);
+        const keep = @exp(-seconds / offset_fade_s);
+        offset.position *= @splat(keep);
+        offset.turn = math.fromAngleVector(math.angles(offset.turn) * @as(Vector, @splat(keep)));
+    }
+}
+
 /// Takes in a share of every ship's outstanding correction after a step, and moves the steps
 /// already recorded with it, so the next snapshot measures only what is still left.
 fn ease(frame: *FlightFrame) void {
     const math = engine.surrender.math;
     const share: Vector = @splat(ease_share);
-    for (&frame.easing, &frame.tracks, frame.drawn.objects.slots[0..wire.slots]) |*left, *track, *slot| {
+    for (&frame.easing, &frame.tracks, 0..) |*left, *track, lane| {
+        const index = frame.laneSlot(lane) orelse {
+            left.* = .{};
+            continue;
+        };
+        const slot = &frame.drawn.objects.slots[index];
         if (!slot.object.created) {
             left.* = .{};
             continue;
@@ -898,6 +1247,7 @@ fn ease(frame: *FlightFrame) void {
 pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wire.Admission, local: *game.create.Objects, types: game.create.Types) !void {
     if (frame.tick == snapshot.tick) return;
     frame.keepClock(snapshot);
+    frame.applied_clock = snapshot.clock;
     const all = frame.drawn.objects;
     all.player = admission.slot;
     if (snapshot.mission) |mission| {
@@ -956,8 +1306,11 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
             if (index == admission.slot) {
                 _ = try game.aigeneric.push(.of(scene), index, .player_control, .none);
                 game.main.fitDevices(&all.player_states[index].charges, &frame.drawn.display, game.main.cockpitShip(all, ship.kind()), false);
-            } else if (snapshot.mission == null) {
-                all.slots[index].object.side = .hostile;
+            } else {
+                // Another pilot's ship flies by the host's echo of their command, under the
+                // order the host flies it with (Rocket League GDC 2018).
+                _ = try game.aigeneric.push(.of(scene), index, .multiplayer_control, .none);
+                if (snapshot.mission == null) all.slots[index].object.side = .hostile;
             }
         }
         const slot = &all.slots[index];
@@ -986,24 +1339,28 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         if ((before == 0 or ship.respawn > before) and ship.respawn + game.gameobj.ticks_per_step >= game.deathmatch.respawn.duration)
             game.deathmatch.respawn.sound(scene, index);
         // The pilot's own ship flies by the local simulation's controls; another ship's are the
-        // last its pilot gave the host, which the simulation carries it by between snapshots.
+        // last its pilot gave the host. Where the host's command echo carries the ship, its
+        // steering comes from that instead, at full precision (Rocket League GDC 2018).
+        const echoed = carried_on and !own and frame.commands.held(index, snapshot.clock) != null;
         if (!carried_on or !own) {
             slot.object.speed = ship.speed;
-            slot.object.pitch_rate = wire.dequantizeRate(ship.rates[0]);
-            slot.object.yaw_rate = wire.dequantizeRate(ship.rates[1]);
-            slot.object.roll_rate = wire.dequantizeRate(ship.rates[2]);
-            slot.object.pitch_input = wire.dequantizeInput(ship.inputs[0]);
-            slot.object.yaw_input = wire.dequantizeInput(ship.inputs[1]);
-            slot.object.roll_input = wire.dequantizeInput(ship.inputs[2]);
-            slot.object.lateral_input = @floatFromInt(ship.lateral);
             slot.object.speed_factor = wire.dequantizeShare(ship.speed_factor);
-            slot.object.throttle = ship.throttle;
-            slot.object.last_throttle = ship.throttle;
-            slot.object.afterburner = ship.afterburner;
-            slot.object.reverse_thrust = ship.reverse_thrust;
+            if (!echoed) {
+                slot.object.pitch_rate = wire.dequantizeRate(ship.rates[0]);
+                slot.object.yaw_rate = wire.dequantizeRate(ship.rates[1]);
+                slot.object.roll_rate = wire.dequantizeRate(ship.rates[2]);
+                slot.object.pitch_input = wire.dequantizeInput(ship.inputs[0]);
+                slot.object.yaw_input = wire.dequantizeInput(ship.inputs[1]);
+                slot.object.roll_input = wire.dequantizeInput(ship.inputs[2]);
+                slot.object.lateral_input = @floatFromInt(ship.lateral);
+                slot.object.throttle = ship.throttle;
+                slot.object.last_throttle = ship.throttle;
+                slot.object.afterburner = ship.afterburner;
+                slot.object.reverse_thrust = ship.reverse_thrust;
+            }
         }
         slot.object.engines_intact = wire.dequantizeShare(ship.engines);
-        slot.object.afterburner_fuel = ship.fuel;
+        if (!carried_on or !own) slot.object.afterburner_fuel = ship.fuel;
         slot.object.shields = ship.shields;
         slot.object.armor = ship.armor;
         if (ship.dying and !slot.object.flags.exploding) {
@@ -1254,7 +1611,7 @@ test "the target panel opens and closes as flight snapshots advance" {
     try std.testing.expect(shut);
 }
 
-test "the pilot's own ship flies the held command and eases into the host's place" {
+test "the pilot's own ship flies the held command and takes up the host's state without a jump" {
     const gpa = std.testing.allocator;
     var random: engine.random.Random = .{};
     const local = try game.create.Objects.create(gpa, &random);
@@ -1286,36 +1643,40 @@ test "the pilot's own ship flies the held command and eases into the host's plac
     }
     try std.testing.expect(carried);
 
+    // The host's state of a step already flown, with the steps since flown again over it,
+    // stands where the simulation stands.
+    const math = engine.surrender.math;
+    const host_tick = frame.drawn.clock.mission_ticks;
+    var host = motion.Kinematics.of(&slot.object);
+    const controls = all.player_states[0].controls;
+    var replay: [16]wire.Flown = undefined;
+    var flown: usize = 0;
     for (0..8) |_| {
         now += 5 * tick_us;
         try frame.present(&snapshot, admission, local, no_models, now);
+        const step = frame.flown.?;
+        if (flown == 0 or replay[flown - 1].tick != step.tick) {
+            replay[flown] = .{ .tick = step.tick, .command = step.command };
+            flown += 1;
+        }
     }
-    const math = engine.surrender.math;
-    const flown = frame.flown.?;
-    const entry = frame.tracks[0].byTick(flown.tick).?;
-    const travel = math.length(entry.velocity);
+    const travel = math.length(slot.object.velocity.vector());
     try std.testing.expect(travel > 1);
+    frame.reconcile(.{ .tick = host_tick, .margin = 4, .kinematics = host, .controls = controls }, replay[0..flown], 0);
+    try std.testing.expect(math.length(frame.offsets[0].position) < 0.01);
 
-    // The host at the same tick, having flown the same input, leaves nothing to take in.
-    snapshot.tick += 1;
-    snapshot.clock = flown.tick;
-    snapshot.ships[0].?.position = entry.position;
-    try frame.present(&snapshot, admission, local, no_models, now);
-    try std.testing.expect(math.length(frame.easing[0].position) < 1);
-
-    // A larger one never moves the ship at once: the steps that follow take it in.
-    snapshot.tick += 1;
-    snapshot.ships[0].?.position = entry.position + Vector{ travel * 2, 0, 0 };
-    const held = slot.drawn.position;
-    try frame.present(&snapshot, admission, local, no_models, now);
-    try std.testing.expectEqual(held, slot.drawn.position);
-    const owed = math.length(frame.easing[0].position);
-    try std.testing.expect(owed > travel);
+    // A host state elsewhere moves the simulation at once but never the drawn ship: the
+    // offset carries the difference and fades over the frames that follow.
+    host.position[0] += travel * 2;
+    const held = math.length(frame.offsets[0].position);
+    frame.reconcile(.{ .tick = host_tick, .margin = 4, .kinematics = host, .controls = controls }, replay[0..flown], 0);
+    const owed = math.length(frame.offsets[0].position);
+    try std.testing.expect(owed > travel * 2 - 0.01 - held);
     for (0..40) |_| {
         now += 5 * tick_us;
         try frame.present(&snapshot, admission, local, no_models, now);
     }
-    try std.testing.expect(math.length(frame.easing[0].position) < owed / 10);
+    try std.testing.expect(math.length(frame.offsets[0].position) < owed / 10);
 }
 
 test "a remote ship sweeps smoothly under the client's own simulation" {
@@ -1371,4 +1732,182 @@ test "a remote ship sweeps smoothly under the client's own simulation" {
     // frozen track moves in whole steps at once.
     try std.testing.expect(largest_frame < pace * 0.4);
     try std.testing.expect(frames > 100);
+}
+
+test "a rock the host carries turns by the rate two sceneries measure" {
+    const gpa = std.testing.allocator;
+    var random: engine.random.Random = .{};
+    const local = try game.create.Objects.create(gpa, &random);
+    defer local.destroy();
+    const tables = game.create.testing.tables();
+    const frame = try create(gpa, local, &tables);
+    defer frame.destroy();
+    const no_models = game.create.testing.no_models;
+    const admission: wire.Admission = .{ .slot = 0, .generation = 1 };
+    var snapshot: wire.Snapshot = .{ .tick = 1, .ships = @splat(null) };
+    snapshot.ships[0] = .{ .generation = 1, .position = @splat(0) };
+    var now: i64 = 0;
+    try frame.present(&snapshot, admission, local, no_models, now);
+    // A slot past the pilots stands in for the rock, as the arena's rocks sit: never in the
+    // snapshot's ships, only in the scenery.
+    const all = frame.drawn.objects;
+    all.count = @max(all.count, all.players + 1);
+    _ = try game.create.createObject(
+        all,
+        &frame.tables,
+        no_models,
+        all.players,
+        all.slots[0].object.type,
+        0,
+        @splat(0),
+        &frame.random,
+    );
+    const rock_slot = all.players;
+    frame.rocks.entries[0] = .of(all, rock_slot);
+    frame.rocks.count = 1;
+    const rock = &all.slots[rock_slot];
+    const flight = rock.flight.?;
+    // A slow spin, as the arena's `random_spin_slow` gives: small enough that the facings'
+    // angles change by the turn itself each step, which is what the derivation reads.
+    _ = flight;
+    const turn: Vector = @splat(0.002);
+    var facing = engine.surrender.math.identity;
+
+    // The first scenery places the rock; the second pair measures its turn.
+    var scenery: wire.Scenery = .{ .tick = 1, .scenario = .asteroid_field, .rocks = .{ .count = 1 } };
+    var seen: usize = 0;
+    while (seen < 4) : (seen += 1) {
+        snapshot.tick += 1;
+        snapshot.clock += game.gameobj.ticks_per_step;
+        now += 5 * tick_us;
+        try frame.present(&snapshot, admission, local, no_models, now);
+        if (seen == 0) facing = engine.surrender.math.identity;
+        facing = engine.surrender.math.product(facing, engine.surrender.math.fromAngleVector(turn));
+        scenery.tick = snapshot.tick;
+        scenery.rocks.angles[0] = wire.packFacing(facing);
+        try frame.presentScenery(&scenery, no_models);
+    }
+    // The measured rate is the turn the host was seen applying each step, within what the
+    // wire's ten-bit angles can say.
+    try std.testing.expect(@abs(rock.object.pitch_rate - turn[0]) < 0.001);
+    try std.testing.expect(@abs(rock.object.yaw_rate - turn[1]) < 0.001);
+    try std.testing.expect(@abs(rock.object.roll_rate - turn[2]) < 0.001);
+
+    // Flown on by the measured rate, the rock stands where the next scenery finds it, so the
+    // correction eases in nearly nothing.
+    const angles = engine.surrender.math.angles(engine.surrender.math.product(
+        engine.surrender.math.transpose(rock.object.root.next_orientation),
+        facing,
+    ));
+    try std.testing.expect(@reduce(.Max, @abs(angles)) < 0.2);
+}
+
+test "the host's own shot takes the place of the bolt the client spoke for it" {
+    const gpa = std.testing.allocator;
+    var random: engine.random.Random = .{};
+    const local = try game.create.Objects.create(gpa, &random);
+    defer local.destroy();
+    const tables = game.create.testing.tables();
+    const frame = try create(gpa, local, &tables);
+    defer frame.destroy();
+    const no_models = game.create.testing.no_models;
+    const admission: wire.Admission = .{ .slot = 0, .generation = 1 };
+    var snapshot: wire.Snapshot = .{ .tick = 1, .ships = @splat(null) };
+    snapshot.ships[0] = .{ .generation = 1, .position = @splat(0) };
+    try frame.present(&snapshot, admission, local, no_models, 0);
+
+    // A predicted muzzle shot is recorded as it leaves; the host's word on that shot ends it
+    // instead of drawing a second bolt beside it (Overwatch GDC 2017).
+    const sink = frame.world().gun_effects.?;
+    sink.send(@ptrCast(frame), .{ .shot = .{
+        .index = 3,
+        .owner = 0,
+        .kind = .laser_cannon,
+        .fired_at = 100,
+        .dies_at = 200,
+        .origin = @splat(0),
+        .velocity = @splat(1),
+    } });
+    sink.send(@ptrCast(frame), .{ .shot = .{
+        .index = 4,
+        .owner = 0,
+        .kind = .laser_cannon,
+        .fired_at = 104,
+        .dies_at = 204,
+        .origin = @splat(0),
+        .velocity = @splat(1),
+    } });
+    try std.testing.expectEqual(@as(u8, 2), frame.own_muzzles.count);
+    frame.presentCombat(&.{.{ .shot = .{
+        .index = 30,
+        .owner = 0,
+        .kind = .laser_cannon,
+        .fired_at = 96,
+        .dies_at = 300,
+        .origin = @splat(0),
+        .velocity = @splat(1),
+    } }});
+    try std.testing.expectEqual(@as(u8, 1), frame.own_muzzles.count);
+    // Another pilot's shot takes none of the client's predicted bolts.
+    frame.presentCombat(&.{.{ .shot = .{
+        .index = 31,
+        .owner = 1,
+        .kind = .laser_cannon,
+        .fired_at = 108,
+        .dies_at = 300,
+        .origin = @splat(0),
+        .velocity = @splat(1),
+    } }});
+    try std.testing.expectEqual(@as(u8, 1), frame.own_muzzles.count);
+}
+
+test "the host's echoed commands carry another pilot's ship and its correction never jumps" {
+    const gpa = std.testing.allocator;
+    var random: engine.random.Random = .{};
+    const local = try game.create.Objects.create(gpa, &random);
+    defer local.destroy();
+    const tables = game.create.testing.tables();
+    const frame = try create(gpa, local, &tables);
+    defer frame.destroy();
+    const no_models = game.create.testing.no_models;
+    const admission: wire.Admission = .{ .slot = 0, .generation = 1 };
+    var snapshot: wire.Snapshot = .{ .tick = 1, .ships = @splat(null) };
+    snapshot.ships[0] = .{ .generation = 1, .position = @splat(0) };
+    snapshot.ships[1] = .{ .generation = 2, .position = @splat(0) };
+    var now: i64 = 0;
+    try frame.present(&snapshot, admission, local, no_models, now);
+
+    // The host's echo carries the other pilot's held turn at full precision.
+    var commands: wire.Commands = .{ .tick = snapshot.clock, .carried = 0b0010 };
+    commands.held[1].steering = .{ .axes = .{ 0, 0, 0.5 } };
+    frame.noteCommands(commands);
+    var turned = false;
+    // Snapshots at twenty-five a second, frames at sixty: four rounds keep the clock's lead
+    // well inside its bound while the echoed turn is flown.
+    for (0..4) |_| {
+        snapshot.tick += 1;
+        snapshot.clock += game.gameobj.ticks_per_step;
+        for (0..6) |_| {
+            now += tick_us * 5 / 3;
+            try frame.present(&snapshot, admission, local, no_models, now);
+            if (@abs(frame.drawn.objects.slots[1].object.roll_rate) > 0.01) turned = true;
+        }
+    }
+    try std.testing.expect(turned);
+
+    // A snapshot far from the track rewinds and resimulates by those commands; the drawn ship
+    // holds its place and the offset takes the difference (Rocket League GDC 2018).
+    const remote = &frame.drawn.objects.slots[1];
+    const drawn_before = remote.drawn.position;
+    // The snapshot reports from behind, at a tick the tracks hold, its ship a little aside
+    // from where the simulation stands there.
+    snapshot.tick += 1;
+    const behind = frame.tracks[1].byTick(frame.flown.?.tick - target_lead) orelse frame.tracks[1].at(0);
+    snapshot.clock = behind.tick;
+    snapshot.ships[1].?.position = behind.position + @as(Vector, @splat(12));
+    now += tick_us * 5 / 3;
+    try frame.present(&snapshot, admission, local, no_models, now);
+    try std.testing.expect(engine.surrender.math.length(frame.offsets[1].position) > 15);
+    // The drawn ship holds its place: the whole difference went to the fading offset.
+    try std.testing.expect(engine.surrender.math.length(remote.drawn.position - drawn_before) < 1);
 }

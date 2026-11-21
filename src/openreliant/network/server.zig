@@ -17,6 +17,8 @@ const LaunchWait = @import("launch_wait.zig");
 const Metrics = @import("metrics.zig");
 const Crew = game.interface.Connection.DebriefCrew;
 const log = std.log.scoped(.network_host);
+/// Steps the host may fall behind its schedule before it starts the schedule over.
+const max_late_steps = 5;
 const CoopRescues = game.gameflow.save.CoopRescues;
 const Results = struct {
     directory: Io.Dir,
@@ -51,9 +53,14 @@ const Peer = struct {
     loading_until: i64 = 0,
     sequence: ?u32 = null,
     flight_command: flight.Command = .{},
+    /// The command the last step flew for this pilot, echoed to every client so their
+    /// simulations carry every ship by its real command (Rocket League GDC 2018).
+    flown_command: flight.Command = .{},
     fire_for: ?u32 = null,
     /// Inputs tagged with the client's tick, waiting for the step that reaches it.
     timed: Timed = .{},
+    /// Ticks the pilot's newest input was ahead of the last step that needed it.
+    margin: i8 = 0,
     presses: flight_input.Presses = .{},
     weapons: ?wire.ordnance.Order = null,
     briefed: bool = false,
@@ -109,6 +116,9 @@ budget: HandshakeBudget = .{},
 chat_budget: ChatBudget = .{},
 tick: u32 = 0,
 last_tick: u32 = std.math.maxInt(u32),
+/// The combat effects of the step before, sent once more before the next step's.
+combat_again: [2 * game.guns.max_bullets + wire.slots]game.guns.FlightEffect = undefined,
+combat_again_count: usize = 0,
 next_step: i64 = 0,
 renew_at: i64 = 0,
 final_tick: ?u32 = null,
@@ -671,6 +681,7 @@ fn acceptInput(host: *const Host, peer: *Peer, input: wire.Input, time: i64) voi
         peer.fire_for = input.fire_for;
         return;
     };
+    for (input.earlier[0..input.earlier_count]) |flown| peer.timed.push(.{ .tick = flown.tick, .command = flown.command, .fire_for = input.fire_for });
     peer.timed.push(.{ .tick = tick, .command = input.command, .fire_for = input.fire_for });
 }
 
@@ -682,8 +693,14 @@ const Timed = struct {
     entries: [length]Entry = undefined,
     first: usize = 0,
     count: usize = 0,
+    /// The newest tick received, kept after its entry is taken so a redundant copy is not
+    /// queued again.
+    newest: ?i32 = null,
 
     fn push(timed: *Timed, entry: Entry) void {
+        // A repeat or reordered input adds nothing the queue does not already steer by.
+        if (timed.newest) |newest| if (entry.tick -% newest <= 0) return;
+        timed.newest = entry.tick;
         if (timed.count == length) {
             timed.first = (timed.first + 1) % length;
             timed.count -= 1;
@@ -692,16 +709,18 @@ const Timed = struct {
         timed.count += 1;
     }
 
-    /// The input that steers the step reaching `tick`, dropping those whose steps have passed.
-    /// None queued means the input is late: the last one holds.
+    /// The newest input whose step has been reached: a late one still takes over, an early
+    /// one waits for its step. None means the last input holds.
     fn take(timed: *Timed, tick: i32) ?Entry {
+        var reached: ?Entry = null;
         while (timed.count > 0) {
             const entry = timed.entries[timed.first];
-            if (entry.tick -% tick >= 0) return entry;
+            if (entry.tick -% tick > 0) break;
+            reached = entry;
             timed.first = (timed.first + 1) % length;
             timed.count -= 1;
         }
-        return null;
+        return reached;
     }
 };
 
@@ -799,7 +818,10 @@ fn applyControls(host: *Host, time: i64) void {
     for (&host.peers, 0..) |*entry, slot| {
         const peer = if (entry.*) |*peer| peer else continue;
         if (peer.state != .playing or peer.sequence == null) continue;
-        if (peer.timed.take(host.arena.mission.clock.mission_ticks + game.gameobj.ticks_per_step)) |timed| {
+        const reach = host.arena.mission.clock.mission_ticks + game.gameobj.ticks_per_step;
+        if (peer.timed.newest) |newest| peer.margin = @intCast(std.math.clamp(newest -% reach, std.math.minInt(i8), std.math.maxInt(i8)));
+        const taken = peer.timed.take(reach);
+        if (taken) |timed| {
             peer.flight_command = timed.command;
             peer.fire_for = timed.fire_for;
         }
@@ -807,6 +829,7 @@ fn applyControls(host: *Host, time: i64) void {
         var command = if (expired) flight_input.release(peer.flight_command) else peer.flight_command;
         peer.presses.apply(&command);
         peer.presses = .{};
+        peer.flown_command = command;
         const order = peer.weapons;
         if (peer.weapons) |*pending| {
             pending.presses = .{};
@@ -913,6 +936,20 @@ fn sendView(host: *const Host, view: *wire.Snapshot, slot: u8, delivery: Deliver
         .debrief, .split_result => .{ .campaign_result = view.* },
     };
     try host.channel().sendBytes(host.peers[slot].?.conn, try message.encode(buffer), delivery != .flight);
+    if (delivery == .flight and ship) try host.sendOwnFlight(slot, buffer);
+}
+
+/// The pilot's simulation takes up the host's exact state of its own ship and replays its later
+/// inputs (Overwatch GDC 2017, Fiedler "Networked Physics").
+fn sendOwnFlight(host: *const Host, slot: u8, buffer: []u8) !void {
+    const all = host.arena.mission.objects;
+    const own: wire.OwnFlight = .{
+        .tick = @intCast(host.arena.mission.clock.mission_ticks),
+        .margin = host.peers[slot].?.margin,
+        .kinematics = .of(&all.slots[slot].object),
+        .controls = all.player_states[slot].controls,
+    };
+    try host.channel().sendBytes(host.peers[slot].?.conn, try (wire.Message{ .own_flight = own }).encode(buffer), false);
 }
 
 fn noticeName(host: *const Host, pilot: game.players.ParticipantRef) wire.CallSign {
@@ -959,17 +996,36 @@ fn broadcastNotices(host: *Host) void {
 }
 
 fn broadcastCombat(host: *Host) !void {
+    // The last step's effects go out once more before this step's: combat datagrams are
+    // unreliable and one-shot, and the client's gates make a repeat cost nothing (Overwatch
+    // GDC 2017 sends its recent inputs the same way).
+    var again = host.combat_again[0..host.combat_again_count];
+    host.combat_again_count = 0;
+    while (again.len > 0) {
+        const batch_len = @min(again.len, wire.Combat.max);
+        try host.sendCombat(again[0..batch_len]);
+        again = again[batch_len..];
+    }
     var remaining = host.arena.combat[0..host.arena.combat_count];
     while (remaining.len > 0) {
-        var batch: wire.Combat = .{ .arena_floor = host.arena_floor, .count = @min(remaining.len, wire.Combat.max) };
-        @memcpy(batch.entries[0..batch.count], remaining[0..batch.count]);
-        remaining = remaining[batch.count..];
-        var buffer: [wire.capacity]u8 = undefined;
-        const bytes = try (wire.Message{ .combat = batch }).encode(&buffer);
-        for (host.peers) |entry| {
-            const peer = entry orelse continue;
-            if (peer.state == .playing) host.channel().sendBytes(peer.conn, bytes, false) catch continue;
-        }
+        const batch_len = @min(remaining.len, wire.Combat.max);
+        try host.sendCombat(remaining[0..batch_len]);
+        const kept = host.combat_again_count + batch_len;
+        @memcpy(host.combat_again[host.combat_again_count..kept], remaining[0..batch_len]);
+        host.combat_again_count = kept;
+        remaining = remaining[batch_len..];
+    }
+}
+
+/// One combat batch, both as this step's fresh effects and as the next step's repeat.
+fn sendCombat(host: *Host, effects: []const game.guns.FlightEffect) !void {
+    var batch: wire.Combat = .{ .arena_floor = host.arena_floor, .count = @intCast(effects.len) };
+    @memcpy(batch.entries[0..effects.len], effects);
+    var buffer: [wire.capacity]u8 = undefined;
+    const bytes = try (wire.Message{ .combat = batch }).encode(&buffer);
+    for (host.peers) |entry| {
+        const peer = entry orelse continue;
+        if (peer.state == .playing) host.channel().sendBytes(peer.conn, bytes, false) catch continue;
     }
 }
 
@@ -1197,7 +1253,11 @@ pub fn pump(host: *Host) !enum { running, finished } {
         return .running;
     }
     if (time < host.next_step) return .running;
-    host.next_step = @max(host.next_step + wire.step_us, time);
+    // Steps keep a fixed schedule, so a late wake costs the next step's wait rather than the
+    // mission clock's rate; the clients' clocks track the host's (Fiedler, "Fix Your Timestep").
+    // A stall past a few steps starts the schedule over rather than bursting.
+    host.next_step += wire.step_us;
+    if (time - host.next_step > max_late_steps * wire.step_us) host.next_step = time;
     if (host.signer) |signer| {
         if (time >= host.renew_at) {
             var certificate = try signer.hostCertificate(host.io);
@@ -1330,6 +1390,7 @@ pub fn pump(host: *Host) !enum { running, finished } {
         }
         try host.broadcastScenery();
         try host.broadcastCombat();
+        try host.broadcastCommands();
         if (view.hasOrdnance()) try host.broadcastProjectiles();
         if (view.mission != null) try host.broadcastScene();
     }
@@ -1340,6 +1401,25 @@ fn broadcastScenery(host: *Host) !void {
     const scenery = host.arena.scenery(host.tick) orelse return;
     var buffer: [wire.capacity]u8 = undefined;
     const bytes = try (wire.Message{ .scenery = scenery }).encode(&buffer);
+    for (host.peers) |entry| {
+        const peer = entry orelse continue;
+        if (peer.state == .playing) host.channel().sendBytes(peer.conn, bytes, false) catch continue;
+    }
+}
+
+/// Echoes every pilot's held command as the last step flew it, so each client's simulation
+/// carries the other pilots' ships by their real commands rather than a quantized echo of their
+/// state (Rocket League GDC 2018).
+fn broadcastCommands(host: *Host) !void {
+    var commands: wire.Commands = .{ .tick = @intCast(host.arena.mission.clock.mission_ticks) };
+    for (host.peers, 0..) |entry, slot| {
+        const peer = entry orelse continue;
+        if (peer.state != .playing) continue;
+        commands.held[slot] = peer.flown_command;
+        commands.carried |= @as(u8, 1) << @intCast(slot);
+    }
+    var buffer: [wire.capacity]u8 = undefined;
+    const bytes = try (wire.Message{ .commands = commands }).encode(&buffer);
     for (host.peers) |entry| {
         const peer = entry orelse continue;
         if (peer.state == .playing) host.channel().sendBytes(peer.conn, bytes, false) catch continue;
@@ -1561,13 +1641,19 @@ test "a reordered command or a command for the previous round leaves other contr
     try std.testing.expect(host.peers[0].?.flight_command.afterburner);
 }
 
-test "a pilot's timed inputs steer the steps up to the ticks the client flew them to" {
+test "a pilot's timed inputs steer the steps reaching their ticks, early ones waiting" {
     var timed: Timed = .{};
     timed.push(.{ .tick = 8, .command = .{ .afterburner = true }, .fire_for = null });
+    timed.push(.{ .tick = 8, .command = .{ .reverse = true }, .fire_for = null });
     timed.push(.{ .tick = 12, .command = .{ .reverse = true }, .fire_for = null });
-    try std.testing.expect(timed.take(4).?.command.afterburner);
+    timed.push(.{ .tick = 20, .command = .{}, .fire_for = null });
+    // Early: the step reaching 4 keeps the last command.
+    try std.testing.expectEqual(null, timed.take(4));
     try std.testing.expect(timed.take(8).?.command.afterburner);
-    try std.testing.expect(timed.take(12).?.command.reverse);
-    // Late: nothing covers the step, so the last command holds.
-    try std.testing.expectEqual(null, timed.take(16));
+    // Late: the step reaching 16 takes the newest input already due.
+    try std.testing.expect(timed.take(16).?.command.reverse);
+    try std.testing.expect(!timed.take(20).?.command.reverse);
+    // A redundant copy of a step already flown is not queued again.
+    timed.push(.{ .tick = 16, .command = .{ .afterburner = true }, .fire_for = null });
+    try std.testing.expectEqual(null, timed.take(24));
 }
