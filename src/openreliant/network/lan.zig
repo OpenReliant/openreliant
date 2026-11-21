@@ -70,22 +70,23 @@ const windows = if (builtin.os.tag == .windows) struct {
         timeout: *const ws2_32.timeval,
     ) c_int;
 
-    const start = std.once(startOnce);
-    var ready = false;
+    var ready = std.atomic.Value(bool).init(false);
 
-    fn startOnce() void {
+    /// `WSAStartup` is reference-counted, so a race that starts it twice is harmless.
+    fn start() void {
+        if (ready.load(.acquire)) return;
         var data: Data = undefined;
         if (WSAStartup(0x0202, &data) != 0) {
             std.log.warn("could not start winsock for the local network's searches", .{});
             return;
         }
-        ready = true;
+        ready.store(true, .release);
     }
 
     /// Whether a datagram waits on `handle` within `wait_us`.
     fn readable(handle: net.Socket.Handle, wait_us: i64) bool {
-        start.call();
-        if (!ready) return false;
+        start();
+        if (!ready.load(.acquire)) return false;
         var set = FdSet{ .count = 1, .array = .{@intFromPtr(handle)} };
         const wait: ws2_32.timeval = .{
             .sec = @intCast(@divFloor(wait_us, std.time.us_per_s)),
