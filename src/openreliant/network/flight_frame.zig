@@ -34,6 +34,8 @@ running: bool = false,
 /// Where the local simulation carried each ship, step by step, which each snapshot is matched
 /// against at the same moment (`correct`).
 tracks: [wire.slots]Track = @splat(.{}),
+/// What each ship still has to take in of its last correction, a share every step (`ease`).
+easing: [wire.slots]Ease = @splat(.{}),
 /// Microseconds the mission clock runs ahead of real time, so the host's snapshots arrive at a
 /// steady lead (`keepClock`).
 skew_us: i64 = 0,
@@ -487,7 +489,7 @@ fn presentWeapons(frame: *FlightFrame, status: ?wire.ordnance.Status) void {
     const weapons = &all.player_states[all.player].weapons;
     const prior = weapons.ring;
     if (status) |shown| {
-        shown.panels.apply(&slot.object);
+        shown.panels.apply(slot);
         // The host owns the devices' charges; the bars read what it last sent.
         const charges = &all.player_states[all.player].charges;
         for (std.enums.values(game.ship_devices.Device), shown.charges) |device, share|
@@ -682,6 +684,7 @@ pub fn present(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: w
         frame.lead = null;
         frame.frame_us = now;
         for (&frame.tracks) |*track| track.* = .{};
+        frame.easing = @splat(.{});
         frame.running = true;
         return;
     }
@@ -697,7 +700,10 @@ pub fn present(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: w
     if (all.playerBinding(admission.slot)) |binding|
         _ = all.submitPlayerCommand(binding, .{ .flight = frame.command });
     while (clock.nextTick(&frame.devices, scene)) |stepped| {
-        if (stepped) frame.record();
+        if (stepped) {
+            frame.ease();
+            frame.record();
+        }
     }
     clock.frameBegin();
     clock.drawBegin();
@@ -729,8 +735,21 @@ const skew_rate = 0.05;
 const target_lead = 2;
 /// A lead or lag beyond this many ticks restarts the clock at the host's.
 const lost_lead = 50;
-/// The share of a ship's remaining difference from the host that each snapshot takes in.
-const correction_share = 0.25;
+/// The share of a ship's outstanding correction each step takes in: a correction spreads over
+/// about a quarter second, a slight change of course the drawing blends like any other step.
+const ease_share = 0.15;
+/// The pilot's own ship lets a difference from the host within one step of its travel stand:
+/// its input reaches the host a step early or late, which is lag, not error.
+const own_slack_steps = 1;
+/// Nor does it turn for a difference of facing below this, in radians.
+const own_slack_turn = 0.1;
+
+/// The part of a correction a ship has not taken in yet.
+const Ease = struct {
+    position: Vector = @splat(0),
+    angles: Vector = @splat(0),
+    velocity: Vector = @splat(0),
+};
 
 /// The place the local simulation reached at each step for one ship, newest last.
 const Track = struct {
@@ -829,12 +848,13 @@ fn velocityOf(slot: *const game.create.Slot, ship: wire.Ship, orientation: engin
     };
 }
 
-/// Corrects a ship the simulation carries on by a share of how far it stood from the host's
-/// place at the same moment: the step at the snapshot's tick, or for the pilot's own ship the
-/// step that first flew the input the host had applied, so its own input lag is not mistaken for
-/// an error. What no one could predict, a collision or a hit, closes over a few snapshots rather
-/// than snapping. A ship beyond three steps of its flight from the host's place is placed where
-/// the host's place has reached by now.
+/// Measures how far a ship the simulation carries on stood from the host's place at the same
+/// moment: the step at the snapshot's tick, or for the pilot's own ship the step that first flew
+/// the input the host had applied, so its own input lag is not mistaken for an error. The
+/// difference is taken in over the next steps (`ease`), so what no one could predict, a
+/// collision or a hit, bends the course rather than moving the ship. Another pilot's ship beyond
+/// three steps of its flight from the host's place is placed where that place has reached by
+/// now; the pilot's own ship always eases, since its camera must never jump.
 fn correct(frame: *FlightFrame, index: u16, ship: wire.Ship, own: bool, snapshot: *const wire.Snapshot) void {
     const math = engine.surrender.math;
     const slot = &frame.drawn.objects.slots[index];
@@ -843,18 +863,21 @@ fn correct(frame: *FlightFrame, index: u16, ship: wire.Ship, own: bool, snapshot
     const velocity = velocityOf(slot, ship, orientation);
     const found = if (own) track.bySequence(snapshot.applied) else track.byTick(snapshot.clock);
     if (found) |entry| {
-        const reach = math.length(entry.velocity) * 3 + 25;
+        const travel = math.length(entry.velocity);
+        const reach = travel * 3 + 25;
         const apart = ship.position - entry.position;
-        if (math.dot(apart, apart) <= reach * reach) {
-            const share: Vector = @splat(correction_share);
-            const position = apart * share;
-            const speed = (velocity - entry.velocity) * share;
-            const turn = math.fromAngleVector(math.angles(math.product(math.transpose(entry.orientation), orientation)) * share);
-            const root = &slot.object.root;
-            root.next_position = .of(root.next_position.vector() + position);
-            root.next_orientation = math.product(root.next_orientation, turn);
-            slot.object.velocity = .of(slot.object.velocity.vector() + speed);
-            track.shift(entry.tick, position, speed, turn);
+        if (own or math.dot(apart, apart) <= reach * reach) {
+            const turn = math.angles(math.product(math.transpose(entry.orientation), orientation));
+            const slack = travel * own_slack_steps;
+            frame.easing[index] = if (own) .{
+                // Its velocity follows its own controls; the host's is too coarse to steer by.
+                .position = if (math.dot(apart, apart) > slack * slack) apart else @splat(0),
+                .angles = if (math.length(turn) > own_slack_turn) turn else @splat(0),
+            } else .{
+                .position = apart,
+                .angles = turn,
+                .velocity = velocity - entry.velocity,
+            };
             return;
         }
     } else if (track.count < Track.length) return;
@@ -863,6 +886,31 @@ fn correct(frame: *FlightFrame, index: u16, ship: wire.Ship, own: bool, snapshot
     game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = ship.position + velocity * @as(Vector, @splat(steps)), .orientation = orientation });
     slot.object.velocity = .of(velocity);
     track.* = .{};
+    frame.easing[index] = .{};
+}
+
+/// Takes in a share of every ship's outstanding correction after a step, and moves the steps
+/// already recorded with it, so the next snapshot measures only what is still left.
+fn ease(frame: *FlightFrame) void {
+    const math = engine.surrender.math;
+    const share: Vector = @splat(ease_share);
+    for (&frame.easing, &frame.tracks, frame.drawn.objects.slots[0..wire.slots]) |*left, *track, *slot| {
+        if (!slot.object.created) {
+            left.* = .{};
+            continue;
+        }
+        const position = left.position * share;
+        const velocity = left.velocity * share;
+        const turn = math.fromAngleVector(left.angles * share);
+        left.position -= position;
+        left.velocity -= velocity;
+        left.angles -= left.angles * share;
+        const root = &slot.object.root;
+        root.next_position = .of(root.next_position.vector() + position);
+        root.next_orientation = math.product(root.next_orientation, turn);
+        slot.object.velocity = .of(slot.object.velocity.vector() + velocity);
+        if (track.count > 0) track.shift(track.at(0).tick, position, velocity, turn);
+    }
 }
 
 pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wire.Admission, local: *game.create.Objects, types: game.create.Types) !void {
@@ -949,6 +997,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
             game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = ship.position, .orientation = orientation });
             slot.object.velocity = .of(velocityOf(slot, ship, orientation));
             frame.tracks[index] = .{};
+            frame.easing[index] = .{};
         }
         // order_eject breaks off the cockpit and plays EJECT01 (0x00415808).
         if (ejected) game.sound3d.playIn(scene, null, null, index, .eject01, 1, game.sound3d.fxClass(all, index));
@@ -1223,7 +1272,7 @@ test "the target panel opens and closes as flight snapshots advance" {
     try std.testing.expect(shut);
 }
 
-test "the pilot's own ship draws from the held command and corrects by the snapshot" {
+test "the pilot's own ship flies the held command and eases into the host's place" {
     const gpa = std.testing.allocator;
     var random: engine.random.Random = .{};
     const local = try game.create.Objects.create(gpa, &random);
@@ -1255,16 +1304,37 @@ test "the pilot's own ship draws from the held command and corrects by the snaps
     }
     try std.testing.expect(carried);
 
-    // A snapshot near the simulation closes part of the gap this frame and the rest over the
-    // steps that follow, never at once.
+    // Later steps fly a newer input, which the host's snapshots echo.
+    frame.sequence = 1;
+    for (0..8) |_| {
+        now += 5 * tick_us;
+        try frame.present(&snapshot, admission, local, no_models, now);
+    }
+    snapshot.applied = 1;
+    const math = engine.surrender.math;
+    const entry = frame.tracks[0].bySequence(1).?;
+    const travel = math.length(entry.velocity);
+    try std.testing.expect(travel > 1);
+
+    // A difference within a step of travel is input lag, which the pilot's own ship lets stand.
     snapshot.tick += 1;
-    const target = slot.drawn.position + @as(engine.surrender.math.Vector, @splat(5));
-    snapshot.ships[0].?.position = target;
-    const before = @abs(slot.drawn.position[0] - target[0]) + @abs(slot.drawn.position[1] - target[1]) + @abs(slot.drawn.position[2] - target[2]);
+    snapshot.ships[0].?.position = entry.position + Vector{ travel / 2, 0, 0 };
     try frame.present(&snapshot, admission, local, no_models, now);
-    const after = @abs(slot.drawn.position[0] - target[0]) + @abs(slot.drawn.position[1] - target[1]) + @abs(slot.drawn.position[2] - target[2]);
-    try std.testing.expect(after < before);
-    try std.testing.expect(after > 0);
+    try std.testing.expectEqual(@as(Vector, @splat(0)), frame.easing[0].position);
+
+    // A larger one never moves the ship at once: the steps that follow take it in.
+    snapshot.tick += 1;
+    snapshot.ships[0].?.position = entry.position + Vector{ travel * 2, 0, 0 };
+    const held = slot.drawn.position;
+    try frame.present(&snapshot, admission, local, no_models, now);
+    try std.testing.expectEqual(held, slot.drawn.position);
+    const owed = math.length(frame.easing[0].position);
+    try std.testing.expect(owed > travel);
+    for (0..40) |_| {
+        now += 5 * tick_us;
+        try frame.present(&snapshot, admission, local, no_models, now);
+    }
+    try std.testing.expect(math.length(frame.easing[0].position) < owed / 10);
 }
 
 test "a remote ship sweeps smoothly under the client's own simulation" {

@@ -153,19 +153,25 @@ pub const Panels = struct {
     conditions: [3]f32 = @splat(1),
     guns: game.gameobj.GunMode = .created(1),
     rounds: i32 = 0,
+    /// The guns' charge as its share of full, which the guns' gauge reads.
+    charge: u8 = 255,
 
-    const size = 5 * @sizeOf(f32) + @sizeOf(u16) + @sizeOf(i32);
+    const size = 5 * @sizeOf(f32) + @sizeOf(u16) + @sizeOf(i32) + 1;
 
-    fn capture(object: *const game.gameobj.GameObject) Panels {
+    fn capture(slot: *const game.create.Slot) Panels {
+        const object = &slot.object;
+        const full = if (slot.combat) |combat| combat.gun_energy else 0;
         return .{
             .power = engine.input.power.point(object),
             .conditions = .{ object.gun_condition, object.armor_speed_factor, object.shield_condition },
             .guns = object.gun_mode,
             .rounds = object.rounds,
+            .charge = if (full > 0) @intFromFloat(std.math.clamp(@round(object.gun_charge / full * 255), 0, 255)) else 255,
         };
     }
 
-    pub fn apply(panel: Panels, object: *game.gameobj.GameObject) void {
+    pub fn apply(panel: Panels, slot: *game.create.Slot) void {
+        const object = &slot.object;
         object.power_setting.x = panel.power[0];
         object.power_setting.y = panel.power[1];
         object.gun_condition = panel.conditions[0];
@@ -173,12 +179,14 @@ pub const Panels = struct {
         object.shield_condition = panel.conditions[2];
         object.gun_mode = panel.guns;
         object.rounds = panel.rounds;
+        if (slot.combat) |combat| object.gun_charge = combat.gun_energy * @as(f32, @floatFromInt(panel.charge)) / 255;
     }
 
     fn write(panel: Panels, w: *std.Io.Writer) !void {
         for (panel.power ++ panel.conditions) |value| try w.writeInt(u32, @bitCast(value), .little);
         try w.writeInt(u16, @bitCast(panel.guns), .little);
         try w.writeInt(i32, panel.rounds, .little);
+        try w.writeByte(panel.charge);
     }
 
     fn read(r: *std.Io.Reader) !Panels {
@@ -194,6 +202,7 @@ pub const Panels = struct {
             .conditions = values[2..5].*,
             .guns = @bitCast(try r.takeInt(u16, .little)),
             .rounds = try r.takeInt(i32, .little),
+            .charge = try r.takeByte(),
         };
     }
 };
@@ -231,7 +240,7 @@ pub const Status = struct {
                 chargeShare(charges.get(.cloak), .cloak),
                 chargeShare(charges.get(.spectral_shields), .spectral_shields),
             },
-            .panels = .capture(object),
+            .panels = .capture(&all.slots[slot]),
             .held = if (weapons.lock.phase == .idle) .{} else .{
                 .phase = weapons.lock.phase,
                 .point = weapons.lock.point,
