@@ -1443,6 +1443,23 @@ pub const Drawn = struct {
     }
 };
 
+/// Frames every object in `all` for a drawn frame: each placed as far through the simulation's
+/// step as `timing` says, the riders among them held on their nodes again, and each shown
+/// missile framed likewise. A game frame's copy does this on the copy it took (`Drawn.take`);
+/// the multiplayer client, whose own simulation runs in its drawn world, does it there.
+pub fn frameDrawn(all: *create.Objects, timing: objects.Timing, now: i32) void {
+    var walk = all.walk();
+    while (walk.next()) |index| {
+        if (!all.slots[index].object.flags.outOfFrame()) placeObject(all, index, timing, now);
+    }
+    holdRiders(all, timing, now);
+    var missiles_walk = all.missiles.walk();
+    while (missiles_walk.next()) |index| {
+        const missile = all.missiles.get(index) orelse continue;
+        if (missile.shown) missile.frameAt(timing.fraction);
+    }
+}
+
 /// OpenReliant's: what drawing hands the game for its next frames, which the game takes up at the
 /// start of the next pass and before a mission starts (`takeUp`), so the game finds them just as if
 /// drawing had written them into its records at once: the switches of view drawing asked for

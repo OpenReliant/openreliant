@@ -50,6 +50,8 @@ const Peer = struct {
     expires: i64,
     loading_until: i64 = 0,
     sequence: ?u32 = null,
+    /// The sequence of the input the last step flew by, which the pilot's views report back.
+    applied: u32 = 0,
     flight_command: flight.Command = .{},
     fire_for: ?u32 = null,
     presses: flight_input.Presses = .{},
@@ -761,6 +763,7 @@ fn applyControls(host: *Host, time: i64) void {
     for (&host.peers, 0..) |*entry, slot| {
         const peer = if (entry.*) |*peer| peer else continue;
         if (peer.state != .playing or peer.sequence == null) continue;
+        peer.applied = peer.sequence.?;
         const expired = time - (peer.expires - timeout) >= held_input_timeout;
         var command = if (expired) flight_input.release(peer.flight_command) else peer.flight_command;
         peer.presses.apply(&command);
@@ -851,6 +854,7 @@ const Delivery = enum {
 /// A pilot gets the same private cockpit readings during a pause as in flight.
 fn sendView(host: *const Host, view: *wire.Snapshot, slot: u8, delivery: Delivery, buffer: []u8) !void {
     const all = host.arena.mission.objects;
+    view.applied = if (host.peers[slot]) |peer| peer.applied else 0;
     if (view.mission) |*mission| {
         const state = &all.player_states[slot];
         mission.guide = host.arena.guide(slot);

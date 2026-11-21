@@ -565,7 +565,7 @@ fn campaignPresentation(arena: *Arena, campaign: *Campaign) void {
 /// Capture an arena view at the current tick. A pilot joining during a pause still needs one.
 pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
     const all = arena.mission.objects;
-    var view: wire.Snapshot = .{ .tick = tick, .scenario = arena.mode.scenario(), .ships = @splat(null) };
+    var view: wire.Snapshot = .{ .tick = tick, .clock = arena.mission.clock.mission_ticks, .scenario = arena.mode.scenario(), .ships = @splat(null) };
     if (all.arena_scores == .teams) view.teams = all.arena_scores.teams;
     if (arena.campaign) |campaign| {
         view.mission = .{

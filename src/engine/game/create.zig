@@ -1951,7 +1951,7 @@ pub fn objectsUpdate(world: gameobj.World) void {
         if (object.flags.no_collisions) continue;
         sweep.add(index, object);
     }
-    sweep.run(world);
+    if (!world.presentation_only) sweep.run(world);
 }
 
 /// The sweep for the pairs of objects that meet, which `objects_update` runs once every object has

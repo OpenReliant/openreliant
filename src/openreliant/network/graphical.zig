@@ -491,9 +491,10 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             const held = engine.input.sampleFlight(scene.player, devices, &pilot.stick, scene.player.viewing.view);
             if (pilot.flight) |shown| {
                 shown.command = held;
-                shown.predicting = true;
+                shown.devices = devices;
             }
             client.setFlight(held);
+            if (pilot.flight) |shown| shown.sequence = client.sequence;
             client.fire_primary = engine.input.primaryHeld(devices);
             if (multiplayer_ordnance) {
                 const weapons = engine.input.sampleOrdnance(scene.player, devices);

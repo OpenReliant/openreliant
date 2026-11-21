@@ -1600,6 +1600,12 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
         const command = pending.*;
         pending.consumePresses();
         const state = &all.player_states[index];
+        if (world.presentation_only) {
+            // A multiplayer client only steers; the host's views bring targets, guns and devices.
+            flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, command.flight, world.clock.frame_duration);
+            flight.limitArenaThrottle(&slot.object);
+            return;
+        }
         switch (command.target) {
             .keep => {},
             .clear => {

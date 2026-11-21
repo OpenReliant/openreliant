@@ -19,7 +19,7 @@ pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
 pub const CampaignCheckpoint = campaign.Checkpoint;
-pub const revision: u16 = 30;
+pub const revision: u16 = 31;
 pub const Team = engine.game.players.ArenaTeam;
 
 fn readTeam(reader: *std.Io.Reader) !Team {
@@ -48,7 +48,7 @@ pub const Combat = struct {
 };
 // A tag, mode, tick, pilot ships, and the largest mode payload.
 const inline_pilots = @min(slots, PilotPage.width);
-const snapshot_header = 2 + @sizeOf(u32) + 1 + inline_pilots * Ship.encoded_size + 1 + 1;
+const snapshot_header = 2 + @sizeOf(u32) + @sizeOf(i32) + @sizeOf(u32) + 1 + inline_pilots * Ship.encoded_size + 1 + 1;
 const beacon_snapshot_capacity = snapshot_header - inline_pilots + 1 + beacon_count * (1 + 3 * @sizeOf(f32)) + Blast.encoded_size;
 const power_capacity = @sizeOf(powerups.Pickups.Mask) + 1 + @sizeOf(i32);
 const team_scores_capacity = 1 + std.enums.values(Team).len * (@sizeOf(i32) + @sizeOf(u32));
@@ -720,6 +720,11 @@ pub const max_pilot_pages = (slots - 1) / PilotPage.width;
 
 pub const Snapshot = struct {
     tick: u32,
+    /// The host's `mission_ticks` after the step this view was taken at; a client's own mission
+    /// clock keeps to it.
+    clock: i32 = 0,
+    /// The receiving pilot's last input sequence the host had applied when it took this view.
+    applied: u32 = 0,
     scenario: ?Scenario = null,
     ships: [slots]?Ship,
     pilot_pages: u8 = 0,
@@ -1173,6 +1178,8 @@ pub const Message = union(enum(u8)) {
             .view, .finished, .campaign_result => |view| {
                 if (message == .campaign_result and view.mission == null) return error.InvalidDebrief;
                 try w.writeInt(u32, view.tick, .little);
+                try w.writeInt(i32, view.clock, .little);
+                try w.writeInt(u32, view.applied, .little);
                 try writeMode(&w, view.scenario, view.mission != null);
                 try w.writeByte(view.pilot_pages);
                 try writeShips(&w, view.ships[0..inline_pilots], view.mode());
@@ -1341,8 +1348,10 @@ pub const Message = union(enum(u8)) {
             } },
             .view, .finished, .campaign_result => snapshot: {
                 const tick = try r.takeInt(u32, .little);
+                const clock = try r.takeInt(i32, .little);
+                const applied = try r.takeInt(u32, .little);
                 const session_mode = try readMode(&r);
-                var view: Snapshot = .{ .tick = tick, .scenario = session_mode.scenario, .ships = @splat(null) };
+                var view: Snapshot = .{ .tick = tick, .clock = clock, .applied = applied, .scenario = session_mode.scenario, .ships = @splat(null) };
                 view.pilot_pages = try r.takeByte();
                 if (view.pilot_pages > max_pilot_pages or (session_mode.mission and view.pilot_pages != 0))
                     return error.InvalidSnapshot;
@@ -1770,7 +1779,7 @@ test "a final receipt names the applied tick" {
 test "flight updates fit the direct-IP payload budget" {
     const input_bytes = 29;
     // A fighter byte and a ship reuse count distinguish a respawn from a new admission.
-    const full_snapshot_bytes = 9 + 95 * inline_pilots;
+    const full_snapshot_bytes = 17 + 95 * inline_pilots;
     const objective_snapshot_budget = full_snapshot_bytes + 79;
     var buffer: [capacity]u8 = undefined;
     const input: Message = .{ .input = .{ .sequence = 1, .command = .{
