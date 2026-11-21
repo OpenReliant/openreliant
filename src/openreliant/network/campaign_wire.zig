@@ -112,12 +112,14 @@ pub const MissionView = struct {
 
     /// Scripted guidance and the active landing view for the receiving pilot.
     pub const Guide = struct {
-        const capacity = @sizeOf(u32) + 5 * (@sizeOf(u16) + @sizeOf(u32)) + @sizeOf(i16) + 1 + 3 * @sizeOf(f32);
+        const capacity = 2 * @sizeOf(u32) + 6 * (@sizeOf(u16) + @sizeOf(u32)) + @sizeOf(i16) + 1 + 3 * @sizeOf(f32);
         aim: u32 = 0,
         target: ?engine.game.players.Target = null,
         escort: ?engine.game.gameobj.ObjectRef = null,
         nav: ?engine.game.gameobj.ObjectRef = null,
         primary: ?engine.game.gameobj.ObjectRef = null,
+        scanner_target: ?engine.game.gameobj.ObjectRef = null,
+        scanner_command: u32 = 0,
         landing: ?Landing = null,
 
         pub const Landing = struct {
@@ -133,6 +135,8 @@ pub const MissionView = struct {
             try writeObjectRef(w, if (guide.target) |target| target.object else null);
             if (guide.target) |target| try w.writeInt(i16, if (target.component) |part| @intCast(part) else -1, .little);
             for ([_]?engine.game.gameobj.ObjectRef{ guide.escort, guide.nav, guide.primary }) |ref| try writeObjectRef(w, ref);
+            try writeObjectRef(w, guide.scanner_target);
+            try w.writeInt(u32, guide.scanner_command, .little);
             try writeObjectRef(w, if (guide.landing) |landing| landing.carrier else null);
             if (guide.landing) |landing| {
                 try w.writeByte(@backingInt(landing.view));
@@ -150,6 +154,8 @@ pub const MissionView = struct {
             guide.escort = try readObjectRef(r);
             guide.nav = try readObjectRef(r);
             guide.primary = try readObjectRef(r);
+            guide.scanner_target = try readObjectRef(r);
+            guide.scanner_command = try r.takeInt(u32, .little);
             if (try readObjectRef(r)) |carrier| guide.landing = .{
                 .carrier = carrier,
                 .view = try r.takeEnum(Landing.View, .little),
@@ -240,13 +246,21 @@ pub const MissionView = struct {
 test "private campaign endings survive the mission view packet" {
     const Scene = engine.game.players.EndingScene;
     for (std.enums.values(Scene)) |ending_scene| {
-        const view: MissionView = .{ .number = 1, .pilot_slots = 4, .lead = 1, .ending_scene = ending_scene };
+        const view: MissionView = .{
+            .number = 1,
+            .pilot_slots = 4,
+            .lead = 1,
+            .ending_scene = ending_scene,
+            .guide = .{ .scanner_target = .{ .slot = 7, .reuse = 11 }, .scanner_command = 2 },
+        };
         var buffer: [MissionView.capacity]u8 = undefined;
         var writer: std.Io.Writer = .fixed(&buffer);
         try view.write(&writer);
         var reader: std.Io.Reader = .fixed(writer.buffered());
         const read = try MissionView.read(&reader);
         try std.testing.expectEqual(ending_scene, read.ending_scene);
+        try std.testing.expectEqual(view.guide.scanner_target, read.guide.scanner_target);
+        try std.testing.expectEqual(view.guide.scanner_command, read.guide.scanner_command);
     }
 }
 

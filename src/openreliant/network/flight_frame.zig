@@ -87,6 +87,7 @@ frame_us: i64 = 0,
 scene_replica: wire.ScenePage.Replica = .{},
 lead_announced: bool = false,
 script_aim: u32 = 0,
+scanner_command: u32 = 0,
 landing_camera: ?game.camera.Place = null,
 camera: game.camera.Camera = .{},
 landing_tick: u32 = 0,
@@ -490,6 +491,15 @@ pub fn presentGuide(frame: *FlightFrame, guide: wire.MissionView.Guide) void {
         if (engine.input.setPilotTarget(&frame.drawn.display, all, all.player, chosen.index, chosen.component, false))
             frame.script_aim = guide.aim;
     }
+    const scanner = &frame.drawn.player.scanner;
+    const target = frame.seenObject(guide.scanner_target);
+    if (scanner.object != target or frame.scanner_command != guide.scanner_command) {
+        frame.scanner_command = guide.scanner_command;
+        scanner.set(target);
+        frame.drawn.display.restartScanner();
+    }
+    const scene = frame.world();
+    scanner.frame(scene, scene.clock.frame_start);
     const landing = guide.landing orelse return;
     const at = frame.seenObject(landing.carrier) orelse return;
     const carrier = &all.slots[at];
