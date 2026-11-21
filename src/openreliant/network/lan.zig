@@ -37,6 +37,77 @@ pub const max_answer = answer_header + 2 * (1 + max_text);
 /// more than it receives and can't be used to flood another address.
 pub const query_size = 128;
 
+/// Windows' `Io` cannot await a socket receive concurrently: `std.Io.Threaded` has no
+/// overlapped I/O for sockets yet, so every `receiveTimeout` there fails with
+/// `error.ConcurrencyUnavailable`, and a plain receive blocks its thread with no safe way to
+/// end it. Winsock's `select` waits for a datagram without that, and the receive itself then
+/// returns at once. `std.Io.net` talks to AFD directly and never starts winsock, so this does
+/// (`WSAStartup` is reference-counted; the transport's own call, if any, is not disturbed).
+const windows = if (builtin.os.tag == .windows) struct {
+    const ws2_32 = std.os.windows.ws2_32;
+
+    const Data = extern struct {
+        version: u16,
+        high_version: u16,
+        max_sockets: i16,
+        max_datagram: i16,
+        vendor_info: ?*u8,
+        description: [257]u8,
+        system_status: [129]u8,
+    };
+
+    const FdSet = extern struct {
+        count: u32,
+        array: [64]ws2_32.SOCKET,
+    };
+
+    extern "ws2_32" fn WSAStartup(version_requested: u16, data: *Data) c_int;
+    extern "ws2_32" fn select(
+        ignored: c_int,
+        readfds: *FdSet,
+        writefds: ?*FdSet,
+        exceptfds: ?*FdSet,
+        timeout: *const ws2_32.timeval,
+    ) c_int;
+
+    const start = std.once(startOnce);
+    var ready = false;
+
+    fn startOnce() void {
+        var data: Data = undefined;
+        if (WSAStartup(0x0202, &data) != 0) {
+            std.log.warn("could not start winsock for the local network's searches", .{});
+            return;
+        }
+        ready = true;
+    }
+
+    /// Whether a datagram waits on `handle` within `wait_us`.
+    fn readable(handle: net.Socket.Handle, wait_us: i64) bool {
+        start.call();
+        if (!ready) return false;
+        var set = FdSet{ .count = 1, .array = .{@intFromPtr(handle)} };
+        const wait: ws2_32.timeval = .{
+            .sec = @intCast(@divFloor(wait_us, std.time.us_per_s)),
+            .usec = @intCast(@mod(wait_us, std.time.us_per_s)),
+        };
+        return select(0, &set, null, null, &wait) > 0;
+    }
+} else struct {};
+
+/// Receives one datagram within `wait_us`, or null when none arrives. On Windows the socket is
+/// never awaited through `Io`, whose concurrent path a datagram receive cannot take there.
+pub fn receiveWait(socket: net.Socket, io: Io, buffer: []u8, wait_us: i64) !?net.IncomingMessage {
+    if (builtin.os.tag == .windows) {
+        if (!windows.readable(socket.handle, wait_us)) return null;
+        return socket.receive(io, buffer) catch null;
+    }
+    return socket.receiveTimeout(io, buffer, .{ .duration = .{ .raw = .fromMicroseconds(@max(0, wait_us)), .clock = .awake } }) catch |err| switch (err) {
+        error.Timeout => null,
+        else => return err,
+    };
+}
+
 comptime {
     assert(max_answer <= query_size);
 }
@@ -183,7 +254,7 @@ pub const Responder = struct {
     pub fn poll(responder: *Responder, io: Io, game: ?Game) void {
         var packet: [query_size]u8 = undefined;
         for (0..answers_per_poll) |_| {
-            const message = responder.socket.receiveTimeout(io, &packet, .{ .duration = .{ .raw = .zero, .clock = .awake } }) catch return;
+            const message = receiveWait(responder.socket, io, &packet, 0) catch return orelse return;
             if (message.flags.trunc) continue;
             const nonce = queryNonce(message.data) orelse continue;
             const listed = game orelse continue;
@@ -324,10 +395,7 @@ const Job = struct {
         while (true) {
             const now = Io.Clock.awake.now(io).toMicroseconds();
             if (now >= end) break;
-            const message = socket.receiveTimeout(io, &buffer, .{ .duration = .{ .raw = .fromMicroseconds(end - now), .clock = .awake } }) catch |err| switch (err) {
-                error.Timeout => break,
-                else => return err,
-            };
+            const message = (try receiveWait(socket, io, &buffer, end - now)) orelse break;
             const answer = Answer.decode(message.data) orelse continue;
             if (answer.nonce != nonce) continue;
             const elapsed = Io.Clock.awake.now(io).toMicroseconds() - sent;
@@ -450,19 +518,18 @@ test "a host answers a query on loopback, and stays quiet while it takes no one"
     const pair = std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(5)) catch unreachable;
     const game: Game = .{ .protocol = 37, .game_port = 27020, .players = 1, .capacity = 8, .key = pair.public_key, .name = "Rook", .mode = "Asteroid Field" };
     var buffer: [max_answer + 1]u8 = undefined;
-    const wait: Io.Timeout = .{ .duration = .{ .raw = .fromMilliseconds(500), .clock = .awake } };
 
     const closed = query(1);
     try socket.send(io, &to, &closed);
     try io.sleep(.fromMilliseconds(20), .awake);
     responder.poll(io, null);
-    try std.testing.expectError(error.Timeout, socket.receiveTimeout(io, &buffer, .{ .duration = .{ .raw = .fromMilliseconds(50), .clock = .awake } }));
+    try std.testing.expect((try receiveWait(socket, io, &buffer, 50 * std.time.us_per_ms)) == null);
 
     const asked = query(2);
     try socket.send(io, &to, &asked);
     try io.sleep(.fromMilliseconds(20), .awake);
     responder.poll(io, game);
-    const message = try socket.receiveTimeout(io, &buffer, wait);
+    const message = (try receiveWait(socket, io, &buffer, 500 * std.time.us_per_ms)) orelse return error.TestUnexpectedResult;
     const answer = Answer.decode(message.data).?;
     try std.testing.expectEqual(2, answer.nonce);
     try std.testing.expectEqualStrings("Rook", answer.name.slice());
