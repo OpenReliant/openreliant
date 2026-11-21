@@ -19,6 +19,13 @@ bomb_was_active: ?bool = null,
 shadow_was_active: ?bool = null,
 vampires_started: bool = false,
 host_ship_reuse: [wire.slots]u32 = @splat(0),
+/// The pilot's held flight command and where its local prediction has integrated to, in game
+/// ticks. The original simulated the player's ship on the player's own machine outright
+/// (`FUN_004b5590`); under the host's authority the same feel comes from integrating the held
+/// command between snapshots and letting each snapshot correct the result.
+command: engine.input.flight.Command = .{},
+predicted_tick: u32 = 0,
+predicting: bool = false,
 /// The presentation timeline, which follows the host's ticks one step behind the newest
 /// snapshot, so a frame samples between two known places whatever the network did.
 play: Play = .{},
@@ -770,7 +777,26 @@ pub fn present(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: w
     };
     if (scene.flash) |flash| flash.countDown(scene.clock.frame_duration);
     if (scene.sparks) |sparks| sparks.frame(scene.clock);
+    // The pilot's own ship draws from what the pilot holds, corrected by each snapshot, and
+    // every other ship from its last two snapshot places on the timeline.
+    var predicted = false;
+    {
+        const own = admission.slot;
+        const slot = &frame.drawn.objects.slots[own];
+        if (frame.predicting and slot.object.created and !slot.object.flags.exploding and !slot.object.flags.ejected) {
+            const player = &frame.drawn.objects.player_states[own];
+            while (frame.predicted_tick < frame.drawn.clock.game_ticks) : (frame.predicted_tick += 1) {
+                if (slot.combat) |combat|
+                    engine.input.flight.apply(&player.controls, &player.shield_reserves, &slot.object, combat, frame.command, 1);
+                game.motion.moveSlot(scene, own);
+            }
+            game.objects.setPlace(&slot.object, &slot.drawn, slot.object.placeAt(.next));
+            if (slot.model) |*model| model.place(slot.drawn.position, slot.drawn.orientation);
+            predicted = true;
+        } else frame.predicted_tick = frame.drawn.clock.game_ticks;
+    }
     for (&frame.motion, 0..) |*track, index| {
+        if (index == admission.slot and predicted) continue;
         const slot = &frame.drawn.objects.slots[index];
         if (!slot.object.created or !track.continuous) continue;
         const place = track.sample(frame.play.ticks);
@@ -851,6 +877,8 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
             if (index == admission.slot) {
                 _ = try game.aigeneric.push(.of(scene), index, .player_control, .none);
                 game.main.fitDevices(&all.player_states[index].charges, &frame.drawn.display, game.main.cockpitShip(all, ship.kind()), false);
+                // A ship made anew starts its prediction from the snapshot, owing no ticks.
+                frame.predicted_tick = frame.drawn.clock.game_ticks;
             } else if (snapshot.mission == null) {
                 all.slots[index].object.side = .hostile;
             }
@@ -868,7 +896,22 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         slot.object.flags.hidden = ship.pod_clear and index != admission.slot;
         if (ship.pod) slot.object.flags.targetable = !ship.pod_clear;
         const orientation = ship.orientationMatrix();
-        game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = ship.position, .orientation = orientation });
+        if (index == admission.slot and frame.predicting and slot.object.created and frame.host_ship_reuse[index] == ship.reuse) {
+            // The prediction stands corrected by a quarter, so what the pilot could not
+            // predict, a collision or a hit on the host, closes smoothly rather than snapping;
+            // a different ship cuts outright below, where the slot is made anew.
+            const at = slot.object.root.next_position;
+            const next = engine.surrender.math;
+            slot.object.root.next_position = .{
+                .x = at.x + (ship.position[0] - at.x) * 0.25,
+                .y = at.y + (ship.position[1] - at.y) * 0.25,
+                .z = at.z + (ship.position[2] - at.z) * 0.25,
+            };
+            const turn = next.angles(next.product(next.transpose(slot.object.root.next_orientation), orientation)) * @as(next.Vector, @splat(0.25));
+            slot.object.root.next_orientation = next.product(slot.object.root.next_orientation, next.fromAngleVector(turn));
+        } else {
+            game.objects.setPlace(&slot.object, &slot.drawn, .{ .position = ship.position, .orientation = orientation });
+        }
         // order_eject breaks off the cockpit and plays EJECT01 (0x00415808).
         if (ejected) game.sound3d.playIn(scene, null, null, index, .eject01, 1, game.sound3d.fxClass(all, index));
         if ((before == 0 or ship.respawn > before) and ship.respawn + game.gameobj.ticks_per_step >= game.deathmatch.respawn.duration)
@@ -1191,4 +1234,47 @@ test "a ship crosses between its last two places and carries past the arrival" {
     // A different ship cuts straight to its place.
     motion.update(start, @splat(0), 44, false);
     try std.testing.expectEqual(start.position, motion.sample(44).position);
+}
+
+test "the pilot's own ship draws from the held command and corrects by the snapshot" {
+    const gpa = std.testing.allocator;
+    var random: engine.random.Random = .{};
+    const local = try game.create.Objects.create(gpa, &random);
+    defer local.destroy();
+    const tables = game.create.testing.tables();
+    const frame = try create(gpa, local, &tables);
+    defer frame.destroy();
+    const all = frame.drawn.objects;
+    const no_models = game.create.testing.no_models;
+    const admission: wire.Admission = .{ .slot = 0, .generation = 1 };
+    var snapshot: wire.Snapshot = .{ .tick = 1, .ships = @splat(null) };
+    snapshot.ships[0] = .{ .generation = 1, .position = @splat(0) };
+    frame.predicting = true;
+    frame.command = .{ .steering = .{ .axes = .{ 0, 0, 0 } }, .throttle = .{ .axis = 1.0 } };
+    const tick_us = std.time.us_per_s / game.main.ticks_per_second;
+    var now: i64 = 0;
+    try frame.present(&snapshot, admission, local, no_models, now);
+    const slot = &all.slots[0];
+    try std.testing.expect(slot.object.created);
+
+    // Frames pass with no new snapshot: the held throttle carries the ship by itself.
+    var carried = false;
+    for (0..60) |_| {
+        now += 5 * tick_us;
+        try frame.present(&snapshot, admission, local, no_models, now);
+        const place = slot.drawn.position;
+        if (@abs(place[0]) + @abs(place[1]) + @abs(place[2]) > 10) {
+            carried = true;
+            break;
+        }
+    }
+    try std.testing.expect(carried);
+
+    // A snapshot far from the prediction closes a quarter of the gap, not at once.
+    snapshot.tick += 1;
+    snapshot.ships[0].?.position = slot.drawn.position + @as(engine.surrender.math.Vector, @splat(100));
+    try frame.present(&snapshot, admission, local, no_models, now);
+    const gap = slot.drawn.position - snapshot.ships[0].?.position;
+    const left = @abs(gap[0]) + @abs(gap[1]) + @abs(gap[2]);
+    try std.testing.expect(left > 150);
 }

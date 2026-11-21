@@ -439,7 +439,12 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 .all = all,
             });
             if (cooperative and devices.active(.jump_drive, true)) client.requestCrewAction(.jump);
-            client.setFlight(engine.input.sampleFlight(scene.player, devices, &pilot.stick, scene.player.viewing.view));
+            const held = engine.input.sampleFlight(scene.player, devices, &pilot.stick, scene.player.viewing.view);
+            if (pilot.flight) |shown| {
+                shown.command = held;
+                shown.predicting = true;
+            }
+            client.setFlight(held);
             client.fire_primary = engine.input.primaryHeld(devices);
             if (multiplayer_ordnance) {
                 const weapons = engine.input.sampleOrdnance(scene.player, devices);
