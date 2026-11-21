@@ -7,6 +7,7 @@ const Presentation = @import("scripting").Presentation;
 const session = @import("session.zig");
 const Resolve = @import("resolve.zig");
 const identity = @import("identity.zig");
+const flight_input = @import("flight_input.zig");
 const wire = @import("wire.zig");
 const log = std.log.scoped(.network_graphical);
 const MultiplayerMenu = game.hudoptions.multiplayer;
@@ -510,18 +511,23 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             if (cooperative and devices.active(.jump_drive, true)) client.requestCrewAction(.jump);
             const held = engine.input.sampleFlight(scene.player, devices, &pilot.stick, scene.player.viewing.view);
             client.setFlight(held);
-            if (pilot.flight) |shown| shown.command = client.flight_command;
             client.fire_primary = engine.input.primaryHeld(devices);
+            // The local simulation flies the presses at its next step and sends them with the
+            // step's tick, so the host flies them at the same step.
+            if (pilot.flight) |shown| {
+                shown.command = client.flight_command;
+                var pressed: flight_input.Step = .{ .fire = client.fire_primary, .match_speed = multiplayer_ordnance and match_pressed };
+                pressed.zero = client.presses.zero;
+                pressed.full = client.presses.full;
+                pressed.toggle = client.presses.toggle;
+                shown.pending.merge(pressed);
+                client.presses = .{};
+            }
             if (multiplayer_ordnance) {
                 const weapons = engine.input.sampleOrdnance(scene.player, devices);
                 if (weapons.rotate_missiles != null and display.windows.open(.missiles, false))
                     display.windows.status.getPtr(.missiles).held = true;
-                var presses: wire.ordnance.Presses = .from(weapons);
-                presses.match_speed = match_pressed;
-                // The press reaches the host on the wire; the local simulation flies it the
-                // same frame, as the host flies the wire's.
-                client.match_press = client.match_press or presses.match_speed;
-                client.setWeapons(.{ .aim = flight.weaponAim(), .presses = presses, .cockpit = cockpit });
+                client.setWeapons(.{ .aim = flight.weaponAim(), .presses = .from(weapons), .cockpit = cockpit });
             }
         } else {
             client.releaseFlight();
@@ -854,8 +860,6 @@ fn applyFrame(pilot: *Graphical, flight: *FlightFrame, local: *game.create.Objec
         flight.noteCommands(commands);
     }
     flight.own_trigger = client.fire_primary;
-    flight.own_match = flight.own_match or client.match_press;
-    client.match_press = false;
     // The cockpit of the pilot's own ship, which a mission's start loads in single player: the
     // client loads it once its own ship stands there, and again should the ship change.
     if (combat_assets.cockpit) |pit| if (combat_assets.archive) |archive| {
@@ -868,7 +872,7 @@ fn applyFrame(pilot: *Graphical, flight: *FlightFrame, local: *game.create.Objec
         }
     };
     try flight.present(&client.latest.?, client.joined.?, local, types, micros);
-    if (flight.flown) |flown| if (client.flown_tick != flown.tick) try client.sendFlown(micros, flown.tick, flown.command);
+    if (flight.flown) |flown| if (client.flown_tick != flown.tick) try client.sendFlown(micros, flown.tick, flown.command, flown.step);
     if (client.scenery) |*scenery| {
         if (client.latest.?.scenario == scenery.scenario)
             try flight.presentScenery(scenery, types);

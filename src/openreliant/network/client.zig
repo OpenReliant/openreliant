@@ -65,8 +65,11 @@ leaving: bool = false,
 briefed: bool = false,
 flight_command: flight.Command = .{},
 fire_primary: bool = false,
-/// The MATCH SPEED press the local simulation has yet to fly.
-match_press: bool = false,
+/// The presses and trigger of the step `flown_tick` reached, which a keep-alive repeats.
+flown_step: flight_input.Step = .{},
+/// The newest of this pilot's ticks the host has said it received (`OwnFlight`): steps with a
+/// press are sent again until it passes them.
+acked: ?i32 = null,
 weapons: ?wire.ordnance.Order = null,
 sent_aim: ?wire.ordnance.Aim = null,
 projectiles: [wire.ordnance.Page.pages]?wire.ordnance.Page = @splat(null),
@@ -190,11 +193,12 @@ pub fn requestCrewAction(client: *Client, action: enum { jump, land, eject }) vo
 }
 
 /// Sends the command the client's own step flew to the tick it reached, right after the step.
-pub fn sendFlown(client: *Client, now: i64, tick: i32, command: flight.Command) !void {
+pub fn sendFlown(client: *Client, now: i64, tick: i32, command: flight.Command, step: flight_input.Step) !void {
     if (client.joined == null or client.leaving) return;
     client.flown_tick = tick;
+    client.flown_step = step;
     client.flight_command = command;
-    client.flown.push(.{ .tick = tick, .command = command });
+    client.flown.push(.{ .tick = tick, .command = command, .step = step });
     try client.sendInput(now, command, tick);
 }
 
@@ -204,18 +208,21 @@ fn sendInput(client: *Client, now: i64, command: flight.Command, tick: ?i32) !vo
         .arena_floor = client.roster.arena_floor,
         .command = command,
         .tick = tick,
-        .fire_for = if (client.fire_primary and client.latest != null)
-            if (client.latest.?.ships[client.joined.?.slot]) |ship| ship.reuse else null
-        else
-            null,
+        // A step with a tick carries its own presses and trigger. Without one, the trigger is
+        // as it holds now, and the presses go by `flight_press` below.
+        .step = if (tick != null) client.flown_step else .{ .fire = client.fire_primary },
     };
     // Each input carries the steps before it, so the host loses none to a dropped packet
     // (Overwatch GDC 2017).
+    var fires = input.step.fire;
     if (tick) |newest| {
-        const earlier = client.flown.before(newest, wire.Input.redundancy);
-        @memcpy(input.earlier[0..earlier.len], earlier);
+        const earlier = client.flown.resend(newest, client.acked, &input.earlier);
         input.earlier_count = @intCast(earlier.len);
+        for (earlier) |flown| fires = fires or flown.step.fire;
     }
+    if (fires) if (client.latest) |view| if (view.ships[client.joined.?.slot]) |ship| {
+        input.fire_for = ship.reuse;
+    };
     try net.send(client.conn, .{ .input = input });
     if (client.presses.any()) {
         try net.send(client.conn, .{ .flight_press = client.presses });
@@ -241,7 +248,9 @@ pub fn setFlight(client: *Client, command: flight.Command) void {
 pub fn releaseFlight(client: *Client) void {
     client.flight_command = flight_input.release(client.flight_command);
     client.flown_tick = null;
+    client.flown_step = .{};
     client.flown = .{};
+    client.acked = null;
     client.own_flight = null;
     client.presses = .{};
     client.fire_primary = false;
@@ -477,6 +486,9 @@ pub fn poll(client: *Client, io: Io) !Event {
         },
         .own_flight => |own| {
             if (client.joined == null or client.leaving or client.result_tick != null) return .idle;
+            // The host's margin is the newest of this pilot's ticks it holds, less the step's.
+            const received = own.tick +% own.margin;
+            if (client.acked == null or received -% client.acked.? > 0) client.acked = received;
             if (client.own_flight) |held| if (own.tick -% held.tick <= 0) return .idle;
             client.own_flight = own;
             return .idle;
@@ -524,11 +536,30 @@ pub const History = struct {
         history.count += 1;
     }
 
-    /// Up to `limit` steps flown just before `tick`, oldest first.
-    fn before(history: *const History, tick: i32, limit: usize) []const wire.Flown {
+    /// The steps to send again with the one reaching `tick`, oldest first, in `out`: those
+    /// just before it, and older ones whose press the host has not acknowledged (`acked`), the
+    /// newest of them while there is room.
+    fn resend(history: *const History, tick: i32, acked: ?i32, out: *[wire.Input.max_earlier]wire.Flown) []const wire.Flown {
         var end = history.count;
         while (end > 0 and history.entries[end - 1].tick -% tick >= 0) end -= 1;
-        return history.entries[end -| limit..end];
+        const recent = history.entries[end -| wire.Input.redundancy..end];
+        const room = out.len - recent.len;
+        var older: usize = 0;
+        if (acked) |received| {
+            var at = end - recent.len;
+            while (at > 0 and older < room) {
+                at -= 1;
+                const flown = history.entries[at];
+                if (flown.tick -% received <= 0) break;
+                if (!flown.step.pressed()) continue;
+                // Filled from the back, so the oldest ends up first.
+                out[room - 1 - older] = flown;
+                older += 1;
+            }
+        }
+        std.mem.copyForwards(wire.Flown, out[0..older], out[room - older .. room]);
+        @memcpy(out[older..][0..recent.len], recent);
+        return out[0 .. older + recent.len];
     }
 
     /// The steps flown after `tick`, oldest first, and forgets the rest.
@@ -545,10 +576,24 @@ test "the flown history hands out the steps before and after a tick" {
     var history: History = .{};
     var tick: i32 = 4;
     while (tick <= 40) : (tick += 4) history.push(.{ .tick = tick, .command = .{} });
-    const earlier = history.before(40, 3);
+    var out: [wire.Input.max_earlier]wire.Flown = undefined;
+    const earlier = history.resend(40, null, &out);
     try std.testing.expectEqual(3, earlier.len);
     try std.testing.expectEqual(28, earlier[0].tick);
     try std.testing.expectEqual(36, earlier[2].tick);
+
+    // A press the host has not acknowledged is sent again, however old, oldest first.
+    history.entries[1].step = .{ .toggle = true };
+    history.entries[3].step = .{ .match_speed = true };
+    history.entries[4].step = .{ .fire = true };
+    const unacked = history.resend(40, 4, &out);
+    try std.testing.expectEqual(5, unacked.len);
+    try std.testing.expectEqual(8, unacked[0].tick);
+    try std.testing.expectEqual(16, unacked[1].tick);
+    try std.testing.expectEqual(28, unacked[2].tick);
+    // Once the host has it, only the steps just before go again.
+    try std.testing.expectEqual(3, history.resend(40, 16, &out).len);
+    try std.testing.expectEqual(4, history.resend(40, 12, &out).len);
     const later = history.after(32);
     try std.testing.expectEqual(2, later.len);
     try std.testing.expectEqual(36, later[0].tick);

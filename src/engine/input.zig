@@ -2391,15 +2391,22 @@ fn matchSpeedFor(world: gameobj.World, index: u16, pressed: bool, view: camera.V
 fn toggleMatchSpeed(world: gameobj.World, index: u16, state: *flight.State, pressed: bool, view: camera.View) void {
     if (!pressed) return;
     const all = world.objects;
+    const sound = switchMatchSpeed(all, index, state, view);
+    if (index == all.player) hud.beep(world, sound);
+}
+
+/// What a MATCH SPEED press does to the ship, and the beep it asks for. A multiplayer client
+/// calls it without the beep as it flies its own steps again over the host's state
+/// (`FlightFrame.reconcile`).
+pub fn switchMatchSpeed(all: *create.Objects, index: u16, state: *flight.State, view: camera.View) hud.Beep {
     state.matching_speed = !state.matching_speed;
     if (state.matching_speed) {
         const aimed = if (ai.controlEntry(all, index)) |entry| ai.targetValid(all, entry.target.resolve(all), .{}) else false;
-        if (index == all.player) hud.beep(world, if (aimed) .on else .refused);
         matchTargetSpeed(state, all, index, view);
-    } else {
-        if (index == all.player) hud.beep(world, .off);
-        all.slots[index].object.throttle = state.throttle_before_match;
+        return if (aimed) .on else .refused;
     }
+    all.slots[index].object.throttle = state.throttle_before_match;
+    return .off;
 }
 
 /// `match_target_speed` (`0x00412C10`): while `matching_speed` is set, the player's throttle is

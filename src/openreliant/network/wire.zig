@@ -19,7 +19,7 @@ pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
 pub const CampaignCheckpoint = campaign.Checkpoint;
-pub const revision: u16 = 37;
+pub const revision: u16 = 38;
 pub const Team = engine.game.players.ArenaTeam;
 
 fn readTeam(reader: *std.Io.Reader) !Team {
@@ -77,12 +77,18 @@ pub const Input = struct {
     /// the step reaching the same tick, so both simulations steer alike. Without one, the host
     /// flies it from its next step.
     tick: ?i32 = null,
-    /// The steps flown just before `tick`, oldest first, sent again so a lost packet costs the
-    /// host none of them.
-    earlier: [redundancy]Flown = @splat(.{ .tick = 0, .command = .{} }),
+    /// The presses and the trigger of the step reaching `tick`. An input without a tick carries
+    /// the trigger alone here: its presses go by `flight_press`, which is reliable.
+    step: flight_input.Step = .{},
+    /// Steps flown before `tick`, oldest first, sent again so a lost packet costs the host none
+    /// of them: the `redundancy` steps just before it, and older ones with a press the host
+    /// has not acknowledged (Overwatch GDC 2017 resends every input since the last one
+    /// acknowledged).
+    earlier: [max_earlier]Flown = @splat(.{ .tick = 0, .command = .{} }),
     earlier_count: u8 = 0,
 
     pub const redundancy = 3;
+    pub const max_earlier = 8;
 
     /// Compare serial numbers across a wrap. The half-range is ambiguous.
     pub fn follows(input: Input, previous: ?u32) bool {
@@ -90,8 +96,9 @@ pub const Input = struct {
         return @as(i32, @bitCast(input.sequence -% accepted)) > 0;
     }
 };
-/// A step the client flew: the mission tick it reached and the command it flew.
-pub const Flown = struct { tick: i32, command: flight.Command };
+/// A step the client flew: the mission tick it reached, the command it held, and its presses and
+/// trigger.
+pub const Flown = struct { tick: i32, command: flight.Command, step: flight_input.Step = .{} };
 
 /// Every pilot's held flight command at the step reaching `tick`, exactly as the host flew it,
 /// so each client's simulation carries the other pilots' ships by their real commands instead of
@@ -1227,13 +1234,15 @@ pub const Message = union(enum(u8)) {
                 try w.writeInt(u32, input.arena_floor, .little);
                 try w.writeByte(@intFromBool(input.tick != null));
                 if (input.tick) |tick| try w.writeInt(i32, tick, .little);
-                if (input.earlier_count > Input.redundancy) return error.InvalidInput;
+                if (input.earlier_count > Input.max_earlier) return error.InvalidInput;
                 try w.writeByte(input.earlier_count);
                 for (input.earlier[0..input.earlier_count]) |flown| {
                     try w.writeInt(i32, flown.tick, .little);
                     try flight_input.write(&w, flown.command);
+                    try w.writeByte(@bitCast(flown.step));
                 }
                 try flight_input.write(&w, input.command);
+                try w.writeByte(@bitCast(input.step));
                 if (input.fire_for) |reuse| try w.writeInt(u32, reuse, .little);
             },
             .view, .finished, .campaign_result => |view| {
@@ -1418,12 +1427,16 @@ pub const Message = union(enum(u8)) {
                     .command = undefined,
                 };
                 input.earlier_count = try r.takeByte();
-                if (input.earlier_count > Input.redundancy) return error.InvalidInput;
+                if (input.earlier_count > Input.max_earlier) return error.InvalidInput;
                 for (input.earlier[0..input.earlier_count]) |*flown| flown.* = .{
                     .tick = try r.takeInt(i32, .little),
                     .command = try flight_input.read(&r),
+                    .step = try readStep(&r),
                 };
                 input.command = try flight_input.read(&r);
+                input.step = try readStep(&r);
+                // Only an input with a tick can be told from its repeat, so only it may carry presses.
+                if (input.tick == null and input.step.pressed()) return error.InvalidInput;
                 input.fire_for = if (r.bufferedLen() == 0) null else try r.takeInt(u32, .little);
                 break :input .{ .input = input };
             },
@@ -1859,7 +1872,8 @@ test "a final receipt names the applied tick" {
 }
 
 test "flight updates fit the direct-IP payload budget" {
-    const input_bytes = 31;
+    // The command, and a byte for the step's presses and trigger.
+    const input_bytes = 32;
     // A fighter byte and a ship reuse count distinguish a respawn from a new admission.
     const full_snapshot_bytes = 13 + 95 * inline_pilots;
     const objective_snapshot_budget = full_snapshot_bytes + 79;
@@ -1877,6 +1891,13 @@ test "flight updates fit the direct-IP payload budget" {
     const encoded = try input.encode(&buffer);
     try std.testing.expectEqual(input_bytes, encoded.len);
     try std.testing.expectEqualDeep(input, try Message.decode(encoded));
+    // With every earlier step it may send again, an input still fits a datagram.
+    var longest = input;
+    longest.input.tick = 400;
+    longest.input.fire_for = 3;
+    longest.input.earlier = @splat(.{ .tick = 396, .command = input.input.command });
+    longest.input.earlier_count = Input.max_earlier;
+    try std.testing.expect((try longest.encode(&buffer)).len <= 9 * input_bytes);
     try std.testing.expectEqual(full_snapshot_bytes, (try view.encode(&buffer)).len);
     var with_objectives = view;
     with_objectives.view.objectives = .{ .six_beacons = @splat(.{ .loose = .{ 1, 2, 3 } }) };
@@ -2259,6 +2280,12 @@ test "the ship message's quantizers keep the original's scales" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), dequantizeShare(quantizeShare(0.5)), 0.01);
 }
 
+fn readStep(r: *std.Io.Reader) !flight_input.Step {
+    const step: flight_input.Step = @bitCast(try r.takeByte());
+    if (step.reserved != 0) return error.InvalidInput;
+    return step;
+}
+
 fn writeOwnFlight(w: *std.Io.Writer, own: OwnFlight) !void {
     const k = own.kinematics;
     try w.writeInt(i32, own.tick, .little);
@@ -2341,13 +2368,29 @@ test "an own flight state crosses the wire exactly" {
 
 test "an input carries the steps flown before it" {
     var input: Input = .{ .sequence = 7, .command = .{}, .tick = 40 };
-    input.earlier[0] = .{ .tick = 32, .command = .{} };
+    input.earlier[0] = .{ .tick = 32, .command = .{}, .step = .{ .toggle = true } };
     input.earlier[1] = .{ .tick = 36, .command = .{} };
     input.earlier_count = 2;
+    input.step = .{ .match_speed = true, .fire = true };
+    input.fire_for = 9;
     var buffer: [capacity]u8 = undefined;
     const decoded = (try Message.decode(try (Message{ .input = input }).encode(&buffer))).input;
     try std.testing.expectEqual(2, decoded.earlier_count);
     try std.testing.expectEqual(32, decoded.earlier[0].tick);
     try std.testing.expectEqual(36, decoded.earlier[1].tick);
     try std.testing.expectEqual(40, decoded.tick.?);
+    try std.testing.expect(decoded.earlier[0].step.toggle and !decoded.earlier[1].step.pressed());
+    try std.testing.expectEqual(flight_input.Step{ .match_speed = true, .fire = true }, decoded.step);
+
+    // A press needs a tick, and the reserved bits stay clear.
+    input.tick = null;
+    input.earlier_count = 0;
+    const untimed = try (Message{ .input = input }).encode(&buffer);
+    try std.testing.expectError(error.InvalidInput, Message.decode(untimed));
+    input.step = .{ .fire = true };
+    var bytes = (try (Message{ .input = input }).encode(&buffer)).len;
+    try std.testing.expect((try Message.decode(buffer[0..bytes])).input.step.fire);
+    input.step.reserved = 1;
+    bytes = (try (Message{ .input = input }).encode(&buffer)).len;
+    try std.testing.expectError(error.InvalidInput, Message.decode(buffer[0..bytes]));
 }

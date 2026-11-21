@@ -63,6 +63,8 @@ const Peer = struct {
     /// Ticks the pilot's newest input was ahead of the last step that needed it.
     margin: i8 = 0,
     presses: flight_input.Presses = .{},
+    /// A MATCH SPEED press the next step flies.
+    match_speed: bool = false,
     weapons: ?wire.ordnance.Order = null,
     briefed: bool = false,
     lobby_ready: bool = false,
@@ -547,6 +549,7 @@ fn clearFlightControls(host: *Host) void {
         peer.fire_for = null;
         peer.timed = .{};
         peer.presses = .{};
+        peer.match_speed = false;
         if (peer.weapons) |*weapons| {
             weapons.presses = .{};
             weapons.cockpit = .{};
@@ -731,17 +734,18 @@ fn acceptInput(host: *const Host, peer: *Peer, input: wire.Input, time: i64) voi
     const tick = input.tick orelse {
         peer.timed = .{};
         peer.flight_command = input.command;
-        peer.fire_for = input.fire_for;
+        peer.fire_for = if (input.step.fire) input.fire_for else null;
         return;
     };
-    for (input.earlier[0..input.earlier_count]) |flown| peer.timed.push(.{ .tick = flown.tick, .command = flown.command, .fire_for = input.fire_for });
-    peer.timed.push(.{ .tick = tick, .command = input.command, .fire_for = input.fire_for });
+    for (input.earlier[0..input.earlier_count]) |flown| peer.timed.push(.{ .tick = flown.tick, .command = flown.command, .step = flown.step, .fire_for = input.fire_for });
+    peer.timed.push(.{ .tick = tick, .command = input.command, .step = input.step, .fire_for = input.fire_for });
 }
 
 /// A pilot's inputs tagged with the ticks the client flew them to. One tagged `t` steers every
 /// step after the one before it up to the step reaching `t`, as the client's own steps did.
 const Timed = struct {
-    const Entry = struct { tick: i32, command: flight.Command, fire_for: ?u32 };
+    /// `fire_for` names the ship a held trigger (`step.fire`) is for.
+    const Entry = struct { tick: i32, command: flight.Command, step: flight_input.Step = .{}, fire_for: ?u32 };
     const length = 32;
     entries: [length]Entry = undefined,
     first: usize = 0,
@@ -763,19 +767,38 @@ const Timed = struct {
     }
 
     /// The newest input whose step has been reached: a late one still takes over, an early
-    /// one waits for its step. None means the last input holds.
+    /// one waits for its step. None means the last input holds. It carries the presses of every
+    /// input taken with it, so a late step's press still flies once.
     fn take(timed: *Timed, tick: i32) ?Entry {
         var reached: ?Entry = null;
+        var pressed: flight_input.Step = .{};
         while (timed.count > 0) {
             const entry = timed.entries[timed.first];
             if (entry.tick -% tick > 0) break;
+            pressed.merge(entry.step);
             reached = entry;
             timed.first = (timed.first + 1) % length;
             timed.count -= 1;
         }
+        if (reached) |*entry| entry.step = pressed;
         return reached;
     }
 };
+
+test "a late step's press flies once, with the newest command and trigger" {
+    var timed: Timed = .{};
+    timed.push(.{ .tick = 4, .command = .{}, .step = .{ .toggle = true, .fire = true }, .fire_for = 7 });
+    timed.push(.{ .tick = 8, .command = .{ .afterburner = true }, .step = .{ .match_speed = true }, .fire_for = 7 });
+    // A repeat of a step already queued adds nothing, so its press can't fly twice.
+    timed.push(.{ .tick = 4, .command = .{}, .step = .{ .toggle = true }, .fire_for = 7 });
+    timed.push(.{ .tick = 12, .command = .{}, .step = .{ .full = true }, .fire_for = null });
+
+    const taken = timed.take(8).?;
+    try std.testing.expect(taken.command.afterburner);
+    try std.testing.expectEqual(flight_input.Step{ .toggle = true, .match_speed = true }, taken.step);
+    try std.testing.expectEqual(null, timed.take(8));
+    try std.testing.expectEqual(flight_input.Step{ .full = true }, timed.take(12).?.step);
+}
 
 fn acknowledgeMovie(host: *Host, slot: u8, tick: u32) void {
     if (slot >= wire.cooperative_slots or tick != host.tick) return;
@@ -876,19 +899,23 @@ fn applyControls(host: *Host, time: i64) void {
         const taken = peer.timed.take(reach);
         if (taken) |timed| {
             peer.flight_command = timed.command;
-            peer.fire_for = timed.fire_for;
+            peer.fire_for = if (timed.step.fire) timed.fire_for else null;
+            peer.presses.merge(timed.step.presses());
+            peer.match_speed = peer.match_speed or timed.step.match_speed;
         }
         const expired = time - (peer.expires - timeout) >= held_input_timeout;
         var command = if (expired) flight_input.release(peer.flight_command) else peer.flight_command;
         peer.presses.apply(&command);
         peer.presses = .{};
         peer.flown_command = command;
+        const match_speed = peer.match_speed;
+        peer.match_speed = false;
         const order = peer.weapons;
         if (peer.weapons) |*pending| {
             pending.presses = .{};
             pending.cockpit = .{};
         }
-        if (!host.arena.input(@intCast(slot), command, if (expired) null else peer.fire_for, order))
+        if (!host.arena.input(@intCast(slot), command, if (expired) null else peer.fire_for, order, match_speed))
             host.release(@intCast(slot));
     }
 }

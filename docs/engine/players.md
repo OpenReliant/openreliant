@@ -85,6 +85,28 @@ Target search, subtarget cycling, range checks and speed matching use the partic
 The display follows target changes only for the displayed participant. Automatic target upkeep
 runs for every participant, without adding a second selected-target field to `players.State`.
 
+### A pilot's steps on the wire
+
+**Improvement:** a client flies its own ship ahead of the host and sends the host each step it
+flew (`wire.Input`): the mission tick the step reached, the held command, and a byte with the
+step's presses and trigger (`flight_input.Step`). The presses are the throttle presets, the
+afterburner toggle and MATCH SPEED. The host queues the steps by tick and flies each at the step
+reaching the same tick, so a press takes effect on both sides at the same step. The client's own
+simulation flies the press at once, and flies it again when it replays its steps over the host's
+state of the ship.
+
+Inputs are unreliable datagrams. Each carries the three steps before it again. It also carries
+older steps that hold a press, until the host's report of the newest tick it received
+(`OwnFlight.tick` plus its `margin`) passes them, up to eight earlier steps in all. The host
+drops a step it already has, so a press flies once. A step that arrives late still gives its
+press to the next step the host flies. This follows the input windows of Overwatch (GDC 2017)
+and Rocket League (GDC 2018), which keep every button in the frame's input.
+
+Missile launches, countermeasures, the missile ring and the cockpit's gun and power keys still
+travel in a reliable weapon order without a tick, with the target they belong to. A terminal
+client, which flies no simulation of its own, sends inputs without a tick: its presses go by a
+reliable message and the host flies them at its next step.
+
 ## Participant and ship lifecycle
 
 **Improvement:** `joinParticipant` issues a fresh `ParticipantRef` for a reserved player slot.
