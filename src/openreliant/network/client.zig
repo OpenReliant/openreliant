@@ -523,7 +523,8 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
         .keyboard => .straight,
         .fixed => |value| value,
     };
-    if (controls == .keyboard) std.debug.print("A steers left, S flies straight, D steers right, and Q leaves. Press Enter to send a key.\n", .{});
+    var firing = false;
+    if (controls == .keyboard) std.debug.print("A steers left, S flies straight, D steers right, F fires, and Q leaves. Press Enter to send a key.\n", .{});
     var views: u32 = 0;
     var objectives: wire.Objectives = .none;
     var mission_view: ?wire.MissionView = null;
@@ -534,6 +535,7 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
             'a', 'A' => steering = .left,
             's', 'S' => steering = .straight,
             'd', 'D' => steering = .right,
+            'f', 'F' => firing = !firing,
             '1'...'4' => |key| client.selectTeam(@fromBackingInt(@as(u2, @intCast(key - '1')))),
             'j', 'J' => client.requestCrewAction(.jump),
             'l', 'L' => client.requestCrewAction(.land),
@@ -550,10 +552,13 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
             },
             else => {},
         };
+        client.fire_primary = firing;
         client.setFlight(steering.command());
         const event = try client.poll(io);
         switch (event) {
-            .idle, .combat, .projectiles, .scene_page, .scenery, .campaign_line => {},
+            .combat => std.debug.print("combat page\n", .{}),
+            .projectiles => std.debug.print("projectiles page\n", .{}),
+            .idle, .scene_page, .scenery, .campaign_line => {},
             .mission_music => |cue| {
                 _ = client.music.take();
                 std.debug.print("mission music {s} {s}\n", .{ if (cue.now) "now" else "fade", cue.track.slice() });
