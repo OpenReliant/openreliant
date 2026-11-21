@@ -897,8 +897,9 @@ A component's burst (kind 3, `shieldfx_create`, `0x004A0310`) is an emitter of t
 [`sparks.zig`](../../src/engine/game/sparks.zig) ports the sparks,
 [`guns.zig`](../../src/engine/game/guns.zig) the hull's, and
 [`shield.zig`](../../src/engine/game/shield.zig) a shield's ([Shields](#shields)), and
-[`guns.zig`](../../src/engine/game/guns.zig) a component's. Not ported: the multiplayer arena's
-wall's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+[`guns.zig`](../../src/engine/game/guns.zig) a component's, and
+[`deathmatch/boundary.zig`](../../src/engine/game/deathmatch/boundary.zig) the arena wall's
+(`arena_wall_hit`, `0x004B02A0`).
 
 ## Engine exhaust
 

@@ -165,7 +165,7 @@ The Phoenix's Nova Cannon charges while the trigger is held and strikes when it 
 `player_controls` lets it go once the trigger is up, for a Phoenix that isn't jumping (`nova_release`, `0x0047B3D0`). It takes the first of eight beams free (`nova_beams`, `0x00563190`); with none free, nothing happens and the charge waits. Below 0.5 the charge is lost. Otherwise:
 
 - the blast sounds from the ship, positional sound 13 as loud as 2000 times the ship's radius, and the controller plays `nc` ([Controls](controls.md#force-feedback));
-- the beam strikes every object but the ship, the stand-ins and the disabled ones, whose bounding box it meets up to 40000 straight ahead. One listing no components takes the cannon's shield damage times the ship's gun condition and the charge, on the quadrant the beam enters, its hull damage over that passing through, and its shields flare there unless it is cloaked. One listing components is struck part by part (`nova_strike_parts`, `0x0047B840`): each part whose mesh's box the beam meets takes the cannon's hull damage times the charge against its component for each leaf of its collision tree the beam crosses, with a hit's burst there ([Effects](effects.md#sparks));
+- the beam strikes every object but the ship, the stand-ins and the disabled ones, whose bounding box it meets up to 40000 straight ahead. One listing no components takes the cannon's shield damage times the ship's gun condition and the charge, on the quadrant the beam enters, its hull damage over that passing through, and its shields flare there unless it is cloaked. In an arena (`multiplayer_mission`) both are a quarter of that (`0x0047B6D8`, `0x004DC3D4`). One listing components is struck part by part (`nova_strike_parts`, `0x0047B840`): each part whose mesh's box the beam meets takes the cannon's hull damage times the charge against its component for each leaf of its collision tree the beam crosses, with a hit's burst there ([Effects](effects.md#sparks));
 - the beam shows for 80 ticks, and the charge is spent.
 
 Each frame `bullets_frame` places the beams (`nova_beams_frame`, `0x00480690`). The beam is four blades on `ionc`, 150 wide either side narrowed by the square of the charge and 40000 long, standing 50 above and 20680 ahead of the ship, turned with it. Each blade's texture runs along it at 0.01 a tick more than the blade before's, and the blades are lit at the ship's end, dark at the far one, fading out over the last fifth of the beam's time. After a full charge 30 strands follow a helix along it (`nova_helix`), each two blades on `laser2` from one point of the helix to the next, radius 100, six turns a unit and 15000 long a unit from 600 ahead, the points 0.03 apart from 0.3 behind how far through its time the beam is. The strands rise and fall in brightness over the beam's time (`ease_rise_fall`); the game lights their first blades alone.
@@ -220,9 +220,15 @@ only target entities with component lists. Entities without components (or any e
 are targeted as a whole; otherwise, turrets on ships with components target individual
 sub-components (excluding Kurgan, Antanov, Nanny, and Prowler). The original game did not check
 target validity during selection, causing cloaked, exploding, or untargetable entities to monopolize
-targeting queues. **Fix:** OpenReliant skips entities that tracking would drop. In multiplayer, it
-skips the player who last damaged the object (`+0x10`), which OpenReliant omits
-([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+targeting queues. **Fix:** OpenReliant skips entities that tracking would drop. In an arena (`multiplayer_mission`)
+it also skips the pilot whose hit last struck the turret's object (`+0x10`, `0x0047D28C`).
+
+In an arena, `component_damage` (`0x0046468C`) records the pilot who strikes an object in each of
+its guns (`+0x10`, which `create_object` starts at -1, `0x004684CB`) and has each look for a target
+again. The aimed turret's search and the missile turret's (`0x0047D61E`) then pass that pilot over,
+so damaging an object makes its turrets leave the pilot alone. **Fix:** the game has every gun
+look, and for a fixed gun, a spinning one or a missile turret it reads parts the gun doesn't have;
+OpenReliant has only an aimed turret look.
 
 **Fix:** in the original game, rear fighter turrets (including the Predator tail gun) have rear-facing muzzles but base reference frames pointing forward with zero yaw and pitch, preventing them from aligning with targets or firing. OpenReliant rotates the reference frame 180 degrees around X for rear-facing muzzles, allowing them to aim and fire backwards properly ([#219](https://github.com/OpenReliant/openreliant/issues/219)).
 
@@ -242,7 +248,8 @@ Turrets start in state 0 with zero missiles, reloading immediately. Targets betw
 
 Destroying a turret base disables the weapon permanently: `node_forget` (`0x00499BB0`) sets its kind to -1 ([Objects](objects.md#a-components-destruction)).
 
-Not ported: multiplayer damage-induced re-targeting ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+In an arena, a missile turret passes over the pilot whose hit last struck its object, as the aimed
+turret does ([Each frame](#each-frame)).
 
 Gun groups exclude kinds 1 and 3, and `FULL GUNS` excludes kind 1 ([The trigger](#the-trigger)). The original game read into adjacent memory when assemblies lacked expected parts; OpenReliant checks for missing base, muzzle, or launcher parts, skipping invalid slots and trigger calls (**Fix**).
 

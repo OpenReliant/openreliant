@@ -200,6 +200,22 @@ pub fn inAssembly(model: *const objects.Model, link: u32) bool {
     return false;
 }
 
+/// `component_damage` (`0x0046468C` to `0x004646C3`), in an arena (`multiplayer_mission`), as the
+/// pilot in slot `pilot` strikes the object in slot `index`: each of its guns passes the pilot
+/// over from now on (`passed_over`), and looks for a target again (`turret_pick_target`).
+///
+/// **Fix:** the game has every gun look, and for a fixed gun, a spinning one or a missile turret
+/// it reads parts the gun doesn't have; OpenReliant has only an aimed turret look.
+pub fn passOver(world: gameobj.World, index: u16, pilot: u16) void {
+    for (world.objects.slots[index].guns) |*gun| {
+        gun.passed_over = pilot;
+        switch (gun.turret) {
+            .aimed => |*aimed| pickTarget(world, index, aimed, pilot),
+            .fixed, .spin, .missile, .gone => {},
+        }
+    }
+}
+
 // --- Each frame ----------------------------------------------------------------------------------
 
 /// `object_step_turrets` (`0x0047C950`), once a frame from `orders_update` for the object in slot
@@ -212,7 +228,7 @@ pub fn step(world: gameobj.World, index: u16) void {
     for (slot.guns) |*gun| switch (gun.turret) {
         .aimed => |*aimed| aimedStep(world, index, gun, aimed),
         .spin => |*spin| spinStep(world, gun, spin),
-        .missile => |*launcher| missileStep(world, index, launcher),
+        .missile => |*launcher| missileStep(world, index, launcher, gun.passed_over),
         .fixed, .gone => {},
     };
 }
@@ -244,7 +260,7 @@ fn aimedStep(world: gameobj.World, index: u16, gun: *guns.Fitted, aimed: *Aimed)
         if (aimed.slots[0]) |part| turn(model, part, pitch);
     }
     if (aimed.looks_at < clock.frame_start) {
-        if (aimed.target.resolve(world.objects).slot() == null) pickTarget(world, index, aimed);
+        if (aimed.target.resolve(world.objects).slot() == null) pickTarget(world, index, aimed, gun.passed_over);
         aimed.looks_at = clock.frame_start + look_least + world.random.below(look_spread);
     }
 }
@@ -392,9 +408,9 @@ fn aimAngles(aimed: *const Aimed, aim: Vector, anywhere: bool) ?Angles {
 /// keeping the turret from any other; OpenReliant passes over what the track would drop
 /// (`ai.targetValid`).
 ///
-/// Not ported: in a multiplayer game, the player who last hurt the turret's object is passed over
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
-fn pickTarget(world: gameobj.World, index: u16, aimed: *Aimed) void {
+/// In an arena (`multiplayer_mission`), it passes over the pilot whose hit last struck its object
+/// (`passed_over`, `0x0047D28C`).
+fn pickTarget(world: gameobj.World, index: u16, aimed: *Aimed, passed_over: ?u16) void {
     const all = world.objects;
     const own = &all.slots[index].object;
     aimed.to_turn = .{};
@@ -410,6 +426,7 @@ fn pickTarget(world: gameobj.World, index: u16, aimed: *Aimed) void {
         const object = &slot.object;
         if (aimed.target.resolve(all).slot() == candidate or candidate == index) continue;
         if (!object.type.hasStats() or object.side == own.side or object.side == .neutral) continue;
+        if (world.damage_rules == .arena and passed_over == candidate) continue;
         if (huge and !object.flags.components) continue;
         aimed.target = .at(all, candidate, null);
         if (object.component_count < 1 or huge) {
@@ -512,9 +529,9 @@ const reload_speed: f32 = 4;
 /// spent when the roll lets it launch, whether one is launched or not; and a target found within
 /// the lock range but beyond half of it is found and dropped in turn.
 ///
-/// Not ported: in a multiplayer game, the player who last hurt the turret's object is passed over
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
-fn missileStep(world: gameobj.World, index: u16, launcher: *Launcher) void {
+/// In an arena (`multiplayer_mission`), it passes over the pilot whose hit last struck its object
+/// (`passed_over`, `0x0047D61E`).
+fn missileStep(world: gameobj.World, index: u16, launcher: *Launcher, passed_over: ?u16) void {
     const all = world.objects;
     const now = world.clock.frame_start;
     const model = launcher.model;
@@ -532,6 +549,7 @@ fn missileStep(world: gameobj.World, index: u16, launcher: *Launcher) void {
                 const flags = slot.object.flags;
                 if (flags.components or flags.outOfSearch() or !flags.targetable) continue;
                 if (slot.object.side == own.side) continue;
+                if (world.damage_rules == .arena and passed_over == @as(u16, @intCast(candidate))) continue;
                 const seen: Bearing = .of(from, slot.object.nextPosition());
                 if (seen.distance > reach or !seen.level()) continue;
                 if (seen.distance * best < seen.local[2]) {
@@ -839,8 +857,40 @@ test "an aimed turret passes over a ship the track would drop" {
     stage.mission.slot(later).object.flags.targetable = true;
     stage.mission.slot(later).drawn.position = .{ 0, 0, 2500 };
     stage.mission.slot(stage.target).object.flags.targetable = false;
-    pickTarget(stage.mission.world(), stage.ship, aimed);
+    pickTarget(stage.mission.world(), stage.ship, aimed, null);
     try std.testing.expectEqual(later, aimed.target.shipIn(stage.mission.objects));
+}
+
+test "in an arena a turret passes over the pilot who struck its object" {
+    var stage: Stage = undefined;
+    try stage.init(std.testing.allocator);
+    defer stage.deinit();
+    stage.parts.turret(0, .turret, .aimed, 1, 0);
+    var barrels = [_]shp.Attachment{testing.muzzle(13)};
+    stage.parts.data[0].attachments = &barrels;
+    try stage.arm();
+    const aimed = &stage.gun().turret.aimed;
+    const other = try stage.mission.add(.of(.sabre), .{ 0, 0, 2500 });
+    stage.mission.slot(other).object.side = .hostile;
+    stage.mission.slot(other).object.flags.targetable = true;
+    stage.mission.slot(other).drawn.position = .{ 0, 0, 2500 };
+    // It starts passing over nobody.
+    try std.testing.expectEqual(null, stage.gun().passed_over);
+
+    // In an arena, the pilot who strikes its object is passed over at once and from then on.
+    var world = stage.mission.world();
+    world.damage_rules = .{ .arena = null };
+    passOver(world, stage.ship, stage.target);
+    try std.testing.expectEqual(stage.target, stage.gun().passed_over.?);
+    try std.testing.expectEqual(other, aimed.target.shipIn(stage.mission.objects));
+    aimed.target = .none;
+    pickTarget(world, stage.ship, aimed, stage.gun().passed_over);
+    try std.testing.expectEqual(other, aimed.target.shipIn(stage.mission.objects));
+
+    // Outside an arena the record is not read.
+    aimed.target = .none;
+    pickTarget(stage.mission.world(), stage.ship, aimed, stage.gun().passed_over);
+    try std.testing.expectEqual(stage.target, aimed.target.shipIn(stage.mission.objects));
 }
 
 test "an aimed turret fires where its muzzle points, and turns toward its target" {

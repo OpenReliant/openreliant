@@ -86,7 +86,9 @@ bytes at `GameObject + 0x158`, `rack_count` of them (`+0x150`).
 A re-arm (`order_dock`, `cmd_ReplenishWeapons`) lets go of what hangs and fits the racks again: a
 player's ship with the racks its loadout chose, but the player's own by tier 0 where the briefing
 was skipped or in the simulator; any other ship by the tier at `GameObject + 0x648`, which nothing
-writes.
+writes. It fills the afterburner's fuel again too, but in an arena (`multiplayer_mission`), where it
+keeps the fuel left (`dock_nanny_run`, `0x00407AB7`; `cmd_ReplenishWeapons`, `0x0045A0AD`); either
+way each fuel pod then adds its 5000.
 
 OpenReliant fits a player's ship with the racks the loadout screen chose where it ran
 ([Loadout](loadout.md#what-it-leaves-the-mission)), and by the tier otherwise, as the game does when

@@ -1008,7 +1008,7 @@ test followCarrier {
 /// How long the camera watches the player's ship's end, the pilot's pod picked up, and the pod
 /// shot down once it bursts, before the mission is over, in ticks (`0x0049267E`, `0x0049268D`,
 /// `0x004926AD`).
-const end_watched = 600;
+pub const end_watched = 600;
 const pickup_watched = 1200;
 const shot_watched = 500;
 
@@ -1018,8 +1018,8 @@ const shot_watched = 500;
 /// that lasts, as `--watch` sets, never ends it (`camera.Viewing.lasting`). It goes by the view the
 /// game keeps (`input.Player.viewing`), so a world that draws nothing ends its mission alike.
 ///
-/// In an arena the death camera can finish while the round continues. Switching to another
-/// pilot's view is tracked in [#55](https://github.com/OpenReliant/openreliant/issues/55).
+/// In a network game the camera then watches the other pilots' ships instead
+/// (`camera.nextWatched`), which the multiplayer client does.
 pub fn missionOver(world: gameobj.World) bool {
     if (world.damage_rules == .arena) return false;
     if (world.damage_rules == .cooperative) {

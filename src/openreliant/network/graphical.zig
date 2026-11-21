@@ -477,7 +477,9 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 .external => all.slots[all.player].object.radius,
                 else => null,
             };
-            if (viewing.frameControls(devices, scene.clock.frameTicks(), orbited)) |chosen| {
+            if (devices.active(.cockpit_camera, false) and flight.spectating) {
+                if (devices.active(.cockpit_camera, true)) flight.watchNext(all.player);
+            } else if (viewing.frameControls(devices, scene.clock.frameTicks(), orbited)) |chosen| {
                 _ = game.camera.switchView(scene, chosen, all.player, false, false);
             }
             game.hud.targetKeys(display, .{
@@ -1041,17 +1043,20 @@ fn flightCamera(pilot: *Graphical, drawn: *const game.main.Drawn, seat: ?*game.m
     const left = flight.respawns.left[drawn.objects.player];
     if (left != 0) return game.deathmatch.respawn.camera(slot.drawn, left);
     if (flight.death_view) |death| {
-        if (death.watching_from) |at| return .{ .position = at, .orientation = math.lookAt(slot.drawn.position - at) };
+        const ending = &drawn.objects.slots[death.subject];
+        if (death.watching_from) |at| return .{ .position = at, .orientation = math.lookAt(ending.drawn.position - at) };
         const since: f32 = @floatFromInt(drawn.clock.frame_start -| death.started);
-        return game.camera.pullBack(slot.drawn.position, slot.drawn.orientation, since);
+        return game.camera.pullBack(ending.drawn.position, ending.drawn.orientation, since);
     }
     if (flight.eject_view) |eject| {
         const since: f32 = @floatFromInt(drawn.clock.frame_start -| eject.started);
         return game.camera.ejected(eject.offset, slot.drawn.position, since);
     }
     const subject = game.camera.Subject.of(slot);
+    // While spectating, the spectator view follows the watched pilot's ship.
+    const watched = if (flight.spectating) if (flight.watched) |index| game.camera.Subject.of(&drawn.objects.slots[index]) else subject else subject;
     flight.camera.frame(.{
-        .object = subject,
+        .object = watched,
         // The flight's world, through which the director's shots place the camera while the
         // mission's intro runs (`camera.frame`'s director case).
         .game = flight.world(),

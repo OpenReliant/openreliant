@@ -111,6 +111,10 @@ host_mines: [powerups.mine_count]?u32 = @splat(null),
 shot_ended_at: [game.guns.max_bullets]i32 = @splat(-1),
 wreck_seen_at: [wire.slots]i32 = @splat(-1),
 death_view: ?DeathView = null,
+/// Whether the pilot, out of the game, watches the other pilots' ships (`spectating`, `0x0057E058`),
+/// and whose (`watched_player`, `0x00588324`).
+spectating: bool = false,
+watched: ?u16 = null,
 spin_outs: game.aiexplode.SpinOuts = .{},
 eject_view: ?struct { started: i32, offset: engine.surrender.math.Vector } = null,
 ending_scene: ?EndingScene = null,
@@ -121,9 +125,12 @@ engine_ship: ?game.gameobj.ObjectRef = null,
 lock_tone: game.main.lock.Tone = .{},
 projectiles: ?Projectiles = null,
 
+/// The camera on a ship's end: the pilot's own, or, while spectating, the watched pilot's
+/// (`explode_ship_init`, `0x0040893B`).
 pub const DeathView = struct {
     started: i32,
     watching_from: ?engine.surrender.math.Vector,
+    subject: u16,
 };
 
 const EndingScene = struct {
@@ -247,6 +254,36 @@ pub fn stepEnding(frame: *FlightFrame, types: game.create.Types, now: u64, pause
         .game = scene,
         .viewing = viewing,
     });
+}
+
+/// `mission_frame` (`0x004926CE`) in a network game: once the camera has watched a ship's end for
+/// `game.main.end_watched` ticks, the pilot watches the next pilot (`camera_watch_next_player`),
+/// where the single-player game would end the mission. With nobody left to watch, the game ends
+/// the mission on that machine; the host decides that here, and the camera stays on the ship's end.
+///
+/// **Fix:** the game keeps the camera on a pilot who has left the game; OpenReliant watches the next.
+fn spectate(frame: *FlightFrame, own: u16) void {
+    const all = frame.drawn.objects;
+    if (frame.death_view) |death| {
+        if (frame.drawn.clock.frame_start <= death.started + game.main.end_watched) return;
+        const next = game.camera.nextWatched(all, own, frame.watched orelse own) orelse return;
+        frame.death_view = null;
+        frame.spectating = true;
+        frame.watched = next;
+        return;
+    }
+    const watched = frame.watched orelse return;
+    if (!frame.spectating or all.slots[watched].object.created) return;
+    frame.watched = game.camera.nextWatched(all, own, watched);
+}
+
+/// COCKPIT CAMERA while spectating (`0x004776ED`): the next pilot's ship, even while the camera
+/// watches a pilot's end.
+pub fn watchNext(frame: *FlightFrame, own: u16) void {
+    if (!frame.spectating) return;
+    const next = game.camera.nextWatched(frame.drawn.objects, own, frame.watched orelse own) orelse return;
+    frame.death_view = null;
+    frame.watched = next;
 }
 
 pub fn create(gpa: std.mem.Allocator, local: *const game.create.Objects, tables: *const game.create.Stats) !*FlightFrame {
@@ -1380,19 +1417,28 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
                 if (game.explode.soundClass(scene, slot.drawn.position) == .guaranteed)
                     game.explode.sound(scene, slot.drawn.position, .guaranteed);
             }
-            if (index == admission.slot) {
+            if (index == admission.slot or (frame.spectating and frame.watched == index)) {
                 const viewing = &frame.drawn.player.viewing;
                 const slow = game.aiexplode.movingSlowly(slot, viewing.view);
                 frame.death_view = .{
                     .started = scene.clock.frame_start,
                     .watching_from = if (!slow and viewing.seen_from != null) viewing.seen_from.?.position else null,
+                    .subject = index,
                 };
             }
         }
         slot.object.flags.exploding = ship.dying;
         frame.spin_outs.note(index, snapshot.clock, if (ship.dying) ship.spin else null);
         if (snapshot.scenario != null) slot.object.flags.targetable = ship.targetable;
-        if (!ship.dying and index == admission.slot) frame.death_view = null;
+        if (!ship.dying) if (frame.death_view) |death| if (death.subject == index) {
+            frame.death_view = null;
+        };
+        // **Fix:** the game keeps watching once its pilot flies again, such as after an arena's
+        // respawn, so COCKPIT CAMERA keeps leaving the cockpit; OpenReliant stops.
+        if (index == admission.slot and !ship.dying and !ship.pod) {
+            frame.spectating = false;
+            frame.watched = null;
+        }
         all.player_states[index].membership.joined.kills.count = ship.kills;
         all.player_states[index].membership.joined.deaths = ship.deaths;
         all.player_states[index].membership.joined.ping_ms = ship.ping_ms;
@@ -1405,6 +1451,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     const local_ship = snapshot.ships[admission.slot];
     const sounding = if (local_ship) |ship| !ship.pod and !ship.dying and !ship.engine_waiting else false;
     frame.setEngineShip(scene, if (sounding) .of(all, admission.slot) else null);
+    frame.spectate(admission.slot);
     const viewing = &frame.drawn.player.viewing;
     viewing.last = viewing.view;
     viewing.view = if (frame.director != null)
@@ -1413,6 +1460,8 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         game.camera.deathmatch_respawn_view
     else if (frame.death_view) |death|
         (if (death.watching_from == null) .pull_back else .watch)
+    else if (frame.spectating and frame.watched != null)
+        .spectator
     else if (frame.eject_view != null)
         .eject
     else
@@ -1921,4 +1970,49 @@ test "the host's echoed commands carry another pilot's ship and its correction n
     try std.testing.expect(engine.surrender.math.length(frame.offsets[1].position) > 15);
     // The drawn ship holds its place: the whole difference went to the fading offset.
     try std.testing.expect(engine.surrender.math.length(remote.drawn.position - drawn_before) < 1);
+}
+
+test "a pilot out of the game watches the others in turn" {
+    const gpa = std.testing.allocator;
+    var random: engine.random.Random = .{};
+    const local = try game.create.Objects.create(gpa, &random);
+    defer local.destroy();
+    const tables = game.create.testing.tables();
+    const frame = try create(gpa, local, &tables);
+    defer frame.destroy();
+    const no_models = game.create.testing.no_models;
+    const admission: wire.Admission = .{ .slot = 1, .generation = 2 };
+    var snapshot: wire.Snapshot = .{ .tick = 1, .ships = @splat(null) };
+    snapshot.ships[0] = .{ .generation = 1, .position = .{ 0, 0, 1000 } };
+    snapshot.ships[1] = .{ .generation = 2, .position = .{ 0, 0, 0 } };
+    snapshot.ships[2] = .{ .generation = 3, .position = .{ 0, 0, 2000 } };
+    try frame.apply(&snapshot, admission, local, no_models);
+    const clock = &frame.drawn.clock;
+
+    // The pilot's ship's end is watched first.
+    clock.frame_start = 100;
+    snapshot.tick = 2;
+    snapshot.ships[1].?.dying = true;
+    try frame.apply(&snapshot, admission, local, no_models);
+    try std.testing.expectEqual(admission.slot, frame.death_view.?.subject);
+    try std.testing.expect(!frame.spectating);
+
+    // Once it has been watched for its time, the camera watches the next pilot's ship.
+    clock.frame_start = 100 + game.main.end_watched + 1;
+    snapshot.tick = 3;
+    try frame.apply(&snapshot, admission, local, no_models);
+    try std.testing.expect(frame.spectating);
+    try std.testing.expectEqual(2, frame.watched.?);
+    try std.testing.expectEqual(null, frame.death_view);
+    try std.testing.expectEqual(game.camera.View.spectator, frame.drawn.player.viewing.view);
+
+    // COCKPIT CAMERA moves on round the pilots, the pilot's own passed over.
+    frame.watchNext(admission.slot);
+    try std.testing.expectEqual(0, frame.watched.?);
+
+    // The watched pilot's end is watched in turn.
+    snapshot.tick = 4;
+    snapshot.ships[0].?.dying = true;
+    try frame.apply(&snapshot, admission, local, no_models);
+    try std.testing.expectEqual(0, frame.death_view.?.subject);
 }

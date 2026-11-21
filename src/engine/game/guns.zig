@@ -254,6 +254,10 @@ pub const Fitted = struct {
     /// The tick the trigger is held until (`+0x0C`): the gun fires while the frame begins before
     /// it (`fire`).
     firing_until: i32 = 0,
+    /// In an arena, the pilot whose hit last struck the gun's object, whom its turret passes over
+    /// as it looks for a target (`+0x10`, `turrets.passOver`). `create_object` starts it at none
+    /// (-1, `0x004684CB`).
+    passed_over: ?u16 = null,
     /// Which side of its group it is (`+0x14`), as `create_object` marks it from the type's
     /// groups.
     side: GroupSide = .first,
@@ -786,7 +790,8 @@ pub const held_ticks: i32 = 1;
 /// **Fix:** the game reads a missile turret's gun type, of a muzzle it has none of, and a
 /// destroyed turret's; OpenReliant passes over a gun with no barrel.
 ///
-/// Not ported: `0x004BA780`, which the player's trigger runs last.
+/// The game's trigger last queues an update for the other players of a network game
+/// (`net_queue_fire`, `0x004BA780`). OpenReliant's host owns the simulation, so it has none.
 pub fn fire(object: *gameobj.GameObject, trigger: Trigger, ticks: i32) void {
     if (object.flags.guns_disabled or object.gun_count == 0) return;
     if (nova.charges(object, trigger)) nova.charge(object, trigger.shake);

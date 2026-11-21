@@ -109,6 +109,25 @@ The game's part of `camera_frame` runs once a game frame (`camera.gameFrame`): a
 
 The camera keys run in the game frame with the other controls ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)), and so does the director's view: its shots, their CameraReached events, and the return to the cockpit as a shot ends ([The director's camera](director.md)). The drawn frame only places the camera along the shot.
 
+### Watching the other pilots
+
+In a single-player game, the mission ends once the camera has watched the player's ship's end for
+600 ticks, the pod's pickup for 1200, or the pod shot down for 500 once it bursts (`mission_frame`).
+In a network game the pilot instead watches the other pilots (`spectating`, `0x0057E058`, set at
+`0x004926CE`): `camera_watch_next_player` (`0x004775D0`) puts the camera on the next pilot's ship,
+round the players' slots, whose ship is there and neither exploding nor disabled, the pilot's own
+passed over, in view `0x1E`. COCKPIT CAMERA moves on to the next (`0x004776ED`). Where a watched
+pilot's ship explodes, the camera watches its end as it would the pilot's own (`explode_ship_init`,
+`0x0040893B`), and then moves on. With nobody left to watch, the game ends the mission on that
+machine. A pilot whose ship jumps out of a network game watches the others too (`0x00417636`).
+
+The multiplayer client watches in the same way after the pilot's ship's end. The host decides when
+the mission ends, so with nobody left to watch, the camera stays on the ship's end. **Fix:** the game
+keeps watching once its pilot flies again, such as after an arena's respawn, so COCKPIT CAMERA keeps
+leaving the cockpit, and it keeps the camera on a pilot who has left the game; OpenReliant stops
+watching, and moves on to the next pilot. Not covered: the pod's pickup and the pod shot down, which
+the client shows as the mission's ending scene.
+
 ## Cockpit
 
 The camera's orientation is the ship's turned by the view's angle, and its position the ship's plus the model's eye point, the `.SHP` header's vector at `0x08`, turned likewise, so the rear view looks back from behind the ship. The Kamov (ship type 0x2D) looks back from 1500 behind it instead.
