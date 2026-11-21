@@ -448,7 +448,9 @@ pub fn leave(arena: *Arena, slot: u8) void {
     arena.pilots[slot] = null;
 }
 
-pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire_for: ?u32, order: ?wire.ordnance.Order) bool {
+/// Hands the host's simulation what the pilot of `slot` flies this step: the command, the
+/// trigger (`fire_for` names the ship it is for), a MATCH SPEED press, and the weapon order.
+pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire_for: ?u32, order: ?wire.ordnance.Order, match_speed: bool) bool {
     const all = arena.mission.objects;
     if (arena.pilots[slot] == null) return false;
     // An admitted pilot stays connected while the old ship finishes exploding.
@@ -459,6 +461,7 @@ pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire
     var submitted: game.players.Command = .{
         .flight = command,
         .weapons = .{ .fire_guns = fire_for == pilot.ship.reuse and stock_mode },
+        .match_speed = match_speed and stock_mode,
     };
     if (stock_mode) if (order) |weapons| {
         if (weapons.aim.reuse == pilot.ship.reuse) {
@@ -496,7 +499,6 @@ pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire
                     } else if (entry.target != .none) submitted.target = .clear;
                 }
                 submitted.weapons.launch_missile = weapons.presses.launch and (weapons.aim.target == null or target != null);
-                submitted.match_speed = weapons.presses.match_speed;
             }
             submitted.weapons.countermeasures = weapons.presses.countermeasures;
             submitted.weapons.rotate_missiles = weapons.presses.turn();
@@ -792,19 +794,19 @@ test "the pilot stays admitted through destruction and old trigger input expires
     arena.mode = .@"nuclear-threat";
     const all = arena.mission.objects;
     const first = all.playerBinding(0).?.ship.reuse;
-    try std.testing.expect(arena.input(0, .{}, first, null));
+    try std.testing.expect(arena.input(0, .{}, first, null, false));
     try std.testing.expect(all.playerCommand(0).?.weapons.fire_guns);
     all.slots[0].object.flags.exploding = true;
-    try std.testing.expect(arena.input(0, .{}, first, null));
+    try std.testing.expect(arena.input(0, .{}, first, null, false));
     try std.testing.expectEqual(null, all.playerCommand(0));
     try arena.spawnPilot(arena.pilots[0].?, false);
-    try std.testing.expect(arena.input(0, .{}, first, .{ .aim = .{ .reuse = first }, .presses = .{ .launch = true, .countermeasures = true } }));
+    try std.testing.expect(arena.input(0, .{}, first, .{ .aim = .{ .reuse = first }, .presses = .{ .launch = true, .countermeasures = true } }, false));
     try std.testing.expect(!all.playerCommand(0).?.weapons.fire_guns);
     try std.testing.expect(!all.playerCommand(0).?.weapons.launch_missile);
     try std.testing.expect(!all.playerCommand(0).?.weapons.countermeasures);
-    try std.testing.expect(arena.input(0, .{}, all.playerBinding(0).?.ship.reuse, null));
+    try std.testing.expect(arena.input(0, .{}, all.playerBinding(0).?.ship.reuse, null, false));
     try std.testing.expect(all.playerCommand(0).?.weapons.fire_guns);
-    try std.testing.expect(arena.input(0, .{}, null, null));
+    try std.testing.expect(arena.input(0, .{}, null, null, false));
     try std.testing.expect(!all.playerCommand(0).?.weapons.fire_guns);
 }
 

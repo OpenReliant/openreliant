@@ -57,8 +57,7 @@ pub const Presses = packed struct(u8) {
     launch: bool = false,
     countermeasures: bool = false,
     rotation: u2 = 0,
-    match_speed: bool = false,
-    reserved: u3 = 0,
+    reserved: u4 = 0,
 
     pub fn from(command: game.players.WeaponCommand) Presses {
         return .{
@@ -86,7 +85,6 @@ pub const Presses = packed struct(u8) {
     fn merge(pending: *Presses, next: Presses) void {
         pending.launch = pending.launch or next.launch;
         pending.countermeasures = pending.countermeasures or next.countermeasures;
-        pending.match_speed = pending.match_speed or next.match_speed;
         if (next.rotation != 0) pending.rotation = next.rotation;
     }
 };

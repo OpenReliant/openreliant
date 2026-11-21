@@ -47,6 +47,46 @@ pub const Presses = packed struct(u8) {
     }
 };
 
+/// What a step flew besides its held command: the presses made since the step before, and
+/// whether the trigger was held. They travel with the step's tick, so the host flies them at the
+/// same step the client's own simulation did (Overwatch GDC 2017 and Rocket League GDC 2018 keep
+/// every button in the frame's input).
+pub const Step = packed struct(u8) {
+    zero: bool = false,
+    full: bool = false,
+    toggle: bool = false,
+    match_speed: bool = false,
+    fire: bool = false,
+    reserved: u3 = 0,
+
+    pub fn presses(step: Step) Presses {
+        return .{ .zero = step.zero, .full = step.full, .toggle = step.toggle };
+    }
+
+    /// Whether the step carries a press, which must reach the host even after a long loss.
+    pub fn pressed(step: Step) bool {
+        return step.zero or step.full or step.toggle or step.match_speed;
+    }
+
+    /// Adds what a later frame or step brings: its presses, and the trigger as it holds now.
+    pub fn merge(pending: *Step, next: Step) void {
+        var flight_presses = pending.presses();
+        flight_presses.merge(next.presses());
+        pending.zero = flight_presses.zero;
+        pending.full = flight_presses.full;
+        pending.toggle = flight_presses.toggle;
+        pending.match_speed = pending.match_speed or next.match_speed;
+        pending.fire = next.fire;
+    }
+
+    /// The step's command: `held` with the presses the step flew.
+    pub fn command(step: Step, held: flight.Command) flight.Command {
+        var flown = held;
+        step.presses().apply(&flown);
+        return flown;
+    }
+};
+
 /// Release inputs that have to be held while keeping an analogue throttle setting.
 pub fn release(command: flight.Command) flight.Command {
     return .{ .throttle = if (command.throttle == .axis) command.throttle else .{ .keys = .{} } };
@@ -141,6 +181,16 @@ test "held flight forms round trip with bounded axes and tags" {
     try std.testing.expectError(error.InvalidFlightInput, read(&invalid));
     var writer = std.Io.Writer.fixed(&buffer);
     try std.testing.expectError(error.InvalidFlightInput, write(&writer, .{ .steering = .{ .axes = .{ 0, 2, 0 } } }));
+}
+
+test "a step's presses merge, and its trigger is the newest" {
+    var pending: Step = .{ .zero = true, .toggle = true, .fire = true };
+    pending.merge(.{ .full = true, .toggle = true, .match_speed = true });
+    try std.testing.expectEqual(Step{ .full = true, .match_speed = true }, pending);
+    try std.testing.expect(pending.pressed());
+    try std.testing.expect(!(Step{ .fire = true }).pressed());
+    const flown = pending.command(.{ .throttle = .{ .keys = .{ .accelerate = true } } });
+    try std.testing.expect(flown.throttle.keys.full and flown.throttle.keys.accelerate);
 }
 
 test "a throttle press can be replaced and two toggles cancel before delivery" {

@@ -3,6 +3,7 @@ const std = @import("std");
 const log = std.log.scoped(.flight_frame);
 const engine = @import("openreliant").engine;
 const game = engine.game;
+const flight_input = @import("flight_input.zig");
 const wire = @import("wire.zig");
 const stock = @import("stock_arena.zig");
 const Projectiles = @import("projectiles.zig");
@@ -58,9 +59,9 @@ commands: CommandRing = .{},
 /// The pilot's held trigger this frame, which the muzzle prediction fires through the single
 /// player path while the host alone decides what each shot does (Overwatch GDC 2017).
 own_trigger: bool = false,
-/// The MATCH SPEED press of this frame, which the local command flies once, as the host flies
-/// the press the wire brought it.
-own_match: bool = false,
+/// The presses made since the last step, which the next step flies once and sends the host
+/// with its tick, so the host flies them at the same step.
+pending: flight_input.Step = .{},
 /// The client's own predicted bolts, oldest first, each given up when the host's shot for it
 /// arrives: `index` the local bullets pool slot, `fired_at` the client tick it left at.
 own_muzzles: struct {
@@ -915,8 +916,7 @@ pub fn present(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: w
     const scene = frame.world();
     const all = scene.objects;
     if (all.playerBinding(admission.slot)) |binding|
-        _ = all.submitPlayerCommand(binding, .{ .flight = frame.command, .match_speed = frame.own_match });
-    var stepped = false;
+        _ = all.submitPlayerCommand(binding, .{ .flight = frame.pending.command(frame.command), .match_speed = frame.pending.match_speed });
     while (clock.nextTick(&frame.devices, scene)) |stepped_tick| {
         // The client's own guns fire through the single player path each tick (Overwatch GDC
         // 2017): the muzzle speaks at once, and the host's word on the shot replaces the bolt.
@@ -924,13 +924,12 @@ pub fn present(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: w
         game.guns.step(scene, clock, admission.slot);
         if (stepped_tick) {
             frame.ease();
+            // The presses ride the command until a step has flown them, as a press lasts until
+            // the key is read. The step takes them from the command it was given.
             frame.record();
-            stepped = true;
+            frame.pending = .{};
         }
     }
-    // The MATCH SPEED press rides the command until a step has flown it, as a press lasts
-    // until the key is read.
-    if (stepped) frame.own_match = false;
     clock.frameBegin();
     clock.drawBegin();
     const cockpit = game.camera.Cockpit;
@@ -1064,7 +1063,7 @@ pub fn noteCommands(frame: *FlightFrame, entry: wire.Commands) void {
     }
 }
 
-pub const Flown = struct { tick: i32, command: engine.input.flight.Command };
+pub const Flown = struct { tick: i32, command: engine.input.flight.Command, step: flight_input.Step = .{} };
 
 /// A rock's last two sceneries measure the turn it carried between them.
 const RockPrior = struct { tick: i32, angles: Vector };
@@ -1079,7 +1078,9 @@ fn laneSlot(frame: *const FlightFrame, lane: usize) ?u16 {
 
 fn record(frame: *FlightFrame) void {
     const all = frame.drawn.objects;
-    frame.flown = .{ .tick = frame.drawn.clock.mission_ticks, .command = frame.command };
+    var step = frame.pending;
+    step.fire = frame.own_trigger;
+    frame.flown = .{ .tick = frame.drawn.clock.mission_ticks, .command = frame.command, .step = step };
     for (0..lanes) |lane| {
         const index = frame.laneSlot(lane) orelse {
             frame.tracks[lane] = .{};
@@ -1231,8 +1232,14 @@ pub fn reconcile(frame: *FlightFrame, own: wire.OwnFlight, replay: []const wire.
     var flown: usize = 0;
     var command: ?engine.input.flight.Command = null;
     while (now -% tick >= 0) : (tick += game.gameobj.ticks_per_step) {
-        while (flown < replay.len and replay[flown].tick -% tick <= 0) : (flown += 1) command = replay[flown].command;
-        engine.input.stepShip(scene, index, command, game.gameobj.ticks_per_step);
+        // The presses of the steps taken here fly once, as they first did.
+        var pressed: flight_input.Step = .{};
+        while (flown < replay.len and replay[flown].tick -% tick <= 0) : (flown += 1) {
+            command = replay[flown].command;
+            pressed.merge(replay[flown].step);
+        }
+        engine.input.stepShip(scene, index, if (command) |held| pressed.command(held) else null, game.gameobj.ticks_per_step);
+        if (pressed.match_speed) _ = engine.input.switchMatchSpeed(all, index, &all.player_states[index].controls, scene.view());
     }
     const after = &slot.object.root;
     frame.offsets[index].position += before.position - after.next_position.vector();
