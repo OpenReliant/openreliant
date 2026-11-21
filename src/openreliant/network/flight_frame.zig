@@ -101,14 +101,21 @@ const Play = struct {
 
     fn advance(play: *Play, now: i64) void {
         if (!play.held) return;
-        const passed = @as(f64, @floatFromInt(@min(@max(now - play.frame, 0), 250 * std.time.us_per_ms))) /
+        const passed = if (play.frame == 0) 0 else @as(f64, @floatFromInt(@min(@max(now - play.frame, 0), 250 * std.time.us_per_ms))) /
             std.time.us_per_s * game.main.ticks_per_second;
         play.frame = now;
-        const gap = play.target - play.ticks;
-        // A stall or a new round moves the timeline at once; otherwise it passes time and
-        // closes a quarter of what gap remains, so early and late snapshots alike are absorbed.
+        const gap = play.target - (play.ticks + passed);
+        // A stall or a new round moves the timeline at once; otherwise it passes real time and
+        // closes a twentieth of what gap remains, so a snapshot early or late shifts the
+        // drawing only slightly and never backwards and forwards within a step. Where no
+        // snapshot arrives it carries a step past the last one and holds: beyond that the
+        // drawing would run on stale data.
         const step: f64 = game.gameobj.ticks_per_step;
-        if (@abs(gap) > 3 * step) play.ticks = play.target else play.ticks += passed + gap * 0.25 * @min(passed, 1);
+        if (@abs(gap) > 3 * step) {
+            play.ticks = play.target;
+        } else {
+            play.ticks = @min(play.ticks + passed + gap * 0.05, play.target + step);
+        }
     }
 };
 
@@ -1208,12 +1215,20 @@ test "the presentation timeline follows the host one step behind" {
     var play: Play = .{};
     play.arrive(10, 0);
     try std.testing.expectEqual(9 * step, play.ticks);
-    // A step of time passes: the timeline reaches where the next snapshot will land.
-    play.advance(4 * std.time.us_per_s / game.main.ticks_per_second);
-    try std.testing.expectEqual(10 * step, play.ticks);
+    // Frames pass real time; the timeline reaches where the next snapshot will land and
+    // closes what gap remains a twentieth of it at a time.
+    var when: i64 = 0;
+    for (0..6) |_| {
+        when += 4 * std.time.us_per_s / game.main.ticks_per_second / 6;
+        play.advance(when);
+    }
+    try std.testing.expectApproxEqAbs(10 * step, play.ticks, 2);
     play.arrive(11, 0);
-    play.advance(8 * std.time.us_per_s / game.main.ticks_per_second);
-    try std.testing.expectEqual(11 * step, play.ticks);
+    for (0..12) |_| {
+        when += 4 * std.time.us_per_s / game.main.ticks_per_second / 6;
+        play.advance(when);
+    }
+    try std.testing.expectApproxEqAbs(11 * step, play.ticks, 2);
     // A round change or a stall moves the timeline at once rather than slewing through it.
     play.arrive(100, 0);
     play.advance(0);
@@ -1278,4 +1293,56 @@ test "the pilot's own ship draws from the held command and corrects by the snaps
     const gap = slot.drawn.position - snapshot.ships[0].?.position;
     const left = @abs(gap[0]) + @abs(gap[1]) + @abs(gap[2]);
     try std.testing.expect(left > 150);
+}
+
+test "a remote ship sweeps smoothly between snapshots on the timeline" {
+    const gpa = std.testing.allocator;
+    var random: engine.random.Random = .{};
+    const local = try game.create.Objects.create(gpa, &random);
+    defer local.destroy();
+    const tables = game.create.testing.tables();
+    const frame = try create(gpa, local, &tables);
+    defer frame.destroy();
+    const no_models = game.create.testing.no_models;
+    const admission: wire.Admission = .{ .slot = 0, .generation = 1 };
+    var snapshot: wire.Snapshot = .{ .tick = 1, .ships = @splat(null) };
+    snapshot.ships[0] = .{ .generation = 1, .position = @splat(0) };
+    snapshot.ships[1] = .{ .generation = 2, .position = @splat(0), .velocity = .{ 0, 0, 99 } };
+    const tick_us = std.time.us_per_s / game.main.ticks_per_second;
+    const step_us: i64 = game.gameobj.ticks_per_step * tick_us;
+    var now: i64 = 0;
+    try frame.present(&snapshot, admission, local, no_models, now);
+    const remote = &frame.drawn.objects.slots[1];
+    var previous = remote.drawn.position[2];
+    var steps: usize = 0;
+    var largest_step: f32 = 0;
+    var worst_round: usize = 0;
+    var worst_ticks: f64 = 0;
+    var worst_target: f64 = 0;
+    for (1..25) |round| {
+        // A snapshot a step apart, with six frames to a step: the snapshot's own frame and
+        // five more, each a sixth of the step, as a display at sixty frames a second. The
+        // ship crosses ten units a step at two hundred and fifty a second, a fighter's pace.
+        snapshot.tick += 1;
+        snapshot.ships[1].?.position[2] = @floatFromInt(round * 10);
+        for (0..6) |sub| {
+            now += step_us / 6;
+            try frame.present(&snapshot, admission, local, no_models, now);
+            const at = remote.drawn.position[2];
+            if (round <= 3 and sub == 0) std.debug.print("round {d} drawn {d:.2}\n", .{ round, at });
+            if (@abs(at - previous) > largest_step) {
+                largest_step = @abs(at - previous);
+                worst_round = round;
+                worst_ticks = frame.play.ticks;
+                worst_target = frame.play.target;
+            }
+            previous = at;
+            steps += 1;
+        }
+    }
+    // Six frames to a step of ten units move the drawing under two units a frame; a snapped
+    // or frozen track moves in whole steps.
+    if (largest_step >= 2.5) std.debug.print("largest frame step {d:.2} at round {d} ticks {d:.2} target {d:.2}\n", .{ largest_step, worst_round, worst_ticks, worst_target });
+    try std.testing.expect(largest_step < 2.5);
+    try std.testing.expect(steps > 100);
 }
