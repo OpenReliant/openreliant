@@ -12,7 +12,36 @@ const main = @import("../main.zig");
 pub const positions = 8;
 const occupied_margin: f32 = 1.2; // 0x004DC7EC
 
-fn position(world: gameobj.World, first: ?u16) ?math.Place {
+/// The radius the pilot's fighter will have at a marker. `multiplayer_reset_ship` makes the ship
+/// before it looks for a marker, so it has the new ship's radius. Here the marker is chosen
+/// first, so that a pilot with no free marker keeps waiting as they are. Another ship of the
+/// type gives the radius, the pilot's last among them, or else the type's model does.
+fn fighterRadius(world: gameobj.World, spawn: gameobj.World.Spawn, index: u16, fighter: gameobj.Type) !f32 {
+    const all = world.objects;
+    const own = &all.slots[index].object;
+    if (own.created and own.type == fighter) return own.radius;
+    for (all.slots[0..@min(all.players, all.count)]) |*slot| {
+        if (slot.object.created and slot.object.type == fighter) return slot.object.radius;
+    }
+    return try create.typeRadius(all, spawn.types, fighter) orelse 0;
+}
+
+/// What a marker is checked for: the ship of pilot `index`, of type `fighter`, or a ship of a
+/// radius given outright.
+const Newcomer = union(enum) {
+    ship: struct { spawn: gameobj.World.Spawn, index: u16, fighter: gameobj.Type },
+    radius: f32,
+};
+
+/// A free marker for the newcomer: marker `first` if it is free, or else any free one. A marker
+/// is free when no pilot's ship is nearer than `occupied_margin` times the two ships' radii
+/// (`0x004AF42D`). The newcomer's radius is worked out only once a pilot's ship is there to
+/// compare with, so a map with no markers or no other pilots loads no model for it.
+fn position(world: gameobj.World, first: ?u16, newcomer: Newcomer) !?math.Place {
+    var radius: ?f32 = switch (newcomer) {
+        .ship => null,
+        .radius => |given| given,
+    };
     const all = world.objects;
     var free: [positions]math.Place = undefined;
     var count: u15 = 0;
@@ -25,7 +54,13 @@ fn position(world: gameobj.World, first: ?u16) ?math.Place {
         if (count == free.len) continue;
         for (all.slots[0..all.players], 0..) |*pilot, at| {
             if (all.playerBinding(@intCast(at)) == null) continue;
-            if (math.distance(pilot.object.position(), place.position) < occupied_margin * (pilot.object.radius + slot.object.radius)) break;
+            const other = radius orelse known: {
+                const ship = newcomer.ship;
+                const worked = try fighterRadius(world, ship.spawn, ship.index, ship.fighter);
+                radius = worked;
+                break :known worked;
+            };
+            if (math.distance(pilot.object.position(), place.position) < occupied_margin * (pilot.object.radius + other)) break;
         } else {
             if (preferred) return place;
             free[count] = place;
@@ -38,12 +73,16 @@ fn position(world: gameobj.World, first: ?u16) ?math.Place {
 
 /// `multiplayer_reset_ship` (`0x004AF1D0`) rebuilds the selected fighter and moves it to a
 /// free spawn marker. The host publishes the result through the normal ship snapshots.
-/// **Improvement:** a pilot joining mid-round also checks whether their preferred marker is free.
+///
+/// `first` is the marker of a pilot's first spawn in a round: `mp_arena_init` (`0x004AE860`)
+/// sets a flag (`0x005DAE50`) that sends the local pilot's first ship to the marker with their
+/// slot's number (`0x004AF4F5`). **Improvement:** the pilot takes that marker only if it is
+/// free, where the original puts them there whoever stands on it.
 pub fn reset(world: gameobj.World, pilot: players.ParticipantRef, fighter: gameobj.Type, first: ?u16) !void {
     const spawn = world.spawn orelse return error.MissingShipTables;
-    const place = position(world, first) orelse return error.NoFreeSpawn;
     const all = world.objects;
     const index = pilot.slot;
+    const place = try position(world, first, .{ .ship = .{ .spawn = spawn, .index = index, .fighter = fighter } }) orelse return error.NoFreeSpawn;
     const slot = &all.slots[index];
     const power = if (slot.object.created) slot.object.power_setting else null;
     create.resetSlot(.of(world), index);
@@ -79,6 +118,8 @@ test "a second admitted fighter spawns clear of the first" {
     const first = all.joinParticipant(0).?;
     const second = all.joinParticipant(1).?;
     try reset(world, first, .of(.predator), 0);
+    // The test's ships have no model to take a radius from.
+    all.slots[0].object.radius = 100;
     // Slot zero's preferred marker is occupied. A returning pilot must use a free one.
     world.arena_options.target_players = false;
     try reset(world, second, .of(.shroud), 0);
@@ -101,4 +142,33 @@ test "a second admitted fighter spawns clear of the first" {
     try std.testing.expect(!all.slots[1].object.flags.no_collisions);
     try std.testing.expect(all.slots[1].object.invulnerable == .none);
     try std.testing.expect(!all.slots[1].object.flags.targetable);
+}
+
+test "a marker is free past the two ships' radii, and a pilot's first ship takes their slot's marker" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    all.players = 2;
+    all.count = all.players;
+    // Nearer than a marker's own radius would allow, which the original never counts.
+    const first_place: math.Vector = .{ 0, 0, 0 };
+    const second_place: math.Vector = .{ 3000, 0, 0 };
+    _ = try mission.add(.of(.spawn_player), first_place);
+    _ = try mission.add(.of(.spawn_player), second_place);
+    var world = mission.world();
+    world.spawn = mission.spawn(create.testing.no_models);
+    const first = all.joinParticipant(0).?;
+    const second = all.joinParticipant(1).?;
+    try reset(world, first, .of(.predator), 0);
+    all.slots[0].object.radius = 100;
+    try reset(world, second, .of(.predator), 1);
+    try std.testing.expectEqual(first_place, all.slots[0].drawn.position);
+    try std.testing.expectEqual(second_place, all.slots[1].drawn.position);
+
+    // A ship within 1.2 times the two radii keeps the marker taken.
+    all.slots[1].object.radius = 100;
+    objects.setPosition(&all.slots[1].object, &all.slots[1].drawn, .{ 3200, 0, 0 });
+    try std.testing.expectEqual(null, try position(world, 0, .{ .radius = 100 }));
+    try std.testing.expectEqual(second_place, (try position(world, 0, .{ .radius = 50 })).?.position);
 }

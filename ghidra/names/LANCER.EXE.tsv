@@ -3330,7 +3330,7 @@ address	kind	name	type	comment
 005db57c	data	tag_bomb_tagger	int	The last tagger's slot or minus one
 005db580	data	tag_bomb_pending_respawn	int	Zero until a pilot is due to get the bomb on respawn, then their attacker's slot plus one or minus one for no attacker
 005db584	data	tag_bomb_detonating	bool	The local carrier's death was caused by their bomb
-005db588	data	tag_bomb_remaining_ticks	int	The local pilot's remaining fuse, initially 4500 ticks
+005db588	data	tag_bomb_remaining_ticks	int	The local pilot's remaining fuse, initially 4400 ticks
 004b48c0	function	shadow_init	void (void)	Starts without a Shadow or restores the Shadow from the join state
 004b4920	function	shadow_pilot_destroyed	void __fastcall (int pilot)	Grants or clears the role when a pilot dies and credits the Shadow's own kills
 004b49d0	function	shadow_pilot_left	void __fastcall (int pilot)	Clears the role if the departing pilot was the Shadow
