@@ -41,6 +41,14 @@ const slow_round_trip = 100 * std.time.ms_per_s / game.main.ticks_per_second;
 const packets_per_tick = 4;
 const scene_pages_per_tick = 3;
 const max_identity = 32;
+/// The most connections that may wait to be admitted at once. They wait apart from the pilots'
+/// slots, so a connection that never joins keeps no pilot out.
+const max_pending = 2 * wire.slots;
+/// The most of them that may come from one origin (`sameOrigin`): enough for friends behind one
+/// router who join together, and a quarter of the table.
+const max_pending_per_origin = 4;
+/// The most connections one origin may start in a second.
+const starts_per_origin = 4;
 pub const pilots_to_start = LaunchWait.minimum_players;
 
 const Peer = struct {
@@ -72,6 +80,10 @@ const Peer = struct {
     chat_budget: ChatBudget = .{},
     rescues: u8 = 0,
     attempt_rescues: u8 = 0,
+    /// Where the connection comes from, as an IPv6 address, an IPv4 one mapped into it.
+    address: [16]u8 = @splat(0),
+    /// The host's own pilot, who takes slot zero.
+    local: bool = false,
 
     fn expired(peer: Peer, time: i64) bool {
         return time >= peer.expires and time >= peer.loading_until;
@@ -101,7 +113,13 @@ start: union(enum) {
     launched,
 } = .automatic,
 listener: u32 = 0,
+/// The admitted pilots, by slot.
 peers: [wire.slots]?Peer = @splat(null),
+/// Connections not yet admitted: connecting, joining, choosing a ship, or being told why not.
+pending: [max_pending]?Peer = @splat(null),
+/// The connections last started, to hold one origin to `starts_per_origin` a second.
+starts: [max_pending]?struct { address: [16]u8, time: i64 } = @splat(null),
+next_start: usize = 0,
 retiring: [wire.cooperative_slots]?Retiring = @splat(null),
 roster_dirty: bool = false,
 paused: bool = false,
@@ -157,15 +175,7 @@ fn roundStats(host: *Host) ?*Metrics.Stats.Rounds {
 
 fn remove(host: *Host, slot: u8, announce: bool, departure: Departure) void {
     const peer = host.peers[slot] orelse return;
-    if (peer.state == .playing) {
-        if (host.metrics) |exporter| exporter.stats.departures.getPtr(departure).* += 1;
-    } else {
-        host.joinOutcome(if (peer.state == .closing) .rejected else switch (departure) {
-            .rejected => .rejected,
-            .timed_out => .timed_out,
-            else => .abandoned,
-        });
-    }
+    if (host.metrics) |exporter| exporter.stats.departures.getPtr(departure).* += 1;
     if (host.arena.pilots[slot]) |pilot| {
         if (announce and peer.state == .playing) {
             if (host.start == .lobby or host.debrief != null)
@@ -191,6 +201,68 @@ fn remove(host: *Host, slot: u8, announce: bool, departure: Departure) void {
         .dropped => net.session_drop(peer.conn),
         .retired => {},
     }
+}
+
+/// Closes a connection that was never admitted.
+fn dropPending(host: *Host, index: usize, departure: Departure) void {
+    const peer = host.pending[index] orelse return;
+    host.joinOutcome(if (peer.state == .closing) .rejected else switch (departure) {
+        .rejected => .rejected,
+        .timed_out => .timed_out,
+        else => .abandoned,
+    });
+    host.pending[index] = null;
+    net.session_close(peer.conn);
+}
+
+fn pendingFor(host: *const Host, conn: net.Connection) ?usize {
+    for (host.pending, 0..) |entry, index| {
+        if (entry) |peer| if (peer.conn == conn) return index;
+    }
+    return null;
+}
+
+/// Whether two addresses count as one origin: the same IPv4 address, or the same IPv6 /64, which
+/// is what one subscriber gets.
+fn sameOrigin(a: [16]u8, b: [16]u8) bool {
+    const mapped: [12]u8 = @as([10]u8, @splat(0)) ++ [2]u8{ 0xff, 0xff };
+    if (std.mem.eql(u8, a[0..12], &mapped) or std.mem.eql(u8, b[0..12], &mapped)) return std.mem.eql(u8, &a, &b);
+    return std.mem.eql(u8, a[0..8], b[0..8]);
+}
+
+/// Whether a connection from `address` may start now: its origin has room among the pending
+/// connections and has not started too many this second. A start that may is counted. This
+/// machine's own connections are not held to it.
+fn takeStart(host: *Host, address: [16]u8, time: i64) bool {
+    if (lan.isLoopback(.{ .ip6 = .{ .bytes = address, .port = 0 } })) return true;
+    var waiting: usize = 0;
+    for (host.pending) |entry| {
+        if (entry) |peer| if (!peer.local and sameOrigin(peer.address, address)) {
+            waiting += 1;
+        };
+    }
+    if (waiting >= max_pending_per_origin) return false;
+    var recent: usize = 0;
+    for (host.starts) |entry| {
+        if (entry) |start| if (time -| start.time < std.time.us_per_s and sameOrigin(start.address, address)) {
+            recent += 1;
+        };
+    }
+    if (recent >= starts_per_origin) return false;
+    host.starts[host.next_start] = .{ .address = address, .time = time };
+    host.next_start = (host.next_start + 1) % host.starts.len;
+    return true;
+}
+
+/// The slot a new pilot would take: slot zero for the host's own pilot, which a player-hosted
+/// game keeps for them even while they are away.
+fn freeSlot(host: *const Host, local: bool) ?u8 {
+    if (local) return if (host.peers[0] == null) 0 else null;
+    const first_remote: usize = @intFromBool(host.lan_only);
+    for (host.peers[first_remote..host.player_limit], first_remote..) |entry, slot| {
+        if (entry == null) return @intCast(slot);
+    }
+    return null;
 }
 
 fn pilotNotice(host: *Host, slot: u8, generation: u64, name: ?wire.CallSign, kind: wire.PilotNotice.Kind) void {
@@ -315,11 +387,20 @@ fn acceptsRemote(host: *const Host, conn: net.Connection) bool {
 
 pub fn takeLocalPilot(host: *Host, server_end: net.Connection, name: wire.CallSign) void {
     std.debug.assert(host.peers[0] == null);
-    host.peers[0] = .{ .conn = server_end, .state = .joining, .call_sign = host.chatCallSign(name), .expires = host.now() + timeout };
+    for (&host.pending) |*entry| {
+        if (entry.* != null) continue;
+        entry.* = .{ .conn = server_end, .state = .joining, .call_sign = host.chatCallSign(name), .expires = host.now() + timeout, .local = true };
+        return;
+    }
+    unreachable; // The host's own pilot joins before the listener takes anyone.
 }
 
 pub fn localCallSign(host: *const Host) wire.CallSign {
-    return host.peers[0].?.call_sign.?;
+    if (host.peers[0]) |peer| return peer.call_sign.?;
+    for (host.pending) |entry| {
+        if (entry) |peer| if (peer.local) return peer.call_sign.?;
+    }
+    unreachable;
 }
 
 fn localInLobby(host: *const Host) bool {
@@ -484,26 +565,27 @@ pub fn returnToArenaLobby(host: *Host) !void {
 
 pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]const u8) void {
     const slot = host.slotFor(conn);
+    const waiting = host.pendingFor(conn);
     switch (event) {
         .incoming => {
-            if (slot != null) return;
-            if (host.acceptsJoins() and host.acceptsRemote(conn)) {
-                // A player-hosted game keeps slot zero for the local connection even if it closes.
-                const first_remote: usize = @intFromBool(host.lan_only);
-                for (host.peers[first_remote..host.player_limit]) |*entry| {
-                    if (entry.* != null) continue;
-                    const time = host.now();
-                    if (host.budget.take(time) and net.session_accept(conn)) {
-                        entry.* = .{ .conn = conn, .expires = time + timeout };
-                        return;
-                    }
-                    break;
+            if (slot != null or waiting != null) return;
+            if (host.acceptsJoins() and host.acceptsRemote(conn) and host.freeSlot(false) != null) accept: {
+                var address: [16]u8 = undefined;
+                if (!net.session_peer_ip(conn, &address)) break :accept;
+                const entry = for (&host.pending) |*entry| {
+                    if (entry.* == null) break entry;
+                } else break :accept;
+                const time = host.now();
+                // The origin's own limits come first, so one origin cannot use up the host's.
+                if (host.takeStart(address, time) and host.budget.take(time) and net.session_accept(conn)) {
+                    entry.* = .{ .conn = conn, .expires = time + timeout, .address = address };
+                    return;
                 }
             }
             host.joinOutcome(.rejected);
         },
-        .authenticated => if (slot) |index| {
-            const peer = &host.peers[index].?;
+        .authenticated => if (waiting) |index| {
+            const peer = &host.pending[index].?;
             if (peer.state != .connecting) return;
             if (name) |pilot_name| {
                 if (pilot_name.len > 0 and pilot_name.len <= max_identity and !host.hasName(pilot_name)) {
@@ -514,8 +596,8 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
                 }
             }
         },
-        .unverified => if (slot) |index| {
-            const peer = &host.peers[index].?;
+        .unverified => if (waiting) |index| {
+            const peer = &host.pending[index].?;
             if (peer.state != .connecting) return;
             // The transport requires encryption. This pilot owns only its new admission.
             peer.state = .joining;
@@ -524,7 +606,11 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
         .closed, .lost, .dropped => {},
     }
     if (slot) |index| {
-        host.remove(index, host.final_tick == null, if (event == .authenticated) .rejected else .normal);
+        // An admitted pilot is past these.
+        if (event == .authenticated or event == .unverified) return;
+        host.remove(index, host.final_tick == null, .normal);
+    } else if (waiting) |index| {
+        host.dropPending(index, if (event == .authenticated) .rejected else .normal);
     } else {
         for (&host.retiring) |*entry| if (entry.* != null and entry.*.?.conn == conn) {
             entry.* = null;
@@ -571,7 +657,7 @@ pub fn dropPausedPilot(host: *Host, admission: wire.Admission) void {
 }
 
 fn hasName(host: *const Host, name: []const u8) bool {
-    for (host.peers) |entry| {
+    for (host.peers ++ host.pending) |entry| {
         const peer = entry orelse continue;
         if (peer.identity_len != 0 and std.mem.eql(u8, peer.identity[0..peer.identity_len], name)) return true;
     }
@@ -583,7 +669,7 @@ fn hasName(host: *const Host, name: []const u8) bool {
 fn chatCallSign(host: *const Host, claimed: wire.CallSign) wire.CallSign {
     const name = wire.lobbyName(claimed.slice());
     if (name.len == 0 or std.ascii.eqlIgnoreCase(name.slice(), "SYSTEM")) return .{};
-    for (host.peers) |entry| {
+    for (host.peers ++ host.pending) |entry| {
         const peer = entry orelse continue;
         const used = peer.call_sign orelse continue;
         if (std.ascii.eqlIgnoreCase(name.slice(), used.slice())) return .{};
@@ -591,55 +677,83 @@ fn chatCallSign(host: *const Host, claimed: wire.CallSign) wire.CallSign {
     return name;
 }
 
-fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64) !bool {
-    if (message == .leave) return false;
+/// A message from a connection not yet admitted: the connection keeps waiting, is closed, or
+/// has become a pilot.
+fn admit(host: *Host, index: usize, message: wire.Message, time: i64) !enum { waiting, refused, admitted } {
+    const peer = &host.pending[index].?;
+    if (message == .leave or host.final_tick != null) return .refused;
     switch (peer.state) {
         .joining => {
-            if (host.final_tick != null or message != .join) return false;
+            if (message != .join) return .refused;
             if (!message.join.compatible()) {
                 try host.channel().send(peer.conn, .{ .wrong_protocol = .local });
                 peer.state = .closing;
                 peer.expires = time + timeout;
-                return true;
+                return .waiting;
             }
-            if (!host.acceptsSession(message.join.session)) return false;
+            if (!host.acceptsSession(message.join.session)) return .refused;
             peer.state = .choosing;
-            return true;
+            return .waiting;
         },
         .choosing => {
-            if (host.final_tick != null or host.arena.campaign != null or host.campaign_briefing or message != .pick_ship) return false;
-            const admitted = host.arena.join(slot, message.pick_ship) catch |err| switch (err) {
-                error.NoFreeSpawn, error.JoinFailed, error.BindFailed => return false,
-                else => return err,
+            if (host.arena.campaign != null or host.campaign_briefing or message != .pick_ship) return .refused;
+            const slot = host.freeSlot(peer.local) orelse return .refused;
+            // Whatever keeps this pilot's ship from being made, it is this pilot who is refused.
+            const admitted = host.arena.join(slot, message.pick_ship) catch |err| {
+                switch (err) {
+                    error.NoFreeSpawn, error.JoinFailed, error.BindFailed => {},
+                    else => log.warn("could not make a ship for a joining pilot: {t}", .{err}),
+                }
+                return .refused;
             };
-            peer.state = .playing;
-            if (host.start != .lobby) peer.loading_until = time + loading_timeout;
-            host.joinOutcome(.admitted);
-            peer.announce_join = host.start != .lobby and host.tick != host.arena_floor;
-            peer.expires = time + timeout;
-            try host.channel().send(peer.conn, .{ .joined = .{ .admission = admitted, .arena_floor = host.arena_floor } });
-            host.launch_wait.reset();
-            if (host.arena_teams and host.start != .lobby) host.arena.pickTeam(slot, host.arena.leastPopulatedTeam(slot));
-            if (host.tick != 0) if (host.arena.last_music) |last| {
-                var cue = last;
-                cue.now = true;
-                try host.channel().send(peer.conn, .{ .mission_music = cue });
+            host.peers[slot] = peer.*;
+            host.pending[index] = null;
+            host.welcome(slot, admitted, time) catch |err| {
+                log.warn("could not welcome the pilot in slot {d}: {t}", .{ slot, err });
+                host.remove(slot, false, .rejected);
             };
-            if (host.paused) {
-                var view = try host.arena.snapshot(host.tick);
-                host.fillPings(&view, false);
-                view.countPilotPages();
-                var pilots: PilotPackets = undefined;
-                try pilots.encode(&view);
-                try pilots.send(host.channel(), peer.conn, true);
-                var buffer: [wire.capacity]u8 = undefined;
-                try host.sendView(&view, slot, .paused, &buffer);
-                if (host.arena.scenery(host.tick)) |scenery| try host.channel().send(peer.conn, .{ .scenery = scenery });
-            }
-            host.roster_dirty = true;
-            log.info("joined {d} {d}", .{ slot, admitted.generation });
-            return true;
+            return .admitted;
         },
+        .connecting, .closing, .playing => return .refused,
+    }
+}
+
+/// Tells a pilot just admitted to `slot` what they need to start.
+fn welcome(host: *Host, slot: u8, admitted: wire.Admission, time: i64) !void {
+    const peer = &host.peers[slot].?;
+    peer.state = .playing;
+    if (host.start != .lobby) peer.loading_until = time + loading_timeout;
+    host.joinOutcome(.admitted);
+    peer.announce_join = host.start != .lobby and host.tick != host.arena_floor;
+    peer.expires = time + timeout;
+    try host.channel().send(peer.conn, .{ .joined = .{ .admission = admitted, .arena_floor = host.arena_floor } });
+    host.launch_wait.reset();
+    if (host.arena_teams and host.start != .lobby) host.arena.pickTeam(slot, host.arena.leastPopulatedTeam(slot));
+    if (host.tick != 0) if (host.arena.last_music) |last| {
+        var cue = last;
+        cue.now = true;
+        try host.channel().send(peer.conn, .{ .mission_music = cue });
+    };
+    if (host.paused) {
+        var view = try host.arena.snapshot(host.tick);
+        host.fillPings(&view, false);
+        view.countPilotPages();
+        var pilots: PilotPackets = undefined;
+        try pilots.encode(&view);
+        try pilots.send(host.channel(), peer.conn, true);
+        var buffer: [wire.capacity]u8 = undefined;
+        try host.sendView(&view, slot, .paused, &buffer);
+        if (host.arena.scenery(host.tick)) |scenery| try host.channel().send(peer.conn, .{ .scenery = scenery });
+    }
+    host.roster_dirty = true;
+    log.info("joined {d} {d}", .{ slot, admitted.generation });
+}
+
+fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64) !bool {
+    if (message == .leave) return false;
+    switch (peer.state) {
+        // Only an admitted pilot holds a slot (`admit`).
+        .connecting, .joining, .choosing, .closing => return false,
         .playing => {
             if (host.final_tick) |tick| {
                 if (message == .received_final and message.received_final == tick) host.final_receipts += 1;
@@ -694,7 +808,6 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
             }
             return true;
         },
-        .connecting, .closing => return false,
     }
 }
 
@@ -805,13 +918,27 @@ fn acknowledgeMovie(host: *Host, slot: u8, tick: u32) void {
     if (host.campaign_movie) |*movie| movie.waiting.unset(slot);
 }
 
-fn service(host: *Host, slot: u8, time: i64) !void {
-    const peer = if (host.peers[slot]) |*peer| peer else return;
-    if (peer.state != .playing and time >= peer.expires) {
-        host.remove(slot, host.final_tick == null, .timed_out);
-        return;
-    }
+/// Takes what a connection not yet admitted sent, and closes it once its time to join is up.
+fn servicePending(host: *Host, index: usize, time: i64) void {
+    const peer = if (host.pending[index]) |*peer| peer else return;
+    if (time >= peer.expires) return host.dropPending(index, .timed_out);
     if (peer.state == .connecting or peer.state == .closing) return;
+    var buf: [wire.capacity]u8 = undefined;
+    for (0..packets_per_tick) |_| {
+        const received = host.channel().receive(peer.conn, &buf) catch return host.dropPending(index, .rejected);
+        const message = received orelse return;
+        const outcome = host.admit(index, message, time) catch .refused;
+        switch (outcome) {
+            .waiting => if (peer.state == .closing) return,
+            .refused => return host.dropPending(index, if (message == .leave) .normal else .rejected),
+            // The pilot's later messages are read from their slot.
+            .admitted => return,
+        }
+    }
+}
+
+fn service(host: *Host, slot: u8, time: i64) void {
+    const peer = if (host.peers[slot]) |*peer| peer else return;
     var buf: [wire.capacity]u8 = undefined;
     for (0..packets_per_tick) |_| {
         const message = host.channel().receive(peer.conn, &buf) catch |err| {
@@ -819,24 +946,25 @@ fn service(host: *Host, slot: u8, time: i64) !void {
             host.remove(slot, host.final_tick == null, .rejected);
             return;
         } orelse break;
-        const keep = host.receive(slot, peer, message, time) catch |err| switch (err) {
-            error.SendFailed => false,
-            else => return err,
+        // Whatever goes wrong with one pilot's message, it is that pilot who leaves.
+        const keep = host.receive(slot, peer, message, time) catch |err| failed: {
+            if (err != error.SendFailed) log.warn("the message of the pilot in slot {d} failed: {t}", .{ slot, err });
+            break :failed false;
         };
         if (!keep) {
             const departure: Departure = if (message == .leave or message == .received_final) .normal else .rejected;
             host.remove(slot, host.final_tick == null, departure);
             return;
         }
-        if (peer.state == .closing) return;
     }
     // A headed host can spend time opening a film. Give admitted pilots one bounded receive
     // pass to deliver queued keepalives before expiring them.
     if (peer.expired(time)) host.remove(slot, host.final_tick == null, .timed_out);
 }
 
-fn servicePeers(host: *Host, time: i64) !void {
-    for (0..host.peers.len) |slot| try host.service(@intCast(slot), time);
+fn servicePeers(host: *Host, time: i64) void {
+    for (0..host.pending.len) |index| host.servicePending(index, time);
+    for (0..host.peers.len) |slot| host.service(@intCast(slot), time);
     for (&host.retiring) |*entry| {
         const pilot = entry.* orelse continue;
         if (time < pilot.until) continue;
@@ -1160,6 +1288,7 @@ pub fn open(host: *Host, address: [:0]const u8, ticks: ?u32) !void {
 
 pub fn close(host: *Host) void {
     for (0..host.peers.len) |slot| host.remove(@intCast(slot), false, .normal);
+    for (0..host.pending.len) |index| host.dropPending(index, .normal);
     for (&host.retiring) |*entry| {
         if (entry.*) |pilot| net.session_close(pilot.conn);
         entry.* = null;
@@ -1335,7 +1464,7 @@ pub fn pump(host: *Host) !enum { running, finished } {
     const time = host.now();
     if (host.final_tick != null) {
         if (time >= host.drain_until or host.playingCount() == 0) return .finished;
-        try host.servicePeers(time);
+        host.servicePeers(time);
         return .running;
     }
     if (time < host.next_step) return .running;
@@ -1353,7 +1482,7 @@ pub fn pump(host: *Host) !enum { running, finished } {
             host.renew_at = time + identity.renew_after_us;
         }
     }
-    try host.servicePeers(time);
+    host.servicePeers(time);
     if (host.paused_view_pending) {
         // The last flight view may have been lost. Deliver the frozen tick before the pause roster.
         try host.broadcast(try host.arena.snapshot(host.tick), .paused);
@@ -1436,6 +1565,11 @@ pub fn pump(host: *Host) !enum { running, finished } {
             return .running;
         } else return err,
         else => return err,
+    };
+    // A pilot whose ship could not be made leaves; the others fly on.
+    for (&host.arena.unspawnable, 0..) |*failed, slot| if (failed.*) {
+        failed.* = false;
+        host.remove(@intCast(slot), true, .rejected);
     };
     host.broadcastNotices();
     for (host.arena.wrecks) |entry| if (entry) |wreck| host.sendPlaying(.{ .wreck = wreck }, null);
@@ -1564,14 +1698,55 @@ pub fn run(host: *Host, address: [:0]const u8, ticks: ?u32, invite: ?identity.In
     log.info("finished {d} {d}", .{ host.tick, host.final_receipts });
 }
 
+test "one origin can keep only a few connections waiting, and start only a few a second" {
+    var host: Host = .{ .io = std.testing.io, .arena = undefined };
+    const first: [16]u8 = @as([10]u8, @splat(0)) ++ [2]u8{ 0xff, 0xff } ++ [4]u8{ 192, 0, 2, 1 };
+    var other = first;
+    other[15] = 2;
+    // The same IPv4 address is one origin, another address is not.
+    try std.testing.expect(sameOrigin(first, first) and !sameOrigin(first, other));
+    // An IPv6 /64 is one origin.
+    var home: [16]u8 = @splat(0);
+    home[0] = 0x20;
+    var neighbour = home;
+    neighbour[15] = 9;
+    var elsewhere = home;
+    elsewhere[7] = 1;
+    try std.testing.expect(sameOrigin(home, neighbour) and !sameOrigin(home, elsewhere) and !sameOrigin(home, first));
+
+    for (0..starts_per_origin) |_| try std.testing.expect(host.takeStart(first, 0));
+    try std.testing.expect(!host.takeStart(first, std.time.us_per_s - 1));
+    try std.testing.expect(host.takeStart(other, std.time.us_per_s - 1));
+    try std.testing.expect(host.takeStart(first, std.time.us_per_s));
+
+    // Connections that wait count against their origin, whenever they started.
+    for (host.pending[0..max_pending_per_origin]) |*entry| entry.* = .{ .conn = 1, .expires = 0, .address = first };
+    try std.testing.expect(!host.takeStart(first, 10 * std.time.us_per_s));
+    try std.testing.expect(host.takeStart(other, 10 * std.time.us_per_s));
+}
+
+test "connections that wait take no pilot's slot" {
+    var host: Host = .{ .io = std.testing.io, .arena = undefined, .lan_only = true, .player_limit = 3 };
+    for (&host.pending) |*entry| entry.* = .{ .conn = 1, .expires = 0 };
+    // A player-hosted game keeps slot zero for its own pilot.
+    try std.testing.expectEqual(1, host.freeSlot(false).?);
+    try std.testing.expectEqual(0, host.freeSlot(true).?);
+    host.peers[1] = .{ .conn = 2, .expires = 0, .state = .playing };
+    host.peers[2] = .{ .conn = 3, .expires = 0, .state = .playing };
+    try std.testing.expectEqual(null, host.freeSlot(false));
+    try std.testing.expectEqual(0, host.freeSlot(true).?);
+}
+
 test "only an admitted local pilot can launch a player-hosted match" {
     var host: Host = .{ .io = std.testing.io, .arena = undefined, .start = .{ .lobby = .{} } };
     host.peers[1] = .{ .conn = 2, .expires = 0, .state = .playing };
     host.launch();
     try std.testing.expect(host.start == .lobby);
-    host.peers[0] = .{ .conn = 1, .expires = 0, .state = .joining };
+    host.pending[0] = .{ .conn = 1, .expires = 0, .state = .joining, .local = true };
     host.launch();
     try std.testing.expect(host.start == .lobby);
+    host.peers[0] = host.pending[0];
+    host.pending[0] = null;
     host.peers[0].?.state = .playing;
     host.launch();
     try std.testing.expect(host.start == .launched);

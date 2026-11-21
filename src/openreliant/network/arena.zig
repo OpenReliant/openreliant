@@ -90,6 +90,8 @@ mode: Mode,
 explosions: ?game.explode.Explosions = null,
 devices: engine.input.Devices = .{},
 pilots: [wire.slots]?Pilot = @splat(null),
+/// Pilots whose ship a step could not make, for the host to let go.
+unspawnable: [wire.slots]bool = @splat(false),
 assets: ?*stock.Assets = null,
 loaded: ?*game.mission.Loaded = null,
 rocks: stock.RockSlots = .{},
@@ -529,7 +531,12 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
             if (arena.mission.objects.playerBinding(pilot.participant.slot) != null) continue;
             arena.spawnPilot(pilot, pilot.first_spawn) catch |err| switch (err) {
                 error.NoFreeSpawn => continue,
-                else => return err,
+                // One pilot's ship is no reason to stop the round: the host lets them go.
+                else => {
+                    std.log.scoped(.network_host).warn("could not make a ship for the pilot in slot {d}: {t}", .{ pilot.participant.slot, err });
+                    arena.unspawnable[pilot.participant.slot] = true;
+                    continue;
+                },
             };
             entry.*.?.first_spawn = false;
         }
