@@ -310,9 +310,9 @@ one encrypted connection to the address. Pilots need no credential files.
 
 Games hosted on your local network appear under **LAN** in the same screen. Select one and
 choose **Join Game**. The list finds games on ports 27020 to 27027. A host answers the list on
-its game port plus 1000, which is UDP port 28020 for the default port, so a firewall on the host
-must allow that port for the game to show. Several games on one machine each need a port of their
-own. You can always join a LAN game by its IP address under **Direct Connect**.
+its game port, so the game needs no other port in a firewall. Several games on one machine each
+use a port of their own. You can always join a LAN game by its IP address under **Direct
+Connect**.
 
 In Nuclear Threat, use your usual **Fire Lasers** control. The host advances the guns, applies
 hits and updates each pilot's shields, armour and kill count. When a carrier is destroyed, their
@@ -376,7 +376,7 @@ your pilots can reach. Allow incoming UDP on `Port` and use the same port if you
 | `Description` | Empty | Description shown in directory listings |
 | `DirectoryServers` | Unset | Comma-separated directory URLs. When set, the host publishes itself to each directory |
 | `PublicAddress` | Unset | Public IP to advertise when the incoming address differs from the observed outgoing address |
-| `LanDiscovery` | `1` | Show the server in the LAN lists of players on the local network, which find servers with a `Port` from 27020 to 27027. The server answers the lists on UDP port `Port` plus 1000. Only players on the same machine see a server that listens on `127.0.0.1`. Set to `0` to stay out of LAN lists |
+| `LanDiscovery` | `1` | Show the server in the LAN lists of players on the local network, which find servers with a `Port` from 27020 to 27027. The server answers the lists on its `Port`. Listen on `0.0.0.0` or `::` for this: a server bound to a single address may not receive the lists' broadcast queries. Only players on the same machine see a server that listens on `127.0.0.1`. Set to `0` to stay out of LAN lists |
 | `CheckUpdates` | `1` | Check for a newer OpenReliant release at startup and every six hours. Set to `0` to disable |
 | `Players` | `8` for arenas, `2` for co-op | How many pilots can join. Choose 2 to 8 for an arena or 2 to 4 for co-op |
 | `MinPlayers` | `2` for arenas, `Players` for co-op | How many admitted pilots are needed to begin the countdown. Choose at least 2 and at most `Players` |

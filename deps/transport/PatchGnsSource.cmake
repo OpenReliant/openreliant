@@ -18,3 +18,6 @@ endfunction()
 
 openreliant_patch_gns_source(src/steamnetworkingsockets/clientlib/csteamnetworkingsockets.cpp
     "${CMAKE_CURRENT_LIST_DIR}/local-certificate-key.patch")
+# A host answers the LAN lists' queries on its game port.
+openreliant_patch_gns_source(src/steamnetworkingsockets/clientlib/steamnetworkingsockets_udp.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/lan-query.patch")
