@@ -123,6 +123,8 @@ pub const State = struct {
     permission_heard_from: u32 = 0,
     /// Advances when the mission script selects a target for this pilot.
     script_aim: u32 = 0,
+    scanner_target: ?gameobj.ObjectRef = null,
+    scanner_command: u32 = 0,
 
     /// Drops all state tied to the old ship while keeping the participant's admission.
     pub fn unbindShip(state: *State) void {

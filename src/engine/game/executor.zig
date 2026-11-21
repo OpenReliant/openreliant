@@ -1353,7 +1353,18 @@ fn disableListing(call: Call, game: aigeneric.Context) void {
 /// from its first frame (`hud.State.restartScanner`).
 fn scanner(call: Call, game: aigeneric.Context) void {
     const world = game.world;
-    world.player.scanner.set(call.argumentShip(world.objects, 0));
+    const all = world.objects;
+    const target = call.argumentShip(all, 0);
+    if (world.damage_rules == .cooperative) {
+        const ref: ?gameobj.ObjectRef = if (target) |slot| .of(all, slot) else null;
+        for (all.player_states[0..all.playerSlotCount()], 0..) |*state, index| {
+            if (all.playerBinding(@intCast(index)) == null or state.membership.joined.ending != .playing) continue;
+            state.scanner_target = ref;
+            state.scanner_command +%= 1;
+        }
+        return;
+    }
+    world.player.scanner.set(target);
     if (world.display) |display| display.restartScanner();
 }
 
@@ -2493,6 +2504,61 @@ test "Scanner looks for a ship, and Fire holds its trigger" {
     try std.testing.expectEqual(sabre, world.player.scanner.object.?);
     try std.testing.expectEqual(1, display.events.scans.count);
     try std.testing.expectEqual(1200, slot.guns[0].firing_until);
+}
+
+test "co-op Scanner does not use the host's local cockpit" {
+    const gpa = std.testing.allocator;
+    var routine: Routine = .init(gpa);
+    defer routine.deinit();
+    try routine.op(.push_ship, &.{2});
+    try routine.command("Scanner");
+    const code = try finishPart(&routine);
+    defer gpa.free(code);
+
+    var game: vm.machine.testing.Game = undefined;
+    try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
+        .ships = &.{
+            shipRecord(0, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.predator)),
+            shipRecord(1, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.predator)),
+            shipRecord(2, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.sabre)),
+        },
+    });
+    defer game.deinit();
+    const all = game.mission.objects;
+    all.players = 2;
+    const first = try game.mission.add(.of(.predator), @splat(0));
+    const second = try game.mission.add(.of(.predator), .{ 0, 0, 1000 });
+    const sought = try game.mission.add(.of(.sabre), .{ 0, 0, 5000 });
+    try std.testing.expectEqual(2, sought);
+    const a = all.joinParticipant(first) orelse return error.TestUnexpectedResult;
+    const b = all.joinParticipant(second) orelse return error.TestUnexpectedResult;
+    _ = all.bindParticipant(a, .of(all, first)) orelse return error.TestUnexpectedResult;
+    _ = all.bindParticipant(b, .of(all, second)) orelse return error.TestUnexpectedResult;
+    var ctx = game.orders();
+    ctx.world.damage_rules = .cooperative;
+    try game.start(ctx);
+
+    try std.testing.expectEqual(null, game.mission.player.scanner.object);
+    const target = gameobj.ObjectRef.of(all, sought);
+    try std.testing.expectEqual(target, all.player_states[first].scanner_target.?);
+    try std.testing.expectEqual(target, all.player_states[second].scanner_target.?);
+
+    ai.objectDestroyed(ctx, first, false, true);
+    aigeneric.objectOrders(ctx, first);
+    try std.testing.expectEqual(.destroyed, all.player_states[first].membership.joined.ending);
+    try std.testing.expectEqual(.playing, all.player_states[second].membership.joined.ending);
+    try std.testing.expect(all.hasBoundPlayerShip(second));
+    try std.testing.expectEqual(target, all.player_states[second].scanner_target.?);
+
+    try std.testing.expect(create.Objects.leaveParticipant(ctx.world, a));
+    const replacement = all.joinParticipant(first) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(replacement.generation != a.generation);
+    try std.testing.expectEqual(null, all.player_states[first].scanner_target);
+    try std.testing.expectEqual(0, all.player_states[first].scanner_command);
+    try std.testing.expectEqual(.playing, all.player_states[first].membership.joined.ending);
+
+    all.player_states[second].resetMission();
+    try std.testing.expectEqual(null, all.player_states[second].scanner_target);
 }
 
 test "DisableLights puts a ship's lights out, the static lights baked into its parts with them" {

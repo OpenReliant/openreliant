@@ -746,6 +746,14 @@ pub fn guide(arena: *const Arena, index: u8) wire.MissionView.Guide {
     const slot = &all.slots[index];
     const state = &all.player_states[index];
     var result: wire.MissionView.Guide = .{ .aim = state.script_aim };
+    if (all.boundParticipant(index)) |pilot| {
+        if (pilot.ending == .playing) {
+            result.scanner_command = state.scanner_command;
+            if (state.scanner_target) |ref| if (ref.resolve(all)) |at| {
+                if (all.slots[at].object.created and !all.slots[at].object.flags.exploding) result.scanner_target = ref;
+            };
+        }
+    }
     if (state.script_aim != 0) if (game.ai.controlEntry(all, index)) |order| {
         const target = order.target.resolve(all);
         if (target.slotIn(all)) |at| result.target = .{
