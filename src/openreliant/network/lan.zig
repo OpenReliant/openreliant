@@ -37,75 +37,90 @@ pub const max_answer = answer_header + 2 * (1 + max_text);
 /// more than it receives and can't be used to flood another address.
 pub const query_size = 128;
 
-/// Windows' `Io` cannot await a socket receive concurrently: `std.Io.Threaded` has no
-/// overlapped I/O for sockets yet, so every `receiveTimeout` there fails with
-/// `error.ConcurrencyUnavailable`, and a plain receive blocks its thread with no safe way to
-/// end it. Winsock's `select` waits for a datagram without that, and the receive itself then
-/// returns at once. `std.Io.net` talks to AFD directly and never starts winsock, so this does
-/// (`WSAStartup` is reference-counted; the transport's own call, if any, is not disturbed).
+/// Waiting for a datagram on Windows. `std.Io.Threaded` has no timed socket receive there yet:
+/// `receiveTimeout` fails with `error.ConcurrencyUnavailable`. So `readable` asks the socket
+/// driver (AFD) to wait with its poll request, which is what winsock's `select` sends. The
+/// request goes through `Io`, as the standard library's own socket requests do, so `Io` can
+/// cancel it and winsock is never loaded.
 const windows = if (builtin.os.tag == .windows) struct {
-    const ws2_32 = std.os.windows.ws2_32;
+    const os = std.os.windows;
 
-    const Data = extern struct {
-        version: u16,
-        high_version: u16,
-        max_sockets: i16,
-        max_datagram: i16,
-        vendor_info: ?*u8,
-        description: [257]u8,
-        system_status: [129]u8,
+    /// `AFD_POLL_HANDLE_INFO`: a socket to wait on, the events asked for and, on return, the
+    /// events found.
+    const PollHandle = extern struct {
+        handle: os.HANDLE,
+        events: Events,
+        status: os.NTSTATUS,
     };
 
-    const FdSet = extern struct {
-        count: u32,
-        array: [64]ws2_32.SOCKET,
+    /// `AFD_POLL_INFO` for one socket, the request and the answer of `IOCTL_AFD_POLL`.
+    const Poll = extern struct {
+        /// How long to wait, in units of 100 ns, negative for a time from now.
+        timeout: os.LARGE_INTEGER,
+        count: os.ULONG,
+        exclusive: os.ULONG,
+        handles: [1]PollHandle,
     };
 
-    extern "ws2_32" fn WSAStartup(version_requested: u16, data: *Data) c_int;
-    extern "ws2_32" fn select(
-        ignored: c_int,
-        readfds: *FdSet,
-        writefds: ?*FdSet,
-        exceptfds: ?*FdSet,
-        timeout: *const ws2_32.timeval,
-    ) c_int;
+    /// The `AFD_POLL_*` events.
+    const Events = packed struct(os.ULONG) {
+        receive: bool = false,
+        receive_expedited: bool = false,
+        send: bool = false,
+        disconnect: bool = false,
+        abort: bool = false,
+        local_close: bool = false,
+        connect: bool = false,
+        accept: bool = false,
+        connect_fail: bool = false,
+        _unused: u23 = 0,
+    };
 
-    const start = std.once(startOnce);
-    var ready = false;
-
-    fn startOnce() void {
-        var data: Data = undefined;
-        if (WSAStartup(0x0202, &data) != 0) {
-            std.log.warn("could not start winsock for the local network's searches", .{});
-            return;
-        }
-        ready = true;
+    comptime {
+        assert(@sizeOf(Poll) == 16 + @sizeOf(PollHandle));
+        assert(@offsetOf(PollHandle, "events") == @sizeOf(os.HANDLE));
     }
 
-    /// Whether a datagram waits on `handle` within `wait_us`.
-    fn readable(handle: net.Socket.Handle, wait_us: i64) bool {
-        start.call();
-        if (!ready) return false;
-        var set = FdSet{ .count = 1, .array = .{@intFromPtr(handle)} };
-        const wait: ws2_32.timeval = .{
-            .sec = @intCast(@divFloor(wait_us, std.time.us_per_s)),
-            .usec = @intCast(@mod(wait_us, std.time.us_per_s)),
+    /// Whether a datagram, or the error of an earlier send, waits on `handle` within `wait_us`.
+    fn readable(io: Io, handle: net.Socket.Handle, wait_us: i64) Io.Cancelable!bool {
+        const ticks_per_us = 10;
+        var poll: Poll = .{
+            .timeout = -(std.math.mul(i64, @max(0, wait_us), ticks_per_us) catch std.math.maxInt(i64)),
+            .count = 1,
+            .exclusive = 0,
+            .handles = .{.{ .handle = handle, .events = .{ .receive = true }, .status = .SUCCESS }},
         };
-        return select(0, &set, null, null, &wait) > 0;
+        const bytes = std.mem.asBytes(&poll);
+        // The standard library opens its sockets for overlapped requests.
+        const result = try io.operate(.{ .device_io_control = .{
+            .file = .{ .handle = handle, .flags = .{ .nonblocking = true } },
+            .code = os.IOCTL.AFD.POLL,
+            .in = bytes,
+            .out = bytes,
+        } });
+        return result.device_io_control.u.Status == .SUCCESS and poll.count == 1 and poll.handles[0].events.receive;
     }
 } else struct {};
 
-/// Receives one datagram within `wait_us`, or null when none arrives. On Windows the socket is
-/// never awaited through `Io`, whose concurrent path a datagram receive cannot take there.
+/// Receives one datagram within `wait_us`, or null when none arrives.
 pub fn receiveWait(socket: net.Socket, io: Io, buffer: []u8, wait_us: i64) !?net.IncomingMessage {
-    if (builtin.os.tag == .windows) {
-        if (!windows.readable(socket.handle, wait_us)) return null;
-        return socket.receive(io, buffer) catch null;
+    if (builtin.os.tag != .windows) {
+        return socket.receiveTimeout(io, buffer, .{ .duration = .{ .raw = .fromMicroseconds(@max(0, wait_us)), .clock = .awake } }) catch |err| switch (err) {
+            error.Timeout => null,
+            else => return err,
+        };
     }
-    return socket.receiveTimeout(io, buffer, .{ .duration = .{ .raw = .fromMicroseconds(@max(0, wait_us)), .clock = .awake } }) catch |err| switch (err) {
-        error.Timeout => null,
-        else => return err,
-    };
+    const end = Io.Clock.awake.now(io).toMicroseconds() + @max(0, wait_us);
+    while (true) {
+        const left = end - Io.Clock.awake.now(io).toMicroseconds();
+        if (!try windows.readable(io, socket.handle, left)) return null;
+        return socket.receive(io, buffer) catch |err| switch (err) {
+            // Windows answers a receive with the failure of an earlier send to a port nobody
+            // listens on. That says nothing about the datagrams still to come.
+            error.PortUnreachable, error.ConnectionResetByPeer => continue,
+            else => return err,
+        };
+    }
 }
 
 comptime {
@@ -505,6 +520,35 @@ test "a game is listed once per host, as an invite to its game port" {
     const invite = try identity.Invite.parse(row.target);
     try std.testing.expectEqual(27020, invite.address.getPort());
     try std.testing.expect(invite.address.eql(&try net.IpAddress.parse("192.168.1.9", 27020)));
+}
+
+test "a wait gives null without a datagram, and outlasts a send to a closed port" {
+    const io = std.testing.io;
+    const any = try net.IpAddress.parse("127.0.0.1", 0);
+    const socket = try any.bind(io, .{ .mode = .dgram });
+    defer socket.close(io);
+    const other = try any.bind(io, .{ .mode = .dgram });
+    defer other.close(io);
+    var buffer: [16]u8 = undefined;
+
+    try std.testing.expect((try receiveWait(socket, io, &buffer, 0)) == null);
+    const before = Io.Clock.awake.now(io).toMicroseconds();
+    try std.testing.expect((try receiveWait(socket, io, &buffer, 50 * std.time.us_per_ms)) == null);
+    try std.testing.expect(Io.Clock.awake.now(io).toMicroseconds() - before >= 40 * std.time.us_per_ms);
+
+    // Windows reports this send's failure on the socket's next receive.
+    const gone = gone: {
+        const closed = try any.bind(io, .{ .mode = .dgram });
+        defer closed.close(io);
+        break :gone closed.address;
+    };
+    socket.send(io, &gone, "lost") catch {};
+    try io.sleep(.fromMilliseconds(20), .awake);
+    try other.send(io, &socket.address, "found");
+    const message = (try receiveWait(socket, io, &buffer, 500 * std.time.us_per_ms)) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqualStrings("found", message.data);
+    try std.testing.expectEqual(other.address.getPort(), message.from.getPort());
+    try std.testing.expect((try receiveWait(socket, io, &buffer, 0)) == null);
 }
 
 test "a host answers a query on loopback, and stays quiet while it takes no one" {

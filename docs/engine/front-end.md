@@ -69,6 +69,11 @@ revision as the Internet list does. It holds up to 64 games. A dedicated server 
 identity isn't listed, since an invite needs the host's own key. **Unverified:** IPv6-only
 networks, since the query goes to IPv4 broadcast addresses.
 
+The browser, the hosts and the Internet list's ping wait for a datagram with `lan.receiveWait`.
+On Windows it waits with the socket driver's poll request (`IOCTL_AFD_POLL`) and then receives,
+because Zig 0.17's `Io` has no timed socket receive there. A receive that reports an earlier
+send to a closed port is skipped, and the wait goes on.
+
 ### Session lobby
 
 **Host** opens a game type chooser. **Deathmatch** opens the lobby immediately, starts a LAN
