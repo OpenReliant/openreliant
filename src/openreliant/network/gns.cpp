@@ -10,6 +10,7 @@
 enum class Status : int { incoming, authenticated, closed, unverified, lost, dropped };
 extern "C" void session_status(uint32_t conn, Status status, const char *identity);
 extern "C" bool OpenReliant_SetTransportRoot(const char *key, size_t size);
+extern "C" void OpenReliant_ClearTransportRoot();
 extern "C" bool OpenReliant_SetTransportCertificate(const void *certificate, int size);
 
 constexpr int dropped_for_lag = k_ESteamNetConnectionEnd_App_Min + 1;
@@ -61,11 +62,17 @@ extern "C" bool session_init(const char *root, size_t root_size,
         utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_SendBufferSize, queued_bytes) &&
         utils->SetGlobalCallback_SteamNetConnectionStatusChanged(changed) &&
         (!certificate || session_set_certificate(certificate, size));
-    if (!configured) GameNetworkingSockets_Kill();
+    if (!configured) {
+        GameNetworkingSockets_Kill();
+        OpenReliant_ClearTransportRoot();
+    }
     return configured;
 }
 
-extern "C" void session_deinit() { GameNetworkingSockets_Kill(); }
+extern "C" void session_deinit() {
+    GameNetworkingSockets_Kill();
+    OpenReliant_ClearTransportRoot();
+}
 
 extern "C" uint32_t session_open(const char *address, bool host) {
     SteamNetworkingIPAddr endpoint;

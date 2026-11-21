@@ -280,15 +280,20 @@ Description=Friendly deathmatches
 DirectoryServers=https://directory.example.org
 ```
 
-To browse public games, put the directory URLs in the client's `starlancer.ini`.
+Direct Connect accepts an IP address or a host name, with an optional UDP port.
+
+The public game browser uses `https://directory.openreliant.space` by default. To use other
+directories instead, put their URLs in the client's `starlancer.ini`.
 
 ```ini
 [OpenReliant]
 DirectoryServers=https://directory.example.org
 ```
 
-Separate multiple URLs with commas. The browser combines matching sessions from all listed
-directories and verifies the host key when a player joins a listing.
+Separate multiple URLs with commas. Include `https://directory.openreliant.space` in the list
+to keep browsing the default directory alongside others. Set `DirectoryServers` to an empty value
+to disable public browsing. The browser combines matching sessions from all listed directories
+and verifies the host key when a player joins a listing.
 
 The headless server checks for a newer OpenReliant release at startup and every six hours.
 It logs a warning when one is available. Set `CheckUpdates=0` under `[Server]` to disable

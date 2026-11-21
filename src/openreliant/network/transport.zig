@@ -42,7 +42,7 @@ pub const Channel = struct {
         var buf: [wire.capacity]u8 = undefined;
         const bytes = try message.encode(&buf);
         const reliable = switch (message) {
-            .input, .view, .combat, .projectiles, .scene_page, .pilot_page => false,
+            .input, .view, .combat, .projectiles, .scene_page, .pilot_page, .own_flight => false,
             else => true,
         };
         try channel.sendBytes(conn, bytes, reliable);

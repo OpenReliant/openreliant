@@ -1581,16 +1581,20 @@ pub fn shoot(world: gameobj.World, owner: u16, muzzle: Muzzle, gun_type: GunType
 /// (`hud.State.lead_point`). Null for a shot that flies along its muzzle: from a ship not aiming
 /// blind, or of the Nova Cannon or a turret's gun.
 ///
-/// Not ported: another player's ship in a multiplayer game, which aims blind at the target of its
-/// order (`ai.leadAim`), or along its muzzle where it can't be aimed at
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// Another player's ship in a multiplayer game aims at its order's target, led by `ai.leadAim`,
+/// or along its muzzle where the target cannot be aimed at.
 fn blindAim(world: gameobj.World, owner: u16, kind: GunType) ?Vector {
     const all = world.objects;
     if (all.slots[owner].object.blind_fire_aim == 0) return null;
     if (kind.charges() or kind.base().onTurrets()) return null;
-    if (owner != all.player) return null;
-    const display = world.display orelse return null;
-    return display.lead_point;
+    if (owner == all.player and all.readsLocalPlayerInput()) {
+        const display = world.display orelse return null;
+        return display.lead_point;
+    }
+    if (all.playerBinding(owner) == null) return null;
+    const order = ai.controlEntry(all, owner) orelse return null;
+    const target = ai.ValidTarget.of(all, order.target.resolve(all), .{}) orelse return null;
+    return ai.leadAim(all, owner, target, 1);
 }
 
 /// The game's own effects of the events the tracks of the model of the object in slot `owner`
@@ -2036,8 +2040,9 @@ fn hullSparks(world: gameobj.World, index: u16, at: Vector) void {
     }
 }
 
-/// Start a drawn copy of a host shot. Replica bolts have no collision candidates.
-pub fn showShot(world: gameobj.World, shot: FlightEffect.Shot) void {
+/// Start a drawn copy of a host shot. Replica bolts have no collision candidates. `sound` is
+/// off when the shot replaces a bolt the client already spoke for at the muzzle.
+pub fn showShot(world: gameobj.World, shot: FlightEffect.Shot, sound: bool) void {
     const all = world.objects;
     const bullets = &all.bullets;
     const looks = bullets.looks orelse return;
@@ -2059,7 +2064,7 @@ pub fn showShot(world: gameobj.World, shot: FlightEffect.Shot) void {
     };
     dress(bullet, looks, world.effectsRandom(), math.lookAt(shot.velocity));
     bullets.lightShot(player, shot.index);
-    shotSound(world, shot.index, bullet.kind, bullet.stats(&all.gun_stats).sound, player);
+    if (sound) shotSound(world, shot.index, bullet.kind, bullet.stats(&all.gun_stats).sound, player);
 }
 
 /// End the matching visual bolt and show the impact on its original ship, if it still exists.

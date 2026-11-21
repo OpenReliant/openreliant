@@ -52,7 +52,7 @@ pub const section = "OpenReliantModRepositories";
 
 /// The repository OpenReliant reads when the settings file has no `section`: the OpenReliant mods
 /// site's index.
-pub const default_repository: Repository = .{ .name = "openreliant-mods", .url = "https://openreliant.github.io/openreliant-mods/mods.json" };
+pub const default_repository: Repository = .{ .name = "openreliant-mods", .url = "https://mods.openreliant.space/mods.json" };
 
 /// The repositories the settings file names (`section`).
 pub const Repositories = struct {
@@ -859,7 +859,7 @@ test "the settings file names the repositories, or the default one stands alone"
     try std.testing.expectEqualStrings(default_repository.url, default.at(0).?.url);
     try std.testing.expectEqual(null, default.at(1));
     // The section's repositories, in its order; a key without a URL is skipped.
-    const listed: Repositories = .of(.{ .text = "[OpenReliantModRepositories]\nmine=http://127.0.0.1:8000/mods.json\nblank=\nopenreliant-mods=https://openreliant.github.io/openreliant-mods/mods.json\n" });
+    const listed: Repositories = .of(.{ .text = "[OpenReliantModRepositories]\nmine=http://127.0.0.1:8000/mods.json\nblank=\nopenreliant-mods=https://mods.openreliant.space/mods.json\n" });
     var repositories = listed.iterator();
     try std.testing.expectEqualStrings("mine", repositories.next().?.name);
     const second = repositories.next().?;

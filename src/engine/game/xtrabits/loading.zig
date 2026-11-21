@@ -29,8 +29,20 @@ const log = std.log.scoped(.loading);
 /// What a loading frame shows: `picture` filling the screen, and the game's string `line` over it,
 /// or none.
 pub const Frame = struct {
-    picture: []const u8,
+    /// The picture to fill the screen with, or empty for the one the screen's width picks.
+    picture: []const u8 = "",
     line: ?String = null,
+    /// The network session's pilots, their names down the left with READY beside each ready one
+    /// (`loading_players_draw`, `0x004AB300`). The game draws READY beside every pilot once its
+    /// session has every player in (`0x005D5E7C`); OpenReliant's client joins a session already
+    /// in flight, so each pilot's own state is what shows.
+    players: []const Player = &.{},
+};
+
+/// One pilot of a network session's loading screen: their name, and whether they are ready.
+pub const Player = struct {
+    name: []const u8,
+    ready: bool,
 };
 
 /// The pictures the mission's loading shows by the screen's width (`0x0050A26C`, `0x0050A234`,

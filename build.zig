@@ -213,6 +213,8 @@ pub fn build(b: *std.Build) void {
             driver.addObjectFile(b.graph.cwdRelativePath(b.pathJoin(&.{ prefix, "lib/libcrypto.a" })));
         }
         if (target.result.os.tag == .macos) driver.linkFramework("CoreFoundation", .{});
+    } else {
+        openreliant.step.dependOn(&b.addFail("OpenReliant requires the multiplayer transport. Build it with scripts/build_transport.py and pass -Dgns-prefix; see CONTRIBUTING.md.").step);
     }
 
     // Mission 0, OpenReliant's own: the sandbox as a standard mission file, which the build compiles

@@ -53,6 +53,8 @@ pub const Window = struct {
     text: [text_room]u8 = undefined,
     text_left: []const u8 = &.{},
     backspace_owed: bool = false,
+    /// A quit taken while the window only drained events, still to reach the game.
+    quit_owed: bool = false,
     /// When the pointer last moved over the window (`nanoseconds`), and whether the system's
     /// pointer shows over it (`showPointer`).
     pointer_moved_at: u64 = 0,
@@ -131,9 +133,23 @@ pub const Window = struct {
         c.SDL_PumpEvents();
     }
 
+    /// Pumps and takes the waiting events, as the game's message pump has it: the system sees the
+    /// window answer, so it can be raised from the dock or the task bar while the game loads. A
+    /// quit that arrives now waits for `poll`, so the game still hears it.
+    pub fn drain(window: *Window) void {
+        window.pump();
+        while (window.poll()) |event| {
+            if (event == .quit) window.quit_owed = true;
+        }
+    }
+
     /// The next event waiting, or null. Alt and Enter, added for OpenReliant, switch between the
     /// window and the full screen, and do not reach the game.
     pub fn poll(window: *Window) ?Event {
+        if (window.quit_owed) {
+            window.quit_owed = false;
+            return .quit;
+        }
         if (window.backspace_owed) {
             window.backspace_owed = false;
             return .{ .typed = Event.backspace };

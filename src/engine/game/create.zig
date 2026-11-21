@@ -1951,7 +1951,7 @@ pub fn objectsUpdate(world: gameobj.World) void {
         if (object.flags.no_collisions) continue;
         sweep.add(index, object);
     }
-    sweep.run(world);
+    if (!world.presentation_only) sweep.run(world);
 }
 
 /// The sweep for the pairs of objects that meet, which `objects_update` runs once every object has
@@ -3205,14 +3205,14 @@ test "leaving revokes commands even when the next participant binds the same shi
     const old = all.bindParticipant(first, ship).?;
     try std.testing.expect(all.submitPlayerCommand(old, .{ .flight = .{ .throttle = .{ .axis = 1 } } }));
     try std.testing.expectEqual(old, all.bindParticipant(first, ship).?);
-    input.playerControlOrder(mission.orders(), index);
+    input.playerControlOrder(mission.orders().inStep(), index);
     try std.testing.expectEqual(1, all.slots[index].object.throttle);
 
     try std.testing.expect(Objects.leaveParticipant(mission.world(), first));
     try std.testing.expectEqual(null, all.playerCommand(index));
     var devices: input.Devices = .{ .settings = .{ .control_mode = .keyboard } };
     devices.keyboard.down[input.controls.binding(.full_throttle).key] = true;
-    input.playerControlOrder(.{ .world = mission.world(), .devices = &devices }, index);
+    input.playerControlOrder(aigeneric.Context.inStep(.{ .world = mission.world(), .devices = &devices }), index);
     try std.testing.expectEqual(0, all.slots[index].object.throttle);
 
     const second = all.joinParticipant(index).?;
@@ -3222,7 +3222,7 @@ test "leaving revokes commands even when the next participant binds the same shi
     try std.testing.expect(!all.submitPlayerCommand(old, .{ .flight = .{ .throttle = .{ .axis = 1 } } }));
     try std.testing.expectEqual(null, all.playerCommand(index));
     try std.testing.expect(all.submitPlayerCommand(current, .{ .flight = .{ .throttle = .{ .axis = 0.5 } } }));
-    input.playerControlOrder(mission.orders(), index);
+    input.playerControlOrder(mission.orders().inStep(), index);
     try std.testing.expectEqual(0.5, all.slots[index].object.throttle);
 }
 

@@ -9,6 +9,23 @@ const Host = @import("server.zig");
 const KeyPair = std.crypto.sign.Ed25519.KeyPair;
 const Publisher = @This();
 
+const Snapshot = struct {
+    players: usize,
+    capacity: u8,
+    scenario: ?wire.Scenario,
+    accepting: bool,
+
+    fn of(host: *const Host) Snapshot {
+        const players = host.playingCount();
+        return .{
+            .players = players,
+            .capacity = host.player_limit,
+            .scenario = if (host.start == .lobby) host.start.lobby.scenario else host.arena.mode.scenario(),
+            .accepting = host.final_tick == null and players < host.player_limit,
+        };
+    }
+};
+
 pub const Config = struct {
     origins: []const u8,
     name: []const u8,
@@ -91,6 +108,8 @@ session: [16]u8,
 download: web.Download(Job) = .{},
 next: i64 = 0,
 revision: u64 = 0,
+last: ?Snapshot = null,
+next_change: i64 = 0,
 
 pub fn init(io: std.Io, config: Config, server: *const identity.Server) !Publisher {
     var session: [16]u8 = undefined;
@@ -100,20 +119,43 @@ pub fn init(io: std.Io, config: Config, server: *const identity.Server) !Publish
 
 pub fn tick(publisher: *Publisher, host: *const Host, now: i64) void {
     if (publisher.download.take()) |answer| answer catch |err| std.log.warn("directory advertisement failed: {t}", .{err});
-    if (now < publisher.next or publisher.download.busy()) return;
+    if (publisher.download.busy()) return;
+    const current = Snapshot.of(host);
+    if (!due(publisher.last, current, now, publisher.next, publisher.next_change)) return;
     publisher.next = now + 30 * std.time.us_per_s;
-    publisher.send(host) catch |err| std.log.warn("could not start directory advertisement: {t}", .{err});
+    publisher.next_change = now + std.time.us_per_s;
+    publisher.send(current) catch |err| {
+        std.log.warn("could not start directory advertisement: {t}", .{err});
+        return;
+    };
+    publisher.last = current;
 }
 
-fn send(publisher: *Publisher, host: *const Host) !void {
+fn due(previous: ?Snapshot, current: Snapshot, now: i64, next: i64, next_change: i64) bool {
+    const changed = if (previous) |last| !std.meta.eql(last, current) else true;
+    return now >= next or (changed and now >= next_change);
+}
+
+test "player changes publish promptly without allowing rapid churn" {
+    const empty: Snapshot = .{ .players = 0, .capacity = 8, .scenario = .tag_bomb, .accepting = true };
+    var joined = empty;
+    joined.players = 1;
+    try std.testing.expect(due(null, empty, 0, 0, 0));
+    try std.testing.expect(!due(empty, joined, 500_000, 30_000_000, 1_000_000));
+    try std.testing.expect(due(empty, joined, 1_000_000, 30_000_000, 1_000_000));
+    try std.testing.expect(due(joined, empty, 2_000_000, 31_000_000, 2_000_000));
+    try std.testing.expect(!due(empty, empty, 29_000_000, 30_000_000, 1_000_000));
+    try std.testing.expect(due(empty, empty, 30_000_000, 30_000_000, 1_000_000));
+}
+
+fn send(publisher: *Publisher, snapshot: Snapshot) !void {
     var arena = std.heap.ArenaAllocator.init(web.allocator);
     var owned = true;
     errdefer if (owned) arena.deinit();
     const allocator = arena.allocator();
     const origins = try allocator.dupe(u8, publisher.config.origins);
     publisher.revision += 1;
-    const scenario = if (host.start == .lobby) host.start.lobby.scenario else host.arena.mode.scenario();
-    const mode = if (scenario) |chosen| mode: {
+    const mode = if (snapshot.scenario) |chosen| mode: {
         const id = try allocator.dupe(u8, @tagName(chosen));
         for (id) |*character| if (character.* == '_') {
             character.* = '-';
@@ -127,9 +169,9 @@ fn send(publisher: *Publisher, host: *const Host) !void {
         .description = publisher.config.description,
         .hosting = "dedicated",
         .mode = mode,
-        .players = host.playingCount(),
-        .capacity = host.player_limit,
-        .accepting = host.final_tick == null and host.playingCount() < host.player_limit,
+        .players = snapshot.players,
+        .capacity = snapshot.capacity,
+        .accepting = snapshot.accepting,
         .protocol = wire.revision,
         .release = version.string,
         .port = publisher.config.port,

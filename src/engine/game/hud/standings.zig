@@ -176,6 +176,34 @@ pub fn draw(pen: hud.Pen, all: *const Objects, art: ?*hud.Art, labels: *hud.Open
 
 pub const Mode = enum { flight, paused_arena, paused_campaign };
 
+/// One pilot of the loading screen's roster: their callsign, and whether they are ready.
+pub const LoadingRow = struct {
+    name: []const u8,
+    ready: bool,
+};
+
+/// The loading screen's roster: the paused scoreboard's frame, fonts and columns with the
+/// session's pilots and their readiness (`mp_draw_scoreboard`'s table, `0x0048E510`), the
+/// PLAYER and STATUS columns the loading screen stands in for Pilot and Ping.
+pub fn drawLoading(pen: hud.Pen, rows: []const LoadingRow, art: ?*hud.Art, labels: *hud.Opened, ready: []const u8) !void {
+    if (rows.len == 0) return;
+    const placement: Layout = .fit(pen.screen, pen.scale, paused_rise);
+    try drawFrame(pen, placement, art, rows.len, first_row);
+    var headings = pen;
+    headings.font = labels;
+    try placement.text(headings, pilot_x, 0, "PLAYER", heading_colour, .left, pilot_width);
+    try placement.text(headings, ping_x, 0, "STATUS", heading_colour, .centre, tally_width);
+    const pilot = pen.strings.stringOr(0xBF, "Pilot");
+    for (rows, 0..) |row, at| {
+        const y: f32 = @floatFromInt(first_row - 1 + @as(i32, @intCast(at)) * row_height);
+        var fallback: [72]u8 = undefined;
+        const name = if (row.name.len > 0) row.name else std.fmt.bufPrint(&fallback, "{s} {d}", .{ pilot, at + 1 }) catch pilot;
+        try placement.text(pen, pilot_x, y, name, row_colour, .left, pilot_width);
+        if (row.ready)
+            try placement.text(pen, ping_x, y, ready, row_colour, .centre, tally_width);
+    }
+}
+
 /// The in-flight and paused panels share sprites, columns, and ordering in `mp_draw_scoreboard`.
 fn drawFrame(pen: hud.Pen, placement: Layout, art: ?*hud.Art, count: usize, begins: usize) !void {
     const footer: f32 = @floatFromInt(begins + count * row_height);

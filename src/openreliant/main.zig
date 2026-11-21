@@ -837,8 +837,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer if (network_enabled) network_pilot.stop(presentation);
     var directory_browser: Directory = .{};
     defer directory_browser.close();
-    const directory_servers = settings_file.profile.value("OpenReliant", "DirectoryServers") orelse "";
+    const directory_servers = settings_file.profile.value("OpenReliant", "DirectoryServers") orelse Directory.default_origin;
     var was_connection = false;
+    var next_directory_refresh: u64 = 0;
     var front: engine.genilib.interf.Interface = .{
         .pilot = .{ .difficulty = options.difficulty orelse .easy },
         .connection = .{ .host_available = network_enabled, .discovery_available = network_enabled and directory_servers.len != 0, .protocol = @import("network/wire.zig").revision },
@@ -1160,7 +1161,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             front_context.elapsed = elapsed;
             if (network_enabled) {
                 const browsing = front.screen == .connection and front.connection.lobby == null and front.connection.debrief == null;
-                if (browsing and !was_connection and directory_servers.len != 0) front.connection.refresh_requested = true;
+                if (browsing and !was_connection and directory_servers.len != 0) {
+                    front.connection.refresh_requested = true;
+                    // A departing pilot may reach the menu before the host publishes the new count.
+                    next_directory_refresh = ticks + 200;
+                } else if (browsing and ticks >= next_directory_refresh and directory_servers.len != 0) {
+                    front.connection.refresh_requested = true;
+                    next_directory_refresh = ticks + 1500;
+                }
                 was_connection = browsing;
                 if (front.connection.refresh_requested) {
                     front.connection.refresh_requested = false;
@@ -1637,8 +1645,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         // copied: a switch of view picks the subtarget's parts out of them, or puts them back. The
         // display takes up what they started for it, before the scripts and the frame read it.
         view.notice(&player.viewing);
-        const network_frame = if (network_enabled and flow.in_front_end)
-            network_pilot.frame(gpa, objects, tables, types.types(), .{ .io = io, .directory = directory, .archive = &resources }, strings, presentation, .{
+        const network_frame = blk: {
+            if (!network_enabled or !flow.in_front_end) break :blk null;
+            loading.hud = &display.resources;
+            break :blk network_pilot.frame(gpa, objects, tables, types.types(), .{ .io = io, .directory = directory, .archive = &resources }, strings, presentation, .{ .context = &loading, .showFn = networkLoadingShow }, .{
                 .textures = &textures,
                 .images = explosions.images,
                 .ordnance_models = .{ .mounts = effects_models.mounts(), .glows = &glows },
@@ -1646,13 +1656,15 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .audio = if (output != null) .{ .commands = &online_sounds, .sound = sound } else null,
                 .explosions = explosions.settings,
                 .particles = particles.settings,
+                .cockpit = &cockpit,
+                .archive = &resources,
+                .models = types.models,
             }) catch |err| frame: {
                 std.log.warn("could not display the multiplayer arena: {s}", .{@errorName(err)});
                 network_pilot.returnToBrowser(&front.connection, presentation, .{ .english = "Could not load the multiplayer arena" });
                 break :frame null;
-            }
-        else
-            null;
+            };
+        };
         const network_pause_voices = network_frame != null and (network_pilot.sharedPaused() or network_pilot.session_lost != null);
         if (network_voices_paused != network_pause_voices) {
             network_voices_paused = network_pause_voices;
@@ -1781,9 +1793,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             var shown: FrontEndDisplay = .{ .front = &front, .resources = &front_resources.?, .target = gpu.interface(), .window = size, .strings = &strings, .settings = .{ .devices = &devices, .sound = sound, .video = video_settings }, .presentation = presentation, .console = if (console) |*up| up else null };
             if (network_frame) |flight| {
                 const viewing = &flight.player.viewing;
-                const place = network_pilot.cameraPlace(flight);
-                viewing.seen_from = place;
                 const online = network_pilot.flight.?;
+                const place = network_pilot.cameraPlace(flight, if (cockpit.shown) |*pit| pit else null);
+                viewing.seen_from = place;
+                // The cockpit hangs from the camera as it does in a mission's frame, placed
+                // where the camera frame put it, and the ship sat in is not drawn.
+                if (cockpit.shown) |*pit| if (online.camera.cockpit_place) |placed| game.main.cockpit.place(&pit.model, place, placed);
                 if (online.audio != null) {
                     sound.runTimer(&clock, platform.window.ticks());
                     const music = if (network_pilot.client) |*client| client.music.take() else &.{};
@@ -1807,6 +1822,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .view = viewing.view,
                     .last_view = viewing.last,
                     .cockpit_mode = viewing.cockpit_mode,
+                    .cockpit = if (cockpit.shown) |*pit| &pit.model else null,
+                    .seat = if (flight.objects.slots[flight.objects.player].object.flags.hidden) flight.objects.player else null,
                     .chase = chase_objects,
                     .display = &display.drawing,
                     .overlay = display.overlay(),
@@ -2612,11 +2629,25 @@ const FrontEndDisplay = struct {
     }
 };
 
+/// The loading screen as the network pilot's join shows it: the frame the caller built with the
+/// picture the screen's width picks where its own left it empty, as `loading_screen` has it
+/// (`0x004AB40D`).
+fn networkLoadingShow(context: *anyopaque, frame: game.xtrabits.loading.Frame) anyerror!void {
+    const loading: *Loading = @ptrCast(@alignCast(context));
+    var with_picture = frame;
+    if (with_picture.picture.len == 0)
+        with_picture.picture = game.xtrabits.loading.Splash.by_width.picture(loading.size()[0]);
+    try loading.show(with_picture);
+}
+
 /// The loading screens as the driver shows them (`game.xtrabits.loading`): each frame drawn over an
 /// empty scene at once and put on the window, the system's events gathered for the loop meanwhile
 /// (`message_pump`).
 const Loading = struct {
     resources: game.xtrabits.loading.Resources,
+    /// The flight's HUD resources, opened once a network session's loading screen draws its
+    /// roster, whose scoreboard art and fonts the roster table stands in.
+    hud: ?*game.hud.Resources = null,
     archive: *const game.bigfile.Hog,
     presenter: *Presenter,
     strings: *const game.language.Language,
@@ -2635,11 +2666,17 @@ const Loading = struct {
 
     /// Draws `frame` and puts it on the window, after the scripts' frame.
     fn show(loading: *Loading, frame: game.xtrabits.loading.Frame) !void {
-        loading.presenter.window.pump();
+        loading.presenter.window.drain();
         loading.resources.show(loading.archive.*, frame);
         const pixels = loading.size();
         if (loading.scripts) |scripts| scripts.screenFrame(pixels, null);
-        var shown: Shown = .{ .loading = loading, .window = pixels, .line = if (frame.line) |id| loading.strings.string(@backingInt(id)) else null };
+        var shown: Shown = .{
+            .loading = loading,
+            .window = pixels,
+            .line = if (frame.line) |id| loading.strings.string(@backingInt(id)) else null,
+            .players = frame.players,
+            .ready = loading.strings.stringOr(0x145, "READY"),
+        };
         try loading.presenter.present(shown.overlay());
     }
 
@@ -2649,6 +2686,10 @@ const Loading = struct {
         loading: *Loading,
         window: [2]u32,
         line: ?[]const u8,
+        players: []const game.xtrabits.loading.Player = &.{},
+        ready: []const u8 = "READY",
+        /// The roster rows the table draws, filled from `players` as the overlay draws.
+        rows: [16]game.hud.standings.LoadingRow = undefined,
 
         fn overlay(shown: *Shown) srcore.Overlay {
             return .{ .context = shown, .draw = draw };
@@ -2666,7 +2707,36 @@ const Loading = struct {
                 .strings = shown.loading.strings,
                 .version = version.string,
             }, shown.line);
+            if (shown.players.len > 0) {
+                const hud_resources = shown.loading.hud;
+                const rows = shown.rosterRows();
+                const art = if (hud_resources) |held| held.standingsArt(resources.gpa) catch null else null;
+                const labels = if (hud_resources) |held|
+                    (if (held.standings_font) |*font| font else &held.font)
+                else
+                    &resources.large.font;
+                const pen: game.hud.Pen = .{
+                    .art = if (hud_resources) |held| &held.art else undefined,
+                    .font = if (hud_resources) |held| &held.font else undefined,
+                    .strings = shown.loading.strings,
+                    .gpa = resources.gpa,
+                    .device = target,
+                    .screen = shown.window,
+                    .colour = @splat(1),
+                    .scale = @as(f32, @floatFromInt(shown.window[1])) / 480.0,
+                };
+                try game.hud.standings.drawLoading(pen, rows, art, labels, shown.ready);
+            }
             if (shown.loading.scripts) |scripts| try scripts.drawUi(target);
+        }
+
+        /// The roster rows the loading screen's table draws, built where the frame holds them.
+        fn rosterRows(shown: *Shown) []const game.hud.standings.LoadingRow {
+            for (shown.players, 0..) |player, at| shown.rows[at] = .{
+                .name = player.name,
+                .ready = player.ready,
+            };
+            return shown.rows[0..shown.players.len];
         }
     };
 };
@@ -2894,7 +2964,7 @@ const Display = struct {
     /// ship it shows, the display's state, the player's record, the clock, the radio, whose window
     /// shows the speaker's face, and the mission's variables, which have what is ready for JUMP
     /// DRIVE (`game.main.Drawn`).
-    drawn: *const game.main.Drawn,
+    drawn: *game.main.Drawn,
     multiplayer: bool = false,
     standings_first: ?usize = null,
     chat_line: ?[]const u8 = null,
@@ -3038,7 +3108,11 @@ const Display = struct {
             .parts = display.parts,
             .devices = display.devices,
         });
-        if (!display.multiplayer) display.handed.aim = display.drawing.aim;
+        if (display.multiplayer) {
+            display.drawn.display.aim = display.drawing.aim;
+        } else {
+            display.handed.aim = display.drawing.aim;
+        }
     }
 };
 

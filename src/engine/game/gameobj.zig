@@ -2120,6 +2120,10 @@ pub const World = struct {
     difficulty: collision.Difficulty = .medium,
     /// The host selects these rules for the mission before stepping the simulation.
     damage_rules: collision.DamageRules = .campaign,
+    /// OpenReliant's: a multiplayer client's world, whose steps only carry objects on between
+    /// the host's views. It decides nothing: no shots, collisions, shield recharge, missiles or
+    /// scripts run, since the host's views bring their outcomes.
+    presentation_only: bool = false,
     arena_options: @import("deathmatch.zig").Options = .{},
     /// How far the launch's hangar's beacons reach.
     hangar_beacons: objects.HangarBeacons = .to_the_ship,
@@ -2289,7 +2293,8 @@ pub const World = struct {
 pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool {
     clock.simulation_counter += 1;
     if (clock.simulation_counter < ticks_per_step) return false;
-    devices.read();
+    // A client's flight command is sampled once a frame by its own loop.
+    if (!world.presentation_only) devices.read();
     clock.simulation_counter = 0;
     const all = world.objects;
     const turn = nextTurn(clock, all.count);
@@ -2301,6 +2306,7 @@ pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool
         if (index == turn) orthonormalizeTurn(&object.root);
         var live = world;
         updateTree(&object.root, if (slot.model) |*model| model else null, guns.clipEvents(&live, @intCast(index)));
+        if (world.presentation_only) continue;
         const combat = slot.combat orelse continue;
         // Fix: the original skips recharge for every ship on the Shadow's machine (0x00476FFF).
         // The host skips it only for the Shadow's fighter.
@@ -2315,10 +2321,11 @@ pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool
         const slot = &all.slots[index];
         const remote = slot.running(.multiplayer_control) != null and all.playerCommand(index) != null;
         if (slot.running(.player_control) != null or remote) {
-            aigeneric.objectOrders(.{ .world = world, .devices = devices }, index);
+            aigeneric.objectOrders(.{ .world = world, .devices = devices, .stepping = true }, index);
         }
     }
     create.objectsUpdate(world);
+    if (world.presentation_only) return true;
     missiles.move(world.objects);
     guns.moveBullets(world);
     if (all.scripts) |scripts| scripts.step();

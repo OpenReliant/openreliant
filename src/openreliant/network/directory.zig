@@ -6,10 +6,14 @@ const Connection = engine.game.interface.Connection;
 const DirectoryInvite = @import("identity.zig").DirectoryInvite;
 const Key = @import("identity.zig").PublicKey;
 
+/// The directory the browser uses unless the player configures another one.
+pub const default_origin = "https://directory.openreliant.space";
+
 const Page = struct {
     listings: []const Listing,
     next: ?usize,
 };
+
 const Listing = struct {
     key: []const u8,
     session: []const u8,
@@ -67,6 +71,7 @@ const Job = struct {
             }
         }
         if (!answered) return error.DirectoryUnavailable;
+        @import("browser_ping.zig").measure(io, rows.items);
         return .{ .arena = arena, .rows = try rows.toOwnedSlice(allocator) };
     }
 };
@@ -162,11 +167,25 @@ pub fn poll(directory: *Directory, screen: *Connection) void {
         screen.message = .{ .english = "Could not reach the directory" };
         return;
     };
+    // Keep the selected session when a refresh changes the order or player counts.
+    const selected = if (screen.source == .internet and directory.result != null and screen.selected < directory.result.?.rows.len)
+        directory.result.?.rows[screen.selected].target
+    else
+        null;
+    var match: ?usize = null;
+    if (selected) |target| for (found.rows, 0..) |row, index| {
+        if (std.mem.eql(u8, target, row.target)) {
+            match = index;
+            break;
+        }
+    };
     if (directory.result) |*previous| previous.deinit();
     directory.result = found;
     screen.listings.set(.internet, directory.result.?.rows);
-    screen.selected = 0;
-    screen.first = 0;
+    if (screen.source == .internet) {
+        screen.selected = match orelse 0;
+        if (match == null) screen.first = 0;
+    }
     screen.message = .{};
 }
 

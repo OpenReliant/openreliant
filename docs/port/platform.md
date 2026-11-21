@@ -35,14 +35,25 @@ The font OpenReliant carries, Newtown, lies in [`deps/newtown`](../../deps/newto
 ## Running
 
 ```bash
-make play                                      # optimized, for the host, on game/install
-zig build --release=fast                       # zig-out/bin/openreliant
-zig build --release=fast -Dstrip               # without debug information, as released
-zig build check                                # compile, link no program (the C libraries build once)
-zig build -Dtarget=x86_64-windows              # openreliant.exe
-zig build -Dtarget=x86_64-linux-gnu
-zig build -Dtarget=aarch64-macos               # Apple silicon, from any Zig
+make play                                      # builds the transport and runs game/install
+make build                                     # builds both executables
+zig build sltool                               # builds the tool without the game
+make test                                      # runs the tests with multiplayer
+zig build check -Dgns-prefix=<prefix>          # compiles without linking
 ```
+
+To build the game directly with Zig, first build the pinned transport for the target. For example,
+on an Apple silicon Mac:
+
+```bash
+python3 scripts/build_transport.py /tmp/openreliant-transport aarch64-macos.15.0
+zig build --release=fast -Dtarget=aarch64-macos.15.0 \
+  -Dgns-prefix=/tmp/openreliant-transport/aarch64-macos.15.0/prefix
+```
+
+For other supported targets, use the matching target with both commands. Pass `-Dstrip` to omit
+debug information. The build fails if the transport is missing, so every game executable supports
+multiplayer.
 
 `openreliant [<game-directory>] [<option>...]` runs in the game's installed directory, or the one given, and reads `resource.hog` and `tcachehw.dat` from it as the original does ([`bigfile.zig`](../../src/engine/game/bigfile.zig)). It finds each of the game's files and folders in any case, as Windows does, on every system ([`files.zig`](../../src/engine/files.zig)). It has no data of its own: without those files it reports what it needs and exits.
 

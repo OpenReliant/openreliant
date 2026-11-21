@@ -908,9 +908,6 @@ pub fn move(all: *create.Objects) void {
 /// Then the game runs each trail's frame (`trail.Trails.frame`). OpenReliant runs that once a drawn
 /// frame instead, once the missiles are placed for it (`main.viewFrame`), since this runs once a
 /// game frame (`main.gameFrames`).
-///
-/// Not ported: in a multiplayer game, a missile whose lock is lost or whose launcher is gone
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn frame(world: gameobj.World, fraction: f32) void {
     const all = world.objects;
     const missiles = &all.missiles;
@@ -923,6 +920,19 @@ pub fn frame(world: gameobj.World, fraction: f32) void {
         if (world.clock.frame_start - live.started >= live.stats(&all.missile_stats).flight_time) {
             end(world, index);
             continue;
+        }
+        // The original, in a multiplayer arena, ends a missile whose launcher is gone and drops
+        // the target of a player's missile whose lock broke (`missiles_update`, `0x004960F0`).
+        if (world.damage_rules == .arena) {
+            const launcher = live.launcher.object.resolve(all);
+            const gone = launcher == null or !all.slots[launcher.?].object.created or
+                all.slots[launcher.?].object.flags.exploding;
+            if (gone) {
+                end(world, index);
+                continue;
+            }
+            if (live.homes and live.target != .none and all.playerBinding(launcher.?) != null and
+                !all.player_states[launcher.?].weapons.lock.locked()) live.target = .none;
         }
         if (collide(world, index)) continue;
         live.frameAt(fraction);

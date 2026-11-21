@@ -18,6 +18,7 @@ address	kind	name	type	comment
 0045d950	function	vm_argument_component	byte __fastcall (uint index)	The component push_component named for the command's argument index, or 0xFF
 0045baa0	function	part_run	void __fastcall (MissionPart *part)	Runs a part's block at once, on a new thread
 0045d460	function	for_each_ship	void __fastcall (void *entity, uint *args, VmShipCommand *callback)	Runs a command's callback for each ship of a ship, flight group or squad record
+004b5590	function	mp_object_locally_owned	bool __fastcall (int slot)	Checks whether this pilot simulates an object locally, using the player slot, host role and co-op ownership assignment
 004f6350	data	vm_dispatch_table	VmHandler *[86]	Opcode handler table
 004f0f50	data	command_catalogue	VmFunction[96]	Executor commands, then an entry with no implementation
 004f3ad0	data	command_catalogue_b	VmFunction	Second command catalogue: one command, Test_AI_Function (Test AI Function, two parameters), with no implementation, so catalogue_count counts none, then the empty record that ends it. command_b reads a record by its number whatever the count

@@ -17,8 +17,11 @@ pub const Order = struct {
             pending.* = next;
             return;
         }
-        // A launch belongs to the target selected when the pilot pressed fire.
-        if (!std.meta.eql(pending.aim, next.aim)) pending.presses.launch = false;
+        // A launch belongs to the target selected when the pilot pressed fire. A blind-fire
+        // change alone keeps it: the claim turns with the same target.
+        if (!std.meta.eql(pending.aim.target, next.aim.target) or
+            pending.aim.component != next.aim.component or
+            pending.aim.script_aim != next.aim.script_aim) pending.presses.launch = false;
         pending.aim = next.aim;
         pending.presses.merge(next.presses);
         pending.cockpit.merge(next.cockpit);
@@ -35,6 +38,9 @@ test "a target change drops the old launch but preserves the pilot's countermeas
     try std.testing.expect(pending.presses.countermeasures);
     pending.merge(.{ .aim = .{ .reuse = 4 } });
     try std.testing.expect(!pending.presses.any());
+    pending.presses.launch = true;
+    pending.merge(.{ .aim = .{ .reuse = 4, .blind_fire = true } });
+    try std.testing.expect(pending.presses.launch);
 }
 
 pub const Aim = struct {
@@ -42,6 +48,7 @@ pub const Aim = struct {
     target: ?game.gameobj.ObjectRef = null,
     component: ?u15 = null,
     script_aim: u32 = 0,
+    blind_fire: bool = false,
 };
 
 const Rotation = enum(u2) { none, clockwise, anticlockwise };
@@ -88,8 +95,9 @@ const CockpitBits = packed struct(u8) {
     next_guns: bool,
     full_guns: bool,
     sync_guns: bool,
+    blind_fire: bool,
     preset: u3,
-    reserved: u2 = 0,
+    reserved: u1 = 0,
 };
 
 pub fn writeOrder(w: *std.Io.Writer, order: Order) !void {
@@ -100,6 +108,7 @@ pub fn writeOrder(w: *std.Io.Writer, order: Order) !void {
         .next_guns = order.cockpit.next_guns,
         .full_guns = order.cockpit.full_guns,
         .sync_guns = order.cockpit.sync_guns,
+        .blind_fire = order.aim.blind_fire,
         .preset = if (order.cockpit.power) |preset| @as(u3, @backingInt(preset)) + 1 else 0,
     };
     try w.writeByte(@bitCast(cockpit));
@@ -118,6 +127,7 @@ pub fn readOrder(r: *std.Io.Reader, pilot_slots: usize) !Order {
     if (order.presses.reserved != 0 or std.enums.fromInt(Rotation, order.presses.rotation) == null) return error.InvalidWeaponOrder;
     const cockpit: CockpitBits = @bitCast(try r.takeByte());
     if (cockpit.reserved != 0) return error.InvalidWeaponOrder;
+    order.aim.blind_fire = cockpit.blind_fire;
     order.cockpit = .{
         .next_guns = cockpit.next_guns,
         .full_guns = cockpit.full_guns,
@@ -143,19 +153,25 @@ pub const Panels = struct {
     conditions: [3]f32 = @splat(1),
     guns: game.gameobj.GunMode = .created(1),
     rounds: i32 = 0,
+    /// The guns' charge as its share of full, which the guns' gauge reads.
+    charge: u8 = 255,
 
-    const size = 5 * @sizeOf(f32) + @sizeOf(u16) + @sizeOf(i32);
+    const size = 5 * @sizeOf(f32) + @sizeOf(u16) + @sizeOf(i32) + 1;
 
-    fn capture(object: *const game.gameobj.GameObject) Panels {
+    fn capture(slot: *const game.create.Slot) Panels {
+        const object = &slot.object;
+        const full = if (slot.combat) |combat| combat.gun_energy else 0;
         return .{
             .power = engine.input.power.point(object),
             .conditions = .{ object.gun_condition, object.armor_speed_factor, object.shield_condition },
             .guns = object.gun_mode,
             .rounds = object.rounds,
+            .charge = if (full > 0) @intFromFloat(std.math.clamp(@round(object.gun_charge / full * 255), 0, 255)) else 255,
         };
     }
 
-    pub fn apply(panel: Panels, object: *game.gameobj.GameObject) void {
+    pub fn apply(panel: Panels, slot: *game.create.Slot) void {
+        const object = &slot.object;
         object.power_setting.x = panel.power[0];
         object.power_setting.y = panel.power[1];
         object.gun_condition = panel.conditions[0];
@@ -163,12 +179,14 @@ pub const Panels = struct {
         object.shield_condition = panel.conditions[2];
         object.gun_mode = panel.guns;
         object.rounds = panel.rounds;
+        if (slot.combat) |combat| object.gun_charge = combat.gun_energy * @as(f32, @floatFromInt(panel.charge)) / 255;
     }
 
     fn write(panel: Panels, w: *std.Io.Writer) !void {
         for (panel.power ++ panel.conditions) |value| try w.writeInt(u32, @bitCast(value), .little);
         try w.writeInt(u16, @bitCast(panel.guns), .little);
         try w.writeInt(i32, panel.rounds, .little);
+        try w.writeByte(panel.charge);
     }
 
     fn read(r: *std.Io.Reader) !Panels {
@@ -184,6 +202,7 @@ pub const Panels = struct {
             .conditions = values[2..5].*,
             .guns = @bitCast(try r.takeInt(u16, .little)),
             .rounds = try r.takeInt(i32, .little),
+            .charge = try r.takeByte(),
         };
     }
 };
@@ -192,23 +211,36 @@ pub const Status = struct {
     countermeasures: u16,
     incoming: bool,
     armed: u8,
+    charges: [3]u8 = .{ 255, 255, 255 },
     ammo: [display.max_entries]?Ammo = @splat(null),
     held: lock.Lock = .{},
     panels: Panels = .{},
 
     const Ammo = struct { kind: missile.GameMissile, count: i16 };
     const Flags = packed struct(u8) { incoming: bool, locking: bool, reserved: u6 = 0 };
-    pub const capacity = @sizeOf(u16) + 4 + display.max_entries * (2 * @sizeOf(i16)) + 2 + 2 * @sizeOf(i32) + 3 * @sizeOf(f32) + Panels.size;
+
+    /// A device's charge as its share of full, which the pilot's bars read.
+    fn chargeShare(charge: game.ship_devices.Charge, device: game.ship_devices.Device) u8 {
+        return @intFromFloat(std.math.clamp(@round(charge.share(device) * 255), 0, 255));
+    }
+    pub const capacity = @sizeOf(u16) + 4 + 3 + display.max_entries * (2 * @sizeOf(i16)) + 2 + 2 * @sizeOf(i32) + 3 * @sizeOf(f32) + Panels.size;
 
     pub fn capture(all: *const game.create.Objects, slot: u16) Status {
         const weapons = &all.player_states[slot].weapons;
         const object = &all.slots[slot].object;
+        const charges = all.player_states[slot].charges;
         const incoming = object.missile_homing != 0;
         var status: Status = .{
             .countermeasures = object.countermeasures,
             .incoming = incoming,
             .armed = if (weapons.ring.entries[0].left() == null) 0 else @intCast(weapons.ring.armed),
-            .panels = .capture(object),
+            // The devices' charges in `ship_devices`' order, each a share of full.
+            .charges = .{
+                chargeShare(charges.get(.ecm), .ecm),
+                chargeShare(charges.get(.cloak), .cloak),
+                chargeShare(charges.get(.spectral_shields), .spectral_shields),
+            },
+            .panels = .capture(&all.slots[slot]),
             .held = if (weapons.lock.phase == .idle) .{} else .{
                 .phase = weapons.lock.phase,
                 .point = weapons.lock.point,

@@ -15,7 +15,24 @@ env:
     | xargs rm -f
 
 jobs:
+  windows-transport:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+      - uses: ./.github/actions/build-transport
+        id: transport
+        with:
+          target: x86_64-windows-gnu
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-transport
+          path: ${{ steps.transport.outputs.prefix }}
+
   test:
+    needs: windows-transport
     strategy:
       fail-fast: false
       matrix:
@@ -48,25 +65,38 @@ jobs:
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           fi
       - uses: ./.github/actions/build-transport
-        if: steps.transport_changes.outputs.changed == 'true'
-        id: transport
+        if: runner.os == 'Linux'
+        id: linux_transport
         with:
           target: x86_64-linux-gnu.2.31
-          test-identities: "true"
+          test-identities: ${{ steps.transport_changes.outputs.changed == 'true' }}
+      - uses: ./.github/actions/build-transport
+        if: runner.os == 'macOS'
+        id: macos_transport
+        with:
+          target: aarch64-macos.15.0
+      - uses: actions/download-artifact@v8
+        if: runner.os == 'Windows'
+        with:
+          name: windows-transport
+          path: windows-transport
       - name: Build the executables
         shell: bash
         env:
-          GNS_PREFIX: ${{ steps.transport.outputs.prefix }}
+          LINUX_PREFIX: ${{ steps.linux_transport.outputs.prefix }}
+          MACOS_PREFIX: ${{ steps.macos_transport.outputs.prefix }}
         run: |
-          args=()
-          if [ -n "$GNS_PREFIX" ]; then
-            args+=(-Dgns-prefix="$GNS_PREFIX" -Dtarget=x86_64-linux-gnu.2.31)
-          fi
-          zig build --summary all "${args[@]}"
+          case "$RUNNER_OS" in
+            Linux) prefix="$LINUX_PREFIX"; target=x86_64-linux-gnu.2.31 ;;
+            macOS) prefix="$MACOS_PREFIX"; target=aarch64-macos.15.0 ;;
+            Windows) prefix="$GITHUB_WORKSPACE/windows-transport"; target=x86_64-windows-gnu ;;
+          esac
+          echo "GNS_PREFIX=$prefix" >> "$GITHUB_ENV"
+          zig build --summary all -Dgns-prefix="$prefix" -Dtarget="$target"
       - name: Check the headless multiplayer session
         if: steps.transport_changes.outputs.changed == 'true'
         env:
-          IDENTITIES: ${{ steps.transport.outputs.identities }}
+          IDENTITIES: ${{ steps.linux_transport.outputs.identities }}
         run: python3 scripts/check-direct-session.py zig-out/bin/openreliant "$IDENTITIES"
       - name: Check the headless container
         if: steps.transport_changes.outputs.changed == 'true'
@@ -87,11 +117,13 @@ jobs:
               throw "$program.exe reports '$reported' but carries '$carried'"
             }
           }
-      - run: zig build test --summary all
+      - shell: bash
+        run: zig build test --summary all -Dgns-prefix="$GNS_PREFIX"
       # Releases are built ReleaseFast, without the safety checks, so the tests run in that mode
       # too: Debug catches an overflow or a bad index with its checks on, and ReleaseFast what only
       # goes wrong in the build players run, such as a read of undefined memory.
-      - run: zig build test --release=fast --summary all
+      - shell: bash
+        run: zig build test --release=fast --summary all -Dgns-prefix="$GNS_PREFIX"
       # setup-zig saves .zig-cache after the job, but clears it when it is over 2 GB. Our own
       # programs and test binaries change with every commit and would fill it, so they are left
       # out: the C libraries, the fetched packages and translate-c then stay cached between runs.

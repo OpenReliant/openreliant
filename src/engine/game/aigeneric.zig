@@ -506,6 +506,15 @@ pub const Context = struct {
     /// The keyboard and the joystick, which the Player Control order steers by; null where nothing
     /// reads them, as in a test.
     devices: ?*input.Devices = null,
+    /// The physical step's own pass, the one pass a participant's command steers in.
+    stepping: bool = false,
+
+    /// The same orders in the physical step's own pass.
+    pub fn inStep(ctx: Context) Context {
+        var stepped = ctx;
+        stepped.stepping = true;
+        return stepped;
+    }
 
     /// What the orders run against in `world`, with no devices.
     pub fn of(world: gameobj.World) Context {

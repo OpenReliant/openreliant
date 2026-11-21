@@ -460,14 +460,38 @@ pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire
             submitted.cockpit = weapons.cockpit;
             if (weapons.aim.script_aim == all.player_states[slot].script_aim) {
                 const target = arena.weaponTarget(slot, weapons.aim);
+                const ship = &all.slots[slot];
+                // The pilot's blind-fire claim arrives on the order, as the original's display
+                // set the aim itself (`hud.blind_fire_reach`'s box, `0x0046` by `0x0032`, of
+                // the middle). The host asks the same of the lead point against the ship's
+                // nose, wide enough that no honest shot is refused.
+                const fitted = if (game.main.cockpitShip(all, ship.object.type)) |definition| definition.blind_fire else false;
+                const display: game.hud.State = .{ .blind_fire_fitted = fitted, .blind_fire = weapons.aim.blind_fire };
+                const allowed = if (target) |aim| allowed: {
+                    const valid = game.ai.ValidTarget.of(all, aim.resolve(all).?, .{}) orelse break :allowed false;
+                    const lead = game.ai.leadAim(all, slot, valid, 1) orelse break :allowed false;
+                    const direction = lead - ship.drawn.position;
+                    const nose = engine.surrender.math.forward(ship.drawn.orientation);
+                    break :allowed engine.surrender.math.cosineOff(direction, nose) >= 0.984807753012208;
+                } else false;
+                ship.object.blind_fire_aim = @intFromBool(weapons.aim.blind_fire and allowed and game.hud.blindFire(&display, ship) == .on);
                 if (game.ai.controlEntry(all, slot)) |entry| {
-                    if (target) |aim| {
+                    // The pilot's selection follows what the aim names even where the weapons
+                    // refuse it, as the original's display target served MATCH SPEED and the
+                    // lead cursor alike; only the weapons take the validated target.
+                    const named = if (weapons.aim.target) |ref| ref.resolve(all) else null;
+                    const chosen: ?game.players.Target = if (named) |at|
+                        if (at != slot and all.playerBinding(at) != null) .{ .object = weapons.aim.target.?, .component = weapons.aim.component } else null
+                    else
+                        null;
+                    const follow = target orelse chosen;
+                    if (follow) |aim| {
                         const selected = entry.target.resolve(all);
                         if (!selected.eql(aim.resolve(all).?)) submitted.target = .{ .aim = aim };
                     } else if (entry.target != .none) submitted.target = .clear;
                 }
                 submitted.weapons.launch_missile = weapons.presses.launch and (weapons.aim.target == null or target != null);
-                submitted.match_speed = arena.campaign != null and weapons.presses.match_speed;
+                submitted.match_speed = weapons.presses.match_speed;
             }
             submitted.weapons.countermeasures = weapons.presses.countermeasures;
             submitted.weapons.rotate_missiles = weapons.presses.turn();
@@ -541,7 +565,7 @@ fn campaignPresentation(arena: *Arena, campaign: *Campaign) void {
 /// Capture an arena view at the current tick. A pilot joining during a pause still needs one.
 pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
     const all = arena.mission.objects;
-    var view: wire.Snapshot = .{ .tick = tick, .scenario = arena.mode.scenario(), .ships = @splat(null) };
+    var view: wire.Snapshot = .{ .tick = tick, .clock = arena.mission.clock.mission_ticks, .scenario = arena.mode.scenario(), .ships = @splat(null) };
     if (all.arena_scores == .teams) view.teams = all.arena_scores.teams;
     if (arena.campaign) |campaign| {
         view.mission = .{
@@ -587,6 +611,24 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
             .position = object.nextPosition(),
             .speed = object.speed,
             .throttle = object.last_throttle,
+            .velocity = if (slot.flight) |flight| .{
+                wire.quantizeVelocity(object.velocity.x, flight.max_speed),
+                wire.quantizeVelocity(object.velocity.y, flight.max_speed),
+                wire.quantizeVelocity(object.velocity.z, flight.max_speed),
+            } else @splat(0),
+            .rates = .{
+                wire.quantizeRate(object.pitch_rate),
+                wire.quantizeRate(object.yaw_rate),
+                wire.quantizeRate(object.roll_rate),
+            },
+            .inputs = .{
+                wire.quantizeInput(object.pitch_input),
+                wire.quantizeInput(object.yaw_input),
+                wire.quantizeInput(object.roll_input),
+            },
+            .lateral = wire.quantizeLateral(object.lateral_input),
+            .speed_factor = wire.quantizeShare(object.speed_factor),
+            .engines = wire.quantizeShare(object.engines_intact),
             .fuel = object.afterburner_fuel,
             .shields = object.shields,
             .armor = object.armor,

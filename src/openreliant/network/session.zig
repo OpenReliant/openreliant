@@ -209,7 +209,7 @@ fn controls(value: []const u8) !Client.Controls {
     return .{ .fixed = std.meta.stringToEnum(Client.Steering, value) orelse return error.InvalidSteering };
 }
 
-fn directAddress(text: []const u8) !std.Io.net.IpAddress {
+pub fn directAddress(text: []const u8) !std.Io.net.IpAddress {
     const IpAddress = std.Io.net.IpAddress;
     // An IPv6 address with an explicit port must be in brackets.
     const address = IpAddress.parse(text, default_port) catch literal: {
@@ -236,7 +236,11 @@ pub fn connect(client: *Client, io: std.Io, target: []const u8) !void {
         try credential.Invite.parse(target)
     else
         null;
-    const endpoint = if (invite) |value| value.address else try directAddress(target);
+    const endpoint = if (invite) |value| value.address else directAddress(target) catch resolved: {
+        var job = try @import("resolve.zig").parse(target, default_port);
+        var progress: @import("openreliant").engine.web.Progress = .{};
+        break :resolved try job.run(io, &progress);
+    };
     var buffer: [credential.Invite.max_address]u8 = undefined;
     const address = try std.fmt.bufPrintSentinel(&buffer, "{f}", .{endpoint}, 0);
     try initTransport(if (invite) |value| &credential.openSshKey(value.key) else null, null);
@@ -280,6 +284,19 @@ pub fn run(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !u8 {
         },
     }
     return 0;
+}
+
+test "a client can trust a different host after disconnecting" {
+    if (!@import("network_options").enabled) return error.SkipZigTest;
+    const KeyPair = std.crypto.sign.Ed25519.KeyPair;
+    const first = try KeyPair.generateDeterministic(@splat(1));
+    const second = try KeyPair.generateDeterministic(@splat(2));
+    const first_key = credential.openSshKey(first.public_key);
+    const second_key = credential.openSshKey(second.public_key);
+    try initTransport(&first_key, null);
+    net.session_deinit();
+    try initTransport(&second_key, null);
+    net.session_deinit();
 }
 
 test "direct addresses accept an optional port" {

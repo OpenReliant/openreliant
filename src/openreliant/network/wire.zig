@@ -19,7 +19,7 @@ pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
 pub const CampaignCheckpoint = campaign.Checkpoint;
-pub const revision: u16 = 29;
+pub const revision: u16 = 35;
 pub const Team = engine.game.players.ArenaTeam;
 
 fn readTeam(reader: *std.Io.Reader) !Team {
@@ -48,14 +48,14 @@ pub const Combat = struct {
 };
 // A tag, mode, tick, pilot ships, and the largest mode payload.
 const inline_pilots = @min(slots, PilotPage.width);
-const snapshot_header = 2 + @sizeOf(u32) + 1 + inline_pilots * Ship.encoded_size + 1 + 1;
+const snapshot_header = 2 + @sizeOf(u32) + @sizeOf(i32) + 1 + inline_pilots * Ship.encoded_size + 1 + 1;
 const beacon_snapshot_capacity = snapshot_header - inline_pilots + 1 + beacon_count * (1 + 3 * @sizeOf(f32)) + Blast.encoded_size;
 const power_capacity = @sizeOf(powerups.Pickups.Mask) + 1 + @sizeOf(i32);
 const team_scores_capacity = 1 + std.enums.values(Team).len * (@sizeOf(i32) + @sizeOf(u32));
 const arena_capacity = snapshot_header + team_scores_capacity + @max(DarkReign.encoded_size, Blast.encoded_size) + power_capacity;
 const campaign_capacity = snapshot_header - (inline_pilots - cooperative_slots) * (Ship.encoded_size - @sizeOf(u64)) + MissionView.capacity + CampaignCheckpoint.capacity;
 const roster_capacity = 8 + @sizeOf(u32) + slots * (@sizeOf(u64) + 2 + @as(CallSign, .{}).bytes.len);
-pub const capacity = @max(@max(beacon_snapshot_capacity, arena_capacity, campaign_capacity) + ordnance.Status.capacity, roster_capacity, PilotPage.capacity, Combat.capacity, ordnance.Page.capacity, ScenePage.capacity, Scenery.capacity);
+pub const capacity = @max(@max(beacon_snapshot_capacity, arena_capacity, campaign_capacity) + ordnance.Status.capacity, roster_capacity, PilotPage.capacity, Combat.capacity, ordnance.Page.capacity, ScenePage.capacity, Scenery.capacity, Commands.capacity);
 comptime {
     std.debug.assert(capacity < 1200);
     std.debug.assert(slots <= PilotPage.width * (PilotPage.max_extra + 1));
@@ -73,12 +73,51 @@ pub const Input = struct {
     arena_floor: u32 = 0,
     /// A held trigger names the ship the player saw when they pressed it.
     fire_for: ?u32 = null,
+    /// The mission tick the client's own step reached flying `command`: the host flies it for
+    /// the step reaching the same tick, so both simulations steer alike. Without one, the host
+    /// flies it from its next step.
+    tick: ?i32 = null,
+    /// The steps flown just before `tick`, oldest first, sent again so a lost packet costs the
+    /// host none of them.
+    earlier: [redundancy]Flown = @splat(.{ .tick = 0, .command = .{} }),
+    earlier_count: u8 = 0,
+
+    pub const redundancy = 3;
 
     /// Compare serial numbers across a wrap. The half-range is ambiguous.
     pub fn follows(input: Input, previous: ?u32) bool {
         const accepted = previous orelse return true;
         return @as(i32, @bitCast(input.sequence -% accepted)) > 0;
     }
+};
+/// A step the client flew: the mission tick it reached and the command it flew.
+pub const Flown = struct { tick: i32, command: flight.Command };
+
+/// Every pilot's held flight command at the step reaching `tick`, exactly as the host flew it,
+/// so each client's simulation carries the other pilots' ships by their real commands instead of
+/// the snapshot's quantized echo of them (Rocket League GDC 2018).
+pub const Commands = struct {
+    /// The most `flight_input.write` gives one command: a tag and three axes of steering, a tag
+    /// and an axis of throttle, a strafe direction, and a drive byte.
+    pub const command_capacity = 1 + 3 * @sizeOf(f32) + 1 + @sizeOf(f32) + 2;
+    pub const capacity = 1 + @sizeOf(i32) + slots * command_capacity;
+
+    tick: i32,
+    /// Which slots carry a command the host flew; a slot with none, a host's own local player
+    /// among them, keeps its snapshot echo.
+    carried: u8 = 0,
+    held: [slots]flight.Command = @splat(.{}),
+};
+
+/// The host's exact state of a pilot's own ship at the end of the step reaching `tick`, which
+/// the pilot's simulation takes up and flies its later inputs on from.
+pub const OwnFlight = struct {
+    tick: i32,
+    /// How many ticks before the host's step needed it the pilot's newest input arrived: the
+    /// pilot's clock runs faster below the target and slower above it.
+    margin: i8,
+    kinematics: engine.game.motion.Kinematics,
+    controls: flight.State,
 };
 pub const Admission = struct { slot: u8, generation: u64 };
 pub const Joined = struct {
@@ -133,6 +172,7 @@ pub const Roster = struct {
     mission: ?u16 = null,
     paused: bool = false,
     briefing: bool = false,
+    dedicated: bool = false,
     arena_floor: u32 = 0,
     teams: bool = false,
     options: engine.game.deathmatch.Options = .{},
@@ -147,7 +187,8 @@ const RosterFlags = packed struct(u8) {
     teams: bool,
     ai_turrets: bool,
     no_player_targeting: bool,
-    reserved: u5 = 0,
+    dedicated: bool,
+    reserved: u4 = 0,
 };
 
 pub const BeaconNotice = struct { event: engine.game.deathmatch.six_beacons.Notice, name: CallSign };
@@ -347,6 +388,14 @@ pub const Ship = struct {
     angles: Facing = @splat(0),
     speed: f32 = 0,
     throttle: f32 = 0,
+    // The original's ship update message carried these at the scales below, so a receiving
+    // machine could keep flying the ship between its messages; the snapshots carry the same.
+    velocity: [3]i8 = @splat(0),
+    rates: [3]i8 = @splat(0),
+    inputs: [3]i8 = @splat(0),
+    lateral: i8 = 0,
+    speed_factor: u8 = 255,
+    engines: u8 = 255,
     fuel: i32 = 0,
     shields: engine.game.gameobj.Quadrants = .all(0),
     armor: engine.game.gameobj.Quadrants = .all(0),
@@ -367,7 +416,7 @@ pub const Ship = struct {
 
     pub const unknown_ping = std.math.maxInt(u16);
 
-    const encoded_size = @sizeOf(u64) + @sizeOf(u32) + 1 + 13 * @sizeOf(f32) + 3 * @sizeOf(i16) + 3 * @sizeOf(i32) + 2 * @sizeOf(u16) + 2;
+    const encoded_size = @sizeOf(u64) + @sizeOf(u32) + 1 + 13 * @sizeOf(f32) + 10 * @sizeOf(i8) + 2 * @sizeOf(u8) + 3 * @sizeOf(i16) + 3 * @sizeOf(i32) + 2 * @sizeOf(u16) + 2;
 
     pub fn face(ship: *Ship, orientation: engine.surrender.math.Matrix) void {
         ship.angles = packFacing(orientation);
@@ -516,6 +565,54 @@ const ShipSpawn = packed struct(u16) {
     no_target: bool,
 };
 
+/// The scales of the original's ship update message (`0x004BB2D0`): `sr_round` against the
+/// inputs' 31.0 (`0x004dcae8`), the turn rates' 4.933803081512451 (`0x004dcae4`) and the
+/// velocity's 127.0 over the flight model's top speed (`0x004dc6a0`).
+const input_scale: f32 = 31.0;
+const rate_scale: f32 = 4.933803081512451;
+const velocity_scale: f32 = 127.0;
+
+/// A steering input, held to the message's six bits.
+pub fn quantizeInput(value: f32) i8 {
+    return @intFromFloat(std.math.clamp(@round(value * input_scale), -input_scale, input_scale));
+}
+
+pub fn dequantizeInput(quantized: i8) f32 {
+    return @as(f32, @floatFromInt(quantized)) / input_scale;
+}
+
+/// A settled turn rate (`object_steer`'s), held to the message's six bits.
+pub fn quantizeRate(value: f32) i8 {
+    return @intFromFloat(std.math.clamp(@round(value * rate_scale), -input_scale, input_scale));
+}
+
+pub fn dequantizeRate(quantized: i8) f32 {
+    return @as(f32, @floatFromInt(quantized)) / rate_scale;
+}
+
+/// One component of the ship's world velocity against its flight model's top speed.
+pub fn quantizeVelocity(component: f32, max_speed: f32) i8 {
+    return @intFromFloat(std.math.clamp(@round(component * velocity_scale / max_speed), -velocity_scale, velocity_scale));
+}
+
+pub fn dequantizeVelocity(quantized: i8, max_speed: f32) f32 {
+    return @as(f32, @floatFromInt(quantized)) / velocity_scale * max_speed;
+}
+
+/// The lateral input, which `player_controls` leaves at one of three states.
+pub fn quantizeLateral(value: f32) i8 {
+    return @intFromFloat(std.math.clamp(@round(value), -1, 1));
+}
+
+/// A share the original holds from 0 to 1, as the engine power and the intact engines are.
+pub fn quantizeShare(value: f32) u8 {
+    return @intFromFloat(std.math.clamp(@round(value * 255), 0, 255));
+}
+
+pub fn dequantizeShare(quantized: u8) f32 {
+    return @as(f32, @floatFromInt(quantized)) / 255;
+}
+
 fn writeShips(w: *std.Io.Writer, ships: []const ?Ship, mode: Mode) !void {
     for (ships) |entry| {
         const ship = entry orelse {
@@ -529,6 +626,12 @@ fn writeShips(w: *std.Io.Writer, ships: []const ?Ship, mode: Mode) !void {
         for (ship.angles) |angle| try w.writeInt(i16, angle, .little);
         try writeFloat(w, ship.speed);
         try writeFloat(w, ship.throttle);
+        for (ship.velocity) |component| try w.writeInt(i8, component, .little);
+        for (ship.rates) |rate| try w.writeInt(i8, rate, .little);
+        for (ship.inputs) |input| try w.writeInt(i8, input, .little);
+        try w.writeInt(i8, ship.lateral, .little);
+        try w.writeByte(ship.speed_factor);
+        try w.writeByte(ship.engines);
         try w.writeInt(i32, ship.fuel, .little);
         for (ship.shields.values()) |value| try writeFloat(w, value);
         for (ship.armor.values()) |value| try writeFloat(w, value);
@@ -562,6 +665,19 @@ fn readShips(r: *std.Io.Reader, ships: []?Ship, mode: Mode) !void {
         for (&ship.angles) |*angle| angle.* = try r.takeInt(i16, .little);
         ship.speed = try readFloat(r);
         ship.throttle = try readFloat(r);
+        for (&ship.velocity) |*component| component.* = try r.takeInt(i8, .little);
+        for (&ship.rates) |*rate| {
+            rate.* = try r.takeInt(i8, .little);
+            if (@abs(rate.*) > input_scale) return error.InvalidSnapshot;
+        }
+        for (&ship.inputs) |*input| {
+            input.* = try r.takeInt(i8, .little);
+            if (@abs(input.*) > input_scale) return error.InvalidSnapshot;
+        }
+        ship.lateral = try r.takeInt(i8, .little);
+        if (ship.lateral < -1 or ship.lateral > 1) return error.InvalidSnapshot;
+        ship.speed_factor = try r.takeByte();
+        ship.engines = try r.takeByte();
         ship.fuel = try r.takeInt(i32, .little);
         for (std.enums.values(engine.game.collision.Quadrant)) |quadrant| ship.shields.at(quadrant).* = try readFloat(r);
         for (std.enums.values(engine.game.collision.Quadrant)) |quadrant| ship.armor.at(quadrant).* = try readFloat(r);
@@ -643,6 +759,9 @@ pub const max_pilot_pages = (slots - 1) / PilotPage.width;
 
 pub const Snapshot = struct {
     tick: u32,
+    /// The host's `mission_ticks` after the step this view was taken at; a client's own mission
+    /// clock keeps to it.
+    clock: i32 = 0,
     scenario: ?Scenario = null,
     ships: [slots]?Ship,
     pilot_pages: u8 = 0,
@@ -1069,6 +1188,9 @@ pub const Message = union(enum(u8)) {
     campaign_movie: u32,
     campaign_movie_done: u32,
     mission_music: MissionMusic,
+    flight_ready: u32,
+    own_flight: OwnFlight,
+    commands: Commands,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -1089,12 +1211,21 @@ pub const Message = union(enum(u8)) {
             .input => |input| {
                 try w.writeInt(u32, input.sequence, .little);
                 try w.writeInt(u32, input.arena_floor, .little);
+                try w.writeByte(@intFromBool(input.tick != null));
+                if (input.tick) |tick| try w.writeInt(i32, tick, .little);
+                if (input.earlier_count > Input.redundancy) return error.InvalidInput;
+                try w.writeByte(input.earlier_count);
+                for (input.earlier[0..input.earlier_count]) |flown| {
+                    try w.writeInt(i32, flown.tick, .little);
+                    try flight_input.write(&w, flown.command);
+                }
                 try flight_input.write(&w, input.command);
                 if (input.fire_for) |reuse| try w.writeInt(u32, reuse, .little);
             },
             .view, .finished, .campaign_result => |view| {
                 if (message == .campaign_result and view.mission == null) return error.InvalidDebrief;
                 try w.writeInt(u32, view.tick, .little);
+                try w.writeInt(i32, view.clock, .little);
                 try writeMode(&w, view.scenario, view.mission != null);
                 try w.writeByte(view.pilot_pages);
                 try writeShips(&w, view.ships[0..inline_pilots], view.mode());
@@ -1138,7 +1269,13 @@ pub const Message = union(enum(u8)) {
                 }
             },
             .leave => {},
-            .received_final, .campaign_end, .campaign_retired, .campaign_movie, .campaign_movie_done => |tick| try w.writeInt(u32, tick, .little),
+            .received_final, .campaign_end, .campaign_retired, .campaign_movie, .campaign_movie_done, .flight_ready => |tick| try w.writeInt(u32, tick, .little),
+            .own_flight => |own| try writeOwnFlight(&w, own),
+            .commands => |commands| {
+                try w.writeInt(i32, commands.tick, .little);
+                try w.writeByte(commands.carried);
+                for (commands.held) |command| try flight_input.write(&w, command);
+            },
             .flight_press => |presses| try w.writeByte(@bitCast(presses)),
             .roster => |roster| {
                 try writeMode(&w, roster.lobby, roster.mission != null);
@@ -1151,6 +1288,7 @@ pub const Message = union(enum(u8)) {
                     .teams = roster.teams,
                     .ai_turrets = roster.options.ai_turrets,
                     .no_player_targeting = !roster.options.target_players,
+                    .dedicated = roster.dedicated,
                 };
                 try w.writeByte(@bitCast(flags));
                 for (roster.pilots) |entry| {
@@ -1254,16 +1392,32 @@ pub const Message = union(enum(u8)) {
             },
             .joined => .{ .joined = .{ .admission = try readAdmission(&r), .arena_floor = try r.takeInt(u32, .little) } },
             .campaign_seat => .{ .campaign_seat = try readAdmission(&r) },
-            .input => .{ .input = .{
-                .sequence = try r.takeInt(u32, .little),
-                .arena_floor = try r.takeInt(u32, .little),
-                .command = try flight_input.read(&r),
-                .fire_for = if (r.bufferedLen() == 0) null else try r.takeInt(u32, .little),
-            } },
+            .input => input: {
+                var input: Input = .{
+                    .sequence = try r.takeInt(u32, .little),
+                    .arena_floor = try r.takeInt(u32, .little),
+                    .tick = switch (try r.takeByte()) {
+                        0 => null,
+                        1 => try r.takeInt(i32, .little),
+                        else => return error.InvalidInput,
+                    },
+                    .command = undefined,
+                };
+                input.earlier_count = try r.takeByte();
+                if (input.earlier_count > Input.redundancy) return error.InvalidInput;
+                for (input.earlier[0..input.earlier_count]) |*flown| flown.* = .{
+                    .tick = try r.takeInt(i32, .little),
+                    .command = try flight_input.read(&r),
+                };
+                input.command = try flight_input.read(&r);
+                input.fire_for = if (r.bufferedLen() == 0) null else try r.takeInt(u32, .little);
+                break :input .{ .input = input };
+            },
             .view, .finished, .campaign_result => snapshot: {
                 const tick = try r.takeInt(u32, .little);
+                const clock = try r.takeInt(i32, .little);
                 const session_mode = try readMode(&r);
-                var view: Snapshot = .{ .tick = tick, .scenario = session_mode.scenario, .ships = @splat(null) };
+                var view: Snapshot = .{ .tick = tick, .clock = clock, .scenario = session_mode.scenario, .ships = @splat(null) };
                 view.pilot_pages = try r.takeByte();
                 if (view.pilot_pages > max_pilot_pages or (session_mode.mission and view.pilot_pages != 0))
                     return error.InvalidSnapshot;
@@ -1337,6 +1491,9 @@ pub const Message = union(enum(u8)) {
             .campaign_retired => .{ .campaign_retired = try r.takeInt(u32, .little) },
             .campaign_movie => .{ .campaign_movie = try r.takeInt(u32, .little) },
             .campaign_movie_done => .{ .campaign_movie_done = try r.takeInt(u32, .little) },
+            .flight_ready => .{ .flight_ready = try r.takeInt(u32, .little) },
+            .own_flight => .{ .own_flight = try readOwnFlight(&r) },
+            .commands => .{ .commands = try readCommands(&r) },
             .flight_press => presses: {
                 const value: flight_input.Presses = @bitCast(try r.takeByte());
                 if (value.reserved != 0 or !value.any()) return error.InvalidFlightInput;
@@ -1363,6 +1520,7 @@ pub const Message = union(enum(u8)) {
                 view.arena_floor = try r.takeInt(u32, .little);
                 const flags: RosterFlags = @bitCast(try r.takeByte());
                 if (flags.reserved != 0 or (view.mission != null and (flags.ai_turrets or flags.no_player_targeting))) return error.InvalidRoster;
+                view.dedicated = flags.dedicated;
                 view.teams = flags.teams;
                 view.options = .{ .ai_turrets = flags.ai_turrets, .target_players = !flags.no_player_targeting };
                 if (view.teams and (view.mission != null or (view.lobby != null and view.lobby.?.record().teams == .none))) return error.InvalidRoster;
@@ -1649,12 +1807,13 @@ test "combat batches carry visual effects with bounded counts and pool indices" 
 test "a lobby preserves occupied slots and treats callsigns as bounded display text" {
     const host_name = lobbyName("  Falcon\x00  ");
     const guest_name = lobbyName("\xc9toile");
-    var message: Message = .{ .roster = .{ .lobby = .asteroid_field } };
+    var message: Message = .{ .roster = .{ .lobby = .asteroid_field, .dedicated = true } };
     message.roster.pilots[0] = .{ .generation = 1, .name = host_name };
     message.roster.pilots[2] = .{ .generation = 4, .name = guest_name };
     var buffer: [capacity]u8 = undefined;
     const decoded = (try Message.decode(try message.encode(&buffer))).roster;
     try std.testing.expectEqual(.asteroid_field, decoded.lobby);
+    try std.testing.expect(decoded.dedicated);
     try std.testing.expectEqualStrings("Falcon", decoded.pilots[0].?.name.slice());
     try std.testing.expectEqual(null, decoded.pilots[1]);
     try std.testing.expectEqual(4, decoded.pilots[2].?.generation);
@@ -1686,9 +1845,9 @@ test "a final receipt names the applied tick" {
 }
 
 test "flight updates fit the direct-IP payload budget" {
-    const input_bytes = 29;
+    const input_bytes = 31;
     // A fighter byte and a ship reuse count distinguish a respawn from a new admission.
-    const full_snapshot_bytes = 9 + 83 * inline_pilots;
+    const full_snapshot_bytes = 13 + 95 * inline_pilots;
     const objective_snapshot_budget = full_snapshot_bytes + 79;
     var buffer: [capacity]u8 = undefined;
     const input: Message = .{ .input = .{ .sequence = 1, .command = .{
@@ -1815,7 +1974,7 @@ test "ordnance orders address both ship lifetimes and carry bounded cockpit comm
     try std.testing.expectEqualDeep(order, try Message.decode(bytes));
     try std.testing.expectError(error.EndOfStream, Message.decode(bytes[0 .. bytes.len - 1]));
     const presses_at = 1 + 2 * @sizeOf(u32);
-    buffer[presses_at + 1] = 0b0011_1000;
+    buffer[presses_at + 1] = 0b1000_0000;
     try std.testing.expectError(error.InvalidWeaponOrder, Message.decode(bytes));
     buffer[presses_at] = 0xff;
     try std.testing.expectError(error.InvalidWeaponOrder, Message.decode(bytes));
@@ -2029,4 +2188,140 @@ test "a nuclear strike carries both admissions and its scorer's award" {
         .victim_name = lobbyName("Viper"),
     } };
     try std.testing.expectEqualDeep(message, try Message.decode(try message.encode(&buffer)));
+}
+
+test "a snapshot carries a ship's motion state at the message's scales" {
+    var view: Snapshot = .{ .tick = 8, .ships = @splat(null) };
+    view.ships[1] = .{
+        .generation = 5,
+        .position = @splat(0),
+        .velocity = .{ 64, -64, 127 },
+        .rates = .{ 8, -8, 31 },
+        .inputs = .{ -31, 31, 0 },
+        .lateral = -1,
+        .speed_factor = 128,
+        .engines = 0,
+    };
+    var buffer: [capacity]u8 = undefined;
+    const decoded = (try Message.decode(try (Message{ .view = view }).encode(&buffer))).view;
+    const ship = decoded.ships[1].?;
+    try std.testing.expectEqualSlices(i8, &view.ships[1].?.velocity, &ship.velocity);
+    try std.testing.expectEqualSlices(i8, &view.ships[1].?.rates, &ship.rates);
+    try std.testing.expectEqualSlices(i8, &view.ships[1].?.inputs, &ship.inputs);
+    try std.testing.expectEqual(@as(i8, -1), ship.lateral);
+    try std.testing.expectEqual(@as(u8, 128), ship.speed_factor);
+    try std.testing.expectEqual(@as(u8, 0), ship.engines);
+    view.ships[1].?.lateral = 2;
+    try std.testing.expectError(error.InvalidSnapshot, Message.decode(try (Message{ .view = view }).encode(&buffer)));
+    view.ships[1].?.lateral = 0;
+    view.ships[1].?.rates[0] = 40;
+    try std.testing.expectError(error.InvalidSnapshot, Message.decode(try (Message{ .view = view }).encode(&buffer)));
+    view.ships[1].?.rates[0] = 0;
+    view.ships[1].?.inputs[1] = 32;
+    try std.testing.expectError(error.InvalidSnapshot, Message.decode(try (Message{ .view = view }).encode(&buffer)));
+}
+
+test "the ship message's quantizers keep the original's scales" {
+    try std.testing.expectEqual(@as(i8, 31), quantizeInput(1.0));
+    try std.testing.expectEqual(@as(i8, -31), quantizeInput(-2.0));
+    try std.testing.expectEqual(@as(i8, 16), quantizeInput(0.5));
+    try std.testing.expectEqual(@as(i8, 40), quantizeVelocity(100, 320));
+    try std.testing.expectApproxEqAbs(@as(f32, 100), dequantizeVelocity(quantizeVelocity(100, 320), 320), 3);
+    try std.testing.expectEqual(@as(i8, 31), quantizeRate(31.0 / rate_scale));
+    try std.testing.expectEqual(@as(i8, 1), quantizeLateral(0.6));
+    try std.testing.expectEqual(@as(u8, 128), quantizeShare(0.5));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), dequantizeShare(quantizeShare(0.5)), 0.01);
+}
+
+fn writeOwnFlight(w: *std.Io.Writer, own: OwnFlight) !void {
+    const k = own.kinematics;
+    try w.writeInt(i32, own.tick, .little);
+    try w.writeInt(i8, own.margin, .little);
+    for (k.position ++ k.orientation ++ k.velocity ++ [_]f32{k.speed} ++ k.rates ++ k.inputs ++
+        [_]f32{ k.lateral_input, k.throttle, k.last_throttle, k.speed_factor, own.controls.throttle, own.controls.throttle_before_match }) |value|
+        try w.writeInt(u32, @bitCast(value), .little);
+    try w.writeInt(i32, k.afterburner_fuel, .little);
+    try w.writeByte(@as(u8, @intFromBool(k.afterburner)) | @as(u8, @intFromBool(k.reverse_thrust)) << 1 |
+        @as(u8, @intFromBool(own.controls.matching_speed)) << 2 | @as(u8, @intFromBool(own.controls.afterburner_toggled)) << 3);
+}
+
+fn readOwnFlight(r: *std.Io.Reader) !OwnFlight {
+    const tick = try r.takeInt(i32, .little);
+    const margin = try r.takeInt(i8, .little);
+    var values: [3 + 9 + 3 + 1 + 3 + 3 + 6]f32 = undefined;
+    for (&values) |*value| value.* = @bitCast(try r.takeInt(u32, .little));
+    const fuel = try r.takeInt(i32, .little);
+    const flags = try r.takeByte();
+    if (flags >> 4 != 0) return error.InvalidOwnFlight;
+    return .{
+        .tick = tick,
+        .margin = margin,
+        .kinematics = .{
+            .position = values[0..3].*,
+            .orientation = values[3..12].*,
+            .velocity = values[12..15].*,
+            .speed = values[15],
+            .rates = values[16..19].*,
+            .inputs = values[19..22].*,
+            .lateral_input = values[22],
+            .throttle = values[23],
+            .last_throttle = values[24],
+            .speed_factor = values[25],
+            .afterburner_fuel = fuel,
+            .afterburner = flags & 1 != 0,
+            .reverse_thrust = flags & 2 != 0,
+        },
+        .controls = .{
+            .throttle = values[26],
+            .throttle_before_match = values[27],
+            .matching_speed = flags & 4 != 0,
+            .afterburner_toggled = flags & 8 != 0,
+        },
+    };
+}
+
+fn readCommands(r: *std.Io.Reader) !Commands {
+    var commands: Commands = .{ .tick = try r.takeInt(i32, .little) };
+    commands.carried = try r.takeByte();
+    for (&commands.held) |*command| command.* = try flight_input.read(r);
+    return commands;
+}
+
+test "an own flight state crosses the wire exactly" {
+    const own: OwnFlight = .{
+        .tick = 1234,
+        .margin = -3,
+        .kinematics = .{
+            .position = .{ 1.5, -2.25, 1e6 },
+            .orientation = .{ 0, 1, 0, -1, 0, 0, 0, 0, 1 },
+            .velocity = .{ 0.1, 0.2, -300 },
+            .speed = 300.125,
+            .rates = .{ 0.01, -0.02, 0.03 },
+            .inputs = .{ 1, -0.5, 0 },
+            .lateral_input = 0.25,
+            .throttle = 0.75,
+            .last_throttle = 0.5,
+            .speed_factor = 1,
+            .afterburner_fuel = 4321,
+            .afterburner = true,
+            .reverse_thrust = false,
+        },
+        .controls = .{ .throttle = 0.75, .matching_speed = true, .throttle_before_match = 0.3, .afterburner_toggled = true },
+    };
+    var buffer: [capacity]u8 = undefined;
+    const bytes = try (Message{ .own_flight = own }).encode(&buffer);
+    try std.testing.expectEqualDeep(Message{ .own_flight = own }, try Message.decode(bytes));
+}
+
+test "an input carries the steps flown before it" {
+    var input: Input = .{ .sequence = 7, .command = .{}, .tick = 40 };
+    input.earlier[0] = .{ .tick = 32, .command = .{} };
+    input.earlier[1] = .{ .tick = 36, .command = .{} };
+    input.earlier_count = 2;
+    var buffer: [capacity]u8 = undefined;
+    const decoded = (try Message.decode(try (Message{ .input = input }).encode(&buffer))).input;
+    try std.testing.expectEqual(2, decoded.earlier_count);
+    try std.testing.expectEqual(32, decoded.earlier[0].tick);
+    try std.testing.expectEqual(36, decoded.earlier[1].tick);
+    try std.testing.expectEqual(40, decoded.tick.?);
 }
