@@ -467,7 +467,7 @@ pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire
                     } else if (entry.target != .none) submitted.target = .clear;
                 }
                 submitted.weapons.launch_missile = weapons.presses.launch and (weapons.aim.target == null or target != null);
-                submitted.match_speed = arena.campaign != null and weapons.presses.match_speed;
+                submitted.match_speed = weapons.presses.match_speed;
             }
             submitted.weapons.countermeasures = weapons.presses.countermeasures;
             submitted.weapons.rotate_missiles = weapons.presses.turn();
@@ -587,6 +587,24 @@ pub fn snapshot(arena: *Arena, tick: u32) !wire.Snapshot {
             .position = object.nextPosition(),
             .speed = object.speed,
             .throttle = object.last_throttle,
+            .velocity = if (slot.flight) |flight| .{
+                wire.quantizeVelocity(object.velocity.x, flight.max_speed),
+                wire.quantizeVelocity(object.velocity.y, flight.max_speed),
+                wire.quantizeVelocity(object.velocity.z, flight.max_speed),
+            } else @splat(0),
+            .rates = .{
+                wire.quantizeRate(object.pitch_rate),
+                wire.quantizeRate(object.yaw_rate),
+                wire.quantizeRate(object.roll_rate),
+            },
+            .inputs = .{
+                wire.quantizeInput(object.pitch_input),
+                wire.quantizeInput(object.yaw_input),
+                wire.quantizeInput(object.roll_input),
+            },
+            .lateral = wire.quantizeLateral(object.lateral_input),
+            .speed_factor = wire.quantizeShare(object.speed_factor),
+            .engines = wire.quantizeShare(object.engines_intact),
             .fuel = object.afterburner_fuel,
             .shields = object.shields,
             .armor = object.armor,

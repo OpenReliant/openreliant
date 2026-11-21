@@ -1581,16 +1581,20 @@ pub fn shoot(world: gameobj.World, owner: u16, muzzle: Muzzle, gun_type: GunType
 /// (`hud.State.lead_point`). Null for a shot that flies along its muzzle: from a ship not aiming
 /// blind, or of the Nova Cannon or a turret's gun.
 ///
-/// Not ported: another player's ship in a multiplayer game, which aims blind at the target of its
-/// order (`ai.leadAim`), or along its muzzle where it can't be aimed at
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// Another player's ship in a multiplayer game aims at its order's target, led by `ai.leadAim`,
+/// or along its muzzle where the target cannot be aimed at.
 fn blindAim(world: gameobj.World, owner: u16, kind: GunType) ?Vector {
     const all = world.objects;
     if (all.slots[owner].object.blind_fire_aim == 0) return null;
     if (kind.charges() or kind.base().onTurrets()) return null;
-    if (owner != all.player) return null;
-    const display = world.display orelse return null;
-    return display.lead_point;
+    if (owner == all.player and all.readsLocalPlayerInput()) {
+        const display = world.display orelse return null;
+        return display.lead_point;
+    }
+    if (all.playerBinding(owner) == null) return null;
+    const order = ai.controlEntry(all, owner) orelse return null;
+    const target = ai.ValidTarget.of(all, order.target.resolve(all), .{}) orelse return null;
+    return ai.leadAim(all, owner, target, 1);
 }
 
 /// The game's own effects of the events the tracks of the model of the object in slot `owner`

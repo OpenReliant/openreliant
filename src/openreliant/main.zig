@@ -2894,7 +2894,7 @@ const Display = struct {
     /// ship it shows, the display's state, the player's record, the clock, the radio, whose window
     /// shows the speaker's face, and the mission's variables, which have what is ready for JUMP
     /// DRIVE (`game.main.Drawn`).
-    drawn: *const game.main.Drawn,
+    drawn: *game.main.Drawn,
     multiplayer: bool = false,
     standings_first: ?usize = null,
     chat_line: ?[]const u8 = null,
@@ -3038,7 +3038,11 @@ const Display = struct {
             .parts = display.parts,
             .devices = display.devices,
         });
-        if (!display.multiplayer) display.handed.aim = display.drawing.aim;
+        if (display.multiplayer) {
+            display.drawn.display.aim = display.drawing.aim;
+        } else {
+            display.handed.aim = display.drawing.aim;
+        }
     }
 };
 

@@ -385,7 +385,7 @@ pub fn applyRoster(frame: *FlightFrame, roster: wire.Roster) void {
 
 pub fn weaponAim(frame: *FlightFrame) wire.ordnance.Aim {
     const all = frame.drawn.objects;
-    var aim: wire.ordnance.Aim = .{ .reuse = frame.host_ship_reuse[all.player], .script_aim = frame.script_aim };
+    var aim: wire.ordnance.Aim = .{ .reuse = frame.host_ship_reuse[all.player], .script_aim = frame.script_aim, .blind_fire = frame.drawn.display.aim.blind_fire };
     const entry = game.ai.controlEntry(all, all.player) orelse return aim;
     const target = entry.target.slotIn(all) orelse return aim;
     if (target != all.player and target < wire.slots and all.playerBinding(target) != null)
@@ -460,7 +460,13 @@ fn presentWeapons(frame: *FlightFrame, status: ?wire.ordnance.Status) void {
     const slot = &all.slots[all.player];
     const weapons = &all.player_states[all.player].weapons;
     const prior = weapons.ring;
-    if (status) |shown| shown.panels.apply(&slot.object);
+    if (status) |shown| {
+        shown.panels.apply(&slot.object);
+        // The host owns the devices' charges; the bars read what it last sent.
+        const charges = &all.player_states[all.player].charges;
+        for (std.enums.values(game.ship_devices.Device), shown.charges) |device, share|
+            charges.getPtr(device).ticks = @intFromFloat(@as(f32, @floatFromInt(share)) / 255 * @as(f32, @floatFromInt(device.spec().full)));
+    }
     const decoys_before = slot.object.countermeasures;
     weapons.ring = if (status) |shown| shown.ring() else .{};
     weapons.lock = if (status) |shown| shown.held else .{};

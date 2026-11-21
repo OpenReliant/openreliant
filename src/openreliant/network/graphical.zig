@@ -446,7 +446,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 if (weapons.rotate_missiles != null and display.windows.open(.missiles, false))
                     display.windows.status.getPtr(.missiles).held = true;
                 var presses: wire.ordnance.Presses = .from(weapons);
-                presses.match_speed = cooperative and devices.active(.match_speed, true);
+                presses.match_speed = devices.active(.match_speed, true);
                 client.setWeapons(.{ .aim = flight.weaponAim(), .presses = presses, .cockpit = cockpit });
             }
         } else {
