@@ -346,8 +346,8 @@ pub fn show(world: gameobj.World, owner: u16, effect: guns.FlightEffect.Nova) vo
 /// **Improvement:** the game strikes with the Nova Cannon's figures; a mod's gun based on the cannon
 /// (`kind`) strikes with its own.
 ///
-/// Not ported: in a multiplayer mission, a quarter of the damage
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In an arena (`multiplayer_mission`), the shield and hull damage are each `arena_share` of
+/// that (`0x0047B6D8`). The parts of an object listing components take the full damage either way.
 fn strike(world: gameobj.World, owner: u16, fired: f32, kind: guns.GunType) void {
     const all = world.objects;
     const source: gameobj.DamageSource = .of(all, owner);
@@ -373,11 +373,16 @@ fn strike(world: gameobj.World, owner: u16, fired: f32, kind: guns.GunType) void
         // Where it enters, as `segment_meets_box` works it out: the span times the share, plus the
         // start.
         const entry = math.lerp(local_from, local_to, along);
-        const value = strength * record.damage.shield;
+        const share: f32 = if (world.damage_rules == .arena) arena_share else 1;
+        const value = strength * record.damage.shield * share;
         collision.damageFrom(world, index, collision.quadrant(object, entry), value, record.damage.hullShare(), source, .bullet);
         if (!object.flags.cloaked) shield.flare(world, index, math.lerp(from, to, along));
     }
 }
+
+/// The share of its damage the beam does to an object without components in an arena
+/// (`0x004DC3D4`).
+const arena_share: f32 = 0.25;
 
 /// The most leaves of a part's tree the beam strikes at once.
 const max_leaves = 64;
@@ -499,4 +504,43 @@ test "a beam ends when its ship's slot is reused" {
     _ = try create.createObject(mission.objects, &mission.tables, create.testing.no_models, ship, .of(.predator), 0, @splat(0), &mission.random);
     beams.frame(mission.objects, 1);
     try std.testing.expectEqual(null, beams.slots[0]);
+}
+
+/// The shields a hit took, over all four quadrants.
+fn lost(before: gameobj.Quadrants, after: gameobj.Quadrants) f32 {
+    return (before.left - after.left) + (before.right - after.right) + (before.fore - after.fore) + (before.aft - after.aft);
+}
+
+test "the beam does a quarter of its damage to a whole ship in an arena" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var model: create.testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    const all = mission.objects;
+    const shooter = try mission.add(.of(.phoenix), @splat(0));
+    const target = try mission.addWith(model.types(), .of(.sabre), .{ 0, 0, 1000 });
+    all.slots[shooter].object.gun_condition = 1;
+    const struck = &all.slots[target];
+    struck.object.flags.components = false;
+    struck.object.flags.cloaked = true;
+    struck.object.bounds_min = .{ .x = -100, .y = -100, .z = -100 };
+    struck.object.bounds_max = .{ .x = 100, .y = 100, .z = 100 };
+    struck.drawn.position = .{ 0, 0, 1000 };
+    const stats = &all.gun_stats.types[guns.GunType.of(.nova_cannon).number()];
+    stats.damage = .{ .shield = 400, .hull = 200 };
+    const full = struck.object.shields;
+
+    var world = mission.world();
+    strike(world, shooter, 1, .of(.nova_cannon));
+    const campaign = lost(full, struck.object.shields);
+    try std.testing.expect(campaign > 0);
+
+    struck.object.shields = full;
+    world.damage_rules = .{ .arena = null };
+    strike(world, shooter, 1, .of(.nova_cannon));
+    const arena = lost(full, struck.object.shields);
+    try std.testing.expectApproxEqAbs(campaign * arena_share, arena, 1e-3);
 }

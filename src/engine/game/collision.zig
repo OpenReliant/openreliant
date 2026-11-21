@@ -24,6 +24,7 @@ const hud = @import("hud.zig");
 const input = @import("../input.zig");
 const camera = @import("camera.zig");
 const friendly_fire = @import("friendly_fire.zig");
+const guns = @import("guns.zig");
 const radio = @import("radio.zig");
 const players = @import("players.zig");
 const betty = @import("hog_snd/betty.zig");
@@ -763,6 +764,8 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
     const component = struck_part.part();
     var share = byDifficulty(world, index, kind, value);
     if (!object.flags.exploding) friendly_fire.warn(world, index, attacker, kind, share);
+    // In an arena the object's guns pass the pilot over (`0x00464683`).
+    if (world.damage_rules == .arena and attacker.player) guns.turrets.passOver(world, index, attacker.object.slot);
 
     // The assembly's first part that has armour takes the hit.
     const struck = model.hitPart(component);
@@ -773,6 +776,8 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
         if (share < heavy_hit) return;
         if (!struck.flags.heavy_hits and !heavyKind(kind)) return;
     }
+    // In a network game, a pilot's hit on a friend's engine does nothing (`0x004647CE`).
+    if (attacker.player and object.side == .friendly and world.damage_rules != .campaign and struck.class == .engine) return;
 
     if (object.invulnerable != ._unknown_5 and object.flags.shield_generator and share < shielded_hit) share *= shielded_damage;
     const player_hit = attacker.player;
@@ -1920,4 +1925,32 @@ test "a headless host warns each pilot with their own armour cooldown" {
     try std.testing.expect(!first_warning.present(world));
     try std.testing.expectEqual(0, all.playerState(first).?.armor_warned_at);
     try std.testing.expectEqual(1500, all.playerState(second).?.armor_warned_at);
+}
+
+test "in a network game a pilot's hit on a friend's engine does nothing" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const all = mission.objects;
+    var model: create.testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    model.data[0].part.flags.component = true;
+    model.data[0].part.component_armor = 100;
+    model.data[0].part.class = .engine;
+    const pilot = try mission.add(.of(.kamov), @splat(0));
+    const index = try mission.addWith(model.types(), .of(.predator), @splat(0));
+    all.slots[index].object.side = .friendly;
+    const part = &all.slots[index].model.?.parts[0];
+    const struck: objects.PartRef = .{ .model = &all.slots[index].model.?, .index = 0 };
+
+    var world = mission.world();
+    world.damage_rules = .cooperative;
+    componentDamage(world, index, struck, 40, pilot, .bullet);
+    try std.testing.expectEqual(100, part.armor);
+    // The single-player game damages it.
+    world.damage_rules = .campaign;
+    componentDamage(world, index, struck, 40, pilot, .bullet);
+    try std.testing.expect(part.armor < 100);
 }

@@ -1330,6 +1330,48 @@ pub const Cockpit = struct {
     }
 };
 
+/// `camera_watch_next_player` (`0x004775D0`): once the pilot in slot `own` is out of a network
+/// game, the next pilot's slot after `from` to watch, round the players' slots, whose ship is there
+/// (not a stand-in) and neither exploding nor disabled, the pilot's own passed over; or null where
+/// none is, where the game ends the mission on that machine (`mission_over`). The camera watches
+/// the slot's ship in the spectator view (`View.spectator`).
+///
+/// **Unverified:** its source file. It lies between `gameobj.cpp`'s known code and `guns.cpp`'s,
+/// and does the camera's work.
+pub fn nextWatched(all: *const create.Objects, own: u16, from: u16) ?u16 {
+    const count: u16 = @intCast(all.playerSlotCount());
+    if (count == 0) return null;
+    var watched = from;
+    for (0..count) |_| {
+        watched = if (watched + 1 >= count) 0 else watched + 1;
+        if (watched == own) continue;
+        const object = &all.slots[watched].object;
+        if (!object.created or object.flags.stand_in or object.flags.exploding or object.flags.disabled) continue;
+        return watched;
+    }
+    return null;
+}
+
+test nextWatched {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    for (0..4) |_| _ = try mission.add(.of(.predator), @splat(0));
+    all.players = 4;
+    // From the pilot's own slot, the next pilot's, round the slots, the pilot's own passed over.
+    try std.testing.expectEqual(1, nextWatched(all, 0, 0));
+    try std.testing.expectEqual(0, nextWatched(all, 3, 3));
+    try std.testing.expectEqual(1, nextWatched(all, 0, 3));
+    // An exploding or disabled ship is passed over.
+    all.slots[1].object.flags.exploding = true;
+    all.slots[2].object.flags.disabled = true;
+    try std.testing.expectEqual(3, nextWatched(all, 0, 0));
+    // With nobody left to watch, there is none.
+    all.slots[3].object.flags.exploding = true;
+    try std.testing.expectEqual(null, nextWatched(all, 0, 0));
+}
+
 test Cockpit {
     const model: Cockpit.Input = .{
         .rates = .{ 0, 0, 0 },

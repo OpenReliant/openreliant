@@ -1394,7 +1394,7 @@ fn wreckOf(object_type: gameobj.Type) ?Wreck {
 ///
 /// Titan's last part takes Planet Bombard's routine (`0x0046841D`), for which `createObject` keeps
 /// Titan's slot (`bombards`). Not ported: the comms relay, the deathmatch's
-/// power-ups and beacons, multiplayer map 83 and the Dark Reign's slot in a multiplayer game
+/// power-ups and beacons and the Dark Reign's slot in a multiplayer game
 /// (`0x005DB500`), which only the multiplayer arenas have
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)). The wrecks, the gates, the planets
 /// and the Dark Reign's hat are set up once they are in the world (`wreckMade`, `gateMade`,
@@ -1578,8 +1578,8 @@ pub fn make(world: gameobj.World, wanted: ?u16, object_type: gameobj.Type) Error
 ///
 /// A single type, such as an asteroid, is set up as its own (`typeMade`).
 ///
-/// Not ported: what differs in a multiplayer game
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// On Tag Bomb's map, an object that lists components shows every part on its model's root, the
+/// damaged models' too (`showsEveryPart`).
 pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, asked: gameobj.Type, tier: i32, at: Vector, random: *Random) Error!u16 {
     const index = wanted orelse all.count;
     if (index >= gameobj.max_objects) return error.Overrun;
@@ -1733,7 +1733,11 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     }
     object.gun_mode = .created(combat.gun_groups);
     const fit: Fit = if (all.createdRacks(index)) |racks| .{ .loadout = racks } else all.tierFit(index, settledTier(tier, asked, all.campaign_tier));
-    try arm(all.gpa, slot, fit);
+    try arm(all.gpa, slot, fit, .full);
+    if (object.flags.components and showsEveryPart(all)) if (slot.model) |*model| {
+        var children = model.rootChildren();
+        while (children.next()) |child| model.parts[child.index].hidden = false;
+    };
     ai.setTargetable(object, combat, true);
     all.exhaust.offer(all, index);
     object.type = becomes;
@@ -1766,15 +1770,26 @@ pub const training_racks: Racks = racks: {
     break :racks racks;
 };
 
+/// What a re-arm does to the afterburner's fuel before each fuel pod adds its 5000.
+pub const Fuel = enum {
+    /// The fuel of the ship's type.
+    full,
+    /// The fuel left, as a re-arm leaves it in an arena (`multiplayer_mission`): the Nanny's
+    /// (`dock_nanny_run`, `0x00407AB7`) and `cmd_ReplenishWeapons`' (`0x0045A0AD`).
+    kept,
+
+    /// The fuel a re-arm gives in the world's game.
+    pub fn of(world: gameobj.World) Fuel {
+        return if (world.damage_rules == .arena) .kept else .full;
+    }
+};
+
 /// The weapons `create_object` gives the object in `slot`, which a re-arm gives it again
 /// (`order_dock`, `cmd_ReplenishWeapons`): racks as `fit` names them on its missile hardpoints,
 /// fitted and filled (`fitRacks`), what hung there before let go; its countermeasures; the
-/// afterburner's fuel of its type, 5000 more for each fuel pod; and its guns charged, with their
-/// rounds.
-///
-/// Not ported: a multiplayer game, where a re-arm leaves the afterburner's fuel as it is
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
-pub fn arm(gpa: Allocator, slot: *Slot, fit: Fit) Allocator.Error!void {
+/// afterburner's fuel of its type, or the fuel left (`fuel`), and 5000 more for each fuel pod; and
+/// its guns charged, with their rounds.
+pub fn arm(gpa: Allocator, slot: *Slot, fit: Fit, fuel: Fuel) Allocator.Error!void {
     const object = &slot.object;
     const combat = slot.combat orelse return;
     if (slot.model) |*model| {
@@ -1787,7 +1802,7 @@ pub fn arm(gpa: Allocator, slot: *Slot, fit: Fit) Allocator.Error!void {
         try fitRacks(gpa, object, model, if (slot.type) |loaded| loaded.effects else .{});
     }
     object.countermeasures = gameobj.countermeasures_when_created;
-    object.afterburner_fuel = combat.fullFuel();
+    if (fuel == .full) object.afterburner_fuel = combat.fullFuel();
     for (object.fittedRacks()) |rack| {
         if (rack.type.base() == .fuel_pod) object.afterburner_fuel += fuel_pod_fuel;
     }
@@ -1805,7 +1820,7 @@ pub fn rearm(world: gameobj.World, index: u16) Allocator.Error!void {
         .{ .loadout = racks }
     else
         all.tierFit(index, std.math.cast(u2, slot.object.loadout_tier) orelse 0);
-    try arm(all.gpa, slot, fit);
+    try arm(all.gpa, slot, fit, .of(world));
     all.fitPlayerWeapons(index);
 }
 
@@ -1816,6 +1831,13 @@ pub fn makeWhole(object: *GameObject, combat: *const ShipCombat) void {
     object.shields = .all(combat.fullShields() - 1);
     object.armor = .all(combat.startingArmor());
     main.armorConditions(object, combat);
+}
+
+/// Whether `create_object` shows every part on the root of an object that lists components
+/// (`0x00467747`): in an arena (`multiplayer_mission`, the map of one of the deathmatch's scenarios)
+/// on mission 83, Tag Bomb's.
+fn showsEveryPart(all: *const Objects) bool {
+    return @import("dmscenarios.zig").Scenario.forMission(all.mission_number) == .tag_bomb;
 }
 
 /// powerup_give_missile (0x004B1F30) fits one Screamer and leaves the other supplies alone.
@@ -2761,6 +2783,17 @@ test "a player's ship takes the racks its loadout fitted" {
     try std.testing.expect(object.racks[0].count > 0);
     try std.testing.expectEqual(missiles.Type.of(.fuel_pod), object.racks[1].type);
     try std.testing.expectEqual(gameobj.countermeasures_when_created, object.countermeasures);
+    // A re-arm fills the afterburner, then the fuel pod adds its 5000; in an arena the fuel left
+    // stays, and the pod still adds its 5000.
+    const full = object.afterburner_fuel;
+    object.afterburner_fuel = 100;
+    try rearm(world, index);
+    try std.testing.expectEqual(full, object.afterburner_fuel);
+    var arena = world;
+    arena.damage_rules = .{ .arena = null };
+    object.afterburner_fuel = 100;
+    try rearm(arena, index);
+    try std.testing.expectEqual(100 + fuel_pod_fuel, object.afterburner_fuel);
     // Not in the simulator, nor in mission 25's first part.
     try std.testing.expect(all.createdRacks(0) != null);
     all.simulator = .{ .mode = .training };
@@ -3298,4 +3331,24 @@ test "respawn and mission reset keep the participant and invalidate the ship bin
     retire(mission.orders(), index);
     try std.testing.expectEqual(null, all.playerCommand(index));
     try std.testing.expect(!all.submitPlayerCommand(fresh, .{}));
+}
+
+test "Tag Bomb's map shows every part on the root of an object listing components" {
+    const gpa = std.testing.allocator;
+    var random: Random = .{};
+    const all = try Objects.create(gpa, &random);
+    defer all.destroy();
+    var tables = testing.tables();
+    var model: testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    model.withComponent();
+    // A damaged model's part starts hidden.
+    model.data[0].part.flags.damaged = true;
+    var index = try createObject(all, &tables, model.types(), null, .of(.predator), 0, @splat(0), &random);
+    try std.testing.expect(all.slots[index].model.?.parts[0].hidden);
+    // On mission 83, Tag Bomb's, it is shown.
+    all.mission_number = @import("dmscenarios.zig").Scenario.tag_bomb.mission();
+    index = try createObject(all, &tables, model.types(), null, .of(.predator), 0, @splat(0), &random);
+    try std.testing.expect(!all.slots[index].model.?.parts[0].hidden);
 }

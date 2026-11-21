@@ -6416,8 +6416,8 @@ pub fn pointerDirection(ship: math.Place, at: Vector) [2]f32 {
 /// Before all of it, the corners it marks on the ship whose line the radio's window names
 /// (`drawCommsMarker`).
 ///
-/// Not yet ported: the players' names over their ships in a multiplayer game
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a network game, a target that is a pilot's ship gets the pilot's session name above its
+/// brackets, and the arena's badge (`0x0048AD0C`, `mp_draw_target_badge`).
 pub fn drawTarget(drawing: *Drawing, state: *const State, pen: Pen, fonts: *TargetFonts, scene: TargetScene, edge_line: EdgeLine) Error!Cursor {
     drawing.chase_pointer = null;
     drawing.chase_nav_roll = null;

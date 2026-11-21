@@ -203,8 +203,9 @@ and of the turrets mounted on it, a second time (`node_mass_add`, `0x004764A0`),
 the next recentring sums its mass again (`typeMade`). The wrecks, the gates, the planets and the
 Dark Reign's hat ([Effects](effects.md#the-dark-reigns-hat)) are set up once the mission has made
 them (`wreckMade`, `gateMade`, `planetMade`, `extra.hatMade`). Titan's Planet Bombard shows
-nothing, and OpenReliant leaves it out. Not ported: the multiplayer cases
-([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+nothing, and OpenReliant leaves it out. On Tag Bomb's map, mission 83, an object that lists
+components shows every part on its model's root, the damaged models' too (`0x00467747`). Not
+ported: the other multiplayer cases ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 ## Flags
 
