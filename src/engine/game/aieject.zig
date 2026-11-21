@@ -22,6 +22,7 @@ const events = @import("mission/events.zig");
 const explode = @import("explode.zig");
 const gameobj = @import("gameobj.zig");
 const guns = @import("guns.zig");
+const hog_snd = @import("hog_snd.zig");
 const input = @import("../input.zig");
 const main = @import("main.zig");
 const objects = @import("objects.zig");
@@ -102,6 +103,23 @@ fn cockpitPart(model: *const objects.Model) ?usize {
     var children = model.rootChildren();
     while (children.next()) |child| if (child.part.class == .cockpit) return child.index;
     return null;
+}
+
+/// The voices `EJECT01` takes as the cockpit leaves the ship in slot `index` (`0x00415808`): the
+/// guaranteed ones for the player, and any voice for another pilot.
+pub fn separationClass(all: *const create.Objects, index: u16) sound3d.Class {
+    return if (index == all.player) .guaranteed else .not_reserved;
+}
+
+/// Plays `EJECT01` for a cockpit that leaves the ship in slot `index`, on a multiplayer client.
+/// The original plays it from the abandoned fighter, which drifts on where the pod left it
+/// (`separate`). A client has no such object, so the sound stays where the cockpit separated,
+/// instead of following the pod as it shoots away. **Improvement:** the client approximates the
+/// abandoned fighter with a fixed point.
+pub fn playSeparation(world: gameobj.World, index: u16) void {
+    const all = world.objects;
+    const at = all.slots[index].object.nextPosition();
+    sound3d.playIn(world, at, null, null, .eject01, 1, separationClass(all, index));
 }
 
 /// Keep the same cockpit on a client that the host separates for an ejected pilot.
@@ -209,7 +227,7 @@ fn separate(ctx: Context, index: u16, cockpit: usize) void {
     ship.object.root.next_orientation = pod.object.root.next_orientation;
     ship.object.velocity = pod.object.velocity;
     ship.object.rotation = pod.object.rotation;
-    sound3d.playIn(world, null, null, left, .eject01, 1, if (index == all.player) .guaranteed else .not_reserved);
+    sound3d.playIn(world, null, null, left, .eject01, 1, separationClass(all, index));
 
     const object = &pod.object;
     object.flags.unpowered = true;
@@ -702,6 +720,30 @@ test "a pilot ejects in the cockpit, which leaves the ship as the pod" {
     try std.testing.expectEqual(.clearing, pod.state.eject.stage);
     try std.testing.expectEqual(30 + clearing_ticks, pod.state.eject.until);
     try std.testing.expectEqual(math.identity, ejectPoint(pod, TestShip.cockpit).?.orientation);
+}
+
+test "EJECT01 takes the guaranteed voices for the player and plays where the cockpit separates" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const pilot = try mission.add(.of(.predator), @splat(0));
+    const other = try mission.add(.of(.sabre), .{ 0, 0, 5000 });
+    const all = mission.objects;
+    try std.testing.expectEqual(.guaranteed, separationClass(all, pilot));
+    try std.testing.expectEqual(.not_reserved, separationClass(all, other));
+
+    // A client has no abandoned fighter, so the sound is a point at the separation.
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(4, null);
+    defer speaker.deinit();
+    var world = mission.world();
+    speaker.hear(&world);
+    playSeparation(world, other);
+    const effect = speaker.asked.list.items[0].effect;
+    try std.testing.expectEqual(.eject01, effect.which);
+    try std.testing.expectEqual(null, effect.owner);
+    try std.testing.expectEqual(all.slots[other].object.nextPosition(), effect.placed.position);
+    try std.testing.expectEqual(.not_reserved, effect.class);
 }
 
 test "a pilot ejects in a cockpit hanging from the hull" {

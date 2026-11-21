@@ -1345,8 +1345,8 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
             frame.tracks[index] = .{};
             frame.easing[index] = .{};
         }
-        // order_eject breaks off the cockpit and plays EJECT01 (0x00415808).
-        if (ejected) game.sound3d.playIn(scene, null, null, index, .eject01, 1, game.sound3d.fxClass(all, index));
+        // order_eject breaks off the cockpit and plays EJECT01 from the abandoned fighter (0x00415808).
+        if (ejected) game.aieject.playSeparation(scene, index);
         if (frame.respawns.note(index, snapshot.clock, ship.respawn) and ship.respawn + game.gameobj.ticks_per_step >= game.deathmatch.respawn.duration)
             game.deathmatch.respawn.sound(scene, index);
         // The pilot's own ship flies by the local simulation's controls; another ship's are the

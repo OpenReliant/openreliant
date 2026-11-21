@@ -199,9 +199,11 @@ burner state from the host. In co-op the launch reaches the Reliant's or Yamato'
 the engine can start. In deathmatch a respawn starts the new ship's engine with the spawn effect
 (`0x004B0DF2`). Ejection and destruction end the old engine and burner. Leaving flight clears
 queued sounds and the current radio and music so they cannot play in the next mission.
-The co-op client plays `EJECT01` from the pod when it first sees separation. The original plays
-it from the abandoned fighter (`0x00415808`). The remaining effect routing is tracked in
-[#1368](https://github.com/OpenReliant/openreliant/issues/1368).
+The original plays `EJECT01` from the abandoned fighter (`0x00415808`), on the guaranteed voices for
+the player. The co-op client has no abandoned fighter, because the host does not send it. It plays
+the sound when it first sees the separation, on the same voices, at the point where the cockpit
+left the ship. **Improvement:** a fixed point stands in for the fighter, which drifts on slowly, so
+the sound does not follow the pod as it shoots away.
 
 **Fix:** a player whose ship starts in space, or launches from any other carrier, flies the whole
 mission without the engine's sound or the afterburner's, since the update does nothing until the

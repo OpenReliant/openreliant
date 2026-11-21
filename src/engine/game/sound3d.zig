@@ -426,7 +426,9 @@ pub fn place(objects: *create.Objects, definition: *const Definition, at: ?Vecto
         },
         .none, _ => return null,
         .object => {
-            const followed = owner orelse return null;
+            // **Improvement:** a caller with no object to follow, such as a client for an
+            // object only the host has, can place the sound at a fixed point instead.
+            const followed = owner orelse return if (at) |point| .{ .position = point } else null;
             if (followed >= objects.slots.len) return null;
             const slot = &objects.slots[followed];
             var position = slot.object.nextPosition();
@@ -1266,6 +1268,19 @@ test "a fighter flying past the camera is heard" {
     try std.testing.expectEqual(900, sound.flybyAt(other, reuse));
     // An object new to the slot hasn't been heard yet.
     try std.testing.expectEqual(0, sound.flybyAt(other, reuse + 1));
+}
+
+test "an object's sound with no object to follow plays at the point given" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const definition = &sounds.definitions[@backingInt(sounds.Sound.eject01)];
+    try std.testing.expectEqual(.object, definition.follows);
+    const placed = place(mission.objects, definition, .{ 1, 2, 3 }, null, null).?;
+    try std.testing.expectEqual(Vector{ 1, 2, 3 }, placed.position);
+    try std.testing.expectEqual(null, placed.object);
+    // With neither an object nor a point, there is nowhere to play it.
+    try std.testing.expectEqual(null, place(mission.objects, definition, null, null, null));
 }
 
 test "attached and queued sounds never follow a replacement object" {

@@ -929,6 +929,41 @@ test "a client's spin-out goes as the host's order does" {
     try std.testing.expect(outs.entries[ship] == null);
 }
 
+test "a client's spin-out carries on past a lost view and drops a replaced ship" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ctx = mission.orders();
+    _ = try mission.add(.of(.predator), @splat(0));
+    const ship = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
+    const slot = &mission.objects.slots[ship];
+    const world = ctx.world;
+    slot.object.flags.exploding = true;
+    const turn: Spin = .{ .left = 150, .trail = 4, .turn = .{ 100, 20, -30 } };
+
+    // A client that joins during the death takes the host's view as it stands.
+    var outs: SpinOuts = .{};
+    mission.clock.frame_start = 100;
+    outs.note(ship, 100, turn);
+    try std.testing.expectEqual(250, outs.entries[ship].?.end);
+    try std.testing.expectEqual(4, outs.entries[ship].?.trail);
+
+    // Views that are lost leave it carrying on from the last, and a later view can only shorten
+    // the client's own trail count, never refill it.
+    mission.clock.frame_start = 120;
+    outs.step(world);
+    try std.testing.expect(outs.entries[ship] != null);
+    outs.entries[ship].?.trail = 2;
+    outs.note(ship, 130, .{ .left = 120, .trail = 3, .turn = turn.turn });
+    try std.testing.expectEqual(2, outs.entries[ship].?.trail);
+    try std.testing.expectEqual(250, outs.entries[ship].?.end);
+
+    // Once the slot's ship is no longer dying, as when a new ship takes the slot, it stops.
+    slot.object.flags.exploding = false;
+    outs.step(world);
+    try std.testing.expect(outs.entries[ship] == null);
+}
+
 test "a halting torpedo's shockwave" {
     const gpa = std.testing.allocator;
     var built: shockwave.testing.Built = try .init(gpa);
