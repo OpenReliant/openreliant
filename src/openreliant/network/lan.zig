@@ -15,9 +15,30 @@ const engine = @import("openreliant").engine;
 const web = engine.web;
 const Connection = engine.game.interface.Connection;
 const identity = @import("identity.zig");
+const session = @import("session.zig");
 
-/// The UDP port hosts listen on for queries, next to the game's own (`session.default_port`).
-pub const port: u16 = 27021;
+/// How far a host's query port is above its game's port. Each host on a machine has a game port
+/// of its own, so their query ports differ too, and a row of game ports next to each other stays
+/// clear of them.
+pub const port_offset = 1000;
+/// The first game port a search covers.
+const first_searched_port: u16 = session.default_port;
+/// How many game ports a search covers, from the first.
+const searched_ports = 8;
+
+/// The UDP port a host listens on for queries about the game on `game_port`, or null where no
+/// port is that high.
+pub fn queryPort(game_port: u16) ?u16 {
+    return std.math.add(u16, game_port, port_offset) catch null;
+}
+
+/// Whether a search finds a game on `game_port`.
+pub fn searched(game_port: u16) bool {
+    return game_port >= first_searched_port and game_port - first_searched_port < searched_ports;
+}
+
+/// The last game port a search covers.
+pub const last_searched_port = first_searched_port + searched_ports - 1;
 /// How long the browser waits for answers to one query.
 const answer_wait_us = 600 * std.time.us_per_ms;
 /// The most games one search lists. The original keeps ten (`directplay_enum_session_callback`).
@@ -249,12 +270,13 @@ pub const Game = struct {
     this_machine_only: bool = false,
 };
 
-/// A host's end: a socket on `port` that answers the browsers' queries.
+/// A host's end: a socket on its game's query port (`queryPort`) that answers the browsers'
+/// queries.
 pub const Responder = struct {
     socket: net.Socket,
 
-    pub fn open(io: Io) !Responder {
-        const any = try net.IpAddress.parse("0.0.0.0", port);
+    pub fn open(io: Io, game_port: u16) !Responder {
+        const any: net.IpAddress = .{ .ip4 = .{ .bytes = @splat(0), .port = queryPort(game_port) orelse return error.NoQueryPort } };
         return .{ .socket = try any.bind(io, .{ .mode = .dgram }) };
     }
 
@@ -347,13 +369,14 @@ const interface_broadcast = 0x2;
 /// The most addresses one search sends its query to.
 const max_targets = 16;
 
-/// Where the browser sends a query: loopback, for a host on this machine; the limited broadcast
-/// address; and each IPv4 network's own broadcast address, since macOS refuses to send to the
-/// limited one ("no route to host"). Windows has no `getifaddrs` but sends to the limited one.
+/// The addresses the browser sends a query to, on each query port: loopback, for a host on this
+/// machine; the limited broadcast address; and each IPv4 network's own broadcast address, since
+/// macOS refuses to send to the limited one ("no route to host"). Windows has no `getifaddrs` but
+/// sends to the limited one.
 fn queryTargets(buffer: *[max_targets]net.IpAddress) []const net.IpAddress {
     var count: usize = 0;
     for ([_][4]u8{ .{ 127, 0, 0, 1 }, @splat(255) }) |bytes| {
-        buffer[count] = .{ .ip4 = .{ .bytes = bytes, .port = port } };
+        buffer[count] = .{ .ip4 = .{ .bytes = bytes, .port = 0 } };
         count += 1;
     }
     if (builtin.os.tag == .windows) return buffer[0..count];
@@ -367,7 +390,7 @@ fn queryTargets(buffer: *[max_targets]net.IpAddress) []const net.IpAddress {
         const address = interface.broadcast orelse continue;
         if (address.family != std.c.AF.INET) continue;
         const ip: *const std.c.sockaddr.in = @ptrCast(@alignCast(address));
-        const target: net.IpAddress = .{ .ip4 = .{ .bytes = @bitCast(ip.addr), .port = port } };
+        const target: net.IpAddress = .{ .ip4 = .{ .bytes = @bitCast(ip.addr), .port = 0 } };
         for (buffer[0..count]) |known| {
             if (known.eql(&target)) break;
         } else {
@@ -400,9 +423,13 @@ const Job = struct {
         // Any of them may fail, such as without a network.
         var targets: [max_targets]net.IpAddress = undefined;
         var reached = false;
-        for (queryTargets(&targets)) |to| {
-            socket.send(io, &to, &packet) catch continue;
-            reached = true;
+        for (queryTargets(&targets)) |address| {
+            for (0..searched_ports) |index| {
+                var to = address;
+                to.setPort(queryPort(first_searched_port + @as(u16, @intCast(index))).?);
+                socket.send(io, &to, &packet) catch continue;
+                reached = true;
+            }
         }
         if (!reached) return error.NetworkUnreachable;
         const end = sent + answer_wait_us;
@@ -487,12 +514,29 @@ test "the local network's addresses" {
 test "a search reaches this machine and the local networks' broadcast addresses" {
     var buffer: [max_targets]net.IpAddress = undefined;
     const targets = queryTargets(&buffer);
-    try std.testing.expect(targets[0].eql(&try net.IpAddress.parse("127.0.0.1", port)));
-    try std.testing.expect(targets[1].eql(&try net.IpAddress.parse("255.255.255.255", port)));
+    try std.testing.expect(targets[0].eql(&try net.IpAddress.parse("127.0.0.1", 0)));
+    try std.testing.expect(targets[1].eql(&try net.IpAddress.parse("255.255.255.255", 0)));
     for (targets[2..], 2..) |target, index| {
-        try std.testing.expectEqual(port, target.getPort());
         for (targets[0..index]) |earlier| try std.testing.expect(!earlier.eql(&target));
     }
+}
+
+test "each game port has a query port of its own, clear of the game ports beside it" {
+    try std.testing.expectEqual(28020, queryPort(session.default_port).?);
+    try std.testing.expectEqual(null, queryPort(65000));
+    try std.testing.expect(searched(session.default_port) and searched(last_searched_port));
+    try std.testing.expect(!searched(session.default_port - 1) and !searched(last_searched_port + 1));
+    // No searched game's query port is another searched game's port.
+    for (first_searched_port..last_searched_port + 1) |game_port| try std.testing.expect(!searched(queryPort(@intCast(game_port)).?));
+}
+
+test "hosts on one machine each answer for their own game" {
+    const io = std.testing.io;
+    var first = Responder.open(io, last_searched_port - 1) catch return error.SkipZigTest;
+    defer first.close(io);
+    var second = Responder.open(io, last_searched_port) catch return error.SkipZigTest;
+    defer second.close(io);
+    try std.testing.expectError(error.NoQueryPort, Responder.open(io, 65000));
 }
 
 test "loopback addresses" {
@@ -553,12 +597,12 @@ test "a wait gives null without a datagram, and outlasts a send to a closed port
 
 test "a host answers a query on loopback, and stays quiet while it takes no one" {
     const io = std.testing.io;
-    var responder = Responder.open(io) catch return error.SkipZigTest;
+    var responder = Responder.open(io, session.default_port) catch return error.SkipZigTest;
     defer responder.close(io);
     const any = try net.IpAddress.parse("127.0.0.1", 0);
     const socket = try any.bind(io, .{ .mode = .dgram });
     defer socket.close(io);
-    const to = try net.IpAddress.parse("127.0.0.1", port);
+    const to = try net.IpAddress.parse("127.0.0.1", queryPort(session.default_port).?);
     const pair = std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(5)) catch unreachable;
     const game: Game = .{ .protocol = 37, .game_port = 27020, .players = 1, .capacity = 8, .key = pair.public_key, .name = "Rook", .mode = "Asteroid Field" };
     var buffer: [max_answer + 1]u8 = undefined;
@@ -581,10 +625,12 @@ test "a host answers a query on loopback, and stays quiet while it takes no one"
 
 test "a search lists a host on this machine" {
     const io = std.testing.io;
-    var responder = Responder.open(io) catch return error.SkipZigTest;
+    // Not the first port, so the search has to cover more than the default.
+    const game_port = session.default_port + 2;
+    var responder = Responder.open(io, game_port) catch return error.SkipZigTest;
     defer responder.close(io);
     const pair = std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(6)) catch unreachable;
-    const game: Game = .{ .protocol = 37, .game_port = 27020, .players = 2, .capacity = 8, .key = pair.public_key, .name = "Rook", .mode = "Tag Bomb" };
+    const game: Game = .{ .protocol = 37, .game_port = game_port, .players = 2, .capacity = 8, .key = pair.public_key, .name = "Rook", .mode = "Tag Bomb" };
     const Host = struct {
         fn answer(listening: *Responder, open: Game) void {
             // The host's loop, answering for longer than the search waits.

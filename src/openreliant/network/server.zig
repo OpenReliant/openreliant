@@ -10,6 +10,7 @@ const Arena = @import("arena.zig");
 const ProjectilePage = wire.ordnance.Page;
 const identity = @import("identity.zig");
 const lan = @import("lan.zig");
+const session = @import("session.zig");
 const HandshakeBudget = @import("handshake_budget").Window(wire.slots);
 const Host = @This();
 const ChatBudget = @import("chat_budget.zig");
@@ -264,7 +265,11 @@ pub fn openDiscovery(host: *Host, address: Io.net.IpAddress, name: []const u8) v
     host.discovery_port = address.getPort();
     host.discovery_name = .of(name);
     host.discovery_this_machine_only = lan.isLoopback(address);
-    host.discovery = lan.Responder.open(host.io) catch |err| no: {
+    if (!lan.searched(address.getPort())) {
+        log.info("LAN lists show games on ports {d} to {d}; join this one by its address", .{ session.default_port, lan.last_searched_port });
+        return;
+    }
+    host.discovery = lan.Responder.open(host.io, address.getPort()) catch |err| no: {
         log.warn("the game won't show in LAN lists: {t}", .{err});
         break :no null;
     };

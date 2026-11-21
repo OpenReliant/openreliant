@@ -54,10 +54,14 @@ players with `EnumPlayers`. Joining a listed game opens its session by its insta
 (`directplay_join_session`, `0x004BC720`).
 
 OpenReliant has no DirectPlay. **Improvement:** it finds LAN games with its own UDP messages, in
-the same way. While the LAN list is shown, the browser sends a query to UDP port 27021 every 1.5
-seconds, and lists the answers that arrive within 0.6 seconds. It sends the query to loopback, to
-the limited broadcast address and to each IPv4 network's own broadcast address, since macOS
-refuses to send to the limited one. A query is padded to 128 bytes. A player-hosted game or a
+the same way. A host listens for queries on its game port plus 1000 (`lan.queryPort`), UDP port
+28020 for the default game port. So several hosts on one machine never share a query port, and a
+row of game ports next to each other stays clear of the query ports. While the LAN list is shown,
+the browser sends a query every 1.5 seconds to the query ports of game ports 27020 to 27027, and
+lists the answers that arrive within 0.6 seconds. A host on another game port stays out of the
+lists and is joined by its address. The browser sends the query to loopback, to the limited
+broadcast address and to each IPv4 network's own broadcast address, since macOS refuses to send to
+the limited one. A query is padded to 128 bytes. A player-hosted game or a
 dedicated server answers from its host loop while it has a place for a new pilot, and only to
 senders on the local network (loopback, the private IPv4 ranges, link-local and unique local IPv6
 addresses). A host bound to loopback answers only queries from the same machine. The answer is
