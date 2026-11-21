@@ -837,7 +837,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer if (network_enabled) network_pilot.stop(presentation);
     var directory_browser: Directory = .{};
     defer directory_browser.close();
-    const directory_servers = settings_file.profile.value("OpenReliant", "DirectoryServers") orelse "";
+    const directory_servers = settings_file.profile.value("OpenReliant", "DirectoryServers") orelse Directory.default_origin;
     var was_connection = false;
     var front: engine.genilib.interf.Interface = .{
         .pilot = .{ .difficulty = options.difficulty orelse .easy },

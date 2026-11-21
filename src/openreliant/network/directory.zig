@@ -10,6 +10,8 @@ const Page = struct {
     listings: []const Listing,
     next: ?usize,
 };
+
+pub const default_origin = "https://directory.openreliant.space";
 const Listing = struct {
     key: []const u8,
     session: []const u8,
