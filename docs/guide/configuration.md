@@ -308,6 +308,10 @@ Open **Multi Player** from the main menu. Under **Direct Connect**, type the ser
 For IPv6 with a port, use brackets, for example `[2001:db8::1]:27200`. The client opens
 one encrypted connection to the address. Pilots need no credential files.
 
+Games hosted on your local network appear under **LAN** in the same screen. Select one and
+choose **Join Game**. The list searches UDP port 27021, so a firewall on the host must allow it
+for the game to show. You can always join a LAN game by its IP address under **Direct Connect**.
+
 In Nuclear Threat, use your usual **Fire Lasers** control. The host advances the guns, applies
 hits and updates each pilot's shields, armour and kill count. When a carrier is destroyed, their
 beacons drop at the wreck. The pilot respawns in the fighter they chose and keeps their score.

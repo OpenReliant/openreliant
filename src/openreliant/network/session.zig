@@ -8,6 +8,7 @@ const Host = @import("server.zig");
 const LaunchWait = @import("launch_wait.zig");
 const Metrics = @import("metrics.zig");
 const Advertiser = @import("advertise.zig");
+const lan = @import("lan.zig");
 const HeadlessUpdates = @import("headless_updates.zig");
 pub const Client = @import("client.zig");
 
@@ -114,6 +115,13 @@ pub const LocalGame = struct {
         const address = try std.fmt.bufPrintSentinel(&address_buffer, "[::]:{d}", .{port}, 0);
         try game.host.open(address, null);
         errdefer game.host.close();
+        // Players on the local network find the game in their LAN list (`lan.Responder`).
+        game.host.discovery_port = port;
+        game.host.discovery_name = .of(call_sign.slice());
+        game.host.discovery = lan.Responder.open(io) catch |err| no: {
+            std.log.warn("the game won't show in LAN lists: {t}", .{err});
+            break :no null;
+        };
         var server_end: net.Connection = 0;
         var client_end: net.Connection = 0;
         if (!net.session_local_pair(&server_end, &client_end)) return error.ConnectFailed;

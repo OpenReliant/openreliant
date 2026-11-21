@@ -2383,6 +2383,17 @@ address	kind	name	type	comment
 00524c94	data	mp_lobby_game_name	char[200]	The session title edited in the co-op host screen and sent to the guests
 0044cb60	function	session_loadout_draw	void (void)	Draws the deathmatch setup and lobby on the same screen, with the ship, scenario, players and chat
 004bc550	function	directplay_create_session		Opens a DirectPlay session with the name in ECX, creates the local player with the call sign in EDX and enumerates the players. Both pre-match screens call it on entry for the host. The session admits four pilots in co-op and eight in deathmatch (0x004BC5D3).
+004bc470	function	directplay_enum_sessions	int (void)	Asks DirectPlay for the sessions of the game's application GUID (0x004DCAB8) through EnumSessions (vtable +0x34), with flags 0x91: available sessions only, asynchronous, and returning the status. It empties dp_session_count first, and directplay_enum_session_callback fills the list again. multiplayer_connection_screen calls it each frame while the list is shown
+004bc320	function	directplay_enum_session_callback	int __stdcall (void *session, uint *timeout, uint flags, void *context)	EnumSessions' callback. It stops on a timeout (flags bit 0). Otherwise it copies the session's 0x50-byte DPSESSIONDESC2 into dp_sessions and its name into dp_session_names, up to 10 sessions, and asks for more
+004bc4f0	function	directplay_count_session_players	void (void)	Counts the players of each session in dp_sessions through EnumPlayers (vtable +0x30) and directplay_count_player_callback, into dp_session_player_counts
+004b59e0	function	directplay_count_player_callback	int __stdcall (uint id, uint type, void *name, uint flags, void *context)	EnumPlayers' callback for directplay_count_session_players: adds one to dp_enum_player_count
+004bc720	function	directplay_join_session	int (uint guid0, uint guid1, uint guid2, uint guid3)	Finds the session with this instance GUID in dp_sessions and joins it with Open (vtable +0x60, DPOPEN_JOIN), trying again while DirectPlay answers DPERR_CONNECTING, then creates the local player. Returns 0 on success
+005dcc90	data	directplay	void *	The IDirectPlay4A object DPInit creates
+005dcc94	data	dp_enum_player_count	int	Players counted by directplay_count_player_callback
+005dd53c	data	dp_session_player_counts	int[10]	The player count of each session in dp_sessions
+005dd568	data	dp_session_count	int	How many sessions dp_sessions holds, at most 10
+005dd56c	data	dp_session_names	byte[640]	The names of the sessions in dp_sessions, 0x40 bytes each
+005dd7f0	data	dp_sessions	byte[800]	The sessions EnumSessions found: up to ten DPSESSIONDESC2 records of 0x50 bytes
 0043ca50	function	multiplayer_sessions_screen	int (void)	Screens 10 and 11 of interface_run, the multiplayer sessions, by 0x0051D54C: interface\mulfade.tga behind them, interface\frntend3.spr, and tooltips of the game's strings (tooltips_init with 1)
 0044b950	function	session_loadout_screen	int (void)	Screens 17 and 18 of interface_run, a multiplayer session's loadout, by 0x0051D54C, with the multiplayer scenarios (dm_scenarios) and tooltips of the game's strings (tooltips_init with 1)
 00475a60	function	pickup_count	int (void)	Counts a pickup of the ejected pilot by a nanny ship (0x00562ED4): 1 once there have been more than two, which WinMain follows with a transfer's movie; else 0, the count kept for the mission (0x00562E9A)

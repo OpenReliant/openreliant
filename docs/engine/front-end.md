@@ -40,11 +40,37 @@ mission. Keyboard, mouse and controller input use the usual flight bindings. The
 applies those commands and sends back speed, throttle, fuel and objective counts for the
 HUD. Escape leaves the server.
 
+### LAN games
+
+The original lists the games on the local network through DirectPlay.
+`directplay_enum_sessions` (`0x004BC470`) asks for the sessions of the game's application GUID
+(`0x004DCAB8`) with `EnumSessions`. Its flags (`0x91`) ask for the sessions that take new players
+only, and run the search in the background, so `multiplayer_connection_screen` calls it every
+frame to read the latest results. `directplay_enum_session_callback` (`0x004BC320`) copies each
+session's description (`DPSESSIONDESC2`, `0x50` bytes) into `dp_sessions` (`0x005DD7F0`) and its
+name into `dp_session_names` (`0x005DD56C`), up to ten sessions (`dp_session_count`,
+`0x005DD568`). `directplay_count_session_players` (`0x004BC4F0`) then counts each session's
+players with `EnumPlayers`. Joining a listed game opens its session by its instance GUID
+(`directplay_join_session`, `0x004BC720`).
+
+OpenReliant has no DirectPlay. **Improvement:** it finds LAN games with its own UDP messages, in
+the same way. While the LAN list is shown, the browser sends a query to UDP port 27021 on the
+broadcast address and on loopback, every 1.5 seconds, and lists the answers that arrive within
+0.6 seconds. A query is padded to 128 bytes. A player-hosted game answers from its host loop
+while it has a place for a new pilot, and only to senders on the local network (loopback, the
+private IPv4 ranges, link-local and unique local IPv6 addresses). The answer is never larger than
+the query. It holds the protocol revision, the game's port, the players and places, the host's
+public key, the host's call sign as the game's name, and the mode. The list shows each host
+once, as an invite to its game port, with the time the answer took as its ping. It holds up to
+64 games. Dedicated servers don't answer: they are listed through the directory, or joined by
+address. **Unverified:** IPv6-only networks, since the query goes to the IPv4 broadcast address.
+
 ### Session lobby
 
 **Host** opens a game type chooser. **Deathmatch** opens the lobby immediately, starts a LAN
 listener on UDP port 27020 and reserves a place for the local pilot. **Co-op** opens a lobby for
-the campaign with four seats. Friends use Direct Connect with the host's LAN IP. The lobby shows
+the campaign with four seats. Friends on the local network find the game in the LAN list
+([LAN games](#lan-games)), or use Direct Connect with the host's LAN IP. The lobby shows
 them the same roster and writes their own callsign in white. In co-op, guests click **Ready**.
 The host can select **Start Game** once at least two pilots are present and all guests are ready.
 The co-op host can select a guest in the roster and remove them from the lobby.
