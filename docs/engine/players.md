@@ -323,9 +323,12 @@ and admission, so a replacement in the same slot starts with its own count. See
 
 Both host paths bind mission 82 from the installed game and run its script on the host. Its
 `ResetToSpawnPositions` command (`0x004591B0`) selects the arena rules. The host builds each
-admitted pilot's fighter and chooses a free spawn marker (`0x004AF1D0`). The first host pilot
-starts at the first marker. Later spawns use the original collision margin of 1.2 times the
-sum of the radii. The ship starts with half its afterburner fuel and empty missile racks.
+admitted pilot's fighter and chooses a free spawn marker (`0x004AF1D0`). A pilot's first ship
+in a round goes to the marker with their slot's number: `mp_arena_init` (`0x004AE860`) sets a
+flag (`0x005DAE50`) for it, which the first spawn clears. Later spawns take a free marker at
+random. A marker is free when no pilot's ship is nearer than 1.2 times the sum of that ship's
+radius and the new ship's. The ship starts with half its afterburner fuel and empty missile
+racks.
 
 `mp_arena_init` (0x004AE860) copies the lobby's AI Turrets and Target Players settings into the round.
 With AI Turrets off, `multiplayer_list_spawns` (0x004AF5C0) disables guns on non-player objects

@@ -2105,6 +2105,20 @@ fn eachComponent(model: *objects.Model, visitor: anytype) bool {
 /// How far `create_object` has a part's `startup` track move on each simulation step.
 const startup_speed: f32 = 4;
 
+/// The radius `create_object` gives an object of `ship_type`, before one is made: that of the
+/// type's model with its parts linked, as `createObject` works it out. Null for a type with no
+/// model.
+pub fn typeRadius(all: *Objects, types: Types, ship_type: gameobj.Type) Error!?f32 {
+    const use = &all.types[ship_type.number()];
+    if (use.objects == 0 and use.loaded == null) use.loaded = types.load(types.context, @intCast(ship_type.number()));
+    const loaded = use.loaded orelse return null;
+    var model: objects.Model = try .create(all.gpa, loaded.model, loaded.loaded, loaded.effects);
+    defer model.deinit(all.gpa);
+    startUp(&model);
+    gameobj.linkParts(&model, loaded.model);
+    return model.radius;
+}
+
 /// What `create_object` starts on each part it adds: the part's `startup` track, from its start,
 /// as the track says to play it, at 4 a step. The parts are linked after, so each starts from
 /// where its `startup` track has it.

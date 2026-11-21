@@ -133,7 +133,9 @@ pub const original: std.EnumArray(Scenario, Record) = .init(.{
         .mission = 83,
         .strings = .{ .name = 0x2B2, .description = 0x2B8, .teams = 0x2BE },
         .teams = .most_frags,
-        .rules = .{ .tag_bomb = .{ .fuse = 4500, .detonation_frags = 3 } },
+        // `tag_bomb_init` (`0x004B4340`) and `tag_bomb_pilot_destroyed` (`0x004B4460`) set 0x1130
+        // ticks. The display adds a second, so it starts at 45.
+        .rules = .{ .tag_bomb = .{ .fuse = 4400, .detonation_frags = 3 } },
         .name = "Tag Bomb",
         .description = "The first pilot destroyed respawns with an active bomb. Hit another pilot with your guns to pass it before your timer expires.",
     },

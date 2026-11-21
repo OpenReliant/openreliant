@@ -67,6 +67,9 @@ const Pilot = struct {
     loadout: ?wire.CampaignLoadout = null,
     // Keep the last pose while an admitted pilot waits for a free spawn marker.
     last_ship: ?wire.Ship = null,
+    /// Whether the pilot has yet to get a ship in this round. Their first goes to the marker
+    /// with their slot's number (`spawn.reset`).
+    first_spawn: bool = true,
 };
 const Notice = union(enum) {
     beacon: game.deathmatch.six_beacons.Notice,
@@ -192,6 +195,7 @@ fn carryAdmissions(next: *Arena, staging: *const Arena) void {
     for (&next.pilots, all.player_states[0..wire.slots]) |*entry, *state| {
         if (entry.*) |*pilot| {
             pilot.last_ship = null;
+            pilot.first_spawn = true;
             state.* = .{ .membership = .{ .joined = .{ .generation = pilot.participant.generation } } };
         }
     }
@@ -421,8 +425,9 @@ pub fn join(arena: *Arena, slot: u8, fighter: wire.Fighter) !wire.Admission {
     const participant = scene.objects.joinParticipant(slot) orelse return error.JoinFailed;
     // A failed spawn never entered the match. Running departure rules here could reset Vampires.
     errdefer scene.objects.player_states[slot] = .{ .membership = .vacant };
-    const pilot: Pilot = .{ .participant = participant, .fighter = fighter };
+    var pilot: Pilot = .{ .participant = participant, .fighter = fighter };
     try arena.spawnPilot(pilot, true);
+    pilot.first_spawn = false;
     arena.pilots[slot] = pilot;
     return .{ .slot = slot, .generation = participant.generation };
 }
@@ -430,7 +435,7 @@ pub fn join(arena: *Arena, slot: u8, fighter: wire.Fighter) !wire.Admission {
 fn spawnPilot(arena: *Arena, pilot: Pilot, first: bool) !void {
     const scene = arena.world();
     const slot = pilot.participant.slot;
-    if (arena.assets != null) return game.deathmatch.spawn.reset(scene, pilot.participant, pilot.fighter.kind(), if (first and slot == 0) slot else null);
+    if (arena.assets != null) return game.deathmatch.spawn.reset(scene, pilot.participant, pilot.fighter.kind(), if (first) slot else null);
     game.create.resetSlot(.of(scene), slot);
     try arena.createShip(@intCast(slot), pilot.fighter);
     errdefer game.create.resetSlot(.of(scene), slot);
@@ -520,10 +525,11 @@ pub fn step(arena: *Arena, tick: u32) !wire.Snapshot {
         for (&arena.pilots) |*entry| {
             const pilot = entry.* orelse continue;
             if (arena.mission.objects.playerBinding(pilot.participant.slot) != null) continue;
-            arena.spawnPilot(pilot, false) catch |err| switch (err) {
+            arena.spawnPilot(pilot, pilot.first_spawn) catch |err| switch (err) {
                 error.NoFreeSpawn => continue,
                 else => return err,
             };
+            entry.*.?.first_spawn = false;
         }
     }
     if (arena.campaign) |campaign| {
