@@ -681,7 +681,8 @@ fn service(host: *Host, slot: u8, time: i64) !void {
     if (peer.state == .connecting or peer.state == .closing) return;
     var buf: [wire.capacity]u8 = undefined;
     for (0..packets_per_tick) |_| {
-        const message = host.channel().receive(peer.conn, &buf) catch {
+        const message = host.channel().receive(peer.conn, &buf) catch |err| {
+            log.warn("a playing pilot's connection failed: {t}", .{err});
             host.remove(slot, host.final_tick == null, .rejected);
             return;
         } orelse break;
