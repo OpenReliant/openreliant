@@ -1,5 +1,82 @@
 # Changelog
 
+## [1.1.0](https://github.com/OpenReliant/openreliant/compare/v1.0.1...v1.1.0) (2026-11-21)
+
+
+### Features
+
+* add host-relayed multiplayer chat ([#1465](https://github.com/OpenReliant/openreliant/issues/1465)) ([4cbfc21](https://github.com/OpenReliant/openreliant/commit/4cbfc215e41ff24db9a20a0e86ebf39bc58267c0))
+* add the multiplayer pause screen ([#1466](https://github.com/OpenReliant/openreliant/issues/1466)) ([5713ee9](https://github.com/OpenReliant/openreliant/commit/5713ee9570f1491f295036d29b4c6f22afff6be1)), closes [#211](https://github.com/OpenReliant/openreliant/issues/211)
+* advertise and browse public multiplayer servers ([#1498](https://github.com/OpenReliant/openreliant/issues/1498)) ([f15461a](https://github.com/OpenReliant/openreliant/commit/f15461a2b58546a5c0b17d8d472f58b9735e3a66))
+* apply the original Uber blast rules in host arenas ([#1415](https://github.com/OpenReliant/openreliant/issues/1415)) ([347e5dd](https://github.com/OpenReliant/openreliant/commit/347e5ddecb494f65ca105af7255b99384bc3c13c)), closes [#1412](https://github.com/OpenReliant/openreliant/issues/1412)
+* credit co-op kills to the pilot who dealt the damage ([#1399](https://github.com/OpenReliant/openreliant/issues/1399)) ([5c32bd2](https://github.com/OpenReliant/openreliant/commit/5c32bd248c37b6dd1d4c050fe52c579fb213c931)), closes [#1397](https://github.com/OpenReliant/openreliant/issues/1397)
+* draw the original rings around random arena power-ups ([#1425](https://github.com/OpenReliant/openreliant/issues/1425)) ([43dbadb](https://github.com/OpenReliant/openreliant/commit/43dbadb4064e33452e522100ce02460b8c245819)), closes [#1424](https://github.com/OpenReliant/openreliant/issues/1424)
+* expose participant identity to mission scripts ([#1409](https://github.com/OpenReliant/openreliant/issues/1409)) ([118b803](https://github.com/OpenReliant/openreliant/commit/118b803d99189037dc090b11acf9147fd4bdcbde)), closes [#1380](https://github.com/OpenReliant/openreliant/issues/1380)
+* finish the deathmatch round and lobby cycle ([#1494](https://github.com/OpenReliant/openreliant/issues/1494)) ([595a1ca](https://github.com/OpenReliant/openreliant/commit/595a1ca75ae95402fb7b9b066a5beada185e3122))
+* finish the retail co-op campaign cinematics ([#1492](https://github.com/OpenReliant/openreliant/issues/1492)) ([d0f7456](https://github.com/OpenReliant/openreliant/commit/d0f745618cceff2d8661777bb0ef5be3c8281977)), closes [#1489](https://github.com/OpenReliant/openreliant/issues/1489)
+* fly multiplayer ships with the normal flight controls ([#1454](https://github.com/OpenReliant/openreliant/issues/1454)) ([75e3cd0](https://github.com/OpenReliant/openreliant/commit/75e3cd0d28db08a727b0d05eef681790a5e6e72b))
+* host a LAN game from the multiplayer lobby ([#1455](https://github.com/OpenReliant/openreliant/issues/1455)) ([2668d06](https://github.com/OpenReliant/openreliant/commit/2668d069a6bdedfafbcc01f29139008d559c3df1))
+* host arena missile and countermeasure combat ([#1459](https://github.com/OpenReliant/openreliant/issues/1459)) ([724305d](https://github.com/OpenReliant/openreliant/commit/724305de4aa64a98529760fb1b8d6b4d8338e417))
+* host Asteroid Field and show arena standings ([#1458](https://github.com/OpenReliant/openreliant/issues/1458)) ([c8f9dc0](https://github.com/OpenReliant/openreliant/commit/c8f9dc0dfc907f2cce7fad293fb17d39804d3352))
+* host primary gun combat in Nuclear Threat ([#1457](https://github.com/OpenReliant/openreliant/issues/1457)) ([82b5f90](https://github.com/OpenReliant/openreliant/commit/82b5f903f3b3be45f8965166b1f948a0653dd051))
+* host the original Asteroid Field power-ups ([#1462](https://github.com/OpenReliant/openreliant/issues/1462)) ([c2038db](https://github.com/OpenReliant/openreliant/commit/c2038db3ecd0e2121271c32917e1912c9dd7cc4c))
+* host the stock Dark Reign arena ([#1468](https://github.com/OpenReliant/openreliant/issues/1468)) ([b92c68d](https://github.com/OpenReliant/openreliant/commit/b92c68d7d7f4cb4a794fe8a38fc52c19795b37f6)), closes [#1467](https://github.com/OpenReliant/openreliant/issues/1467)
+* host the stock Hunt the Shadow arena ([#1473](https://github.com/OpenReliant/openreliant/issues/1473)) ([8c06554](https://github.com/OpenReliant/openreliant/commit/8c06554a1f1982a382d1610a3c68de02532fa0f3)), closes [#1471](https://github.com/OpenReliant/openreliant/issues/1471)
+* host the stock Nuclear Threat mission ([#1456](https://github.com/OpenReliant/openreliant/issues/1456)) ([92e7408](https://github.com/OpenReliant/openreliant/commit/92e74081587f9271b18ebbd6cd050c5e200f00e0)), closes [#554](https://github.com/OpenReliant/openreliant/issues/554) [#1416](https://github.com/OpenReliant/openreliant/issues/1416)
+* host the stock Tag Bomb arena ([#1470](https://github.com/OpenReliant/openreliant/issues/1470)) ([beb6c18](https://github.com/OpenReliant/openreliant/commit/beb6c18bfb9030c70ae50d717f76e033f8ef4f98)), closes [#1469](https://github.com/OpenReliant/openreliant/issues/1469)
+* host the stock Vampires arena ([#1475](https://github.com/OpenReliant/openreliant/issues/1475)) ([d2afab8](https://github.com/OpenReliant/openreliant/commit/d2afab8243943dbc6f73be2803a9a194684cf474)), closes [#1474](https://github.com/OpenReliant/openreliant/issues/1474)
+* join dedicated arenas from the multiplayer browser ([#1452](https://github.com/OpenReliant/openreliant/issues/1452)) ([8012a99](https://github.com/OpenReliant/openreliant/commit/8012a99bde1cbed06ad2b0a4c82feca765b6c7e6))
+* join headless games by IP or invite ([#1451](https://github.com/OpenReliant/openreliant/issues/1451)) ([4333f5f](https://github.com/OpenReliant/openreliant/commit/4333f5f27e2c408984966748fbd6cfd3edb1e9b8))
+* link to Discord from the website ([#1482](https://github.com/OpenReliant/openreliant/issues/1482)) ([46275bd](https://github.com/OpenReliant/openreliant/commit/46275bd8cca10653aa7783c1a684cd20c73e4904))
+* match the stock arena rules and HUD ([#1463](https://github.com/OpenReliant/openreliant/issues/1463)) ([11b4bd5](https://github.com/OpenReliant/openreliant/commit/11b4bd5a0198beccb7f171a9d29d6423b6cdfa91)), closes [#1461](https://github.com/OpenReliant/openreliant/issues/1461)
+* resolve co-op friendly-fire recalls on the host ([#1402](https://github.com/OpenReliant/openreliant/issues/1402)) ([e11daa1](https://github.com/OpenReliant/openreliant/commit/e11daa1efa7f56e07f65f6f7b57073c7db39b8c3)), closes [#1395](https://github.com/OpenReliant/openreliant/issues/1395)
+* restore co-op endings and campaign movies ([#1490](https://github.com/OpenReliant/openreliant/issues/1490)) ([992d71c](https://github.com/OpenReliant/openreliant/commit/992d71caf7f916297593526c073255a950498ddf)), closes [#1483](https://github.com/OpenReliant/openreliant/issues/1483) [#1401](https://github.com/OpenReliant/openreliant/issues/1401)
+* restore retail multiplayer setup controls ([#1495](https://github.com/OpenReliant/openreliant/issues/1495)) ([ccd81a8](https://github.com/OpenReliant/openreliant/commit/ccd81a80ba0811187de43a785f716299f08b5707)), closes [#404](https://github.com/OpenReliant/openreliant/issues/404) [#813](https://github.com/OpenReliant/openreliant/issues/813)
+* restore the retail multiplayer setup screens ([#1487](https://github.com/OpenReliant/openreliant/issues/1487)) ([8621376](https://github.com/OpenReliant/openreliant/commit/862137620516805cef402456a47e7bb206e9a832))
+* run authenticated direct-IP sessions in OpenReliant ([#1446](https://github.com/OpenReliant/openreliant/issues/1446)) ([083a37c](https://github.com/OpenReliant/openreliant/commit/083a37c9354f2409470f08b431ae68944c930e89))
+* run dedicated deathmatch rounds with optional metrics ([#1496](https://github.com/OpenReliant/openreliant/issues/1496)) ([8301f93](https://github.com/OpenReliant/openreliant/commit/8301f9394d11d88240bef206556cad36859e97bd))
+* run Six Beacons on the arena host ([#1417](https://github.com/OpenReliant/openreliant/issues/1417)) ([1ac5850](https://github.com/OpenReliant/openreliant/commit/1ac58509caae8bee0667886ca00941a3e68d6d09)), closes [#1414](https://github.com/OpenReliant/openreliant/issues/1414)
+* run the single-player simulation on multiplayer clients ([#1502](https://github.com/OpenReliant/openreliant/issues/1502)) ([2e189c4](https://github.com/OpenReliant/openreliant/commit/2e189c415b849394e1748e5f61fb69948a63ae20))
+* save and resume co-op campaigns ([#1488](https://github.com/OpenReliant/openreliant/issues/1488)) ([5351cd9](https://github.com/OpenReliant/openreliant/commit/5351cd9099360c11af98e303d750bb1156d8d20c)), closes [#475](https://github.com/OpenReliant/openreliant/issues/475) [#804](https://github.com/OpenReliant/openreliant/issues/804)
+* score arena kills and deaths on the host ([#1413](https://github.com/OpenReliant/openreliant/issues/1413)) ([d3af3d0](https://github.com/OpenReliant/openreliant/commit/d3af3d06b2a5f637edb62943ffbff7df36a8d356)), closes [#1398](https://github.com/OpenReliant/openreliant/issues/1398)
+* share the flight HUD with multiplayer clients ([#1453](https://github.com/OpenReliant/openreliant/issues/1453)) ([e1398ee](https://github.com/OpenReliant/openreliant/commit/e1398eec3740206bc92f5f6a83eaae9d68b4101a))
+* show arena fighter breakup and pilot notices ([#1464](https://github.com/OpenReliant/openreliant/issues/1464)) ([5a2619b](https://github.com/OpenReliant/openreliant/commit/5a2619b3ac3ddf0342d623ea4e4e273edfc6af7d)), closes [#1460](https://github.com/OpenReliant/openreliant/issues/1460) [#1442](https://github.com/OpenReliant/openreliant/issues/1442)
+* show beacon counts beside targeted pilots ([#1419](https://github.com/OpenReliant/openreliant/issues/1419)) ([93b546e](https://github.com/OpenReliant/openreliant/commit/93b546e71b8b464300c879a2113c030333d718f2)), closes [#1418](https://github.com/OpenReliant/openreliant/issues/1418)
+* show local and target window counts in Six Beacons ([#1422](https://github.com/OpenReliant/openreliant/issues/1422)) ([c778a0a](https://github.com/OpenReliant/openreliant/commit/c778a0a152e194e7985db7d55e1f1f802306f4eb)), closes [#1420](https://github.com/OpenReliant/openreliant/issues/1420)
+* show session pilot names on the target HUD ([#1423](https://github.com/OpenReliant/openreliant/issues/1423)) ([d73dcbf](https://github.com/OpenReliant/openreliant/commit/d73dcbfdef61506aef0a295a5d932603631e3924)), closes [#1421](https://github.com/OpenReliant/openreliant/issues/1421)
+* start a headless Six Beacons host from server.ini ([#1450](https://github.com/OpenReliant/openreliant/issues/1450)) ([d791208](https://github.com/OpenReliant/openreliant/commit/d791208c5fa096f9270712d52c6d87073f6b98aa))
+* track arena teams for admitted pilots ([#1411](https://github.com/OpenReliant/openreliant/issues/1411)) ([34cdbaf](https://github.com/OpenReliant/openreliant/commit/34cdbaf890201f69510a7082b4fc0e42397cc96f)), closes [#1410](https://github.com/OpenReliant/openreliant/issues/1410)
+
+
+### Fixes
+
+* apply smart targeting for the pilot who fired ([#1444](https://github.com/OpenReliant/openreliant/issues/1444)) ([5f3b3e1](https://github.com/OpenReliant/openreliant/commit/5f3b3e1960a5afdd9e10c10edf43d053750c230c)), closes [#1434](https://github.com/OpenReliant/openreliant/issues/1434)
+* bound incoming connections and handshake starts on probe hosts ([#1440](https://github.com/OpenReliant/openreliant/issues/1440)) ([bad19ba](https://github.com/OpenReliant/openreliant/commit/bad19ba108759a99946d3070eb71279cb32010bb)), closes [#1439](https://github.com/OpenReliant/openreliant/issues/1439)
+* carry a spinning fighter's trail on clients and ease the respawn swoop ([#1503](https://github.com/OpenReliant/openreliant/issues/1503)) ([c1f5552](https://github.com/OpenReliant/openreliant/commit/c1f5552b03664e2d70f3ce9199b46e718f58bc36))
+* **coop:** own scripted scanner state per pilot ([#1504](https://github.com/OpenReliant/openreliant/issues/1504)) ([9780a00](https://github.com/OpenReliant/openreliant/commit/9780a0022c1124b313afad54825880f4210cd86d)), closes [#1367](https://github.com/OpenReliant/openreliant/issues/1367)
+* **coop:** play EJECT01 where the cockpit separates on clients ([#1505](https://github.com/OpenReliant/openreliant/issues/1505)) ([537bfc6](https://github.com/OpenReliant/openreliant/commit/537bfc6768e80dfc58c62a2f8c6afcb999e27181)), closes [#1368](https://github.com/OpenReliant/openreliant/issues/1368)
+* isolate failed arena joins and validate pilot target identity ([#1433](https://github.com/OpenReliant/openreliant/issues/1433)) ([1ad7537](https://github.com/OpenReliant/openreliant/commit/1ad7537e1b7574f4294e33fe8f01e58f967641af)), closes [#1431](https://github.com/OpenReliant/openreliant/issues/1431)
+* keep attachments and retreat orders tied to their original objects ([#1445](https://github.com/OpenReliant/openreliant/issues/1445)) ([fdd00d7](https://github.com/OpenReliant/openreliant/commit/fdd00d77456567cd3884b7cc85cf74e83aa61045)), closes [#946](https://github.com/OpenReliant/openreliant/issues/946)
+* keep combat attribution tied to original objects ([#1358](https://github.com/OpenReliant/openreliant/issues/1358)) ([ffcb617](https://github.com/OpenReliant/openreliant/commit/ffcb617a2852cfe6eab629b4ac0f76145bac8ef2)), closes [#1352](https://github.com/OpenReliant/openreliant/issues/1352)
+* keep delayed hits tied to the pilot who fired them ([#1436](https://github.com/OpenReliant/openreliant/issues/1436)) ([ab16e17](https://github.com/OpenReliant/openreliant/commit/ab16e17008e08881068cadc3bb0f836d259d094c)), closes [#1435](https://github.com/OpenReliant/openreliant/issues/1435)
+* keep presentation subjects tied to their original objects ([#1359](https://github.com/OpenReliant/openreliant/issues/1359)) ([f0b47e6](https://github.com/OpenReliant/openreliant/commit/f0b47e6b52c5f22976a8a17954891f29bf8be7ec)), closes [#1353](https://github.com/OpenReliant/openreliant/issues/1353)
+* keep projectile candidates and blast victims tied to original objects ([#1360](https://github.com/OpenReliant/openreliant/issues/1360)) ([6a0679f](https://github.com/OpenReliant/openreliant/commit/6a0679fc4e605df41dadef8df3470e8d8116a39f)), closes [#1357](https://github.com/OpenReliant/openreliant/issues/1357)
+* keep screenshot runs off the desktop ([#1387](https://github.com/OpenReliant/openreliant/issues/1387)) ([a629369](https://github.com/OpenReliant/openreliant/commit/a629369947366366413fb99b04bdbd8b520f5ecb)), closes [#1385](https://github.com/OpenReliant/openreliant/issues/1385)
+* keep targets tied to their original objects ([#1355](https://github.com/OpenReliant/openreliant/issues/1355)) ([ceacb78](https://github.com/OpenReliant/openreliant/commit/ceacb78e9becd37c0a4457c54857994a58c6dcb9)), closes [#1351](https://github.com/OpenReliant/openreliant/issues/1351)
+* preserve arena state across joins, respawns and HUD updates ([#1477](https://github.com/OpenReliant/openreliant/issues/1477)) ([befd21c](https://github.com/OpenReliant/openreliant/commit/befd21c375f04445c992bd98b4dfb45b9f90463e)), closes [#1476](https://github.com/OpenReliant/openreliant/issues/1476)
+* preserve camera selections and refresh component highlights ([#1364](https://github.com/OpenReliant/openreliant/issues/1364)) ([eae2ead](https://github.com/OpenReliant/openreliant/commit/eae2ead1fb7a195b7bdf31f3ddfcdd1f6384cb7e)), closes [#1361](https://github.com/OpenReliant/openreliant/issues/1361) [#1362](https://github.com/OpenReliant/openreliant/issues/1362) [#1363](https://github.com/OpenReliant/openreliant/issues/1363)
+* restore retail multiplayer flight audio ([#1493](https://github.com/OpenReliant/openreliant/issues/1493)) ([e2c0ef7](https://github.com/OpenReliant/openreliant/commit/e2c0ef7ec901980e27d277ba5143c8e8e56b941a)), closes [#1491](https://github.com/OpenReliant/openreliant/issues/1491)
+
+
+### Performance
+
+* buffer metrics scrapes and count slow simulation ticks ([#1497](https://github.com/OpenReliant/openreliant/issues/1497)) ([6a0a209](https://github.com/OpenReliant/openreliant/commit/6a0a209a2e72f27b36d0a553f3e0a53a830464bf))
+
+
+### Documentation
+
+* move the website to openreliant.space ([#1500](https://github.com/OpenReliant/openreliant/issues/1500)) ([e3326e8](https://github.com/OpenReliant/openreliant/commit/e3326e8f969be453051b7f0f57c19380fe737a13))
+
 ## [1.0.1](https://github.com/OpenReliant/openreliant/compare/v1.0.0...v1.0.1) (2026-11-16)
 
 
