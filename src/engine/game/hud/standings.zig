@@ -198,6 +198,7 @@ pub fn drawLoading(pen: hud.Pen, rows: []const LoadingRow, art: ?*hud.Art, label
         const y: f32 = @floatFromInt(first_row - 1 + @as(i32, @intCast(at)) * row_height);
         var fallback: [72]u8 = undefined;
         const name = if (row.name.len > 0) row.name else std.fmt.bufPrint(&fallback, "{s} {d}", .{ pilot, at + 1 }) catch pilot;
+        try placement.number(headings, rank_x, y, at + 1, heading_colour);
         try placement.text(pen, pilot_x, y, name, row_colour, .left, pilot_width);
         if (row.ready)
             try placement.text(pen, ping_x, y, ready, row_colour, .centre, tally_width);

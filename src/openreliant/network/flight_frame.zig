@@ -110,6 +110,7 @@ host_mines: [powerups.mine_count]?u32 = @splat(null),
 shot_ended_at: [game.guns.max_bullets]i32 = @splat(-1),
 wreck_seen_at: [wire.slots]i32 = @splat(-1),
 death_view: ?DeathView = null,
+spin_outs: game.aiexplode.SpinOuts = .{},
 eject_view: ?struct { started: i32, offset: engine.surrender.math.Vector } = null,
 ending_scene: ?EndingScene = null,
 effect_tick: ?i32 = null,
@@ -690,6 +691,7 @@ pub fn world(frame: *FlightFrame) game.gameobj.World {
         .random = &frame.random,
         .clock = &frame.drawn.clock,
         .presentation_only = true,
+        .spin_outs = &frame.spin_outs,
         .shake = &frame.drawn.shake,
         .sounds = if (frame.audio) |audio| audio.commands else null,
         .radio = if (frame.drawn.radio) |*radio| radio else null,
@@ -899,6 +901,7 @@ pub fn present(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: w
     }
     game.main.frameDrawn(all, .of(clock, true, .together), clock.frame_start);
     frame.drawOffsets(@as(f32, @floatFromInt(clock.frame_duration)) / game.main.ticks_per_second);
+    frame.respawns.frame(all, &frame.drawn.portals, clock.mission_ticks, clock.past_tick);
     game.guns.frameReplicas(scene);
     frame.drawn.display.followTarget(all, true);
     frame.drawn.display.zoomRadar(scene);
@@ -1277,18 +1280,16 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     if (snapshot.scenario != null and snapshot.scenario.?.hasPowerUps()) {
         try frame.presentPickups(snapshot.pickups);
     }
-    frame.drawn.portals.begin();
-    defer frame.drawn.portals.end();
     for (snapshot.ships, 0..) |entry, offset| {
         const index: u16 = @intCast(offset);
         const prior = all.playerBinding(index);
-        const before = frame.respawns.left[index];
         if (prior != null and (entry == null or prior.?.participant.generation != entry.?.generation or frame.host_ship_reuse[index] != entry.?.reuse or all.slots[index].object.type != entry.?.kind())) {
             game.create.resetSlot(.of(scene), index);
             all.player_states[index] = .{ .membership = .vacant };
         }
         const ship = entry orelse {
-            frame.respawns.left[index] = 0;
+            frame.respawns.forget(index);
+            frame.spin_outs.forget(index);
             if (index == admission.slot) frame.death_view = null;
             continue;
         };
@@ -1336,7 +1337,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         }
         // order_eject breaks off the cockpit and plays EJECT01 (0x00415808).
         if (ejected) game.sound3d.playIn(scene, null, null, index, .eject01, 1, game.sound3d.fxClass(all, index));
-        if ((before == 0 or ship.respawn > before) and ship.respawn + game.gameobj.ticks_per_step >= game.deathmatch.respawn.duration)
+        if (frame.respawns.note(index, snapshot.clock, ship.respawn) and ship.respawn + game.gameobj.ticks_per_step >= game.deathmatch.respawn.duration)
             game.deathmatch.respawn.sound(scene, index);
         // The pilot's own ship flies by the local simulation's controls; another ship's are the
         // last its pilot gave the host. Where the host's command echo carries the ship, its
@@ -1379,6 +1380,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
             }
         }
         slot.object.flags.exploding = ship.dying;
+        frame.spin_outs.note(index, snapshot.clock, if (ship.dying) ship.spin else null);
         if (snapshot.scenario != null) slot.object.flags.targetable = ship.targetable;
         if (!ship.dying and index == admission.slot) frame.death_view = null;
         all.player_states[index].membership.joined.kills.count = ship.kills;
@@ -1388,7 +1390,6 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         if (ship.cloaked != cloaking) {
             if (ship.cloaked) game.cloak.beginPowerUp(scene, index) else game.cloak.uncloak(scene, index);
         }
-        frame.respawns.clip(slot, index, &frame.drawn.portals, ship.respawn);
     }
     all.arena_scores = if (snapshot.teams) |teams| .{ .teams = teams } else .free_for_all;
     const local_ship = snapshot.ships[admission.slot];
@@ -1398,7 +1399,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
     viewing.last = viewing.view;
     viewing.view = if (frame.director != null)
         .director
-    else if (frame.respawns.left[admission.slot] != 0)
+    else if (frame.respawns.running(admission.slot, frame.drawn.clock.mission_ticks))
         game.camera.deathmatch_respawn_view
     else if (frame.death_view) |death|
         (if (death.watching_from == null) .pull_back else .watch)

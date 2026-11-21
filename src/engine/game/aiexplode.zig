@@ -560,16 +560,101 @@ fn randomSpin(random: *Random) Vec3 {
 /// spin, less and less as its end comes.
 fn spin(world: gameobj.World, slot: *create.Slot) void {
     const state = &slot.state.explode;
-    const left = state.end - world.clock.frame_start;
-    if (left < @as(i32, state.trail) * trail_ticks) {
+    carryOn(world, slot, state.end - world.clock.frame_start, state.spin.vector(), &state.trail);
+}
+
+/// The step of `explode_spin` for a ship with `left` ticks to go, `turn` a step at the full
+/// length of its spin and `trail` bits yet to leave.
+fn carryOn(world: gameobj.World, slot: *create.Slot, left: i32, turn: Vector, trail: *i16) void {
+    if (left < @as(i32, trail.*) * trail_ticks) {
         const at = world.random.centredVector(@splat(trail_spread)) + slot.drawn.position;
         const behind = -math.forward(slot.drawn.orientation);
-        if (!slot.object.flags.abandoned or @rem(state.trail, 2) == 0) explode.throwBit(world, at, behind, trail_throw);
-        state.trail -= 1;
+        if (!slot.object.flags.abandoned or @rem(trail.*, 2) == 0) explode.throwBit(world, at, behind, trail_throw);
+        trail.* -= 1;
     }
     const share = @as(f32, @floatFromInt(left)) * spin_fade;
-    slot.object.rotation = math.fromAngleVector(state.spin.vector() * @as(Vector, @splat(share)));
+    slot.object.rotation = math.fromAngleVector(turn * @as(Vector, @splat(share)));
 }
+
+/// OpenReliant's: what a client needs to carry a ship's spin-out on between the host's views of
+/// it, as the host's order would. The turn is held to 16 bits of its range, as `spin_range`'s.
+pub const Spin = struct {
+    /// The ticks until the ship blows up.
+    left: u16,
+    trail: u8,
+    turn: [3]i16,
+
+    pub const longest = 2 * spin_ticks;
+
+    fn scale(axis: usize) f32 {
+        const range: [3]f32 = spin_range;
+        return range[axis] / 2 / std.math.maxInt(i16);
+    }
+
+    pub fn vector(spin_out: Spin) Vector {
+        var turn: [3]f32 = undefined;
+        for (&turn, spin_out.turn, 0..) |*component, held, axis| component.* = @as(f32, @floatFromInt(held)) * scale(axis);
+        return turn;
+    }
+
+    pub fn valid(spin_out: Spin) bool {
+        return spin_out.left <= longest and spin_out.trail <= trail_bits;
+    }
+};
+
+/// A ship that is spinning out, as the host's view of it carries it (`Spin`).
+pub fn spinning(slot: *const create.Slot, now: i32) ?Spin {
+    const order = slot.current() orelse return null;
+    if (order.order != .explode) return null;
+    const state = &slot.state.explode;
+    if (state.mode != .ship or state.style == .burst or state.end <= now) return null;
+    var held: [3]i16 = undefined;
+    const turn: [3]f32 = state.spin.vector();
+    for (&held, 0..) |*component, axis| {
+        component.* = @intFromFloat(std.math.clamp(@round(turn[axis] / Spin.scale(axis)), -std.math.maxInt(i16), std.math.maxInt(i16)));
+    }
+    return .{
+        .left = @intCast(@min(state.end - now, Spin.longest)),
+        .trail = @intCast(std.math.clamp(state.trail, 0, trail_bits)),
+        .turn = held,
+    };
+}
+
+/// OpenReliant's: the spin-outs a multiplayer client carries on between the host's views, by the
+/// same step as the host's (`carryOn`).
+pub const SpinOuts = struct {
+    const Entry = struct { end: i32, trail: i16, turn: Vector };
+
+    entries: [deathmatch.spawn.positions]?Entry = @splat(null),
+
+    /// Takes the host's view of a spin-out at `now`, where the client keeps its own trail count
+    /// once it has one.
+    pub fn note(outs: *SpinOuts, index: usize, now: i32, spin_out: ?Spin) void {
+        const view = spin_out orelse {
+            outs.entries[index] = null;
+            return;
+        };
+        const kept = if (outs.entries[index]) |entry| entry.trail else view.trail;
+        outs.entries[index] = .{ .end = now + view.left, .trail = @min(kept, view.trail), .turn = view.vector() };
+    }
+
+    pub fn forget(outs: *SpinOuts, index: usize) void {
+        outs.entries[index] = null;
+    }
+
+    /// One simulation step of every spin-out, before the objects move.
+    pub fn step(outs: *SpinOuts, world: gameobj.World) void {
+        for (&outs.entries, 0..) |*entry, index| {
+            const held = &(entry.* orelse continue);
+            const slot = &world.objects.slots[index];
+            if (!slot.object.flags.exploding or !slot.object.created) {
+                entry.* = null;
+                continue;
+            }
+            carryOn(world, slot, held.end - world.clock.frame_start, held.turn, &held.trail);
+        }
+    }
+};
 
 test Mode {
     var object = gameobj.testing.object();
@@ -798,6 +883,50 @@ test spin {
     const late = math.angles(slot.object.rotation);
     try std.testing.expect(@abs(late[2]) < @abs(early[2]));
     try std.testing.expectEqual(1, state.trail);
+}
+
+test "a client's spin-out goes as the host's order does" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ctx = mission.orders();
+    const player = try mission.add(.of(.predator), @splat(0));
+    _ = player;
+    const ship = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
+    const slot = &mission.objects.slots[ship];
+    const state = &slot.state.explode;
+    const world = ctx.world;
+    ai.objectDestroyed(ctx, ship, true, false);
+    aigeneric.objectOrders(ctx, ship);
+    mission.clock.frame_start = 100;
+    state.end = 300;
+
+    // The view carries the order's end, trail and turn, to a step of the turn's size.
+    const view = spinning(slot, 100) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(200, view.left);
+    try std.testing.expectEqual(state.trail, view.trail);
+    const turn: [3]f32 = view.vector();
+    const held: [3]f32 = state.spin.vector();
+    for (turn, held) |carried, expected| try std.testing.expectApproxEqAbs(expected, carried, 0.0001);
+    try std.testing.expect(spinning(slot, 300) == null);
+
+    // A client given it turns the ship by the host's step, and spends its trail as the host does.
+    spin(world, slot);
+    const hosted: [3]f32 = math.angles(slot.object.rotation);
+    const hosted_trail = state.trail;
+    slot.object.rotation = math.identity;
+    var outs: SpinOuts = .{};
+    slot.object.flags.exploding = true;
+    outs.note(ship, 100, view);
+    outs.step(world);
+    const carried: [3]f32 = math.angles(slot.object.rotation);
+    for (hosted, carried) |expected, actual| try std.testing.expectApproxEqAbs(expected, actual, 0.0005);
+    try std.testing.expectEqual(hosted_trail, outs.entries[ship].?.trail);
+
+    // It stops when the ship is no longer dying.
+    slot.object.flags.exploding = false;
+    outs.step(world);
+    try std.testing.expect(outs.entries[ship] == null);
 }
 
 test "a halting torpedo's shockwave" {
