@@ -24,9 +24,9 @@ host_ship_reuse: [wire.slots]u32 = @splat(0),
 /// player's own machine outright (`FUN_004b5590`); under the host's authority the same feel comes
 /// from the client's simulation running the held command and each snapshot correcting the result.
 command: engine.input.flight.Command = .{},
-/// The input devices the local simulation reads, as the single player's loop does, stashed by
-/// the graphical client each frame.
-devices: ?*engine.input.Devices = null,
+/// The simulation's step takes devices but a client's never reads them: the graphical client
+/// samples the controls once a frame into `command`.
+devices: engine.input.Devices = .{},
 /// The sequence the client's next input carries, which carries `command` to the host.
 sequence: u32 = 0,
 /// Whether the local simulation has started its clock.
@@ -671,7 +671,6 @@ fn presentDarkReign(frame: *FlightFrame, scene: game.gameobj.World, view: wire.D
 pub fn present(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wire.Admission, local: *game.create.Objects, types: game.create.Types, now: i64) !void {
     if (frame.tick == null or snapshot.tick != frame.tick.?)
         try frame.apply(snapshot, admission, local, types);
-    const devices = frame.devices orelse return error.NoDevices;
     const clock = &frame.drawn.clock;
     if (!frame.running) {
         // The clock starts at the host's, so the snapshots and the host's shots share its ticks.
@@ -697,7 +696,7 @@ pub fn present(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: w
     const all = scene.objects;
     if (all.playerBinding(admission.slot)) |binding|
         _ = all.submitPlayerCommand(binding, .{ .flight = frame.command });
-    while (clock.nextTick(devices, scene)) |stepped| {
+    while (clock.nextTick(&frame.devices, scene)) |stepped| {
         if (stepped) frame.record();
     }
     clock.frameBegin();
@@ -1182,8 +1181,6 @@ test "the target panel opens and closes as flight snapshots advance" {
     const all = frame.drawn.objects;
     const display = &frame.drawn.display;
     const no_models = game.create.testing.no_models;
-    var devices: engine.input.Devices = .{};
-    frame.devices = &devices;
     const admission: wire.Admission = .{ .slot = 0, .generation = 1 };
     var snapshot: wire.Snapshot = .{
         .tick = 1,
@@ -1236,8 +1233,6 @@ test "the pilot's own ship draws from the held command and corrects by the snaps
     defer frame.destroy();
     const all = frame.drawn.objects;
     const no_models = game.create.testing.no_models;
-    var devices: engine.input.Devices = .{};
-    frame.devices = &devices;
     const admission: wire.Admission = .{ .slot = 0, .generation = 1 };
     var snapshot: wire.Snapshot = .{ .tick = 1, .ships = @splat(null) };
     snapshot.ships[0] = .{ .generation = 1, .position = @splat(0) };
@@ -1281,8 +1276,6 @@ test "a remote ship sweeps smoothly under the client's own simulation" {
     const frame = try create(gpa, local, &tables);
     defer frame.destroy();
     const no_models = game.create.testing.no_models;
-    var devices: engine.input.Devices = .{};
-    frame.devices = &devices;
     const admission: wire.Admission = .{ .slot = 0, .generation = 1 };
     var snapshot: wire.Snapshot = .{ .tick = 1, .ships = @splat(null) };
     snapshot.ships[0] = .{ .generation = 1, .position = @splat(0) };

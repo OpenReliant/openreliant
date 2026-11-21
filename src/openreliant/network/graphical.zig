@@ -489,10 +489,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             });
             if (cooperative and devices.active(.jump_drive, true)) client.requestCrewAction(.jump);
             const held = engine.input.sampleFlight(scene.player, devices, &pilot.stick, scene.player.viewing.view);
-            if (pilot.flight) |shown| {
-                shown.command = held;
-                shown.devices = devices;
-            }
+            if (pilot.flight) |shown| shown.command = held;
             client.setFlight(held);
             if (pilot.flight) |shown| shown.sequence = client.sequence;
             client.fire_primary = engine.input.primaryHeld(devices);
