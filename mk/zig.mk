@@ -5,13 +5,24 @@
 
 SLTOOL      := $(ROOT)/zig-out/bin/sltool
 OPENRELIANT := $(ROOT)/zig-out/bin/openreliant
+# The game always includes networking. Build the pinned transport once for this host.
+TRANSPORT_ARCH := $(if $(filter arm64 aarch64,$(HOST_ARCH)),aarch64,x86_64)
+TRANSPORT_SYSTEM := $(if $(filter Darwin,$(HOST_OS)),macos.15.0,linux-gnu.2.31)
+TRANSPORT_TARGET := $(TRANSPORT_ARCH)-$(TRANSPORT_SYSTEM)
+TRANSPORT_WORK := $(ROOT)/.zig-cache/transport
+TRANSPORT_PREFIX := $(TRANSPORT_WORK)/$(TRANSPORT_TARGET)/prefix
+TRANSPORT_LIB := $(TRANSPORT_PREFIX)/lib/libGameNetworkingSockets_s.a
+
+$(TRANSPORT_WORK)/%/prefix/lib/libGameNetworkingSockets_s.a: scripts/build_transport.py deps/transport/CMakeLists.txt deps/transport/PatchGnsSource.cmake $(wildcard deps/transport/*.patch)
+	python3 scripts/build_transport.py $(TRANSPORT_WORK) $*
+
 ZIG_SOURCES := $(ROOT)/build.zig $(ROOT)/build.zig.zon $(shell find $(ROOT)/src $(ROOT)/deps -name '*.zig' -o -name '*.zon')
 
 .PHONY: build
 build: $(SLTOOL) ## Build the tools into zig-out/bin
 
-$(SLTOOL): $(ZIG_SOURCES)
-	$(ZIG) build --release=safe
+$(SLTOOL): $(ZIG_SOURCES) $(TRANSPORT_LIB)
+	$(ZIG) build --release=safe $(GAME_TARGET) -Dgns-prefix=$(TRANSPORT_PREFIX)
 	@touch $@
 
 # The same build makes both.
@@ -22,8 +33,8 @@ $(OPENRELIANT): $(SLTOOL) ;
 GAME_TARGET := $(if $(and $(filter Darwin,$(HOST_OS)),$(filter arm64 aarch64,$(HOST_ARCH))),-Dtarget=aarch64-macos,)
 
 .PHONY: play
-play: | $(GAME_DIR)/.stamp-install ## Build OpenReliant optimized and run it on the installed game files
-	$(ZIG) build --release=fast $(GAME_TARGET)
+play: $(TRANSPORT_LIB) | $(GAME_DIR)/.stamp-install ## Build OpenReliant optimized and run it on the installed game files
+	$(ZIG) build --release=fast $(GAME_TARGET) -Dgns-prefix=$(TRANSPORT_PREFIX)
 	$(ROOT)/zig-out/bin/openreliant $(INSTALL_DIR)
 
 # The game's shaders, for each GPU interface SDL runs on: SPIR-V for Vulkan, and Metal's
@@ -62,16 +73,16 @@ icon: ## Make the icon's PNG, ICO and ICNS files from its SVG (needs librsvg, ic
 	$(ROOT)/scripts/icon.sh
 
 .PHONY: test
-test: ## Run the unit tests
-	$(ZIG) build test --summary all
+test: $(TRANSPORT_LIB) ## Run the unit tests
+	$(ZIG) build test --summary all -Dgns-prefix=$(TRANSPORT_PREFIX)
 
 # The definitions for Luau's language server and the reference pages, of the scripting API and of
 # mission source, which tests check (src/scripting/reference.zig, and definitions.zig and
 # reference.zig in src/formats/dte/source). Write them again when what scripts see, or what mission
 # source holds, changes on purpose.
 .PHONY: definitions
-definitions: ## Write the definitions for Luau's language server and the reference pages in docs/guide
-	$(ZIG) build
+definitions: $(TRANSPORT_LIB) ## Write the definitions for Luau's language server and the reference pages in docs/guide
+	$(ZIG) build $(GAME_TARGET) -Dgns-prefix=$(TRANSPORT_PREFIX)
 	$(ROOT)/zig-out/bin/openreliant hooks --definitions > $(ROOT)/docs/guide/openreliant.d.luau
 	$(ROOT)/zig-out/bin/openreliant hooks --markdown > $(ROOT)/docs/guide/reference.md
 	$(ROOT)/zig-out/bin/sltool dte definitions > $(ROOT)/docs/guide/mission.d.luau
@@ -81,11 +92,12 @@ definitions: ## Write the definitions for Luau's language server and the referen
 # (scripts/controllers). It runs in a privileged Docker container with the host's /dev mounted,
 # which also works on macOS through Docker's Linux VM.
 CONTROLLER_TEST_ARCH := $(if $(filter arm64 aarch64,$(HOST_ARCH)),aarch64,x86_64)
+CONTROLLER_TRANSPORT := $(TRANSPORT_WORK)/$(CONTROLLER_TEST_ARCH)-linux-gnu.2.31/prefix
 CONTROLLER_TEST_PLATFORM := $(if $(filter arm64 aarch64,$(HOST_ARCH)),linux/arm64,linux/amd64)
 
 .PHONY: test-controllers
-test-controllers: ## Test joysticks and gamepads on Linux with virtual controllers (needs Docker)
-	$(ZIG) build --release=fast -Dtarget=$(CONTROLLER_TEST_ARCH)-linux-gnu --prefix $(ROOT)/zig-out/linux
+test-controllers: $(CONTROLLER_TRANSPORT)/lib/libGameNetworkingSockets_s.a ## Test joysticks and gamepads on Linux with virtual controllers (needs Docker)
+	$(ZIG) build --release=fast -Dtarget=$(CONTROLLER_TEST_ARCH)-linux-gnu.2.31 -Dgns-prefix=$(CONTROLLER_TRANSPORT) --prefix $(ROOT)/zig-out/linux
 	docker run --rm --privileged --platform $(CONTROLLER_TEST_PLATFORM) -v /dev:/dev \
 	    -v $(ROOT)/scripts/controllers:/test:ro -v $(ROOT)/zig-out/linux/bin/openreliant:/opt/openreliant:ro \
 	    ubuntu:26.04 /test/run.sh /opt/openreliant

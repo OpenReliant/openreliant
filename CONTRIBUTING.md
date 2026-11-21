@@ -7,8 +7,11 @@ and `CLAUDE.md` point agents here.
 
 ## Getting started
 
-- Install [Zig 0.17.1](https://ziglang.org). `zig build` builds everything, `zig build sltool`
-  builds `sltool` alone, and `zig build test` runs the tests. `zig build check -fincremental
+- Install [Zig 0.17.1](https://ziglang.org). `make build` builds the pinned multiplayer
+  transport and the executables. It needs Python 3, CMake, Ninja, Git and Perl. `zig build sltool`
+  builds `sltool` alone, and `make test` runs the tests with multiplayer enabled. To build directly with Zig,
+  first run `python3 scripts/build_transport.py <work-directory> <target>`, then pass
+  `-Dgns-prefix=<work-directory>/<target>/prefix` to `zig build`. `zig build check -Dgns-prefix=<prefix> -fincremental
   --watch` compiles everything without linking the programs and reports errors moments after a
   save; its first run builds the C libraries.
 - Run `make hooks` once. It installs a pre-commit hook that keeps the game's files out of the
@@ -300,7 +303,7 @@ Look for an existing helper before writing one, and share code rather than copy 
 Add `test` blocks next to the code in the same change. Build their inputs by hand so that they run
 without the game's files. Each parent module imports its children with `pub` and has
 `test { std.testing.refAllDecls(@This()); }`, which runs their tests, so a new module needs only
-its `pub` import; `zig build test --summary all` shows the count. The Nova Cannon's charge, for
+its `pub` import; `make test` shows the count. The Nova Cannon's charge, for
 example:
 
 ```zig
@@ -347,7 +350,7 @@ For example, from [docs/engine/guns.md](docs/engine/guns.md):
 Before you open a pull request, run:
 
 ```bash
-zig build test --summary all
+make test
 zig fmt --check src build.zig
 make check-files
 ```
@@ -357,7 +360,7 @@ the reverse-engineering toolchain.
 
 CI also runs the tests in ReleaseFast, as releases are built
 ([Builds and releases](docs/port/platform.md#builds-and-releases)).
-`zig build test --release=fast --summary all` does the same locally.
+`zig build test --release=fast --summary all -Dgns-prefix=<prefix>` does the same locally.
 
 The repository holds the engine and its tools. The game's files, and everything extracted or
 derived from them, live in the git-ignored `game/` directory. The pre-commit hook, `make
