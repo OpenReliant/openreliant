@@ -836,6 +836,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         }
         const ship = entry orelse {
             frame.respawns.left[index] = 0;
+            if (index == admission.slot) frame.death_view = null;
             continue;
         };
         if (!all.slots[index].object.created) {
@@ -873,7 +874,25 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         if ((before == 0 or ship.respawn > before) and ship.respawn + game.gameobj.ticks_per_step >= game.deathmatch.respawn.duration)
             game.deathmatch.respawn.sound(scene, index);
         slot.object.speed = ship.speed;
-        slot.object.velocity = .of(engine.surrender.math.forward(orientation) * @as(engine.surrender.math.Vector, @splat(ship.speed)));
+        // The vector, the rates and the shares the flight model settles by, which a speed along
+        // the nose alone cannot give: they are what the presentation carries a ship by between
+        // snapshots.
+        if (slot.flight) |flight_model| {
+            slot.object.velocity = .{
+                .x = wire.dequantizeVelocity(ship.velocity[0], flight_model.max_speed),
+                .y = wire.dequantizeVelocity(ship.velocity[1], flight_model.max_speed),
+                .z = wire.dequantizeVelocity(ship.velocity[2], flight_model.max_speed),
+            };
+        } else slot.object.velocity = .of(engine.surrender.math.forward(orientation) * @as(engine.surrender.math.Vector, @splat(ship.speed)));
+        slot.object.pitch_rate = wire.dequantizeRate(ship.rates[0]);
+        slot.object.yaw_rate = wire.dequantizeRate(ship.rates[1]);
+        slot.object.roll_rate = wire.dequantizeRate(ship.rates[2]);
+        slot.object.pitch_input = wire.dequantizeInput(ship.inputs[0]);
+        slot.object.yaw_input = wire.dequantizeInput(ship.inputs[1]);
+        slot.object.roll_input = wire.dequantizeInput(ship.inputs[2]);
+        slot.object.lateral_input = @floatFromInt(ship.lateral);
+        slot.object.speed_factor = wire.dequantizeShare(ship.speed_factor);
+        slot.object.engines_intact = wire.dequantizeShare(ship.engines);
         slot.object.throttle = ship.throttle;
         slot.object.last_throttle = ship.throttle;
         slot.object.afterburner_fuel = ship.fuel;

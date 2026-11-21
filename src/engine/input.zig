@@ -2743,7 +2743,7 @@ pub fn frameKeys(keys: FrameKeys) void {
     if (devices.active(.permission_to_land, true) and !multiplayer) {
         if (keys.world) |world| radio.permissionToLand(world, keys.game_ticks);
     }
-    if (keys.submitted == null and devices.active(.toggle_blindfire, true) and display.blind_fire_fitted) {
+    if (devices.active(.toggle_blindfire, true) and display.blind_fire_fitted) {
         display.blind_fire = !display.blind_fire;
         betty.sayIn(keys.world, blind_fire_said.of(display.blind_fire));
     }
