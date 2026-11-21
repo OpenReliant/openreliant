@@ -8,7 +8,6 @@ const Host = @import("server.zig");
 const LaunchWait = @import("launch_wait.zig");
 const Metrics = @import("metrics.zig");
 const Advertiser = @import("advertise.zig");
-const lan = @import("lan.zig");
 const HeadlessUpdates = @import("headless_updates.zig");
 pub const Client = @import("client.zig");
 
@@ -68,6 +67,8 @@ pub const HostOptions = struct {
     repeat_rounds: bool = false,
     invite_address: ?std.Io.net.IpAddress = null,
     advertise: ?Advertiser.Config = null,
+    /// The name the game shows in LAN lists, or null to stay out of them.
+    lan_name: ?[]const u8 = null,
     check_updates: bool = false,
 };
 
@@ -115,13 +116,8 @@ pub const LocalGame = struct {
         const address = try std.fmt.bufPrintSentinel(&address_buffer, "[::]:{d}", .{port}, 0);
         try game.host.open(address, null);
         errdefer game.host.close();
-        // Players on the local network find the game in their LAN list (`lan.Responder`).
-        game.host.discovery_port = port;
-        game.host.discovery_name = .of(call_sign.slice());
-        game.host.discovery = lan.Responder.open(io) catch |err| no: {
-            std.log.warn("the game won't show in LAN lists: {t}", .{err});
-            break :no null;
-        };
+        // Players on the local network find the game in their LAN list.
+        game.host.openDiscovery(try std.Io.net.IpAddress.parse("::", port), call_sign.slice());
         var server_end: net.Connection = 0;
         var client_end: net.Connection = 0;
         if (!net.session_local_pair(&server_end, &client_end)) return error.ConnectFailed;
@@ -207,6 +203,7 @@ pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity
         null;
     defer if (advertiser) |*publisher| publisher.close();
     if (advertiser) |publisher| host.directory_session = publisher.session;
+    if (options.lan_name) |name| host.openDiscovery(try std.Io.net.IpAddress.parseLiteral(options.address), name);
     var update_check: HeadlessUpdates = .{};
     defer update_check.close();
     try host.run(options.address, options.ticks, invite, if (advertiser) |*publisher| publisher else null, if (options.check_updates) &update_check else null);

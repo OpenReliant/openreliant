@@ -467,6 +467,18 @@ test "the browser only offers hosting when the transport is available" {
     try std.testing.expectEqual(null, screen.frame(click, &keys, &typed, size));
 }
 
+test "a LAN game of another protocol revision can't be joined, as on the Internet list" {
+    const older: Server = .{ .name = "Rook", .description = "", .mode = "Co-op", .players = 1, .capacity = 4, .target = "a", .protocol = 36 };
+    var screen: Connection = .{ .source = .lan, .protocol = 37 };
+    screen.replaceListings(.lan, &.{older});
+    try std.testing.expect(!screen.compatible(older));
+    try std.testing.expect(!screen.enabled(.selected));
+    var current = older;
+    current.protocol = 37;
+    screen.replaceListings(.lan, &.{current});
+    try std.testing.expect(screen.enabled(.selected));
+}
+
 test "a refreshed list keeps the selected game, and another list leaves it alone" {
     const first: Server = .{ .name = "Rook", .description = "", .mode = "Co-op", .players = 1, .capacity = 4, .target = "a" };
     const second: Server = .{ .name = "Falcon", .description = "", .mode = "Tag Bomb", .players = 2, .capacity = 8, .target = "b" };

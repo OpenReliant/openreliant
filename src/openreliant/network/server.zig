@@ -85,6 +85,7 @@ lan_only: bool = false,
 discovery: ?lan.Responder = null,
 discovery_name: lan.Text = .{},
 discovery_port: u16 = 0,
+discovery_this_machine_only: bool = false,
 arena_directory: ?Io.Dir = null,
 arena_floor: u32 = 0,
 arena_teams: bool = false,
@@ -252,6 +253,23 @@ fn acceptsJoins(host: *const Host) bool {
     return host.final_tick == null and host.arena.campaign == null and !host.campaign_briefing;
 }
 
+/// Lists the game in the local network's searches (`lan.Responder`), under `name`, for the game
+/// listening on `address`. A game bound to loopback is listed on this machine only. Without a key
+/// of its own (`signer`), such as with a managed identity, the host can't be joined from a list.
+pub fn openDiscovery(host: *Host, address: Io.net.IpAddress, name: []const u8) void {
+    if (host.signer == null) {
+        log.info("LAN lists show only hosts with a key of their own; join this one by its address", .{});
+        return;
+    }
+    host.discovery_port = address.getPort();
+    host.discovery_name = .of(name);
+    host.discovery_this_machine_only = lan.isLoopback(address);
+    host.discovery = lan.Responder.open(host.io) catch |err| no: {
+        log.warn("the game won't show in LAN lists: {t}", .{err});
+        break :no null;
+    };
+}
+
 /// Answers the local network's searches for games (`lan.Responder`).
 fn answerDiscovery(host: *Host) void {
     const responder = if (host.discovery) |*running| running else return;
@@ -265,6 +283,15 @@ fn discoveryGame(host: *const Host) ?lan.Game {
     if (!host.acceptsJoins() or players >= host.player_limit) return null;
     const cooperative = host.campaign_start != null or (host.start == .lobby and host.start.lobby.mission != null);
     const scenario = if (host.start == .lobby) host.start.lobby.scenario else host.arena.mode.scenario();
+    const mode = if (cooperative)
+        "Co-op"
+    else if (scenario) |chosen|
+        chosen.record().name
+    else switch (host.arena.mode) {
+        .@"six-beacons" => "Six Beacons",
+        .training => "Training",
+        else => "",
+    };
     return .{
         .protocol = wire.revision,
         .game_port = host.discovery_port,
@@ -272,7 +299,8 @@ fn discoveryGame(host: *const Host) ?lan.Game {
         .capacity = host.player_limit,
         .key = signer.issuer.public_key,
         .name = host.discovery_name.slice(),
-        .mode = if (cooperative) "Co-op" else if (scenario) |chosen| chosen.record().name else "",
+        .mode = mode,
+        .this_machine_only = host.discovery_this_machine_only,
     };
 }
 

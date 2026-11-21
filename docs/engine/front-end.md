@@ -54,16 +54,20 @@ players with `EnumPlayers`. Joining a listed game opens its session by its insta
 (`directplay_join_session`, `0x004BC720`).
 
 OpenReliant has no DirectPlay. **Improvement:** it finds LAN games with its own UDP messages, in
-the same way. While the LAN list is shown, the browser sends a query to UDP port 27021 on the
-broadcast address and on loopback, every 1.5 seconds, and lists the answers that arrive within
-0.6 seconds. A query is padded to 128 bytes. A player-hosted game answers from its host loop
-while it has a place for a new pilot, and only to senders on the local network (loopback, the
-private IPv4 ranges, link-local and unique local IPv6 addresses). The answer is never larger than
-the query. It holds the protocol revision, the game's port, the players and places, the host's
-public key, the host's call sign as the game's name, and the mode. The list shows each host
-once, as an invite to its game port, with the time the answer took as its ping. It holds up to
-64 games. Dedicated servers don't answer: they are listed through the directory, or joined by
-address. **Unverified:** IPv6-only networks, since the query goes to the IPv4 broadcast address.
+the same way. While the LAN list is shown, the browser sends a query to UDP port 27021 every 1.5
+seconds, and lists the answers that arrive within 0.6 seconds. It sends the query to loopback, to
+the limited broadcast address and to each IPv4 network's own broadcast address, since macOS
+refuses to send to the limited one. A query is padded to 128 bytes. A player-hosted game or a
+dedicated server answers from its host loop while it has a place for a new pilot, and only to
+senders on the local network (loopback, the private IPv4 ranges, link-local and unique local IPv6
+addresses). A host bound to loopback answers only queries from the same machine. The answer is
+never larger than the query. It holds the protocol revision, the game's port, the players and
+places, the host's public key, the game's name and the mode. A player-hosted game uses the host's
+call sign as its name, and a dedicated server its `Name`. The list shows each host once, as an
+invite to its game port, with the time the answer took as its ping, and checks its protocol
+revision as the Internet list does. It holds up to 64 games. A dedicated server with a managed
+identity isn't listed, since an invite needs the host's own key. **Unverified:** IPv6-only
+networks, since the query goes to IPv4 broadcast addresses.
 
 ### Session lobby
 

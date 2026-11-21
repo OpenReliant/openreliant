@@ -7,6 +7,7 @@
 //! a query to the local network's broadcast address, and every host that would take a new pilot
 //! answers it. **Improvement:** OpenReliant's own protocol in place of DirectPlay's.
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const Io = std.Io;
 const net = Io.net;
@@ -143,6 +144,12 @@ fn isLanAddress(address: net.IpAddress) bool {
     return isLan(net.Ip6Address.fromAny(address).bytes);
 }
 
+pub fn isLoopback(address: net.IpAddress) bool {
+    const ipv6 = net.Ip6Address.fromAny(address);
+    if (net.Ip4Address.fromIp6(ipv6)) |ipv4| return ipv4.bytes[0] == 127;
+    return ipv6.isLoopBack();
+}
+
 /// What a host answers with, while it takes new pilots.
 pub const Game = struct {
     protocol: u16,
@@ -152,6 +159,8 @@ pub const Game = struct {
     key: identity.PublicKey,
     name: []const u8,
     mode: []const u8,
+    /// Whether the game is bound to loopback, so that only this machine can join it.
+    this_machine_only: bool = false,
 };
 
 /// A host's end: a socket on `port` that answers the browsers' queries.
@@ -179,6 +188,7 @@ pub const Responder = struct {
             const nonce = queryNonce(message.data) orelse continue;
             const listed = game orelse continue;
             if (!isLanAddress(message.from)) continue;
+            if (listed.this_machine_only and !isLoopback(message.from)) continue;
             const answer: Answer = .{
                 .nonce = nonce,
                 .protocol = listed.protocol,
@@ -233,6 +243,55 @@ const Found = struct {
     }
 };
 
+/// `struct ifaddrs`, which macOS, Linux and the BSDs lay out alike.
+const ifaddrs = extern struct {
+    next: ?*ifaddrs,
+    name: [*:0]const u8,
+    flags: c_uint,
+    address: ?*const std.c.sockaddr,
+    netmask: ?*const std.c.sockaddr,
+    broadcast: ?*const std.c.sockaddr,
+    data: ?*anyopaque,
+};
+extern "c" fn getifaddrs(list: *?*ifaddrs) c_int;
+extern "c" fn freeifaddrs(list: *ifaddrs) void;
+const interface_up = 0x1;
+const interface_broadcast = 0x2;
+
+/// The most addresses one search sends its query to.
+const max_targets = 16;
+
+/// Where the browser sends a query: loopback, for a host on this machine; the limited broadcast
+/// address; and each IPv4 network's own broadcast address, since macOS refuses to send to the
+/// limited one ("no route to host"). Windows has no `getifaddrs` but sends to the limited one.
+fn queryTargets(buffer: *[max_targets]net.IpAddress) []const net.IpAddress {
+    var count: usize = 0;
+    for ([_][4]u8{ .{ 127, 0, 0, 1 }, @splat(255) }) |bytes| {
+        buffer[count] = .{ .ip4 = .{ .bytes = bytes, .port = port } };
+        count += 1;
+    }
+    if (builtin.os.tag == .windows) return buffer[0..count];
+    var list: ?*ifaddrs = null;
+    if (getifaddrs(&list) != 0) return buffer[0..count];
+    defer if (list) |first| freeifaddrs(first);
+    var entry = list;
+    while (entry) |interface| : (entry = interface.next) {
+        if (count == buffer.len) break;
+        if (interface.flags & interface_up == 0 or interface.flags & interface_broadcast == 0) continue;
+        const address = interface.broadcast orelse continue;
+        if (address.family != std.c.AF.INET) continue;
+        const ip: *const std.c.sockaddr.in = @ptrCast(@alignCast(address));
+        const target: net.IpAddress = .{ .ip4 = .{ .bytes = @bitCast(ip.addr), .port = port } };
+        for (buffer[0..count]) |known| {
+            if (known.eql(&target)) break;
+        } else {
+            buffer[count] = target;
+            count += 1;
+        }
+    }
+    return buffer[0..count];
+}
+
 const Job = struct {
     pub fn discard(result: Result) void {
         var owned = result;
@@ -252,11 +311,10 @@ const Job = struct {
         try io.randomSecure(std.mem.asBytes(&nonce));
         const packet = query(nonce);
         const sent = Io.Clock.awake.now(io).toMicroseconds();
-        // The broadcast reaches the other machines, and loopback a host on this one. Either may
-        // fail, such as without a network.
+        // Any of them may fail, such as without a network.
+        var targets: [max_targets]net.IpAddress = undefined;
         var reached = false;
-        for ([_][]const u8{ "255.255.255.255", "127.0.0.1" }) |text| {
-            const to = try net.IpAddress.parse(text, port);
+        for (queryTargets(&targets)) |to| {
             socket.send(io, &to, &packet) catch continue;
             reached = true;
         }
@@ -343,6 +401,24 @@ test "the local network's addresses" {
     for (denied) |ip| try std.testing.expect(!isLanAddress(try net.IpAddress.parse(ip, 0)));
 }
 
+test "a search reaches this machine and the local networks' broadcast addresses" {
+    var buffer: [max_targets]net.IpAddress = undefined;
+    const targets = queryTargets(&buffer);
+    try std.testing.expect(targets[0].eql(&try net.IpAddress.parse("127.0.0.1", port)));
+    try std.testing.expect(targets[1].eql(&try net.IpAddress.parse("255.255.255.255", port)));
+    for (targets[2..], 2..) |target, index| {
+        try std.testing.expectEqual(port, target.getPort());
+        for (targets[0..index]) |earlier| try std.testing.expect(!earlier.eql(&target));
+    }
+}
+
+test "loopback addresses" {
+    try std.testing.expect(isLoopback(try net.IpAddress.parse("127.0.0.1", 0)));
+    try std.testing.expect(isLoopback(try net.IpAddress.parse("::1", 0)));
+    try std.testing.expect(!isLoopback(try net.IpAddress.parse("192.168.1.9", 0)));
+    try std.testing.expect(!isLoopback(try net.IpAddress.parse("::", 0)));
+}
+
 test "a game is listed once per host, as an invite to its game port" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -390,4 +466,32 @@ test "a host answers a query on loopback, and stays quiet while it takes no one"
     const answer = Answer.decode(message.data).?;
     try std.testing.expectEqual(2, answer.nonce);
     try std.testing.expectEqualStrings("Rook", answer.name.slice());
+}
+
+test "a search lists a host on this machine" {
+    const io = std.testing.io;
+    var responder = Responder.open(io) catch return error.SkipZigTest;
+    defer responder.close(io);
+    const pair = std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(6)) catch unreachable;
+    const game: Game = .{ .protocol = 37, .game_port = 27020, .players = 2, .capacity = 8, .key = pair.public_key, .name = "Rook", .mode = "Tag Bomb" };
+    const Host = struct {
+        fn answer(listening: *Responder, open: Game) void {
+            // The host's loop, answering for longer than the search waits.
+            for (0..80) |_| {
+                listening.poll(std.testing.io, open);
+                std.testing.io.sleep(.fromMilliseconds(10), .awake) catch return;
+            }
+        }
+    };
+    const thread = try std.Thread.spawn(.{}, Host.answer, .{ &responder, game });
+    defer thread.join();
+    var job: Job = .{};
+    var progress: web.Progress = .{};
+    var result = try job.run(io, &progress);
+    defer result.deinit();
+    // The host answers the loopback query and the broadcasts, under one key.
+    try std.testing.expectEqual(1, result.rows.len);
+    try std.testing.expectEqualStrings("Rook", result.rows[0].name);
+    try std.testing.expectEqualStrings("Tag Bomb", result.rows[0].mode);
+    try std.testing.expectEqual(37, result.rows[0].protocol.?);
 }
