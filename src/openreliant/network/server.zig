@@ -30,6 +30,7 @@ const Movie = struct { waiting: Crew.Pilots, until: i64 };
 const Retiring = struct { conn: net.Connection, until: i64 };
 
 const timeout = 5 * std.time.us_per_s;
+const loading_timeout = 60 * std.time.us_per_s;
 const held_input_timeout = 250 * std.time.us_per_ms;
 const paused_roster_interval = std.time.us_per_s;
 // pause_screen_multiplayer (0x0048E62D) shows a drop control past 100 game ticks of round-trip time.
@@ -47,6 +48,7 @@ const Peer = struct {
     call_sign: ?wire.CallSign = null,
     announce_join: bool = false,
     expires: i64,
+    loading_until: i64 = 0,
     sequence: ?u32 = null,
     flight_command: flight.Command = .{},
     fire_for: ?u32 = null,
@@ -58,6 +60,10 @@ const Peer = struct {
     chat_budget: ChatBudget = .{},
     rescues: u8 = 0,
     attempt_rescues: u8 = 0,
+
+    fn expired(peer: Peer, time: i64) bool {
+        return time >= peer.expires and time >= peer.loading_until;
+    }
 };
 
 io: Io,
@@ -348,7 +354,10 @@ fn enterFlight(host: *Host) void {
     // Loading the stock mission can take longer than the idle timeout on a slow machine.
     const expires = host.now() + timeout;
     for (&host.peers) |*entry| if (entry.*) |*peer| {
-        if (peer.state == .playing) peer.expires = expires;
+        if (peer.state == .playing) {
+            peer.expires = expires;
+            peer.loading_until = host.now() + loading_timeout;
+        }
     };
     host.start = .launched;
     host.launch_wait.reset();
@@ -535,6 +544,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                 else => return err,
             };
             peer.state = .playing;
+            if (host.start != .lobby) peer.loading_until = time + loading_timeout;
             host.joinOutcome(.admitted);
             peer.announce_join = host.start != .lobby and host.tick != host.arena_floor;
             peer.expires = time + timeout;
@@ -565,7 +575,7 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
             if (host.final_tick) |tick| {
                 if (message == .received_final and message.received_final == tick) host.final_receipts += 1;
                 return switch (message) {
-                    .input, .flight_press, .weapon_order, .call_sign, .chat_request, .crew_jump, .crew_land, .crew_eject, .debrief_choice, .lobby_ready => true,
+                    .input, .flight_press, .weapon_order, .call_sign, .chat_request, .crew_jump, .crew_land, .crew_eject, .debrief_choice, .lobby_ready, .flight_ready => true,
                     else => false,
                 };
             }
@@ -578,6 +588,10 @@ fn receive(host: *Host, slot: u8, peer: *Peer, message: wire.Message, time: i64)
                 .chat_request => |request| host.relayChat(slot, peer, request, time),
                 .debrief_choice => |choice| host.takeDebriefChoice(slot, choice),
                 .campaign_movie_done => |tick| host.acknowledgeMovie(slot, tick),
+                .flight_ready => |floor| if (host.start == .launched and floor == host.arena_floor) {
+                    peer.loading_until = 0;
+                    peer.expires = time + timeout;
+                },
                 .lobby_ready => |ready| host.markLobbyReady(slot, peer, ready),
                 .crew_jump => |request| if (host.acceptsFlight()) host.arena.crewJump(slot, host.tick, request),
                 .crew_land => |request| if (host.acceptsFlight()) host.arena.crewLand(slot, host.tick, request),
@@ -619,6 +633,19 @@ fn acceptsSession(host: *const Host, expected: ?[16]u8) bool {
     const requested = expected orelse return true;
     const actual = host.directory_session orelse return false;
     return std.mem.eql(u8, &requested, &actual);
+}
+
+test "a pilot can finish a slow arena load without keeping a stale session alive" {
+    var host: Host = .{ .io = std.testing.io, .arena = undefined, .start = .launched, .arena_floor = 42 };
+    var peer: Peer = .{ .conn = 1, .state = .playing, .expires = timeout, .loading_until = loading_timeout };
+    try std.testing.expect(!peer.expired(timeout + 1));
+    try std.testing.expect(peer.expired(loading_timeout));
+    try std.testing.expect(try host.receive(0, &peer, .{ .flight_ready = 41 }, timeout + 1));
+    try std.testing.expectEqual(loading_timeout, peer.loading_until);
+    try std.testing.expect(try host.receive(0, &peer, .{ .flight_ready = 42 }, timeout + 1));
+    try std.testing.expectEqual(0, peer.loading_until);
+    try std.testing.expect(!peer.expired(timeout * 2));
+    try std.testing.expect(peer.expired(timeout * 2 + 1));
 }
 
 test "directory joins are bound to the current advertised session" {
@@ -671,7 +698,7 @@ fn service(host: *Host, slot: u8, time: i64) !void {
     }
     // A headed host can spend time opening a film. Give admitted pilots one bounded receive
     // pass to deliver queued keepalives before expiring them.
-    if (time >= peer.expires) host.remove(slot, host.final_tick == null, .timed_out);
+    if (peer.expired(time)) host.remove(slot, host.final_tick == null, .timed_out);
 }
 
 fn servicePeers(host: *Host, time: i64) !void {
@@ -699,6 +726,7 @@ fn publishRoster(host: *Host) !void {
     var roster: wire.Roster = .{
         .paused = host.paused,
         .briefing = host.campaign_briefing,
+        .dedicated = !host.lan_only,
         .limit = host.player_limit,
         .arena_floor = host.arena_floor,
         .teams = host.arena_teams,

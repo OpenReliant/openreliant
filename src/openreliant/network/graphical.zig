@@ -5,6 +5,8 @@ const game = engine.game;
 const math = engine.surrender.math;
 const Presentation = @import("scripting").Presentation;
 const session = @import("session.zig");
+const Resolve = @import("resolve.zig");
+const identity = @import("identity.zig");
 const wire = @import("wire.zig");
 const MultiplayerMenu = game.hudoptions.multiplayer;
 const stock = @import("stock_arena.zig");
@@ -34,6 +36,8 @@ const could_not_connect: Connection.Label = .{ .english = "Could not open the co
 const round_finished: Connection.Label = .{ .english = "Round finished" };
 
 client: ?session.Client = null,
+resolving: engine.web.Download(Resolve) = .{},
+pending_call_sign: wire.CallSign = .{},
 hosted: ?*session.LocalGame = null,
 roster: [wire.slots]?wire.Roster.Pilot = @splat(null),
 flight: ?*FlightFrame = null,
@@ -65,17 +69,40 @@ stick: [2]i16 = @splat(0),
 standings_first: ?usize = null,
 
 pub fn start(pilot: *Graphical, io: std.Io, target: []const u8, screen: *Connection, name: *const wire.CallSign) void {
-    if (pilot.client != null or pilot.hosted != null) return;
+    if (pilot.client != null or pilot.hosted != null or pilot.resolving.busy()) return;
+    const call_sign = wire.lobbyName(name.slice());
+    if (!std.mem.startsWith(u8, target, identity.Invite.prefix) and
+        !std.mem.startsWith(u8, target, identity.DirectoryInvite.prefix) and
+        (session.directAddress(target) catch null) == null)
+    {
+        const job = Resolve.parse(target, session.default_port) catch {
+            screen.message = .{ .english = "Enter a valid server address or invite" };
+            return;
+        };
+        pilot.resolving.start(job, .{ .whole = .fromSeconds(5) }) catch {
+            screen.message = could_not_connect;
+            return;
+        };
+        pilot.pending_call_sign = call_sign;
+        screen.busy = true;
+        screen.message = .{ .english = "Looking up the server..." };
+        return;
+    }
+    pilot.connectTarget(io, target, screen, call_sign);
+}
+
+fn connectTarget(pilot: *Graphical, io: std.Io, target: []const u8, screen: *Connection, name: wire.CallSign) void {
     pilot.client = .{ .expected_host = null };
     session.connect(&pilot.client.?, io, target) catch |err| {
         pilot.client = null;
+        screen.busy = false;
         screen.message = switch (err) {
             error.ConnectFailed, error.InvalidTransportIdentity => could_not_connect,
-            else => .{ .english = "Enter a valid IP address or invite" },
+            else => .{ .english = "Enter a valid server address or invite" },
         };
         return;
     };
-    pilot.client.?.call_sign = wire.lobbyName(name.slice());
+    pilot.client.?.call_sign = name;
     pilot.client.?.fighter = screen.fighter;
     screen.busy = true;
     screen.message = .{ .english = "Connecting..." };
@@ -202,6 +229,7 @@ pub fn leave(pilot: *Graphical, screen: *Connection, presentation: ?*Presentatio
 }
 
 fn stopConnection(pilot: *Graphical) void {
+    pilot.resolving.abandon();
     const client = if (pilot.client) |*active| active else null;
     if (pilot.hosted) |hosted| hosted.stop(client) else if (client) |remote| session.disconnect(remote);
     pilot.client = null;
@@ -320,6 +348,27 @@ fn showSessionLoss(pilot: *Graphical, screen: *Connection, presentation: ?*Prese
 }
 
 pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Interface, controls: MultiplayerMenu.ControlFrame, presentation: ?*Presentation, strings: game.language.Language, chat_font: *const game.hud.Opened, reads_controls: bool) void {
+    if (pilot.resolving.busy()) {
+        if (front.screen != .connection) {
+            pilot.resolving.abandon();
+            front.connection.busy = false;
+            return;
+        }
+        if (pilot.resolving.take()) |answer| {
+            const address = answer catch {
+                front.connection.busy = false;
+                front.connection.message = .{ .english = "Could not look up the server address" };
+                return;
+            };
+            var buffer: [identity.Invite.max_address]u8 = undefined;
+            const target = std.fmt.bufPrint(&buffer, "{f}", .{address}) catch {
+                front.connection.busy = false;
+                front.connection.message = could_not_connect;
+                return;
+            };
+            pilot.connectTarget(io, target, &front.connection, pilot.pending_call_sign);
+        }
+    }
     if (pilot.client == null and pilot.hosted == null and pilot.session_lost == null) return;
     const coop_saves = front.screen == .saved_games and front.save_source.cooperative();
     if (front.screen != .connection and !coop_saves) {
@@ -536,6 +585,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                     .roster = pilot.roster[0..client.roster.limit],
                     .notices = &pilot.lobby_notices,
                     .local_slot = client.joined.?.slot,
+                    .dedicated = client.roster.dedicated,
                     .mission = client.roster.mission,
                     .scenario = client.roster.lobby orelse .asteroid_field,
                     .ship = client.fighter,
@@ -544,6 +594,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                     front.connection.lobby.?.local_slot = client.joined.?.slot;
                     if (client.roster.lobby) |scenario| front.connection.lobby.?.scenario = scenario;
                 }
+                front.connection.lobby.?.dedicated = client.roster.dedicated;
                 front.connection.lobby.?.mission = client.roster.mission;
                 front.connection.lobby.?.ready = client.roster.ready;
                 front.connection.lobby.?.teams = client.roster.teams;
@@ -724,6 +775,7 @@ pub fn frame(pilot: *Graphical, gpa: std.mem.Allocator, local: *game.create.Obje
             shown.missionStarted(game.main.scriptMission(&path, flight.drawn.objects, number, number));
         }
     }
+    try client.flightReady(files.io);
     pilot.flight = flight;
     return &flight.drawn;
 }
@@ -922,14 +974,17 @@ fn flightCamera(pilot: *Graphical, drawn: *const game.main.Drawn) game.camera.Pl
         const since: f32 = @floatFromInt(drawn.clock.frame_start -| eject.started);
         return game.camera.ejected(eject.offset, slot.drawn.position, since);
     }
-    const offset = game.camera.Chase.offset(slot.object.type);
-    const throttle = if (slot.object.afterburner) game.camera.Chase.afterburner_throttle else slot.object.throttle;
-    const shake = drawn.shake * game.camera.Cockpit.shake_share * game.camera.Cockpit.camera_shake;
-    const jitter = flight.random.centredVector(@splat(shake));
-    return .{
-        .position = slot.drawn.position + math.transform(slot.drawn.orientation, .{ 0, offset.height, -offset.distance - game.camera.Chase.throttle_distance * throttle }),
-        .orientation = math.product(math.fromAngleVector(jitter), slot.drawn.orientation),
-    };
+    const subject = game.camera.Subject.of(slot);
+    flight.camera.frame(.{
+        .object = subject,
+        .player = subject,
+        .ticks = drawn.clock.drawnTicks(),
+        .now = drawn.clock.viewTime(),
+        .random = &flight.random,
+        .viewing = &drawn.player.viewing,
+        .shake = drawn.shake,
+    });
+    return flight.camera.place;
 }
 
 test "co-op chat announces changes from the same admission and bounds repeated notices" {

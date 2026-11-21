@@ -5,14 +5,15 @@
 +
 +// The caller supplies the trusted key before any connection is opened.
 +#undef STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY
-@@ -302,0 +307,21 @@
+@@ -301,0 +306,7 @@
++
 +extern "C" bool OpenReliant_SetTransportRoot( const char *keyText, size_t size )
 +{
 +	SteamNetworkingGlobalLock lock( "OpenReliant_SetTransportRoot" );
 +	auto key = std::make_unique<PublicKey>();
 +	if ( !key->m_keyPublic.SetFromOpenSSHAuthorizedKeys( keyText, size ) )
 +		return false;
-+
+@@ -302,0 +314,21 @@
 +	uint64 id = key->CalculateKeyID();
 +	if ( s_mapPublicKeys.Count() != 0 )
 +	{
@@ -27,7 +28,14 @@
 +	return true;
 +}
 +
-@@ -479,11 +504,2 @@
++// Called after the last connection closes, before a different host is trusted.
++extern "C" void OpenReliant_ClearTransportRoot()
++{
++	SteamNetworkingGlobalLock lock( "OpenReliant_ClearTransportRoot" );
++	CertStore_Reset();
++}
++
+@@ -479,11 +511,2 @@
 -			#ifdef STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY
 -				// If hardcoded root cert is in use, only trust the
 -				// one hardcoded root key.  (We've already tagged it

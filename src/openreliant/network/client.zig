@@ -115,6 +115,12 @@ pub fn leave(client: *Client, io: Io) !void {
     client.leaving = true;
 }
 
+/// Tell the host that this pilot has finished opening the current arena.
+pub fn flightReady(client: *Client, io: Io) !void {
+    try net.send(client.conn, .{ .flight_ready = client.roster.arena_floor });
+    client.deadline = Io.Clock.awake.now(io).toMicroseconds() + timeout;
+}
+
 pub const Event = union(enum) {
     idle,
     admitted,
@@ -522,6 +528,7 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
     var objectives: wire.Objectives = .none;
     var mission_view: ?wire.MissionView = null;
     var arena_floor: ?u32 = null;
+    var ready_floor: ?u32 = null;
     while (true) {
         if (controls == .keyboard and client.joined != null and !client.leaving) switch (net.session_key()) {
             'a', 'A' => steering = .left,
@@ -595,6 +602,10 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
                 std.debug.print("admitted {d} {d}\n", .{ admission.slot, admission.generation });
             },
             .snapshot, .finished => {
+                if (event == .snapshot and ready_floor != client.roster.arena_floor) {
+                    try client.flightReady(io);
+                    ready_floor = client.roster.arena_floor;
+                }
                 const view = client.latest.?;
                 if (view.scenario) |scenario| if (arena_floor != client.roster.arena_floor) {
                     const team = if (view.teams != null) client.roster.pilots[client.joined.?.slot] else null;

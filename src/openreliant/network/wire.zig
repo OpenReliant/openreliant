@@ -133,6 +133,7 @@ pub const Roster = struct {
     mission: ?u16 = null,
     paused: bool = false,
     briefing: bool = false,
+    dedicated: bool = false,
     arena_floor: u32 = 0,
     teams: bool = false,
     options: engine.game.deathmatch.Options = .{},
@@ -147,7 +148,8 @@ const RosterFlags = packed struct(u8) {
     teams: bool,
     ai_turrets: bool,
     no_player_targeting: bool,
-    reserved: u5 = 0,
+    dedicated: bool,
+    reserved: u4 = 0,
 };
 
 pub const BeaconNotice = struct { event: engine.game.deathmatch.six_beacons.Notice, name: CallSign };
@@ -1144,6 +1146,7 @@ pub const Message = union(enum(u8)) {
     campaign_movie: u32,
     campaign_movie_done: u32,
     mission_music: MissionMusic,
+    flight_ready: u32,
 
     pub fn encode(message: Message, buffer: []u8) ![]const u8 {
         var w = std.Io.Writer.fixed(buffer);
@@ -1213,7 +1216,7 @@ pub const Message = union(enum(u8)) {
                 }
             },
             .leave => {},
-            .received_final, .campaign_end, .campaign_retired, .campaign_movie, .campaign_movie_done => |tick| try w.writeInt(u32, tick, .little),
+            .received_final, .campaign_end, .campaign_retired, .campaign_movie, .campaign_movie_done, .flight_ready => |tick| try w.writeInt(u32, tick, .little),
             .flight_press => |presses| try w.writeByte(@bitCast(presses)),
             .roster => |roster| {
                 try writeMode(&w, roster.lobby, roster.mission != null);
@@ -1226,6 +1229,7 @@ pub const Message = union(enum(u8)) {
                     .teams = roster.teams,
                     .ai_turrets = roster.options.ai_turrets,
                     .no_player_targeting = !roster.options.target_players,
+                    .dedicated = roster.dedicated,
                 };
                 try w.writeByte(@bitCast(flags));
                 for (roster.pilots) |entry| {
@@ -1412,6 +1416,7 @@ pub const Message = union(enum(u8)) {
             .campaign_retired => .{ .campaign_retired = try r.takeInt(u32, .little) },
             .campaign_movie => .{ .campaign_movie = try r.takeInt(u32, .little) },
             .campaign_movie_done => .{ .campaign_movie_done = try r.takeInt(u32, .little) },
+            .flight_ready => .{ .flight_ready = try r.takeInt(u32, .little) },
             .flight_press => presses: {
                 const value: flight_input.Presses = @bitCast(try r.takeByte());
                 if (value.reserved != 0 or !value.any()) return error.InvalidFlightInput;
@@ -1438,6 +1443,7 @@ pub const Message = union(enum(u8)) {
                 view.arena_floor = try r.takeInt(u32, .little);
                 const flags: RosterFlags = @bitCast(try r.takeByte());
                 if (flags.reserved != 0 or (view.mission != null and (flags.ai_turrets or flags.no_player_targeting))) return error.InvalidRoster;
+                view.dedicated = flags.dedicated;
                 view.teams = flags.teams;
                 view.options = .{ .ai_turrets = flags.ai_turrets, .target_players = !flags.no_player_targeting };
                 if (view.teams and (view.mission != null or (view.lobby != null and view.lobby.?.record().teams == .none))) return error.InvalidRoster;
@@ -1724,12 +1730,13 @@ test "combat batches carry visual effects with bounded counts and pool indices" 
 test "a lobby preserves occupied slots and treats callsigns as bounded display text" {
     const host_name = lobbyName("  Falcon\x00  ");
     const guest_name = lobbyName("\xc9toile");
-    var message: Message = .{ .roster = .{ .lobby = .asteroid_field } };
+    var message: Message = .{ .roster = .{ .lobby = .asteroid_field, .dedicated = true } };
     message.roster.pilots[0] = .{ .generation = 1, .name = host_name };
     message.roster.pilots[2] = .{ .generation = 4, .name = guest_name };
     var buffer: [capacity]u8 = undefined;
     const decoded = (try Message.decode(try message.encode(&buffer))).roster;
     try std.testing.expectEqual(.asteroid_field, decoded.lobby);
+    try std.testing.expect(decoded.dedicated);
     try std.testing.expectEqualStrings("Falcon", decoded.pilots[0].?.name.slice());
     try std.testing.expectEqual(null, decoded.pilots[1]);
     try std.testing.expectEqual(4, decoded.pilots[2].?.generation);

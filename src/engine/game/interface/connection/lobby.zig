@@ -35,6 +35,7 @@ caret: chat_panel.Caret = .{},
 older_chat: usize = 0,
 chat_hover: ?ui.Arrow = null,
 local_slot: usize,
+dedicated: bool = false,
 ready: Crew.Pilots = .empty,
 scenario: scenarios.Scenario = .asteroid_field,
 mission: ?u16 = null,
@@ -449,9 +450,9 @@ fn pilotName(canvas: ui.Canvas, slot: usize, name: *const CallSign, fallback: []
     return std.fmt.bufPrint(fallback, "{s} {d}", .{ label, slot + 1 }) catch label;
 }
 
-fn nameAt(lobby: Lobby, slot: usize) []const u8 {
+fn nameAt(lobby: Lobby, canvas: ui.Canvas, slot: usize, fallback: []u8) []const u8 {
     if (slot >= lobby.roster.len) return "";
-    return if (lobby.roster[slot]) |*pilot| pilot.name.slice() else "";
+    return if (lobby.roster[slot]) |*pilot| pilotName(canvas, slot, &pilot.name, fallback) else "";
 }
 
 fn drawPlayers(lobby: *const Lobby, canvas: ui.Canvas, paging_art: ?*hud.Art) !void {
@@ -500,8 +501,10 @@ fn drawCoop(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
     const title: Label = if (host) .{ .english = "COOPERATIVE MULTIPLAYER HOST", .installed = 0x147 } else .{ .english = "COOPERATIVE MULTIPLAYER JOIN", .installed = 0x146 };
     try write(canvas, .{ 320, 98 }, title, ui.blue, .centre);
     const call: Field = .{ .box = .{ .x = 45, .y = 140, .width = 149, .height = 21 }, .label = callsign };
-    if (!host) try call.draw(canvas, lobby.nameAt(lobby.local_slot), false);
-    try coop_lead.draw(canvas, lobby.nameAt(0), false);
+    var local_name: [64]u8 = undefined;
+    var host_name: [64]u8 = undefined;
+    if (!host) try call.draw(canvas, lobby.nameAt(canvas, lobby.local_slot, &local_name), false);
+    try coop_lead.draw(canvas, if (lobby.dedicated) canvas.strings.stringOr(0x310, "N/A") else lobby.nameAt(canvas, 0, &host_name), false);
     // multiplayer_sessions_screen starts with the installed default (0x0043D020).
     try coop_game.draw(canvas, canvas.strings.stringOr(0x414, "New Session"), false);
     var number: [16]u8 = undefined;
@@ -530,7 +533,9 @@ fn drawArena(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
     const title: Label = if (host) .{ .english = "DEATHMATCH HOST", .installed = 0x2C1 } else .{ .english = "DEATHMATCH JOIN", .installed = 0x2D3 };
     try write(canvas, .{ 320, if (host) 98 else 95 }, title, ui.blue, .centre);
     const local: Field = .{ .box = .{ .x = 45, .y = 126, .width = 149, .height = 21 }, .label = if (host) role_label else callsign };
-    try local.draw(canvas, lobby.nameAt(lobby.local_slot), false);
+    var local_name: [64]u8 = undefined;
+    var host_name: [64]u8 = undefined;
+    try local.draw(canvas, lobby.nameAt(canvas, lobby.local_slot, &local_name), false);
     const selected: Field = .{ .box = .{ .x = 45, .y = 202, .width = 149, .height = 18 }, .label = game_label };
     if (host) {
         try write(canvas, .{ 49, 147 }, game_label, ui.blue, .left);
@@ -540,7 +545,7 @@ fn drawArena(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
             try widgets.fittedLabel(canvas, .{ 48, mode_first_y + mode_step * @as(i32, @intCast(index)) }, mode_list.width - 6, label.text(canvas.strings.*), colour, .left);
         }
     } else {
-        try arena_lead.draw(canvas, lobby.nameAt(0), false);
+        try arena_lead.draw(canvas, if (lobby.dedicated) canvas.strings.stringOr(0x310, "N/A") else lobby.nameAt(canvas, 0, &host_name), false);
         try selected.draw(canvas, scenario_options[@backingInt(lobby.scenario)].text(canvas.strings.*), false);
     }
     const member = if (lobby.local_slot < lobby.roster.len) lobby.roster[lobby.local_slot] else null;

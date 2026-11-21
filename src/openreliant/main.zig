@@ -839,6 +839,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer directory_browser.close();
     const directory_servers = settings_file.profile.value("OpenReliant", "DirectoryServers") orelse Directory.default_origin;
     var was_connection = false;
+    var next_directory_refresh: u64 = 0;
     var front: engine.genilib.interf.Interface = .{
         .pilot = .{ .difficulty = options.difficulty orelse .easy },
         .connection = .{ .host_available = network_enabled, .discovery_available = network_enabled and directory_servers.len != 0, .protocol = @import("network/wire.zig").revision },
@@ -1160,7 +1161,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             front_context.elapsed = elapsed;
             if (network_enabled) {
                 const browsing = front.screen == .connection and front.connection.lobby == null and front.connection.debrief == null;
-                if (browsing and !was_connection and directory_servers.len != 0) front.connection.refresh_requested = true;
+                if (browsing and !was_connection and directory_servers.len != 0) {
+                    front.connection.refresh_requested = true;
+                    // A departing pilot may reach the menu before the host publishes the new count.
+                    next_directory_refresh = ticks + 200;
+                } else if (browsing and ticks >= next_directory_refresh and directory_servers.len != 0) {
+                    front.connection.refresh_requested = true;
+                    next_directory_refresh = ticks + 1500;
+                }
                 was_connection = browsing;
                 if (front.connection.refresh_requested) {
                     front.connection.refresh_requested = false;
