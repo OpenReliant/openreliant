@@ -1,7 +1,6 @@
 //! A direct-IP host. Only the game thread admits pilots and applies their commands.
 const std = @import("std");
 const Io = std.Io;
-const Ip6Address = Io.net.Ip6Address;
 const wire = @import("wire.zig");
 const flight = @import("openreliant").engine.input.flight;
 const flight_input = @import("flight_input.zig");
@@ -10,6 +9,7 @@ const game = @import("openreliant").engine.game;
 const Arena = @import("arena.zig");
 const ProjectilePage = wire.ordnance.Page;
 const identity = @import("identity.zig");
+const lan = @import("lan.zig");
 const HandshakeBudget = @import("handshake_budget").Window(wire.slots);
 const Host = @This();
 const ChatBudget = @import("chat_budget.zig");
@@ -81,6 +81,11 @@ signer: ?*const identity.Server = null,
 directory_session: ?[16]u8 = null,
 player_limit: u8 = wire.slots,
 lan_only: bool = false,
+/// Answers the local network's searches for games, with this name, for the game on this port.
+discovery: ?lan.Responder = null,
+discovery_name: lan.Text = .{},
+discovery_port: u16 = 0,
+discovery_this_machine_only: bool = false,
 arena_directory: ?Io.Dir = null,
 arena_floor: u32 = 0,
 arena_teams: bool = false,
@@ -242,20 +247,67 @@ fn slotFor(host: *const Host, conn: net.Connection) ?u8 {
     return null;
 }
 
-fn isLan(address: [16]u8) bool {
-    const ipv6: Ip6Address = .{ .bytes = address, .port = 0 };
-    if (Io.net.Ip4Address.fromIp6(ipv6)) |ipv4| {
-        const first, const second, _, _ = ipv4.bytes;
-        return first == 127 or first == 10 or (first == 172 and second >= 16 and second <= 31) or
-            (first == 192 and second == 168) or (first == 169 and second == 254);
+/// Whether the host takes new pilots: not once the session is ending, nor in a co-op campaign
+/// after its lobby.
+fn acceptsJoins(host: *const Host) bool {
+    return host.final_tick == null and host.arena.campaign == null and !host.campaign_briefing;
+}
+
+/// Lists the game in the local network's searches (`lan.Responder`), under `name`, for the game
+/// listening on `address`. A game bound to loopback is listed on this machine only. Without a key
+/// of its own (`signer`), such as with a managed identity, the host can't be joined from a list.
+pub fn openDiscovery(host: *Host, address: Io.net.IpAddress, name: []const u8) void {
+    if (host.signer == null) {
+        log.info("LAN lists show only hosts with a key of their own; join this one by its address", .{});
+        return;
     }
-    return ipv6.isLoopBack() or ipv6.isLinkLocal() or address[0] & 0xfe == 0xfc;
+    host.discovery_port = address.getPort();
+    host.discovery_name = .of(name);
+    host.discovery_this_machine_only = lan.isLoopback(address);
+    host.discovery = lan.Responder.open(host.io) catch |err| no: {
+        log.warn("the game won't show in LAN lists: {t}", .{err});
+        break :no null;
+    };
+}
+
+/// Answers the local network's searches for games (`lan.Responder`).
+fn answerDiscovery(host: *Host) void {
+    const responder = if (host.discovery) |*running| running else return;
+    responder.poll(host.io, host.discoveryGame());
+}
+
+/// What the host tells a search about its game, while it has a place for a new pilot.
+fn discoveryGame(host: *const Host) ?lan.Game {
+    const signer = host.signer orelse return null;
+    const players = host.playingCount();
+    if (!host.acceptsJoins() or players >= host.player_limit) return null;
+    const cooperative = host.campaign_start != null or (host.start == .lobby and host.start.lobby.mission != null);
+    const scenario = if (host.start == .lobby) host.start.lobby.scenario else host.arena.mode.scenario();
+    const mode = if (cooperative)
+        "Co-op"
+    else if (scenario) |chosen|
+        chosen.record().name
+    else switch (host.arena.mode) {
+        .@"six-beacons" => "Six Beacons",
+        .training => "Training",
+        else => "",
+    };
+    return .{
+        .protocol = wire.revision,
+        .game_port = host.discovery_port,
+        .players = @intCast(players),
+        .capacity = host.player_limit,
+        .key = signer.issuer.public_key,
+        .name = host.discovery_name.slice(),
+        .mode = mode,
+        .this_machine_only = host.discovery_this_machine_only,
+    };
 }
 
 fn acceptsRemote(host: *const Host, conn: net.Connection) bool {
     if (!host.lan_only) return true;
     var address: [16]u8 = undefined;
-    return net.session_peer_ip(conn, &address) and isLan(address);
+    return net.session_peer_ip(conn, &address) and lan.isLan(address);
 }
 
 pub fn takeLocalPilot(host: *Host, server_end: net.Connection, name: wire.CallSign) void {
@@ -432,7 +484,7 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
     switch (event) {
         .incoming => {
             if (slot != null) return;
-            if (host.final_tick == null and host.arena.campaign == null and !host.campaign_briefing and host.acceptsRemote(conn)) {
+            if (host.acceptsJoins() and host.acceptsRemote(conn)) {
                 // A player-hosted game keeps slot zero for the local connection even if it closes.
                 const first_remote: usize = @intFromBool(host.lan_only);
                 for (host.peers[first_remote..host.player_limit]) |*entry| {
@@ -1088,6 +1140,8 @@ pub fn close(host: *Host) void {
         net.session_listen_close(host.listener);
         host.listener = 0;
     }
+    if (host.discovery) |*responder| responder.close(host.io);
+    host.discovery = null;
 }
 
 fn sendCampaignPhase(host: *Host, message: wire.Message) void {
@@ -1246,6 +1300,7 @@ fn beginMovie(host: *Host, time: i64) void {
 
 /// Services a host without waiting for the next tick. The caller polls transport callbacks.
 pub fn pump(host: *Host) !enum { running, finished } {
+    host.answerDiscovery();
     const time = host.now();
     if (host.final_tick != null) {
         if (time >= host.drain_until or host.playingCount() == 0) return .finished;
@@ -1476,13 +1531,6 @@ pub fn run(host: *Host, address: [:0]const u8, ticks: ?u32, invite: ?identity.In
         if (wait > 0) try host.io.sleep(.fromMicroseconds(wait), .awake);
     }
     log.info("finished {d} {d}", .{ host.tick, host.final_receipts });
-}
-
-test "a LAN listener accepts private, link-local and loopback peers" {
-    const allowed = [_][]const u8{ "127.0.0.1", "::1", "10.0.1.7", "172.31.0.2", "192.168.1.9", "169.254.1.2", "fe80::1", "fd12::8" };
-    for (allowed) |ip| try std.testing.expect(isLan(Ip6Address.fromAny(try Io.net.IpAddress.parse(ip, 0)).bytes));
-    const denied = [_][]const u8{ "192.0.2.1", "172.32.1.1", "2001:db8::1", "::", "0.0.0.0" };
-    for (denied) |ip| try std.testing.expect(!isLan(Ip6Address.fromAny(try Io.net.IpAddress.parse(ip, 0)).bytes));
 }
 
 test "only an admitted local pilot can launch a player-hosted match" {

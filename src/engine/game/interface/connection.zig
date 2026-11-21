@@ -110,6 +110,25 @@ fn servers(screen: *const Connection) []const Server {
     return screen.listings.get(screen.source);
 }
 
+/// Shows `rows` as the list of `source`. The selection stays on the same game when a refresh
+/// changes the order or the player counts.
+pub fn replaceListings(screen: *Connection, source: Source, rows: []const Server) void {
+    const shown = screen.listings.get(source);
+    const selected = if (screen.source == source and screen.selected < shown.len) shown[screen.selected].target else null;
+    var match: ?usize = null;
+    if (selected) |target| for (rows, 0..) |row, index| {
+        if (std.mem.eql(u8, target, row.target)) {
+            match = index;
+            break;
+        }
+    };
+    screen.listings.set(source, rows);
+    if (screen.source == source) {
+        screen.selected = match orelse 0;
+        if (match == null) screen.first = 0;
+    }
+}
+
 fn compatible(screen: *const Connection, server: Server) bool {
     return if (screen.protocol) |ours| if (server.protocol) |theirs| ours == theirs else true else true;
 }
@@ -208,7 +227,7 @@ pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, type
         if (screen.hover) |control| switch (control) {
             .internet, .lan => {
                 screen.source = if (control == .internet) .internet else .lan;
-                if (control == .internet) screen.refresh_requested = true;
+                screen.refresh_requested = true;
                 screen.first = 0;
                 screen.selected = 0;
                 screen.editing = false;
@@ -357,12 +376,11 @@ fn drawList(screen: *const Connection, canvas: ui.Canvas, layout: Layout) !void 
         try cells(canvas, layout, y, .{ server.name, server.mode, population, latency }, colour, text_offset);
     }
     if (list.len == 0) {
-        const empty = if (screen.source == .internet and screen.discovery_available)
-            "No sessions found"
-        else if (screen.source == .internet)
-            "Internet discovery unavailable"
-        else
-            "LAN discovery unavailable";
+        const empty = switch (screen.source) {
+            .internet => if (screen.discovery_available) "No sessions found" else "Internet discovery unavailable",
+            // The LAN search needs only the network, which hosting needs too.
+            .lan => if (screen.host_available) "No sessions found" else "LAN discovery unavailable",
+        };
         try canvas.text(font, .{ layout.list.x + Layout.inset, layout.rowTop(0) + text_offset }, empty, ui.blue, .left);
     }
 }
@@ -447,6 +465,38 @@ test "the browser only offers hosting when the transport is available" {
     try std.testing.expectEqual(null, screen.host_choice);
     screen.busy = true;
     try std.testing.expectEqual(null, screen.frame(click, &keys, &typed, size));
+}
+
+test "a LAN game of another protocol revision can't be joined, as on the Internet list" {
+    const older: Server = .{ .name = "Rook", .description = "", .mode = "Co-op", .players = 1, .capacity = 4, .target = "a", .protocol = 36 };
+    var screen: Connection = .{ .source = .lan, .protocol = 37 };
+    screen.replaceListings(.lan, &.{older});
+    try std.testing.expect(!screen.compatible(older));
+    try std.testing.expect(!screen.enabled(.selected));
+    var current = older;
+    current.protocol = 37;
+    screen.replaceListings(.lan, &.{current});
+    try std.testing.expect(screen.enabled(.selected));
+}
+
+test "a refreshed list keeps the selected game, and another list leaves it alone" {
+    const first: Server = .{ .name = "Rook", .description = "", .mode = "Co-op", .players = 1, .capacity = 4, .target = "a" };
+    const second: Server = .{ .name = "Falcon", .description = "", .mode = "Tag Bomb", .players = 2, .capacity = 8, .target = "b" };
+    var screen: Connection = .{ .source = .lan };
+    screen.replaceListings(.lan, &.{ first, second });
+    screen.selected = 1;
+    // The refresh lists Falcon first now.
+    screen.replaceListings(.lan, &.{ second, first });
+    try std.testing.expectEqual(0, screen.selected);
+    // The Internet list changes without moving the LAN selection.
+    screen.replaceListings(.internet, &.{first});
+    try std.testing.expectEqual(0, screen.selected);
+    // A game that is gone takes the selection back to the top.
+    screen.selected = 1;
+    screen.first = 1;
+    screen.replaceListings(.lan, &.{second});
+    try std.testing.expectEqual(0, screen.selected);
+    try std.testing.expectEqual(0, screen.first);
 }
 
 test "browser selection and direct entry submit independent targets" {

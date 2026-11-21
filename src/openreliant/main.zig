@@ -35,6 +35,7 @@ const camera = game.camera;
 const network_enabled = @import("network_options").enabled;
 const NetworkPilot = @import("network/graphical.zig");
 const Directory = @import("network/directory.zig");
+const LanBrowser = @import("network/lan.zig").Browser;
 const CoopSave = @import("network/coop_save.zig");
 // The program's own files are `pub`, so that the test block at the end runs their tests.
 pub const debug_command = @import("debug.zig");
@@ -837,6 +838,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer if (network_enabled) network_pilot.stop(presentation);
     var directory_browser: Directory = .{};
     defer directory_browser.close();
+    var lan_browser: LanBrowser = .{};
+    defer lan_browser.close();
     const directory_servers = settings_file.profile.value("OpenReliant", "DirectoryServers") orelse Directory.default_origin;
     var was_connection = false;
     var next_directory_refresh: u64 = 0;
@@ -1161,20 +1164,26 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             front_context.elapsed = elapsed;
             if (network_enabled) {
                 const browsing = front.screen == .connection and front.connection.lobby == null and front.connection.debrief == null;
-                if (browsing and !was_connection and directory_servers.len != 0) {
+                // The LAN list needs only the network; the Internet list needs a directory.
+                const searchable = front.connection.source == .lan or directory_servers.len != 0;
+                if (browsing and !was_connection and searchable) {
                     front.connection.refresh_requested = true;
                     // A departing pilot may reach the menu before the host publishes the new count.
                     next_directory_refresh = ticks + 200;
-                } else if (browsing and ticks >= next_directory_refresh and directory_servers.len != 0) {
+                } else if (browsing and ticks >= next_directory_refresh and searchable) {
                     front.connection.refresh_requested = true;
                     next_directory_refresh = ticks + 1500;
                 }
                 was_connection = browsing;
                 if (front.connection.refresh_requested) {
                     front.connection.refresh_requested = false;
-                    if (directory_servers.len != 0) directory_browser.refresh(directory_servers);
+                    switch (front.connection.source) {
+                        .internet => if (directory_servers.len != 0) directory_browser.refresh(directory_servers),
+                        .lan => lan_browser.refresh(),
+                    }
                 }
                 directory_browser.poll(&front.connection);
+                lan_browser.poll(&front.connection);
             }
             // While the console is up, it takes the pass.
             if (network_enabled) network_pilot.update(io, &front, .{
@@ -3119,6 +3128,7 @@ const Display = struct {
 test {
     _ = NetworkPilot;
     _ = Directory;
+    _ = @import("network/lan.zig");
     _ = CoopSave;
     _ = @import("network/wire.zig");
     _ = @import("network/chat_budget.zig");

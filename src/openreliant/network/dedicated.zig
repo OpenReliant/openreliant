@@ -28,6 +28,8 @@ const Config = struct {
     repeat_rounds: bool,
     identity: ?session.Identity,
     advertise: ?Advertiser.Config,
+    /// The name in LAN lists, or null to stay out of them.
+    lan_name: ?[]const u8,
     check_updates: bool,
 
     fn parse(profile: Profile) !Config {
@@ -98,6 +100,7 @@ const Config = struct {
             if (certificate_path.len == 0) return error.MissingCertificate;
             break :identity .{ .root_path = root_path, .certificate_path = certificate_path };
         };
+        const name = profile.value("Server", "Name") orelse "OpenReliant server";
         return .{
             .bind = bind,
             .invite_address = if (Invite.hasAddress(advertised)) advertised else null,
@@ -114,11 +117,12 @@ const Config = struct {
             .identity = managed,
             .advertise = if (profile.value("Server", "DirectoryServers")) |origins| .{
                 .origins = origins,
-                .name = profile.value("Server", "Name") orelse "OpenReliant server",
+                .name = name,
                 .description = profile.value("Server", "Description") orelse "",
                 .address = profile.value("Server", "PublicAddress"),
                 .port = port,
             } else null,
+            .lan_name = if (try optionalSwitch(profile, "LanDiscovery", true)) name else null,
             .check_updates = try optionalSwitch(profile, "CheckUpdates", true),
         };
     }
@@ -159,6 +163,7 @@ pub fn run(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !void
         .repeat_rounds = config.repeat_rounds,
         .invite_address = config.invite_address,
         .advertise = config.advertise,
+        .lan_name = config.lan_name,
         .check_updates = config.check_updates,
     });
 }
@@ -201,6 +206,9 @@ test "headless settings share the game's INI syntax" {
 test "dedicated activation and metrics have independent settings" {
     const defaults = try Config.parse(.empty);
     try std.testing.expect(defaults.check_updates);
+    try std.testing.expectEqualStrings("OpenReliant server", defaults.lan_name.?);
+    try std.testing.expectEqualStrings("Friday", (try Config.parse(.{ .text = "[Server]\nName=Friday" })).lan_name.?);
+    try std.testing.expectEqual(null, (try Config.parse(.{ .text = "[Server]\nLanDiscovery=0" })).lan_name);
     try std.testing.expect(!(try Config.parse(.{ .text = "[Server]\nCheckUpdates=0" })).check_updates);
     try std.testing.expectEqual(2, defaults.launch_wait.minimum);
     try std.testing.expectEqual(30 * std.time.us_per_s, defaults.launch_wait.delay_us);

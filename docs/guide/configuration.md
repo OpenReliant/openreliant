@@ -308,6 +308,10 @@ Open **Multi Player** from the main menu. Under **Direct Connect**, type the ser
 For IPv6 with a port, use brackets, for example `[2001:db8::1]:27200`. The client opens
 one encrypted connection to the address. Pilots need no credential files.
 
+Games hosted on your local network appear under **LAN** in the same screen. Select one and
+choose **Join Game**. The list searches UDP port 27021, so a firewall on the host must allow it
+for the game to show. You can always join a LAN game by its IP address under **Direct Connect**.
+
 In Nuclear Threat, use your usual **Fire Lasers** control. The host advances the guns, applies
 hits and updates each pilot's shields, armour and kill count. When a carrier is destroyed, their
 beacons drop at the wreck. The pilot respawns in the fighter they chose and keeps their score.
@@ -366,10 +370,11 @@ your pilots can reach. Allow incoming UDP on `Port` and use the same port if you
 | `Arena` | `nuclear-threat` | `nuclear-threat`, `asteroid-field`, `dark-reign`, `tag-bomb`, `hunt-the-shadow` or `vampires` for the stock missions. `six-beacons` and `training` are small transport test arenas |
 | `Mission` | Unset | Installed campaign mission number for co-op. Set either `Arena` or `Mission` |
 | `GameDirectory` | `.` | Installed game folder, relative to `server.ini` or an absolute path. Used by stock arenas and co-op missions |
-| `Name` | `OpenReliant server` | The name shown in directory listings |
+| `Name` | `OpenReliant server` | The name shown in directory listings and LAN lists |
 | `Description` | Empty | Description shown in directory listings |
 | `DirectoryServers` | Unset | Comma-separated directory URLs. When set, the host publishes itself to each directory |
 | `PublicAddress` | Unset | Public IP to advertise when the incoming address differs from the observed outgoing address |
+| `LanDiscovery` | `1` | Show the server in the LAN lists of players on the local network. Only players on the same machine see a server that listens on `127.0.0.1`. Set to `0` to stay out of LAN lists |
 | `CheckUpdates` | `1` | Check for a newer OpenReliant release at startup and every six hours. Set to `0` to disable |
 | `Players` | `8` for arenas, `2` for co-op | How many pilots can join. Choose 2 to 8 for an arena or 2 to 4 for co-op |
 | `MinPlayers` | `2` for arenas, `Players` for co-op | How many admitted pilots are needed to begin the countdown. Choose at least 2 and at most `Players` |
