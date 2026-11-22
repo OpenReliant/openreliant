@@ -69,12 +69,17 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
   that the GPU finishes before the next (`Gpu.uploadInParts`), where more than that wait, as when
   a mission's loading ends. One transfer buffer for them all took as much memory again as the
   textures.
-- The mods' pictures take a sixth of the computer's memory at most, with their maps
-  (`srtexture.Table.budget`, set from `SDL_GetSystemRAM`), and the loadout's own table half of
-  that. Once they have taken it, a picture keeps fewer of its finest levels, each a quarter of the
-  last, down to 256 pixels (`mod_pictures.sideFor`), which the log says. The pictures found first
-  keep their size. An integrated GPU's video memory is the computer's own, so without a limit
-  enough mods took all of it. A model's pictures decode four at a time (`decoded_at_once`).
+- Before it loads a mod's picture, the texture table asks how much memory the computer has free
+  (`srtexture.Table.memory`, `platform.memory.available`: `MemAvailable` on Linux,
+  `host_statistics64` on macOS, `GlobalMemoryStatusEx` on Windows). The game keeps 1 GB back for
+  the rest of the computer and halves what is left, since a picture is held twice while it
+  loads. A picture that wouldn't fit keeps fewer of its finest levels, each a quarter of the last,
+  down to 256 pixels (`mod_pictures.sideFor`), which the log says. Nothing is set aside ahead. An
+  allocation the computer can't back doesn't fail on Linux or macOS: the system swaps, and Linux
+  stalls once the swap is full, so the game asks first. An integrated GPU's video memory is the
+  computer's own, which is where enough mods took all of it; with a card of its own, sending
+  textures up takes none of the computer's memory and the check stays out of the way. A model's
+  pictures decode four at a time (`decoded_at_once`).
   Still open: the pictures a mission loads all stay in the computer's memory until its loading
   ends ([#1545](https://github.com/OpenReliant/openreliant/issues/1545)).
 - The loadout keeps a texture table of its own, for the green and red copies it draws its

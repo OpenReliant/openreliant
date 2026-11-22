@@ -270,7 +270,7 @@ pub fn start(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: 
         if (room) |bytes| {
             const fitted = sideFor(size, planes, compressed, longest, bytes);
             if (fitted < @min(longest, @max(size[0], size[1]))) {
-                log.info("{s} keeps {d} of its {d} pixels: the mods' textures have used the memory set aside for them", .{ name, fitted, @max(size[0], size[1]) });
+                log.info("{s} keeps {d} of its {d} pixels: the computer has no more memory free for it", .{ name, fitted, @max(size[0], size[1]) });
             }
             loading.longest = fitted;
         }

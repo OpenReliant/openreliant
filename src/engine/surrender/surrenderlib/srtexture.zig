@@ -438,14 +438,13 @@ pub const Table = struct {
     /// OpenReliant's: what compresses the mods' pictures, where the device takes compressed
     /// textures; null to keep them as they are.
     compressor: ?Compressor = null,
-    /// OpenReliant's: the most bytes the mods' pictures may take in all, with their maps; null for
-    /// no limit. Once they have taken it, a picture keeps fewer of its finest levels
-    /// (`mod_pictures.sideFor`), so that the mods a player installs can't take more memory than the
-    /// computer has ([#1545](https://github.com/OpenReliant/openreliant/issues/1545)). The pictures
-    /// found first keep their full size.
-    budget: ?u64 = null,
-    /// The bytes the mods' pictures found so far take.
-    spent: u64 = 0,
+    /// OpenReliant's: what says how much memory the computer has free for another of the mods'
+    /// pictures (`Memory`); null to take any. A picture that wouldn't fit keeps fewer of its
+    /// finest levels (`mod_pictures.sideFor`), so that the mods a player installs can't take more
+    /// memory than the computer has
+    /// ([#1545](https://github.com/OpenReliant/openreliant/issues/1545)). The pictures found
+    /// while there is room keep their full size.
+    memory: ?Memory = null,
     /// OpenReliant's: whether the table lets go of an image's pixels once the device holds them
     /// (`releaseHeld`): with the GPU, which keeps its own copy, and not in the tools and tests that
     /// read them.
@@ -518,10 +517,7 @@ pub const Table = struct {
                 try mod_pictures.start(table.gpa, files, key, table.longest(), table.compressor, null, left);
             switch (outcome) {
                 .none => table.gpa.free(key),
-                .kept => |image| {
-                    table.spent += bytesOf(&image);
-                    try table.keep(key, image);
-                },
+                .kept => |image| try table.keep(key, image),
                 .loading => |loading| {
                     promised += loading.estimate;
                     started.append(table.gpa, .{ .key = key, .loading = loading }) catch |err| {
@@ -540,7 +536,6 @@ pub const Table = struct {
             shareRows(batch.len, 1, batch, Prefetched.decode);
             for (batch) |*item| {
                 const image = try item.loading.finish() orelse continue;
-                table.spent += bytesOf(&image);
                 const key = item.key;
                 item.key = &.{};
                 try table.keep(key, image);
@@ -630,19 +625,10 @@ pub const Table = struct {
         return image;
     }
 
-    /// How many bytes the mods' pictures can still take within `budget`; null for any.
+    /// How many bytes another of the mods' pictures can take, as `memory` says; null for any.
     fn room(table: *const Table) ?u64 {
-        return (table.budget orelse return null) -| table.spent;
-    }
-
-    /// The bytes `image` takes: its levels and its maps'.
-    fn bytesOf(image: *const Image) u64 {
-        var bytes: u64 = 0;
-        for (image.levels) |level| bytes += level.texels.len;
-        for (image.maps.list()) |held| if (held) |levels| {
-            for (levels) |level| bytes += level.texels.len;
-        };
-        return bytes;
+        const asked = table.memory orelse return null;
+        return asked.free(asked.context);
     }
 
     /// How many of a model's pictures `prefetch` decodes at once. A 4096 by 4096 picture with a
@@ -660,7 +646,6 @@ pub const Table = struct {
         const files = table.files orelse return null;
         var made = try mod_pictures.loadWithin(table.gpa, files, name, table.longest(), table.compressor, copy, table.room()) orelse return null;
         errdefer made.deinit(table.gpa);
-        table.spent += bytesOf(&made);
         const image = try table.gpa.create(Image);
         image.* = made;
         return image;
@@ -691,6 +676,13 @@ pub const Table = struct {
     fn track(table: *Table, image: *Image) Allocator.Error!void {
         if (table.release_held) try table.unreleased.append(table.gpa, image);
     }
+};
+
+/// OpenReliant's: asks the platform how many bytes of memory another of the mods' pictures can
+/// take now, with its maps; null where the system doesn't say.
+pub const Memory = struct {
+    context: *anyopaque,
+    free: *const fn (context: *anyopaque) ?u64,
 };
 
 /// The longest side an image keeps: a picture larger loses its finest levels until it fits, so
@@ -1132,7 +1124,7 @@ test "Table.prefetch" {
     try std.testing.expectEqual([4]u8{ 23, 255, 13, 0xFF }, (try table.findCopy("tail", .green)).?.levels[0].texels[0..4].*);
 }
 
-test "the mods' pictures keep fewer levels once they have taken the table's budget" {
+test "a mod's picture keeps fewer levels where the computer has little memory free" {
     const gpa = std.testing.allocator;
     const bytes = try tcache.testing.build(gpa, &.{.{ .name = "hull", .encoding = .index8, .width = 2, .height = 2 }});
     defer gpa.free(bytes);
@@ -1154,22 +1146,35 @@ test "the mods' pictures keep fewer levels once they have taken the table's budg
         .{ .name = "third.png", .bytes = written.written() },
     } };
 
+    // A computer whose free memory the test sets.
+    const Computer = struct {
+        free: ?u64,
+
+        fn say(context: *anyopaque) ?u64 {
+            const computer: *const @This() = @ptrCast(@alignCast(context));
+            return computer.free;
+        }
+    };
+    var computer: Computer = .{ .free = 8_000_000 };
     var table: Table = .init(gpa, cache, palette);
     defer table.deinit();
     table.files = pictures.files();
-    // Room for one whole picture and a little more.
-    table.budget = 7_500_000;
-    // The first found keeps its size, the second what is left has room for, and the third, with
-    // nothing left, what the original's HIGH kept.
+    table.memory = .{ .context = &computer, .free = Computer.say };
+    // With room for it, a picture keeps its size.
     try std.testing.expectEqual(side, (try table.find("first")).?.width());
+    // With room for a quarter of it, it loses its finest level.
+    computer.free = 2_000_000;
     try std.testing.expectEqual(512, (try table.find("second")).?.width());
+    // With none, it keeps what the original's HIGH kept, never less.
+    computer.free = 0;
     try std.testing.expectEqual(mod_pictures.scarce_side, (try table.find("third")).?.width());
-    try std.testing.expect(table.spent <= table.budget.? + mod_pictures.cost(.{ side, side }, 1, false, mod_pictures.scarce_side));
-    // Without a budget, every picture keeps its size.
-    var free: Table = .init(gpa, cache, palette);
-    defer free.deinit();
-    free.files = pictures.files();
-    try std.testing.expectEqual(side, (try free.find("third")).?.width());
+    // Where the system doesn't say, and where nothing asks, every picture keeps its size.
+    computer.free = null;
+    var unasked: Table = .init(gpa, cache, palette);
+    defer unasked.deinit();
+    unasked.files = pictures.files();
+    unasked.memory = .{ .context = &computer, .free = Computer.say };
+    try std.testing.expectEqual(side, (try unasked.find("third")).?.width());
 }
 
 test "Table.findCopy" {

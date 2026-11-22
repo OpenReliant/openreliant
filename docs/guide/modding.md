@@ -512,11 +512,10 @@ sRGB-encoded, as a PNG's are.
 ### Memory
 
 High-resolution pictures take a lot of memory: a 4096x4096 picture with a normal map and a
-material map takes about 67 MB compressed. OpenReliant gives the mods' pictures a sixth of the
-computer's memory, which the log's `textures` line says as it starts. Once they have taken it,
-further pictures are drawn smaller, at half the size or less, and the log names each one. A
-player with many high-resolution mods on a computer with little memory then sees some ships less
-sharp, rather than the game running out of memory. TEXTURE DETAIL at MEDIUM draws every picture at
+material map takes about 67 MB compressed. Before OpenReliant loads a picture, it checks how much
+memory the computer has free. A picture that wouldn't fit is drawn smaller, at half the size or
+less, and the log names it. A player with many high-resolution mods on a computer with little
+memory then sees some ships less sharp, rather than the game running out of memory. TEXTURE DETAIL at MEDIUM draws every picture at
 256 pixels.
 
 ### Textures in the loadout
