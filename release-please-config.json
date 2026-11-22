@@ -19,6 +19,9 @@
   "packages": {
     ".": {
       "package-name": "openreliant",
+      "versioning": "prerelease",
+      "prerelease-type": "rc",
+      "prerelease": true,
       "initial-version": "0.0.1",
       "extra-files": [{ "type": "generic", "path": "build.zig.zon" }]
     }
