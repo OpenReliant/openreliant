@@ -486,9 +486,7 @@ pub fn poll(client: *Client, io: Io) !Event {
         },
         .own_flight => |own| {
             if (client.joined == null or client.leaving or client.result_tick != null) return .idle;
-            // The host's margin is the newest of this pilot's ticks it holds, less the step's.
-            const received = own.tick +% own.margin;
-            if (client.acked == null or received -% client.acked.? > 0) client.acked = received;
+            if (client.acked == null or own.received -% client.acked.? > 0) client.acked = own.received;
             if (client.own_flight) |held| if (own.tick -% held.tick <= 0) return .idle;
             client.own_flight = own;
             return .idle;

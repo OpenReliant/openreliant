@@ -97,10 +97,19 @@ state of the ship.
 
 Inputs are unreliable datagrams. Each carries the three steps before it again. It also carries
 older steps that hold a press, until the host's report of the newest tick it received
-(`OwnFlight.tick` plus its `margin`) passes them, up to eight earlier steps in all. The host
+(`OwnFlight.received`) passes them, up to eight earlier steps in all. The host
 drops a step it already has, so a press flies once. A step that arrives late still gives its
 press to the next step the host flies. This follows the input windows of Overwatch (GDC 2017)
 and Rocket League (GDC 2018), which keep every button in the frame's input.
+
+The client keeps its clock far enough ahead that its inputs reach the host a little before the
+steps that fly them. The host tells each pilot how long before its step the newest input arrived
+(`OwnFlight.margin`), in hundredths of a second of real time. It reads its connections once a
+step, so it goes by the time the transport received the message. The client runs its clock up to
+5% faster or slower to hold the lows of that margin at half a step, 20 ms. A low margin counts
+at once and is forgotten over about two seconds, so a link that loses packets keeps a larger
+buffer and a clean one a small one, as Overwatch does. A whole spare step, which the margin
+counted in steps could not go below, added 40 ms to every input.
 
 Missile launches, countermeasures, the missile ring and the cockpit's gun and power keys still
 travel in a reliable weapon order without a tick, with the target they belong to. A terminal

@@ -37,7 +37,8 @@ inline bool send(uint32_t conn, uint16_t lane, const uint8_t *bytes, int size, b
     return result > 0;
 }
 
-inline int receive(uint32_t conn, uint8_t *bytes, int capacity, uint16_t &lane) {
+// `age` gets how long ago the transport received the message, in microseconds.
+inline int receive(uint32_t conn, uint8_t *bytes, int capacity, uint16_t &lane, int64_t *age = nullptr) {
     SteamNetworkingMessage_t *message;
     const int count = SteamNetworkingSockets()->ReceiveMessagesOnConnection(conn, &message, 1);
     if (count <= 0) return count;
@@ -45,6 +46,7 @@ inline int receive(uint32_t conn, uint8_t *bytes, int capacity, uint16_t &lane) 
     if (size > 0 && size <= capacity) {
         std::memcpy(bytes, message->m_pData, size);
         lane = message->m_idxLane;
+        if (age) *age = SteamNetworkingUtils()->GetLocalTimestamp() - message->m_usecTimeReceived;
     }
     message->Release();
     return size > 0 && size <= capacity ? size : -1;

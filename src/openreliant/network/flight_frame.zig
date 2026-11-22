@@ -1193,9 +1193,15 @@ fn resimulate(frame: *FlightFrame, index: u16, ship: wire.Ship, snapshot: *const
     frame.easing[index] = .{};
 }
 
-/// The margin of the pilot's inputs the host should hold, in ticks: one step absorbs the jitter
-/// of their arrival and adds the least delay (Overwatch GDC 2017).
-const target_margin: f32 = game.gameobj.ticks_per_step;
+/// How long before its step the pilot's newest input should reach the host, in ticks of real
+/// time: half a step. The clock keeps the lows of the margin here (`reconcile`), so jitter and
+/// loss push the average up, as Overwatch (GDC 2017) grows its buffer while packets are lost.
+/// A whole step would add its 40 ms to every input.
+const target_margin: f32 = game.gameobj.ticks_per_step / 2;
+/// The share of the way back up the kept margin goes with each report, 25 a second: a low
+/// margin is taken at once and forgotten over about two seconds, so a link that loses packets
+/// now and then keeps the larger buffer its losses ask for, and a clean one a small one.
+const margin_recovery = 0.02;
 /// The time the drawn offset of the pilot's own ship takes to fall to about a third.
 const offset_fade_s = 0.1;
 
@@ -1238,7 +1244,7 @@ pub fn reconcile(frame: *FlightFrame, own: wire.OwnFlight, replay: []const wire.
     frame.tracks[index] = .{};
     frame.easing[index] = .{};
     const margin: f32 = @floatFromInt(own.margin);
-    const kept = if (frame.margin) |held| if (margin < held) margin else held + (margin - held) * 0.05 else margin;
+    const kept = if (frame.margin) |held| if (margin < held) margin else held + (margin - held) * margin_recovery else margin;
     frame.margin = kept;
     frame.margin_tick = own.tick;
     frame.owed_us = (target_margin - kept) * @as(f32, @floatFromInt(tick_us));

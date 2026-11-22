@@ -19,7 +19,7 @@ pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
 pub const CampaignCheckpoint = campaign.Checkpoint;
-pub const revision: u16 = 39;
+pub const revision: u16 = 40;
 pub const Team = engine.game.players.ArenaTeam;
 
 fn readTeam(reader: *std.Io.Reader) !Team {
@@ -120,9 +120,13 @@ pub const Commands = struct {
 /// the pilot's simulation takes up and flies its later inputs on from.
 pub const OwnFlight = struct {
     tick: i32,
-    /// How many ticks before the host's step needed it the pilot's newest input arrived: the
-    /// pilot's clock runs faster below the target and slower above it.
+    /// How long before its step was due the pilot's newest input arrived, in ticks of real time
+    /// (hundredths of a second), negative for one that came too late: the pilot's clock runs
+    /// faster below the target and slower above it.
     margin: i8,
+    /// The newest of the pilot's ticks the host has received, so the pilot knows which steps
+    /// need no sending again.
+    received: i32 = 0,
     kinematics: engine.game.motion.Kinematics,
     controls: flight.State,
 };
@@ -2274,6 +2278,7 @@ fn writeOwnFlight(w: *std.Io.Writer, own: OwnFlight) !void {
     const k = own.kinematics;
     try w.writeInt(i32, own.tick, .little);
     try w.writeInt(i8, own.margin, .little);
+    try w.writeInt(i32, own.received, .little);
     for (k.position ++ k.orientation ++ k.velocity ++ [_]f32{k.speed} ++ k.rates ++ k.inputs ++
         [_]f32{ k.lateral_input, k.throttle, k.last_throttle, k.speed_factor, own.controls.throttle, own.controls.throttle_before_match }) |value|
         try w.writeInt(u32, @bitCast(value), .little);
@@ -2285,6 +2290,7 @@ fn writeOwnFlight(w: *std.Io.Writer, own: OwnFlight) !void {
 fn readOwnFlight(r: *std.Io.Reader) !OwnFlight {
     const tick = try r.takeInt(i32, .little);
     const margin = try r.takeInt(i8, .little);
+    const received = try r.takeInt(i32, .little);
     var values: [3 + 9 + 3 + 1 + 3 + 3 + 6]f32 = undefined;
     // The pilot's simulation takes this state as it is, so it gets the checks a snapshot's ship
     // does: finite values, a facing whose parts a rotation can hold, and a throttle and fuel
@@ -2304,6 +2310,7 @@ fn readOwnFlight(r: *std.Io.Reader) !OwnFlight {
     return .{
         .tick = tick,
         .margin = margin,
+        .received = received,
         .kinematics = .{
             .position = values[0..3].*,
             .orientation = values[3..12].*,
@@ -2339,6 +2346,7 @@ test "an own flight state crosses the wire exactly" {
     const own: OwnFlight = .{
         .tick = 1234,
         .margin = -3,
+        .received = 1240,
         .kinematics = .{
             .position = .{ 1.5, -2.25, 1e6 },
             .orientation = .{ 0, 1, 0, -1, 0, 0, 0, 0, 1 },

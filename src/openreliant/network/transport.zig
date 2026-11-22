@@ -22,7 +22,7 @@ pub extern fn session_drop(conn: Connection) void;
 pub extern fn session_poll() void;
 pub extern fn session_key() u8;
 extern fn session_send(conn: Connection, bytes: [*]const u8, size: c_int, reliable: bool) bool;
-extern fn session_receive(conn: Connection, bytes: [*]u8, size: c_int) c_int;
+extern fn session_receive(conn: Connection, bytes: [*]u8, size: c_int, age: ?*i64) c_int;
 
 /// Game message payloads queued to and delivered by the transport.
 pub const Traffic = struct {
@@ -59,7 +59,13 @@ pub const Channel = struct {
     }
 
     pub fn receive(channel: Channel, conn: Connection, buf: *[wire.capacity]u8) !?wire.Message {
-        const n = session_receive(conn, buf, buf.len);
+        return channel.receiveAged(conn, buf, null);
+    }
+
+    /// `receive`, and how long ago the transport received the message, in microseconds: the
+    /// host reads its connections once a step, so a message may have waited most of one.
+    pub fn receiveAged(channel: Channel, conn: Connection, buf: *[wire.capacity]u8, age: ?*i64) !?wire.Message {
+        const n = session_receive(conn, buf, buf.len, age);
         if (n < 0) return error.ReceiveFailed;
         if (n == 0) return null;
         const bytes = buf[0..@intCast(n)];
