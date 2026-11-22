@@ -31,6 +31,10 @@ class Session:
         self.views = {}
         self.beacon_changes = {}
         self.music = []
+        # Each view of a dying ship as (tick, slot, generation, ticks of spin-out left or -1), and
+        # the views a death was over in as (tick, slot, generation).
+        self.dying = []
+        self.deaths_over = []
         self.finished = None
         self.receipts = None
         self.last_line = ""
@@ -54,6 +58,10 @@ class Session:
                     self.receipts = int(parts[2])
             elif parts and parts[0] == "beacon" and parts[2] == "0":
                 self.beacon_changes[int(parts[1])] = tuple(parts[3:])
+            elif len(parts) == 5 and parts[0] == "dying":
+                self.dying.append(tuple(map(int, parts[1:])))
+            elif len(parts) == 5 and parts[:2] == ["death", "over"]:
+                self.deaths_over.append(tuple(map(int, parts[2:])))
             elif self.last_line.startswith("mission music "):
                 self.music.append(self.last_line.removeprefix("mission music "))
             await self.messages.put(self.last_line)
@@ -655,6 +663,94 @@ async def check_isolation(binary, credentials, seed):
             print(f"Isolation: two pilots flew on to tick {end} while four connections stalled and an intruding pilot was removed.")
 
 
+# A fighter that may spin does so for 200 to 399 ticks before it explodes (`explode_spin_out_init`).
+SPIN_TICKS = range(200, 400)
+# A view's tick counts the host's steps, and a spin-out the game's ticks, two to a step.
+TICKS_PER_STEP = 2
+# How late a pilot may see a change for views lost on the way, in game ticks.
+LOST_VIEWS = 10 * STEPS_PER_VIEW * TICKS_PER_STEP
+
+
+def blast_tick(tick, left):
+    """The game tick a spin-out ends at, from one view of it."""
+    return tick * TICKS_PER_STEP + left
+
+
+def deaths_seen(pilot):
+    """A pilot's views of dying ships, grouped into deaths: (slot, generation, first tick) to its views."""
+    deaths = {}
+    current = {}
+    over = {(slot, generation): [tick for tick, s, g in pilot.deaths_over if (s, g) == (slot, generation)]
+            for _, slot, generation in pilot.deaths_over}
+    for tick, slot, generation, left in pilot.dying:
+        ship = (slot, generation)
+        ended = [end for end in over.get(ship, ()) if end <= tick]
+        key = current.get(ship)
+        if key is None or any(end > key[2] for end in ended):
+            key = (slot, generation, tick)
+            current[ship] = key
+        deaths.setdefault(key, []).append((tick, left))
+    return deaths
+
+
+async def check_deaths(binary, credentials, seed, game_dir):
+    """Fighters die of collisions in Tag Bomb's rocks. Every pilot has to see the same death."""
+    async with Loopback(binary, credentials, seed, vary_by_direction=True) as game:
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "server.ini"
+            config.write_text(f"[Server]\nPort={game.port}\nArena=tag-bomb\nPlayers=8\nRoundTicks=4000\n"
+                              f"GameDirectory={game_dir}\nRepeatRounds=0\nStartDelaySeconds=0\n", encoding="utf-8")
+            host = await game.start("--headless", str(config))
+            await host.expect("listening ")
+            paths = ("straight", "left", "straight", "straight", "right", "straight")
+            pilots = [await game.join_target(game.address, path) for path in paths]
+            # A pilot who joins while a ship spins out sees the rest of the same spin-out.
+            await pilots[0].expect("dying ", lambda line: int(line.split()[4]) > 0)
+            late = await game.join_target(game.address, "straight")
+            end = await finish(host, [*pilots, late])
+
+            spins = bursts = 0
+            reference = deaths_seen(pilots[0])
+            require(bool(reference), "no fighter died")
+            for (slot, generation, first), views in reference.items():
+                left = views[0][1]
+                spun = left > 0
+                if spun:
+                    # The first view of a spin-out may be lost, but not most of it.
+                    require(left in range(SPIN_TICKS.start - 40, SPIN_TICKS.stop), f"a spin-out of {left} ticks is not the original's")
+                    blast = blast_tick(views[0][0], left)
+                    spins += 1
+                else:
+                    blast = None
+                    bursts += 1
+                for pilot in pilots:
+                    seen = deaths_seen(pilot)
+                    same = [key for key in seen if key[:2] == (slot, generation) and abs(key[2] - first) <= 60]
+                    require(len(same) == 1, f"pilot {pilot.admission[0]} did not see the death of {slot} at {first}")
+                    theirs = seen[same[0]]
+                    if not spun:
+                        continue
+                    # Whatever views were lost, the spin-out counts down to the same tick for everyone.
+                    require(all(blast_tick(tick, remaining) == blast for tick, remaining in theirs if remaining > 0),
+                            f"pilot {pilot.admission[0]} saw the spin-out of {slot} end at another tick than {blast}")
+                    require(theirs[-1][0] * TICKS_PER_STEP >= blast - LOST_VIEWS, f"pilot {pilot.admission[0]} lost the end of the spin-out of {slot}")
+                    gone = [tick * TICKS_PER_STEP for tick, s, g in pilot.deaths_over if (s, g) == (slot, generation) and tick * TICKS_PER_STEP >= blast]
+                    require(gone and gone[0] <= blast + LOST_VIEWS, f"pilot {pilot.admission[0]} saw {slot} dying long after it blew up")
+            require(spins > 0, "no fighter spun out")
+
+            # The late pilot's first views of the spin-out it joined in agree with the others'.
+            joined = deaths_seen(late)
+            first_spin = min((key for key, views in reference.items() if views[0][1] > 0), key=lambda key: key[2])
+            blast = blast_tick(*reference[first_spin][0])
+            during = [views for key, views in joined.items() if key[:2] == first_spin[:2] and views[0][0] * TICKS_PER_STEP < blast]
+            require(bool(during), "the pilot who joined during a spin-out did not see it")
+            require(during[0][0][0] > first_spin[2], "the late pilot was there from the start of the spin-out")
+            require(all(blast_tick(tick, remaining) == blast for tick, remaining in during[0] if remaining > 0),
+                    "the pilot who joined during a spin-out saw it end at another tick")
+            print(f"Deaths: {spins} spin-out{'s' if spins != 1 else ''} and {bursts} death{'s' if bursts != 1 else ''} without one "
+                  f"looked the same to six pilots up to tick {end}, and a pilot who joined during the first saw the rest of it.")
+
+
 async def run(binary, credentials, seed, game_dir):
     print("Clean loopback" if seed is None else f"Loopback seed {seed}, 6% packet loss, 8 to 44 ms one-way lag")
     for check in (check_training, check_beacons, check_invites, check_full_arena, check_metrics_shutdown, check_isolation):
@@ -666,6 +762,7 @@ async def run(binary, credentials, seed, game_dir):
             await asyncio.wait_for(check_full_arena(binary, credentials, None if seed is None else seed + index, mode, game_dir), 45)
         await asyncio.wait_for(check_dedicated_cycle(binary, credentials, seed, game_dir), 60)
         await asyncio.wait_for(check_team_cycle(binary, credentials, seed, game_dir), 45)
+        await asyncio.wait_for(check_deaths(binary, credentials, seed, game_dir), 150)
         await asyncio.wait_for(check_coop(binary, credentials, seed, game_dir), 180)
 
 
@@ -676,6 +773,12 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=1483, help="seed for packet loss and latency")
     parser.add_argument("--clean", action="store_true", help="run without packet impairment")
     parser.add_argument("--game-dir", type=Path, help="installed data for the stock modes and campaign")
+    parser.add_argument("--only", choices=("deaths",), help="run one check of the stock modes alone")
     args = parser.parse_args()
     game_dir = args.game_dir.resolve() if args.game_dir else None
-    asyncio.run(run(args.binary.resolve(), args.credentials.resolve(), None if args.clean else args.seed, game_dir))
+    seed = None if args.clean else args.seed
+    if args.only == "deaths":
+        require(game_dir is not None, "--only deaths needs --game-dir")
+        asyncio.run(asyncio.wait_for(check_deaths(args.binary.resolve(), args.credentials.resolve(), seed, game_dir), 150))
+    else:
+        asyncio.run(run(args.binary.resolve(), args.credentials.resolve(), seed, game_dir))

@@ -724,6 +724,7 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
     var firing = false;
     if (controls == .keyboard) std.debug.print("A steers left, S flies straight, D steers right, F fires, and Q leaves. Press Enter to send a key.\n", .{});
     var views: u32 = 0;
+    var dying: [wire.slots]?u64 = @splat(null);
     var objectives: wire.Objectives = .none;
     var mission_view: ?wire.MissionView = null;
     var arena_floor: ?u32 = null;
@@ -825,6 +826,17 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
                     } else std.debug.print(" 0 0 0", .{});
                 }
                 std.debug.print("\n", .{});
+                // A ship's death as this pilot sees it, for the session check: each view of a
+                // dying ship with what is left of its spin-out, and the view it is gone in.
+                for (view.ships, &dying, 0..) |entry, *was, slot| {
+                    const now: ?u64 = if (entry) |seen| (if (seen.dying) seen.generation else null) else null;
+                    if (was.*) |generation| if (now == null or now.? != generation) std.debug.print("death over {d} {d} {d}\n", .{ view.tick, slot, generation });
+                    if (now) |generation| {
+                        const left: i32 = if (entry.?.spin) |spin| spin.left else -1;
+                        std.debug.print("dying {d} {d} {d} {d}\n", .{ view.tick, slot, generation, left });
+                    }
+                    was.* = now;
+                }
                 if (!std.meta.eql(objectives, view.objectives)) {
                     objectives = view.objectives;
                     showObjectives(view);
