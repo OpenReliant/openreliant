@@ -19,6 +19,7 @@ const mss = @import("../mss.zig");
 const loudness = mss.loudness;
 const hog_snd = @import("hog_snd.zig");
 const voice = @import("voice.zig");
+pub const ddem = @import("cbox/ddem.zig");
 const ticks_per_second = @import("main.zig").ticks_per_second;
 
 /// The rate the speech plays at (`0x00461FA1`), which the game plays as stereo, each channel the
@@ -85,12 +86,26 @@ pub const plain_tail = 8;
 pub const Speech = struct {
     header: Header,
     stream: []const u8,
+    /// How the stream holds the speech.
+    encoding: Encoding = .codec,
+
+    pub const Encoding = enum {
+        /// The game's own codec (`voice.zig`), which every file of the game's releases is in.
+        codec,
+        /// The Russian release's own format (`ddem`).
+        ///
+        /// **Improvement:** the original plays its codec alone; the Russian release's executable
+        /// is patched to play these.
+        ddem,
+    };
 
     /// `bytes`, a speech file as the archive holds it, unscrambled in place (`unscramble`). Null
     /// for a file too short for its header or not tagged as the game's are (`Header.tagged`), which
     /// the game does not check, so that what else an archive holds is passed over.
     pub fn parse(bytes: []u8) ?Speech {
         const header = Header.of(bytes) orelse return null;
+        // The Russian release's lines aren't scrambled, as its patch finds them by their tag.
+        if (ddem.holds(bytes[@sizeOf(Header)..])) return .{ .header = header, .stream = bytes[@sizeOf(Header)..], .encoding = .ddem };
         unscramble(bytes);
         return .{ .header = header, .stream = bytes[@sizeOf(Header)..] };
     }
@@ -262,6 +277,10 @@ pub fn sample(value: f32, peaks: Style.Peaks) i16 {
 /// `peaks` has them.
 pub fn decode(gpa: Allocator, speech: Speech, peaks: Style.Peaks) Allocator.Error![]i16 {
     const out = try gpa.alloc(i16, speech.header.samples());
+    if (speech.encoding == .ddem) {
+        ddem.decode(out, speech.stream);
+        return out;
+    }
     var decoder: voice.Decoder = .init(speech.stream);
     var at: usize = voice.frame_samples;
     for (out) |*value| {

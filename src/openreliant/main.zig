@@ -283,9 +283,12 @@ fn readGameFile(io: Io, arena: Allocator, directory: Io.Dir, mods: *const game.b
 }
 
 /// Reads the strings of the module `name` in the game folder `directory`, as `language_init` does
-/// (`game.language.Language.load`).
-fn readStrings(io: Io, arena: Allocator, directory: Io.Dir, mods: *const game.bigfile.Mods, name: []const u8) !game.language.Language {
-    return .load(arena, try .parse(try readGameFile(io, arena, directory, mods, name)));
+/// (`game.language.Language.load`): the Russian release's own module of that name where the
+/// folder has one, and the game's otherwise (`game.language.names`).
+fn readStrings(io: Io, arena: Allocator, directory: Io.Dir, mods: *const game.bigfile.Mods, comptime name: []const u8) !game.language.Language {
+    const local, const plain = game.language.names(name);
+    const bytes = readGameFile(io, arena, directory, mods, local) catch try readGameFile(io, arena, directory, mods, plain);
+    return .load(arena, try .parse(bytes));
 }
 
 /// Reads the records of the stats table `table` from its file in the game folder `directory`, as
@@ -365,7 +368,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The strings `language_init` reads from `language.dll` at startup, with the names the mods
     // give what they add after them. They come first, since the type records and the faces below
     // take those names by their string numbers.
-    const language_text = try game.additions.addNames(arena, (try readStrings(io, arena, directory, &mods, game.language.file_name)).strings);
+    const language_strings = try readStrings(io, arena, directory, &mods, game.language.file_name);
+    // The game's text is in the page its strings are in, as Windows gives a program the system's.
+    game.language.page = language_strings.page;
+    if (language_strings.page != .western) std.log.info("the game's strings are in the {t} code page", .{language_strings.page});
+    const language_text = try game.additions.addNames(arena, language_strings.strings);
     // The records: the ship stats `stats_load_ships` reads, the words the game keeps in its
     // executable for each ship type, the gun stats `stats_load_guns` reads, the missile stats
     // `stats_load_missiles` reads, the pilots, their faces, the strings, and the ITAC's strings
@@ -564,7 +571,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The outline fonts that draw the interface text at the window's resolution, through FreeType:
     // the built-in Newtown, and fonts from mods that replace the bitmap fonts. Only the bitmap
     // fonts are used with `--bitmap-fonts`, or if FreeType doesn't start.
-    var free_type: ?platform.fonts.FreeType = if (options.outline_fonts) platform.fonts.FreeType.init() catch null else null;
+    // Newtown has the Western page's letters alone, so a game in another page, such as the Russian
+    // release, draws with its own bitmap fonts, which were redrawn with its letters.
+    const outline_fonts = options.outline_fonts and game.language.page == .western;
+    var free_type: ?platform.fonts.FreeType = if (outline_fonts) platform.fonts.FreeType.init() catch null else null;
     defer if (free_type) |*library| library.deinit();
     var outlines: game.hud.outline.Outlines = .init(gpa, if (free_type) |*library| library.rasterizer() else null, &mods);
     defer outlines.deinit();
