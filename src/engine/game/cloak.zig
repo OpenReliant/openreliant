@@ -8,8 +8,8 @@
 //! [`missiles.md`](../../../docs/engine/missiles.md#countermeasures) describes them, and
 //! [`cloak.md`](../../../docs/engine/cloak.md) the cloak.
 //!
-//! Not ported: in a network game, the host's choice of the missile a countermeasure draws away
-//! ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+//! In a network game the original's host chooses the missile a countermeasure draws away and
+//! tells the other machines. OpenReliant's host runs the countermeasures for every pilot.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

@@ -7,8 +7,9 @@
 //! **Unverified:** the source file. The code lies after `Ai.cpp`'s known code and before
 //! `aidefend.cpp`'s, and does the orders' work, as `Ai.cpp`'s neighbours do.
 //!
-//! Not ported: a multiplayer game's wait for the other players before the path and after it
-//! (`ai_sequence_sync`, `0x00401000`, [#55](https://github.com/OpenReliant/openreliant/issues/55)).
+//! In a network game the original also waits for the other players before the path and after it
+//! (`ai_sequence_sync`, `0x00401000`). OpenReliant's host flies the path for every pilot, with
+//! nothing to wait for.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -108,13 +109,13 @@ pub const State = extern struct {
 pub const Step = enum(u8) {
     /// It flies to where the path starts, turned along it (`ai.arrive`).
     arriving = 0,
-    /// It waits for the other players in a multiplayer game; in a game of one, it goes on at once
-    /// (not ported: the wait, [#55](https://github.com/OpenReliant/openreliant/issues/55)).
+    /// The original waits here for the other players in a network game. OpenReliant goes on at
+    /// once, as the original does in a game of one: its host has nothing to wait for.
     ready = 1,
     /// It follows the path, which moves on to `done` at its end.
     following = 2,
-    /// The order ends, once the other players are there too in a multiplayer game (not ported:
-    /// the wait, [#55](https://github.com/OpenReliant/openreliant/issues/55)).
+    /// The order ends. The original first waits for the other players in a network game, which
+    /// OpenReliant's host has no need to.
     done = 3,
     _,
 };

@@ -642,6 +642,7 @@ address	kind	name	type	comment
 004591b0	function	cmd_reset_to_spawn_positions		Runs the deathmatch scenario setup and resets the local pilot at a spawn marker.
 004af1d0	function	multiplayer_reset_ship		Rebuilds the chosen fighter for the pilot slot in ECX and moves it to the marker in EDX or a randomly chosen free marker if EDX is -1.
 004b2ca0	function	deathmatch_select_scenario		Finds the dm_scenarios record for the current mission and keeps the index for the rest of the round.
+004af590	function	order_move_to_spawn_pos	void __fastcall (int slot)	The update of order 34, Move to spawn pos: resets the pilot's fighter at a spawn marker (multiplayer_reset_ship) and pops the order
 004af5c0	function	multiplayer_list_spawns	void (void)	As a multiplayer game starts: lists the objects of type spawn_player (0x3E1), the players' spawn points, by their slots (0x005D7CA8, the count at 0x005DAD2C), and when mp_ai_turrets is clear, disables guns on every object from slot 8 on; then 0x004B1760, and 0x004B09A0 where the network session is other than 1
 004b02a0	function	arena_wall_hit	void __fastcall (int slot, int *shot)	Where a shot, which it frees, or a player's ship meets the multiplayer arena's wall: 10 sparks of kind 3 back in from the wall where a flash of it at most 100 ticks old stands within twice its radius, else a new flash (the next of 32, a 4000 mesh facing the arena's middle, for 250 ticks) with the sparks and sound 0xD
 005d7c9c	data	arena_centre	Vec3	The middle of the multiplayer arena's sphere

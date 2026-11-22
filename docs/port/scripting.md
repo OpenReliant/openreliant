@@ -116,8 +116,7 @@ kinds of state:
 | Game | Load, global and object scripts, which affect what happens in the game | No `os` library. `math.random` uses a seeded generator so that every machine gets the same numbers, and `math.randomseed` is removed. |
 | Presentation | Player and menu scripts, which affect what the player sees and hears | Luau's standard libraries |
 
-The split is the one a network game needs
-([#55](https://github.com/OpenReliant/openreliant/issues/55)): global and object scripts will run
+The split is the one a network game needs: global and object scripts run
 only where the game is hosted, load scripts on every machine, and the presentation on each player's.
 The presentation reaches the game only through events to the global scripts, which wait until the
 game next runs and then have their data copied into the game's state (`Presentation.sendEvents`,

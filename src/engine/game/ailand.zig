@@ -18,8 +18,8 @@
 //! this file's. They lie after its known code, before `airipper.cpp`'s, and the style table
 //! (`land_styles`, `0x004E1FE8`), just before this file's path, ties them to Land.
 //!
-//! Not ported: in a multiplayer game, the end of the mission as another player's ship lands on the
-//! Yamato ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+//! In a multiplayer game the original also ends the mission as another player's ship lands on the
+//! Yamato. OpenReliant's host ends a co-op mission for the whole crew (`network/server.zig`).
 
 const std = @import("std");
 const assert = std.debug.assert;

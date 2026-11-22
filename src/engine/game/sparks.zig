@@ -1,9 +1,9 @@
 //! `C:\lancer\game\sparks.cpp`: the sparks a hit throws, small bolts that fly off, slow and fade.
 //!
 //! Ported: the sparks, and those a shot striking a hull throws (`guns.hullHit`), a component
-//! (`guns.componentHit`) or a shield (`shield.zig`). **Not ported:** those of the wall of a
-//! multiplayer mission's arena (`arena_wall_hit`, `0x004B02A0`), which is multiplayer's
-//! ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+//! (`guns.componentHit`) or a shield (`shield.zig`). Those of the wall of a
+//! multiplayer mission's arena (`arena_wall_hit`, `0x004B02A0`) are in
+//! [`deathmatch/boundary.zig`](deathmatch/boundary.zig).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

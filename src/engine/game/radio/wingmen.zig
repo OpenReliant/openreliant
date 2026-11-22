@@ -4,8 +4,8 @@
 //!
 //! The radio's menu (`radio.menu`) names the wingman, or the whole wing.
 //!
-//! Not ported: the command sent to another player of a multiplayer game (`0x004BA040`,
-//! `0x004BA080`, `0x004BA0C0`) ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+//! In a network game the original also sends the command to the other players (`0x004BA040`,
+//! `0x004BA080`, `0x004BA0C0`). OpenReliant's host runs the wingmen for every pilot.
 
 const std = @import("std");
 

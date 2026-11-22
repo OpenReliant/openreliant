@@ -8,8 +8,9 @@
 //! ship status indicator in both its modes, the targeting cluster, the radar's rings, ranges and
 //! contacts, the windows and what they show ([`hud/windows.zig`](hud/windows.zig)), and the
 //! subtarget's parts picked out in red ([`hud/subtarget.zig`](hud/subtarget.zig)). Not yet: the
-//! rest of `hud_draw`, whose other elements [`hud.md`](../../../docs/engine/hud.md) lists, and what
-//! a multiplayer game adds ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+//! rest of `hud_draw`, whose other elements [`hud.md`](../../../docs/engine/hud.md) lists, and the
+//! rest of what a multiplayer game adds: its scores, names and chat are drawn by
+//! `openreliant/network/flight_frame.zig`.
 //!
 //! **Improvement:** The game draws the display with the processor, whichever renderer is running:
 //! `hud_text` hands its line to `VFX_string_draw`, out of `vfx.dll`, which blits each glyph into a

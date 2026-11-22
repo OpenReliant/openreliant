@@ -13,9 +13,11 @@ and [`game/aifuncs.zig`](../../src/engine/game/aifuncs.zig) order 33. The order 
 through is in [`game/aigeneric.zig`](../../src/engine/game/aigeneric.zig)
 ([Orders](orders.md#the-queue)).
 
-Not ported: what a network game adds: the wait for every player at each step
-(`ai_sequence_sync`, `0x00401000`), the towers that give up a long search, and the cannon's turn
-and kill sent to the other players ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+In a network game the original also waits for every player at each step
+(`ai_sequence_sync`, `0x00401000`) and sends the cannon's turn and kill to the other players.
+OpenReliant's host runs the cannon for every pilot, so it has neither. **Unverified:** the
+towers that give up a long search in a network game
+([#1541](https://github.com/OpenReliant/openreliant/issues/1541)).
 
 ## Picking a ship
 

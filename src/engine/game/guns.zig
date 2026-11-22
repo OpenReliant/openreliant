@@ -1814,8 +1814,8 @@ pub fn moveBullets(world: gameobj.World) void {
 /// Each shot is placed as far through the step as the frame is, its colour fading with its life
 /// (`fade`), and `drawBullets` adds it and its lights to the scene.
 ///
-/// Not ported: what multiplayer makes of a hit
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a network game the original's machines also tell each other of a hit. OpenReliant's host
+/// alone decides hits, and sends each pilot their effects.
 pub fn bulletsFrame(world: gameobj.World, clock: *const Clock, fraction: f32) void {
     const bullets = &world.objects.bullets;
     for (&bullets.pool, 0..) |*bullet, index| {

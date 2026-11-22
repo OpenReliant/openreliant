@@ -1824,8 +1824,8 @@ pub fn setEcm(charges: *ship_devices.Charges, object: *gameobj.GameObject, on: b
 /// charge setting. Turning them on tunes them to the gun most dangerous near the ship among
 /// `near`'s objects (`spectralTuning`); turning them off needs none.
 ///
-/// Not ported: what it tells a multiplayer game
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a network game the original also sends the change to the other machines.
+/// OpenReliant's host runs the game for every pilot and sends each one what it sees instead.
 pub fn setSpectralShields(charges: *ship_devices.Charges, object: *gameobj.GameObject, on: bool, near: ?DeviceSubject) void {
     const shields = charges.getPtr(.spectral_shields);
     if (shields.setting == .absent) return;
@@ -2225,9 +2225,11 @@ const gone_pause = 500;
 /// open, Betty says so where the armed type has run out, and the display counts one off. The
 /// player's Kamov, in mission 25, launches a torpedo from its tubes instead (`launchCarried`).
 ///
-/// Not ported: in a multiplayer game, the missile being a power-up, launching from under the cloak,
-/// and telling the other players of a Kamov's launch
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a multiplayer game the original also takes the missile from a power-up, uncloaks a ship that
+/// launches from under the cloak, and tells the other machines of a Kamov's launch. OpenReliant's
+/// arena gives the power-up's missile (`deathmatch/powerups.zig`), and its host sends each pilot
+/// what it sees in place of the message. **Unverified:** the launch from under the cloak
+/// ([#1541](https://github.com/OpenReliant/openreliant/issues/1541)).
 pub fn launchMissile(world: gameobj.World, index: u16) void {
     const all = world.objects;
     const weapons = &all.player_states[all.player].weapons;

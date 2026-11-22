@@ -1158,8 +1158,8 @@ pub const Objects = struct {
     /// (`0x00466CDF`), which never happens: the training puts the player in a Grendel, and its
     /// missions fly the twins, so the type is the twin already.
     ///
-    /// Not ported: a multiplayer game, where every slot takes `asked`
-    /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+    /// In a multiplayer game the original gives every slot `asked`. OpenReliant's host gives each
+    /// pilot the fighter they chose (`deathmatch/spawn.zig`).
     pub fn slotType(all: *const Objects, index: u16, asked: gameobj.Type) gameobj.Type {
         if (index >= all.players or index >= all.loadout_ships.len) return asked;
         if (all.kamovPart()) return .of(.kamov);
@@ -1393,10 +1393,10 @@ fn wreckOf(object_type: gameobj.Type) ?Wreck {
 /// Ulysses' its own, OpenReliant picks by type as it needs it (`explode.ComponentLoss`).
 ///
 /// Titan's last part takes Planet Bombard's routine (`0x0046841D`), for which `createObject` keeps
-/// Titan's slot (`bombards`). Not ported: the comms relay, the deathmatch's
+/// Titan's slot (`bombards`). The comms relay, the deathmatch's
 /// power-ups and beacons and the Dark Reign's slot in a multiplayer game
-/// (`0x005DB500`), which only the multiplayer arenas have
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)). The wrecks, the gates, the planets
+/// (`0x005DB500`), which only the multiplayer arenas have, are the arena's
+/// (`deathmatch/powerups.zig`, `openreliant/network/arena.zig`). The wrecks, the gates, the planets
 /// and the Dark Reign's hat are set up once they are in the world (`wreckMade`, `gateMade`,
 /// `planetMade`, `extra.hatMade`).
 fn typeMade(slot: *Slot, ship_type: gameobj.Type) void {
@@ -1957,8 +1957,8 @@ fn hang(gpa: Allocator, effects: objects.Effects, hardpoint: Hardpoint, file: ?[
 ///
 /// Then the collision sweep runs over every object that collides (`Sweep.run`).
 ///
-/// Not ported: in a multiplayer game, what places the other players' ships
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a network game the original also places the other players' ships from their machines'
+/// messages. OpenReliant's host moves every pilot's ship itself.
 pub fn objectsUpdate(world: gameobj.World) void {
     const all = world.objects;
     var sweep = &all.sweep;

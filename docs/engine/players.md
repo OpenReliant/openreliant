@@ -427,7 +427,6 @@ The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/95
   participant outcomes and game mode rules for ship disposition and respawn.
 - [#1368](https://github.com/OpenReliant/openreliant/issues/1368): wingman loss, target feedback,
   device notifications and the remaining local combat rules.
-- [#55](https://github.com/OpenReliant/openreliant/issues/55) tracks the remaining stock multiplayer rules.
 
 This state split does not add a network session or change mission files. Single player remains
 one participant running the existing simulation and presentation paths.

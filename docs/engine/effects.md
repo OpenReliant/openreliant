@@ -538,8 +538,8 @@ far as the game frames left the game's, and points the copy's halves at it (`ube
 
 [`explode/uber.zig`](../../src/engine/game/explode/uber.zig) ports the Uber Explode, and
 [`aiexplode.zig`](../../src/engine/game/aiexplode.zig) the order. Its end posts its owner's
-ExplosionShip event ([Script VM](script-vm.md#events)). Not ported: the multiplayer part
-([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+ExplosionShip event ([Script VM](script-vm.md#events)). In a network game the original also tells the other players of it, which OpenReliant's host,
+running it for every pilot, has no use for.
 
 ## Electric rays
 

@@ -588,9 +588,8 @@ test pauseKeys {
 /// pointer as it is drawn over the scene as it stood (`menu_mouse_update`), and its choice ends the
 /// pause once the frame is drawn.
 ///
-/// Not ported: the paused clock (`paused_clock`), the radar's backing's flag, and a multiplayer
-/// game's messages, its chat line and the players it drops
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// Not ported: the paused clock (`paused_clock`) and the radar's backing's flag. A network game's
+/// pause, its chat line and the players it drops are in `openreliant/network/graphical.zig`.
 pub fn pausedFrame(devices: *input.Devices, hearing: hog_snd.Hearing, world: gameobj.World) void {
     devices.read();
     if (hearing.sound.stdsmp) |bank| hearing.sound.frame(bank, hearing.scene(world));
@@ -1192,8 +1191,9 @@ const avoid_margin: f32 = 2000;
 /// stand-ins, disabled and jumping objects, planets, the ship itself, what it fights, and what
 /// either passes through the other.
 ///
-/// Not ported: in a multiplayer game, the other players' ships a ship passes by
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// **Unverified:** in a multiplayer game the original also passes over the other players' ships,
+/// which OpenReliant's host steers round like any other ship
+/// ([#1541](https://github.com/OpenReliant/openreliant/issues/1541)).
 fn avoidanceScan(world: gameobj.World, index: u16) void {
     const all = world.objects;
     const slot = &all.slots[index];
@@ -2538,8 +2538,8 @@ const camera_marker_at: math.Vector = .{ 0, 0, -8000 };
 ///
 /// The caller shows the loading screen that goes before it (`xtrabits.loading.missionFrames`).
 /// Not ported: the renderer's and the textures' setting up, which OpenReliant does once as it
-/// starts; the chat line and a multiplayer game
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// starts. A network game's side of it, with its chat line, is in
+/// `openreliant/network/flight_frame.zig`.
 pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Loaded {
     const types = start.types.types();
     var orders = start.orders;

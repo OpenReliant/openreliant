@@ -391,9 +391,8 @@ pub fn byDifficulty(world: gameobj.World, index: u16, kind: Kind, value: f32) f3
 /// selects what the player hits, except in collisions. Hits on the player shake the ship and
 /// controller and start HUD interference. Finally, the object's ShotAt event is posted (`shotAt`).
 ///
-/// Not ported: what a multiplayer game adds, the damage a network session keeps for the other
-/// players among it (`net_quadrant_damage`, `0x004BA9F0`)
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a network game the original also keeps the damage to send to the other players
+/// (`net_quadrant_damage`, `0x004BA9F0`). OpenReliant's host applies all damage itself.
 pub fn damage(world: gameobj.World, index: u16, struck: Quadrant, value: f32, factor: f32, attacker: u16, kind: Kind) void {
     damageFrom(world, index, struck, value, factor, .of(world.objects, attacker), kind);
 }
@@ -726,10 +725,11 @@ const shielded_hit: f32 = 1000;
 ///
 /// Last, whether or not the part took the hit, come the ShotAt events (`componentShotAt`).
 ///
-/// Not ported: what a multiplayer game adds: the object's turrets turning on a player who strikes
-/// it, and in a network session, a friend's engines kept from the player's hits and the damage the
-/// session keeps for the other players (`net_component_damage`, `0x004BA810`)
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a network game the original also keeps the damage to send to the other players
+/// (`net_component_damage`, `0x004BA810`), which OpenReliant's host, applying all damage itself,
+/// has no use for. **Unverified:** whether the original's rule that keeps a friend's engines
+/// from a player's hits in a network session is applied
+/// ([#1541](https://github.com/OpenReliant/openreliant/issues/1541)).
 pub fn componentDamage(world: gameobj.World, index: u16, struck_part: objects.PartRef, value: f32, attacker: u16, kind: Kind) void {
     componentDamageFrom(world, index, struck_part, value, .of(world.objects, attacker), kind);
 }

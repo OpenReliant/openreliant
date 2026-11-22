@@ -12,9 +12,10 @@
 //! (`0x0040E7A0`, `0x0040E8A0`, `0x0040E970`), which lie either side of the file's known code, are
 //! the file's: they do its work.
 //!
-//! Not ported: what a network game adds, the wait for every player at each step
-//! (`ai_sequence_sync`), the towers that give up a long search, and the cannon's turn and kill sent
-//! to the other players ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+//! In a network game the original also waits for every player at each step (`ai_sequence_sync`)
+//! and sends the cannon's turn and kill to the other players. OpenReliant's host runs the cannon
+//! for every pilot, so it has neither. **Unverified:** the towers that give up a long search in a
+//! network game ([#1541](https://github.com/OpenReliant/openreliant/issues/1541)).
 
 const std = @import("std");
 const assert = std.debug.assert;

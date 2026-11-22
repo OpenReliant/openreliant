@@ -784,8 +784,8 @@ pub fn end(ctx: Context, index: u16) void {
 /// **Fix:** past `max_queued` the game stops with a fatal error, "DPStack Overflow on %s";
 /// OpenReliant logs it and leaves the order out.
 ///
-/// Not ported: the order sent on to the other players in a network game
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a network game the original also sends the order on to the other players. OpenReliant's
+/// host runs every order.
 pub fn queue(ctx: Context, index: u16, entry: Entry, delay: i32, value: u8) void {
     const slot = &ctx.world.objects.slots[index];
     if (slot.waiting().len >= max_queued) {
@@ -1049,8 +1049,7 @@ pub fn retaliate(ctx: Context, index: u16) void {
 }
 
 /// The `init` of the order, where OpenReliant runs it, which scripts can hook under the routine's
-/// name (`hooks.routine_hooks`). Multiplayer's orders aren't ported yet and do nothing
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// name (`hooks.routine_hooks`).
 fn runInit(ctx: Context, index: u16, info: orders.Info) void {
     if (hooks.enterRoutine(.init, runInit, ctx, index, info)) |done| return done;
     switch (info.order) {
@@ -1128,8 +1127,8 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
 }
 
 /// The `update` of the order, where OpenReliant runs it, which scripts can hook under the routine's
-/// name (`hooks.routine_hooks`). Multiplayer's orders aren't ported yet and do nothing
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// name (`hooks.routine_hooks`). Move to spawn pos (34) does nothing: the host places a pilot's
+/// fighter itself (`deathmatch/spawn.zig`).
 fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
     if (hooks.enterRoutine(.update, runUpdate, ctx, index, info)) |done| return done;
     switch (info.order) {
@@ -1194,7 +1193,9 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .start_warp_projection_from_boridin => wgate.projection.update(ctx, index),
         .formation_regroup => formations.regroup(ctx, index),
         .patrol_route => formations.patrol(ctx, index),
-        // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+        // `order_move_to_spawn_pos` (`0x004AF590`) resets the pilot's fighter at a spawn marker
+        // (`multiplayer_reset_ship`) and pops. The host does that itself (`deathmatch/spawn.zig`)
+        // and never pushes the order.
         .move_to_spawn_pos => {},
         // The table gives these no update, or only `noop` (`0x004983A0`).
         .random_spin_slow,
@@ -1210,8 +1211,7 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
 }
 
 /// The `exit` of the order, where OpenReliant runs it, which scripts can hook under the routine's
-/// name (`hooks.routine_hooks`). Multiplayer's isn't ported yet
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// name (`hooks.routine_hooks`).
 fn runExit(ctx: Context, index: u16, info: orders.Info) void {
     if (orders.info(info.order) == null) {
         if (!info.flags.one_shot) _ = custom(ctx, index, info.order, .exit);

@@ -437,8 +437,8 @@ const most_fought = 3;
 /// torpedo class; with none, it mills round the lightest of the second (Mill, 120); each pushed
 /// above it. With neither it pops.
 ///
-/// Not ported: in a multiplayer game, a ship another machine flies, which pushes no Fight
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a network game the original pushes no Fight for a ship another machine flies. No other
+/// machine flies a ship in OpenReliant: the host runs every order.
 pub fn findNewTarget(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.find_target;
@@ -558,8 +558,9 @@ comptime {
 /// Scoop Up (107) pushed above it; with none it pops. Once Scoop Up is done, the order starts again
 /// from the wait, and searches again.
 ///
-/// Not ported: the wait, and in a multiplayer game the Scoop Up sent to the other players where
-/// the order names no ship ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// Not ported: the wait. In a network game the original also sends the Scoop Up to the other
+/// players where the order names no ship, which OpenReliant's host, running every order, has no
+/// use for.
 pub fn findScoopUp(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.find_scoop_up;
@@ -1102,8 +1103,8 @@ pub const DarkReignState = extern struct {
 /// this one walks again. The game also zeroes the cannon's search (`0x004E1C24`), which the queued
 /// order's init sets again before anything reads it.
 ///
-/// Not ported: in a network game, only the machine that runs the AI walks, and only while the
-/// target's player is in the game ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a network game only the original's machine that runs the AI walks, and only while the
+/// target's player is in the game. OpenReliant's host is that machine.
 pub fn darkReignShoot(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     slot.state.dark_reign.nearest = .none;

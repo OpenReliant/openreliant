@@ -2426,8 +2426,8 @@ pub const countdown_ticks = 100;
 /// What `simulation_step` does for the object whose turn it is (`Clock.nextTurn`), before its node
 /// update: orthonormalizes the root's next orientation (`mat3_orthonormalize`), so that rounding
 /// doesn't build up in the matrix from one step to the next. The game does the same to the
-/// orientation at `GameObject + 0x7A4`, which a multiplayer game draws other players' ships by;
-/// OpenReliant doesn't keep that one yet (#55).
+/// orientation at `GameObject + 0x7A4`, which a network game draws other players' ships by.
+/// OpenReliant doesn't keep that one: its clients draw every ship between the host's views.
 pub fn orthonormalizeTurn(root: *objects.Node) void {
     root.next_orientation = math.orthonormalize(root.next_orientation);
 }
