@@ -539,16 +539,19 @@ fn limpetUpdate(ctx: Context, index: u16, at_berth: LimpetBerth) void {
     const all = world.objects;
     const slot = &all.slots[index];
     const target = slot.orders[0].target.resolve(all);
-    const carrier = target.slotIn(all) orelse return aigeneric.end(ctx, index);
     const state = &slot.state.dock;
     const step = state.step.limpet;
     // A carrier that has gone ends the order before the car latches on, and destroys the car
-    // while it is latched (`0 < step < 5`).
-    if (all.slots[carrier].object.gone()) switch (step) {
+    // while it is latched (`0 < step < 5`). One that has left its slot is gone, as the stand-in
+    // the game finds there is.
+    const found = target.slotIn(all);
+    const gone = if (found) |at| all.slots[at].object.gone() else slot.orders[0].target.left(all);
+    if (gone) switch (step) {
         .approach => return aigeneric.end(ctx, index),
         .latch, .slide, .transfer, .rotate => return ai.objectDestroyed(ctx, index, false, false),
         .depart, .finish, .no_port, _ => {},
     };
+    const carrier = found orelse return aigeneric.end(ctx, index);
     const at = berth(world, index) orelse return aigeneric.end(ctx, index);
     const now = world.clock.frame_start;
     switch (step) {
@@ -1220,7 +1223,8 @@ test "a limpet car at the Czar docked holds on, and takes or leaves no pod" {
 }
 
 test "a limpet car is destroyed with its carrier while it is latched on" {
-    for ([_]LimpetStep{ .latch, .transfer, .depart }) |step| {
+    // The carrier explodes, or has left its slot for a stand-in already.
+    for ([_]bool{ false, true }) |left| for ([_]LimpetStep{ .latch, .transfer, .depart }) |step| {
         var dock: TestDock = undefined;
         try dock.init();
         defer dock.deinit();
@@ -1232,13 +1236,15 @@ test "a limpet car is destroyed with its carrier while it is latched on" {
         _ = try aigeneric.pushShip(ctx, index, .dock, dock.station, 0);
         aigeneric.objectOrders(ctx, index);
         slot.state.dock.step = .{ .limpet = step };
-        dock.game.slot(dock.station).object.flags.exploding = true;
+        if (left) create.resetSlot(ctx, dock.station) else dock.game.slot(dock.station).object.flags.exploding = true;
         aigeneric.objectOrders(ctx, index);
-        // Latched on, the car goes with its carrier; backing away, it carries on.
+        // Latched on, the car goes with its carrier; backing away, it carries on while the
+        // carrier explodes, and its order ends once the carrier's slot holds a stand-in.
         const latched = step != .depart;
         try std.testing.expectEqual(latched, slot.orders[0].order == .explode);
-        if (!latched) try std.testing.expectEqual(LimpetStep.depart, slot.state.dock.step.limpet);
-    }
+        if (!latched and !left) try std.testing.expectEqual(LimpetStep.depart, slot.state.dock.step.limpet);
+        if (!latched and left) try std.testing.expect(slot.running(.dock) == null);
+    };
 }
 
 test "a limpet car docks nowhere at a port that is not there" {

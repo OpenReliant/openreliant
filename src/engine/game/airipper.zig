@@ -796,6 +796,18 @@ pub fn grabInit(ctx: Context, index: u16) void {
     }
 }
 
+/// The grab's end where the object is gone before the Ripper holds it
+/// (`order_ripper_grabs_target_object`, `0x0040FFE5`): the Ripper lets go of its beams, is held no
+/// longer, flies as it flew before, and the order ends.
+fn loseObject(ctx: Context, index: u16) void {
+    const slot = &ctx.world.objects.slots[index];
+    const state = &slot.state.ripper_grab;
+    freeGrip(ctx.world.rippers, &state.grip);
+    slot.object.flags.attached = false;
+    slot.motion = state.keptMotion();
+    aigeneric.end(ctx, index);
+}
+
 /// `order_ripper_grabs_target_object_exit` (`0x00410B50`): the Ripper is held no longer, and lets
 /// its beams go.
 pub fn grabExit(ctx: Context, index: u16) void {
@@ -823,15 +835,14 @@ pub fn grab(ctx: Context, index: u16) void {
     const object = &slot.object;
     const state = &slot.state.ripper_grab;
     const now = ctx.world.clock.frame_start;
-    const held_at = slot.orders[0].target.slotIn(all) orelse return;
+    const held_at = slot.orders[0].target.slotIn(all) orelse {
+        // An object that has left its slot is gone, as the stand-in the game finds there is.
+        if (slot.orders[0].target.left(all)) return loseObject(ctx, index);
+        return;
+    };
     const held = &all.slots[held_at];
     const grip: ?*Grip = if (world.rippers) |rippers| rippers.gripAt(state.grip) else null;
-    if (held.object.gone()) {
-        freeGrip(world.rippers, &state.grip);
-        object.flags.attached = false;
-        slot.motion = state.keptMotion();
-        return aigeneric.end(ctx, index);
-    }
+    if (held.object.gone()) return loseObject(ctx, index);
     switch (state.step) {
         .starting => next(state, now),
         .approaching => {
@@ -1538,21 +1549,24 @@ test "a Ripper told to drop its pod onto a ship passes its target on as a ship's
 }
 
 test "a Ripper gives up its grab where the object goes" {
-    var t: TestRipper = undefined;
-    try t.init();
-    defer t.deinit();
-    const ripper = t.game.slot(t.ripper);
-    ripper.motion = .backward;
-    try std.testing.expect(try aigeneric.push(t.orders(), t.ripper, .ripper_grabs_target_object, .at(t.pod, null)));
-    t.run(77);
-    try std.testing.expectEqual(GrabStep.reaching, ripper.state.ripper_grab.step);
-    // The pod explodes: the beams let go, the Ripper is held no more, and flies as it did.
-    t.game.slot(t.pod).object.flags.exploding = true;
-    t.run(1);
-    try std.testing.expectEqual(null, t.doing());
-    for (t.rippers.grips) |held| try std.testing.expectEqual(null, held);
-    try std.testing.expect(!ripper.object.flags.attached);
-    try std.testing.expectEqual(motion.Motion.backward, ripper.motion.?);
+    // The pod explodes, or has left its slot for a stand-in already.
+    for ([_]bool{ false, true }) |left| {
+        var t: TestRipper = undefined;
+        try t.init();
+        defer t.deinit();
+        const ripper = t.game.slot(t.ripper);
+        ripper.motion = .backward;
+        try std.testing.expect(try aigeneric.push(t.orders(), t.ripper, .ripper_grabs_target_object, .at(t.pod, null)));
+        t.run(77);
+        try std.testing.expectEqual(GrabStep.reaching, ripper.state.ripper_grab.step);
+        // The beams let go, the Ripper is held no more, and flies as it did.
+        if (left) create.resetSlot(t.orders(), t.pod) else t.game.slot(t.pod).object.flags.exploding = true;
+        t.run(1);
+        try std.testing.expectEqual(null, t.doing());
+        for (t.rippers.grips) |held| try std.testing.expectEqual(null, held);
+        try std.testing.expect(!ripper.object.flags.attached);
+        try std.testing.expectEqual(motion.Motion.backward, ripper.motion.?);
+    }
 }
 
 test "a Ripper gives up fitting a pod where the component goes or it carries nothing" {
