@@ -1573,7 +1573,7 @@ fn mouseAxis(position: i16) f32 {
 /// the ship's throttle, and ZERO THROTTLE and FULL THROTTLE set both and stop MATCH SPEED. The
 /// ship's throttle then follows the setting, unless its afterburner is burning.
 pub fn playerThrottleKeys(state: *flight.State, devices: *Devices, object: *gameobj.GameObject) void {
-    flight.applyThrottle(state, object, throttleCommand(devices));
+    flight.applyThrottle(state, object, throttleCommand(devices), .frame);
 }
 
 fn throttleCommand(devices: *Devices) flight.Throttle {
@@ -1608,7 +1608,7 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
             // Match speed steers too: it is part of how the command flies the ship, which the
             // client's own simulation must fly the same way (Rocket League GDC 2018).
             if (!ctx.stepping) return;
-            flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, command.flight, world.clock.frame_duration);
+            flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, command.flight, world.clock.frame_duration, .step);
             matchSpeedFor(world, index, command.match_speed, if (index == all.player) world.view() else .cockpit);
             flight.limitArenaThrottle(&slot.object);
             return;
@@ -1628,7 +1628,7 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
         if (command.cockpit.sync_guns) slot.object.gun_mode.synchronised = !slot.object.gun_mode.synchronised;
         if (command.cockpit.full_guns) _ = guns.fullGuns(&slot.object, slot.guns, slot.gun_groups, slot.groupCount());
         if (command.cockpit.power) |preset| power.choose(&slot.object, preset);
-        if (ctx.stepping) flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, command.flight, world.clock.frame_duration);
+        if (ctx.stepping) flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, command.flight, world.clock.frame_duration, .step);
         const view: camera.View = if (index == all.player) world.view() else .cockpit;
         // The target's speed is matched every pass, as each update runs it; the press
         // toggles once a step, as a key press does at its own cadence (`0x00413410`).
@@ -1646,7 +1646,7 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
     if (!all.readsLocalPlayerInput() or (index < all.players and index != all.player)) return;
     const devices = ctx.devices orelse return;
     const state = &all.player_states[all.player];
-    playerControls(world.player, &state.controls, &state.shield_reserves, devices, &slot.object, combat, slot.orders[0].data.words[0..2], world.view(), world.clock.frame_duration);
+    playerControls(world.player, &state.controls, &state.shield_reserves, devices, &slot.object, combat, slot.orders[0].data.words[0..2], world.view(), world.clock.frame_duration, if (ctx.stepping) .step else .frame);
     matchSpeed(world, devices);
     playerWeapons(world, devices, index);
 }
@@ -1662,7 +1662,7 @@ pub fn stepShip(world: gameobj.World, index: u16, command: ?flight.Command, fram
     slot.object.root.commitNext();
     if (command) |flown| if (slot.combat) |combat| {
         const state = &all.player_states[index];
-        flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, flown, frame_duration);
+        flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, flown, frame_duration, .step);
         flight.limitArenaThrottle(&slot.object);
     };
     motion.moveSlotWith(world, index, false);
@@ -1705,8 +1705,9 @@ pub fn playerControls(
     stick: *[2]i16,
     view: camera.View,
     frame_duration: i32,
+    pass: flight.Pass,
 ) void {
-    flight.apply(state, reserves, object, combat, sampleFlight(player, devices, stick, view), frame_duration);
+    flight.apply(state, reserves, object, combat, sampleFlight(player, devices, stick, view), frame_duration, pass);
 }
 
 /// Resolves local bindings in the order of `player_controls` (`0x00413410`). Only this side
@@ -3193,7 +3194,7 @@ test "held, the stick moves the power or shifts the shields" {
     devices.read();
     // With POWERBALL WINDOW held, the yaw keys move the power a whole deflection, by the frame's
     // ticks, instead of steering, and the throttle keys do nothing.
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expectEqual(17, object.power_setting.x);
     try std.testing.expectEqual(0, object.yaw_input);
     try std.testing.expectEqual(0.5, object.throttle);
@@ -3201,7 +3202,7 @@ test "held, the stick moves the power or shifts the shields" {
     player.balancing_shields = true;
     keyboard.down[controls.binding(.nose_down).key] = true;
     devices.read();
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expectEqual(17, object.power_setting.x);
     try std.testing.expectEqual(45, object.shields.fore);
     try std.testing.expectEqual(40, object.shields.aft);
@@ -3221,48 +3222,48 @@ test playerControls {
 
     // A held key steps its input, and the fourth run has it past full deflection.
     keyboard.down[nose_up] = true;
-    for (0..4) |_| playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    for (0..4) |_| playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expectApproxEqAbs(1.2, object.pitch_input, 1e-6);
     // Released, the input falls back to nothing on the next run.
     keyboard.down[nose_up] = false;
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expectEqual(0, object.pitch_input);
 
     // The orbiting views take the arrow keys for themselves.
     keyboard.down[nose_up] = true;
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .external, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .external, 16, .frame);
     try std.testing.expectEqual(0, object.pitch_input);
     keyboard.down[nose_up] = false;
 
     // Half the yaw banks the ship into its turn.
     keyboard.down[controls.binding(.rotate_anti_clockwise).key] = true;
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expectApproxEqAbs(0.3, object.yaw_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.15, object.roll_input, 1e-6);
     keyboard.down[controls.binding(.rotate_anti_clockwise).key] = false;
 
     // ACCELERATE steps the throttle, fifty runs from none to full.
     keyboard.down[accelerate] = true;
-    for (0..50) |_| playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    for (0..50) |_| playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expectApproxEqAbs(1, object.throttle, 1e-5);
     keyboard.down[accelerate] = false;
     // FULL THROTTLE and ZERO THROTTLE set it outright, once for each press.
     keyboard.down[controls.binding(.zero_throttle).key] = true;
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expectEqual(0, object.throttle);
     keyboard.down[controls.binding(.zero_throttle).key] = false;
 
     // With JoystickInvert off, the nose keys pitch the other way.
     devices.settings.joystick_invert = false;
     keyboard.down[nose_up] = true;
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expectApproxEqAbs(-0.3, object.pitch_input, 1e-6);
     keyboard.down[nose_up] = false;
 
     // Both strafe keys held, STRAFE RIGHT wins.
     keyboard.down[controls.binding(.strafe_left).key] = true;
     keyboard.down[controls.binding(.strafe_right).key] = true;
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expectEqual(1, object.lateral_input);
 }
 
@@ -3280,7 +3281,7 @@ test "steering with the joystick" {
     // directly: 1000 is none and 0 is full.
     stick.state = .{ .x = 500, .y = -250, .z = 0, .rx = 0, .ry = 0, .rz = 800, .sliders = .{ 250, 0 }, .pov = @splat(JoystickState.centred), .buttons = @splat(0) };
     devices.read();
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16, .frame);
     try std.testing.expectApproxEqAbs(0.5, object.yaw_input, 1e-6);
     try std.testing.expectApproxEqAbs(-0.25, object.pitch_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.25, object.roll_input, 1e-6);
@@ -3288,21 +3289,21 @@ test "steering with the joystick" {
 
     // Holding JOYSTICK ROLL makes X roll instead.
     devices.keyboard.down[controls.binding(.joystick_roll).key] = true;
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16, .frame);
     try std.testing.expectEqual(0, object.yaw_input);
     try std.testing.expectApproxEqAbs(0.5, object.roll_input, 1e-6);
     devices.keyboard.down[controls.binding(.joystick_roll).key] = false;
 
     // With TwistEnable, the twist rolls, and X still yaws and banks.
     devices.settings.twist_enabled = true;
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16, .frame);
     try std.testing.expectApproxEqAbs(0.5, object.yaw_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.8 + 0.25, object.roll_input, 1e-6);
     devices.settings.twist_enabled = false;
 
     // Turning JoystickInvert off reverses pitch; in the orbiting views the stick still steers.
     devices.settings.joystick_invert = false;
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &mouse_stick, .external, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &mouse_stick, .external, 16, .frame);
     try std.testing.expectApproxEqAbs(0.25, object.pitch_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.5, object.yaw_input, 1e-6);
 }
@@ -3318,26 +3319,26 @@ test "steering with the mouse" {
     // Half the range to the right yaws at 0.35, and three quarters of it up pitches at 0.675.
     devices.mouse.motion = .{ 400, -600 };
     devices.read();
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expectEqual([2]i16{ 400, -600 }, stick);
     try std.testing.expectApproxEqAbs(0.35, object.yaw_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.675, object.pitch_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.175, object.roll_input, 1e-6);
     // Run again before the next read, the stick stays where it is.
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expectEqual([2]i16{ 400, -600 }, stick);
 
     // Held at the edge of the range, the deflection is whole.
     devices.mouse.motion = .{ 1000, 0 };
     devices.read();
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expectEqual(mouse_range, stick[0]);
     try std.testing.expectApproxEqAbs(1, object.yaw_input, 1e-6);
 
     // Back within the dead band, it steers nothing.
     devices.mouse.motion = .{ -700, 400 };
     devices.read();
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expectEqual([2]i16{ 100, -200 }, stick);
     try std.testing.expectEqual(0, object.yaw_input);
     try std.testing.expectEqual(0, object.pitch_input);
@@ -3394,7 +3395,7 @@ test "a joystick without a throttle leaves the throttle to the keys" {
     var player: Player = .{};
     devices.read();
     devices.keyboard.down[controls.binding(.accelerate).key] = true;
-    for (0..5) |_| playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
+    for (0..5) |_| playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16, .frame);
     try std.testing.expectApproxEqAbs(0.1, object.throttle, 1e-6);
 }
 
@@ -3409,23 +3410,23 @@ test "the burns last while their keys are held, and stop without fuel" {
     object.afterburner_fuel = 100;
 
     keyboard.down[controls.binding(.afterburners).key] = true;
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expect(object.afterburner);
     keyboard.down[controls.binding(.afterburners).key] = false;
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expect(!object.afterburner);
 
     // The toggle holds it on until it is pressed again.
     keyboard.down[controls.binding(.afterburner_toggle).key] = true;
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expect(object.afterburner);
     keyboard.read();
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expect(object.afterburner);
 
     // Out of fuel, neither burn runs.
     object.afterburner_fuel = 0;
-    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &state, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16, .frame);
     try std.testing.expect(!object.afterburner);
     try std.testing.expect(!object.reverse_thrust);
 }
@@ -3614,8 +3615,9 @@ test "participant commands steer either slot without reading local devices" {
             .target = .{ .aim = .{ .object = .of(all, target) } },
         }));
         multiplayerControlOrder(ctx.inStep(), remote);
-        try std.testing.expectApproxEqAbs(0.3, object.yaw_input, 1e-6);
-        try std.testing.expectApproxEqAbs(0.27, object.throttle, 1e-6);
+        // The keys' ramps of 0.3 and 0.02 an original step, of which this step is a share.
+        try std.testing.expectApproxEqAbs(0.3 * gameobj.step_share, object.yaw_input, 1e-6);
+        try std.testing.expectApproxEqAbs(0.25 + 0.02 * gameobj.step_share, object.throttle, 1e-6);
         try std.testing.expect(object.afterburner);
         try std.testing.expectEqual(target, ai.controlEntry(all, remote).?.target.slotIn(all));
         try std.testing.expectEqual(null, ai.controlEntry(all, local).?.target.slotIn(all));
@@ -3623,8 +3625,8 @@ test "participant commands steer either slot without reading local devices" {
         try std.testing.expectEqual(null, display.target);
         // Continuous inputs repeat; the toggle and target selection have been consumed.
         multiplayerControlOrder(ctx.inStep(), remote);
-        try std.testing.expectApproxEqAbs(0.6, object.yaw_input, 1e-6);
-        try std.testing.expectApproxEqAbs(0.29, object.throttle, 1e-6);
+        try std.testing.expectApproxEqAbs(2 * 0.3 * gameobj.step_share, object.yaw_input, 1e-6);
+        try std.testing.expectApproxEqAbs(0.25 + 2 * 0.02 * gameobj.step_share, object.throttle, 1e-6);
         try std.testing.expect(object.afterburner);
         try std.testing.expect(devices.active(.afterburner_toggle, true));
         try std.testing.expectEqual(0, all.slots[local].object.yaw_input);
@@ -3632,7 +3634,7 @@ test "participant commands steer either slot without reading local devices" {
         state.command = null;
         multiplayerControlOrder(ctx.inStep(), remote);
         playerControlOrder(ctx.inStep(), remote);
-        try std.testing.expectApproxEqAbs(0.6, object.yaw_input, 1e-6);
+        try std.testing.expectApproxEqAbs(2 * 0.3 * gameobj.step_share, object.yaw_input, 1e-6);
         // The original remote order disables a ship once it has been sent off.
         object.flags.sent_off = true;
         multiplayerControlOrder(ctx.inStep(), remote);

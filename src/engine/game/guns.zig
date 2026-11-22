@@ -1800,7 +1800,7 @@ const flak_lasers = struct {
 pub fn moveBullets(world: gameobj.World) void {
     for (&world.objects.bullets.pool) |*bullet| {
         if (!bullet.live) continue;
-        bullet.at += bullet.velocity;
+        bullet.at += bullet.velocity * @as(Vector, @splat(gameobj.step_share));
     }
 }
 
@@ -2101,7 +2101,7 @@ pub fn frameReplicas(world: gameobj.World) void {
             continue;
         }
         const steps = @as(f32, @floatFromInt(@max(now - bullet.fired_at, 0))) / gameobj.ticks_per_step;
-        bullet.place = bullet.at + bullet.velocity * @as(Vector, @splat(steps));
+        bullet.place = bullet.at + bullet.velocity * @as(Vector, @splat(steps * gameobj.step_share));
         animate(bullet, world.clock, bullet.stats(&all.gun_stats), world.effectsRandom());
         placePieces(bullet);
     }
@@ -2150,9 +2150,9 @@ test shoot {
     // The record keeps the type less one, as the game does.
     try std.testing.expectEqual(testing.gun_type, bullet.kind);
 
-    // A shot flies on by its velocity each step.
+    // A shot flies on by a step's share of its velocity each step.
     moveBullets(world);
-    try std.testing.expectEqual(@as(Vector, .{ -100, 0, 500 }), bullet.at);
+    try std.testing.expectEqual(@as(Vector, .{ -100, 0, 500 * gameobj.step_share }), bullet.at);
 
     // Nothing is fired once every record is in flight.
     for (&world.objects.bullets.pool) |*record| record.live = true;

@@ -893,7 +893,8 @@ fn acceptInput(host: *const Host, peer: *Peer, input: wire.Input, time: i64) voi
 const Timed = struct {
     /// `fire_for` names the ship a held trigger (`step.fire`) is for.
     const Entry = struct { tick: i32, command: flight.Command, step: flight_input.Step = .{}, fire_for: ?u32 };
-    const length = 32;
+    /// 64 steps, the 1.28 seconds that 32 of the original's steps held.
+    const length = 64;
     entries: [length]Entry = undefined,
     first: usize = 0,
     count: usize = 0,
@@ -1047,6 +1048,25 @@ fn publishRoster(host: *Host) !void {
         if (peer.state != .playing) continue;
         host.channel().sendBytes(peer.conn, bytes, true) catch host.release(@intCast(slot));
     }
+}
+
+/// Whether the host sends the flight view of step `tick`. It steps 50 times a second and sends
+/// the view of every second step, 25 a second as the original's steps came, so its upload stays
+/// what it was. Each client flies the steps between two views itself, from its own inputs and
+/// the others' last commands, by the same code (Rocket League GDC 2018). A paused, final or
+/// debrief view is always sent, and so is everything that goes by its own message.
+fn sendsFlightView(tick: u32) bool {
+    return tick % steps_per_flight_view == 0;
+}
+
+const steps_per_flight_view = game.gameobj.original_ticks_per_step / game.gameobj.ticks_per_step;
+
+test sendsFlightView {
+    var sent: u32 = 0;
+    for (1..51) |tick| {
+        if (sendsFlightView(@intCast(tick))) sent += 1;
+    }
+    try std.testing.expectEqual(25, sent);
 }
 
 fn acceptsFlight(host: *const Host) bool {
@@ -1637,7 +1657,7 @@ pub fn pump(host: *Host) !enum { running, finished } {
         host.arena.campaign.?.display.fosters_last_stand = false;
         try host.broadcast(view, .paused);
         host.beginMovie(time);
-    } else try host.broadcast(view, delivery);
+    } else if (delivery != .flight or sendsFlightView(host.tick)) try host.broadcast(view, delivery);
     if (delivery == .flight) {
         for (host.arena.music.take()) |cue| host.sendPlaying(.{ .mission_music = cue }, null);
         if (host.arena.campaign) |campaign| {

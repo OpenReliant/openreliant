@@ -19,7 +19,7 @@ pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
 pub const CampaignCheckpoint = campaign.Checkpoint;
-pub const revision: u16 = 40;
+pub const revision: u16 = 41;
 pub const Team = engine.game.players.ArenaTeam;
 
 fn readTeam(reader: *std.Io.Reader) !Team {
@@ -87,8 +87,10 @@ pub const Input = struct {
     earlier: [max_earlier]Flown = @splat(.{ .tick = 0, .command = .{} }),
     earlier_count: u8 = 0,
 
-    pub const redundancy = 3;
-    pub const max_earlier = 8;
+    /// Six steps and sixteen in all: the 120 ms and 320 ms that three and eight of the original's
+    /// steps covered.
+    pub const redundancy = 6;
+    pub const max_earlier = 16;
 
     /// Compare serial numbers across a wrap. The half-range is ambiguous.
     pub fn follows(input: Input, previous: ?u32) bool {
@@ -1884,7 +1886,7 @@ test "flight updates fit the direct-IP payload budget" {
     longest.input.fire_for = 3;
     longest.input.earlier = @splat(.{ .tick = 396, .command = input.input.command });
     longest.input.earlier_count = Input.max_earlier;
-    try std.testing.expect((try longest.encode(&buffer)).len <= 9 * input_bytes);
+    try std.testing.expect((try longest.encode(&buffer)).len <= (1 + Input.max_earlier) * input_bytes);
     try std.testing.expectEqual(full_snapshot_bytes, (try view.encode(&buffer)).len);
     var with_objectives = view;
     with_objectives.view.objectives = .{ .six_beacons = @splat(.{ .loose = .{ 1, 2, 3 } }) };
@@ -1949,7 +1951,7 @@ test "the objective view fits one packet and a carrier needs a current ship" {
         .scenario = .nuclear_threat,
         .ships = @splat(.{ .generation = 2, .position = @splat(0), .respawn = 289, .ping_ms = 72 }),
         .objectives = .{ .six_beacons = @splat(.{ .loose = .{ 2, 3, 4 } }) },
-        .blast = .{ .owner = 1, .started = 10, .size = 2200, .position = .{ 8, 9, 10 }, .angles = .{ 4, -5, 6 } },
+        .blast = .{ .owner = 1, .started = 6, .size = 2200, .position = .{ 8, 9, 10 }, .angles = .{ 4, -5, 6 } },
     } };
     const full = try view.encode(&buffer);
     try std.testing.expectEqual(beacon_snapshot_capacity, full.len);

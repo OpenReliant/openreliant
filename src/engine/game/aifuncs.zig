@@ -1448,9 +1448,22 @@ test "a ship under a Fly order closes on its target and stops there" {
     const to = all.slots[target].object.nextPosition();
     const start = math.distance(slot.object.position(), to);
 
+    // The Predator's flight stats. The tests' own ship turns several times harder than any real
+    // one, which swings the steering from side to side at every step.
+    var predator = slot.flight.?.*;
+    predator.max_speed = 320;
+    predator.inertia = 0.87;
+    predator.pitch_rate = 0.09;
+    predator.yaw_rate = 0.09;
+    predator.roll_rate = 0.15;
+    predator.pitch_inertia = 0.9;
+    predator.yaw_inertia = 0.9;
+    predator.roll_inertia = 0.9;
+    slot.flight = &predator;
+
     // A frame of orders, then the step that moves what they steer, as the loop paces them.
     for (0..2000) |_| {
-        mission.clock.frame_duration = 4;
+        mission.clock.frame_duration = gameobj.ticks_per_step;
         aigeneric.ordersUpdate(ctx);
         create.objectsUpdate(ctx.world);
         for (all.slots[0..all.count]) |*live| {

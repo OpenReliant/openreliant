@@ -1195,7 +1195,7 @@ pub fn burst(world: gameobj.World, index: u16) void {
     breakup.breakUp(world, index, .burst);
     scatter(world, at, burst_bits);
     if (index == world.objects.player) if (world.explosions) |explosions| {
-        explosions.marker = .{ .position = at, .drift = velocity * @as(Vector, @splat(objects.tick_share)) };
+        explosions.marker = .{ .position = at, .drift = velocity * @as(Vector, @splat(objects.velocity_tick_share)) };
     };
     _ = flames(world, at, velocity, burst_flames);
     sparkles(world, at, velocity, burst_carried, .{});

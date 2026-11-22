@@ -36,8 +36,8 @@ A dead zone of a tenth of the range applies to the whole device. `joystick_butto
 
 ## Reading
 
-`simulation_step` reads the three devices at the start of each step, so 25 times a second (see
-[the game loop](loop.md)):
+`simulation_step` reads the three devices at the start of each step, so 25 times a second in the
+original and 50 in OpenReliant (see [the game loop](loop.md#the-step)):
 
 | Function | Into | State |
 |---|---|---|

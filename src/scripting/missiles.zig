@@ -126,7 +126,7 @@ pub const fields = struct {
         }
     });
 
-    pub const velocity = api.Field(Vector, "How far it moves in a simulation step, of which there are 25 a second. Setting it pushes it, and its motor carries on from there.", struct {
+    pub const velocity = api.Field(Vector, "How far it moves in 1/25 of a second. Setting it pushes it, and its motor carries on from there.", struct {
         pub fn get(all: *const create.Objects, record: u8) Vector {
             return missileIn(all, record).slot.object.velocity.vector();
         }

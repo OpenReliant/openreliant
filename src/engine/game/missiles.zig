@@ -884,18 +884,29 @@ pub fn move(all: *create.Objects) void {
         const root = &object.root;
         root.position = root.next_position;
         root.orientation = root.next_orientation;
-        object.pitch_rate = flight.pitch_inertia * object.pitch_rate + (1 - flight.pitch_inertia) * object.pitch_input * flight.pitch_rate;
-        object.yaw_rate = flight.yaw_inertia * object.yaw_rate + (1 - flight.yaw_inertia) * object.yaw_input * flight.yaw_rate;
+        // The rates, the inertias and the speed are per original step: a step keeps its share of
+        // each inertia and applies its share of the turn and of the velocity.
+        const share = gameobj.step_share;
+        const pitch_kept = gameobj.kept(flight.pitch_inertia);
+        const yaw_kept = gameobj.kept(flight.yaw_inertia);
+        const speed_kept = gameobj.kept(flight.inertia);
+        object.pitch_rate = pitch_kept * object.pitch_rate + (1 - pitch_kept) * object.pitch_input * flight.pitch_rate;
+        object.yaw_rate = yaw_kept * object.yaw_rate + (1 - yaw_kept) * object.yaw_input * flight.yaw_rate;
         object.rotation = math.fromAngles(object.pitch_rate, object.yaw_rate, 0);
-        root.next_orientation = math.product(root.orientation, object.rotation);
+        root.next_orientation = math.product(root.orientation, math.fromAngles(object.pitch_rate * share, object.yaw_rate * share, 0));
         var velocity = object.velocity.vector();
-        switch (missile.order) {
-            .pod_launch, .rail_launch, .jettison => {},
-            else => velocity *= @splat(flight.inertia),
-        }
-        velocity += math.forward(root.next_orientation) * @as(Vector, @splat((1 - flight.inertia) * object.throttle * flight.max_speed));
+        // Damped, the velocity closes on its target by what a step doesn't keep. Undamped, in
+        // the launch and the jettison, it gains a step's share of an original step's push.
+        const drive = switch (missile.order) {
+            .pod_launch, .rail_launch, .jettison => (1 - flight.inertia) * share,
+            else => damped: {
+                velocity *= @splat(speed_kept);
+                break :damped 1 - speed_kept;
+            },
+        };
+        velocity += math.forward(root.next_orientation) * @as(Vector, @splat(drive * object.throttle * flight.max_speed));
         object.velocity = .of(velocity);
-        root.next_position = .of(root.next_position.vector() + velocity);
+        root.next_position = .of(root.next_position.vector() + velocity * @as(Vector, @splat(share)));
         root.markMoved();
     }
 }
@@ -1267,10 +1278,12 @@ test move {
     launch(armed.mission.world(), ship, 0, .none);
     const object = armed.missile(0).object();
 
-    // In its launch it burns at twice its thrust, undamped: 0.16 of 600 a step.
-    move(armed.mission.objects);
+    // In its launch it burns at twice its thrust, undamped: 0.16 of 600 an original step, which
+    // it gains over the steps of one. Each step moves it by its share of the velocity.
+    const an_original_step = gameobj.original_ticks_per_step / gameobj.ticks_per_step;
+    for (0..an_original_step) |_| move(armed.mission.objects);
     try std.testing.expectApproxEqAbs(96, object.velocity.z, 1e-3);
-    try std.testing.expectApproxEqAbs(96, object.root.next_position.z - object.root.position.z, 1e-3);
+    try std.testing.expectApproxEqAbs(96 * gameobj.step_share, object.root.next_position.z - object.root.position.z, 1e-3);
     try std.testing.expect(object.root.flags.unframed);
     // Past it, its speed settles at its throttle's share of its top speed.
     armed.missile(0).order = .raptor;

@@ -958,8 +958,9 @@ pub fn present(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: w
 const tick_us: u64 = std.time.us_per_s / game.main.ticks_per_second;
 /// How much faster or slower than real time the mission clock may run while it takes in a skew.
 const skew_rate = 0.05;
-/// The lead over the host's clock the client's snapshots should arrive at, in ticks.
-const target_lead = 2 * game.gameobj.ticks_per_step;
+/// The lead over the host's clock the client's snapshots should arrive at, in ticks: two of the
+/// host's snapshots, which it sends on the original's steps (`server.sendsFlightView`).
+const target_lead = 2 * game.gameobj.original_ticks_per_step;
 /// A lead or lag beyond this many ticks restarts the clock at the host's.
 const lost_lead = 50;
 /// The share of a ship's outstanding correction each step takes in: a correction spreads over
@@ -1196,7 +1197,7 @@ fn resimulate(frame: *FlightFrame, index: u16, ship: wire.Ship, snapshot: *const
 /// How long before its step the pilot's newest input should reach the host, in ticks of real
 /// time: half a step. The clock keeps the lows of the margin here (`reconcile`), so jitter and
 /// loss push the average up, as Overwatch (GDC 2017) grows its buffer while packets are lost.
-/// A whole step would add its 40 ms to every input.
+/// A whole step would add its 20 ms to every input.
 const target_margin: f32 = game.gameobj.ticks_per_step / 2;
 /// The share of the way back up the kept margin goes with each report, 25 a second: a low
 /// margin is taken at once and forgotten over about two seconds, so a link that loses packets

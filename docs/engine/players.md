@@ -106,10 +106,16 @@ The client keeps its clock far enough ahead that its inputs reach the host a lit
 steps that fly them. The host tells each pilot how long before its step the newest input arrived
 (`OwnFlight.margin`), in hundredths of a second of real time. It reads its connections once a
 step, so it goes by the time the transport received the message. The client runs its clock up to
-5% faster or slower to hold the lows of that margin at half a step, 20 ms. A low margin counts
+5% faster or slower to hold the lows of that margin at half a step, 10 ms. A low margin counts
 at once and is forgotten over about two seconds, so a link that loses packets keeps a larger
 buffer and a clean one a small one, as Overwatch does. A whole spare step, which the margin
-counted in steps could not go below, added 40 ms to every input.
+counted in steps could not go below, would add its 20 ms to every input.
+
+The host steps 50 times a second ([The step](loop.md#the-step)) and takes an input for every
+step. It sends the flight view of every second step, 25 a second (`server.sendsFlightView`), so
+its upload is what it was with the original's step. Each client flies the step between two views
+itself. An input repeats the six steps before it, and the host keeps 64 timed inputs for a pilot:
+the 120 ms and 1.28 seconds that three and 32 of the original's steps covered.
 
 Missile launches, countermeasures, the missile ring and the cockpit's gun and power keys still
 travel in a reliable weapon order without a tick, with the target they belong to. A terminal

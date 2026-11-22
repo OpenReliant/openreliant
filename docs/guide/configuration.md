@@ -385,7 +385,7 @@ your pilots can reach. Allow incoming UDP on `Port` and use the same port if you
 | `MinPlayers` | `2` for arenas, `Players` for co-op | How many admitted pilots are needed to begin the countdown. Choose at least 2 and at most `Players` |
 | `StartDelaySeconds` | `30` for stock deathmatch, `0` otherwise | Time to wait once enough pilots have joined. Each new admission restarts the countdown, even when the lobby fills. Dropping below the minimum clears it |
 | `RoundSeconds` | Unset | Optional duration of a round in seconds. Leave it unset for the arena's own ending rules |
-| `RoundTicks` | Unset | Set a positive simulation tick limit for scripted tests. Set either this or `RoundSeconds` |
+| `RoundTicks` | Unset | Set a positive limit in simulation steps for scripted tests. The host steps 50 times a second, so 50 is a second. Set either this or `RoundSeconds` |
 | `Teams` | `0` | Set to `1` for team play in Asteroid Field, Dark Reign, Tag Bomb or Hunt the Shadow. Pilots can choose their team in the lobby during the countdown |
 | `AiTurrets` | `0` | Set to `1` to keep the mission's AI turret settings in stock deathmatch arenas |
 | `TargetPlayers` | `1` | Set to `0` to make new fighters untargetable in stock deathmatch arenas |

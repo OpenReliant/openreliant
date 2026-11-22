@@ -576,22 +576,22 @@ test "the flown history hands out the steps before and after a tick" {
     while (tick <= 40) : (tick += 4) history.push(.{ .tick = tick, .command = .{} });
     var out: [wire.Input.max_earlier]wire.Flown = undefined;
     const earlier = history.resend(40, null, &out);
-    try std.testing.expectEqual(3, earlier.len);
-    try std.testing.expectEqual(28, earlier[0].tick);
-    try std.testing.expectEqual(36, earlier[2].tick);
+    try std.testing.expectEqual(wire.Input.redundancy, earlier.len);
+    try std.testing.expectEqual(40 - 4 * wire.Input.redundancy, earlier[0].tick);
+    try std.testing.expectEqual(36, earlier[earlier.len - 1].tick);
 
     // A press the host has not acknowledged is sent again, however old, oldest first.
     history.entries[1].step = .{ .toggle = true };
     history.entries[3].step = .{ .match_speed = true };
     history.entries[4].step = .{ .fire = true };
     const unacked = history.resend(40, 4, &out);
-    try std.testing.expectEqual(5, unacked.len);
+    // The press at 8 is older than the steps just before, which take in the one at 16.
+    try std.testing.expectEqual(1 + wire.Input.redundancy, unacked.len);
     try std.testing.expectEqual(8, unacked[0].tick);
     try std.testing.expectEqual(16, unacked[1].tick);
-    try std.testing.expectEqual(28, unacked[2].tick);
+    try std.testing.expectEqual(20, unacked[2].tick);
     // Once the host has it, only the steps just before go again.
-    try std.testing.expectEqual(3, history.resend(40, 16, &out).len);
-    try std.testing.expectEqual(4, history.resend(40, 12, &out).len);
+    try std.testing.expectEqual(wire.Input.redundancy, history.resend(40, 8, &out).len);
     const later = history.after(32);
     try std.testing.expectEqual(2, later.len);
     try std.testing.expectEqual(36, later[0].tick);

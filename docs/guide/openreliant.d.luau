@@ -432,7 +432,7 @@ declare extern type Object with
     position: vector
     --- Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). Setting it turns it at once, its axes made unit length and at right angles first, the forward one keeping its direction.
     orientation: Orientation
-    --- How far it moves in a simulation step, of which there are 25 a second. Setting it pushes it, and its engines carry on from there.
+    --- How far it moves in 1/25 of a second. Setting it pushes it, and its engines carry on from there.
     velocity: vector
     --- How fast it moves: the length of its velocity.
     speed: number
@@ -540,7 +540,7 @@ declare extern type Missile with
     position: vector
     --- Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). Setting it turns it at once, its axes made unit length and at right angles first, and its guidance turns on from there.
     orientation: Orientation
-    --- How far it moves in a simulation step, of which there are 25 a second. Setting it pushes it, and its motor carries on from there.
+    --- How far it moves in 1/25 of a second. Setting it pushes it, and its motor carries on from there.
     velocity: vector
     --- How fast it moves: the length of its velocity.
     speed: number
