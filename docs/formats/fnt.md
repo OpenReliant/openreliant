@@ -89,6 +89,10 @@ renders the glyphs ([Platform](../port/platform.md#fonts)).
   new one. A frame that draws a font at more sizes, as a mod's display may, keeps every size it
   draws until it is done, up to 16; past them, the text is drawn in the bitmap font.
 
+Newtown holds the Western code page's letters alone. A game whose strings are in another page,
+as the [Russian release](russian-release.md#the-text)'s are, draws with its own bitmap fonts,
+which hold that page's letters ([#1549](https://github.com/OpenReliant/openreliant/issues/1549)).
+
 **Improvement:** the original draws its text with its bitmap fonts at 640x480. `--bitmap-fonts`,
 `--original` and the OUTLINE FONTS setting draw the bitmap fonts instead, scaled up, with opaque
 pixels as VFX draws them.

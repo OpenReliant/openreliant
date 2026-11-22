@@ -571,12 +571,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The outline fonts that draw the interface text at the window's resolution, through FreeType:
     // the built-in Newtown, and fonts from mods that replace the bitmap fonts. Only the bitmap
     // fonts are used with `--bitmap-fonts`, or if FreeType doesn't start.
-    // Newtown has the Western page's letters alone, so a game in another page, such as the Russian
-    // release, draws with its own bitmap fonts, which were redrawn with its letters.
-    const outline_fonts = options.outline_fonts and game.language.page == .western;
-    var free_type: ?platform.fonts.FreeType = if (outline_fonts) platform.fonts.FreeType.init() catch null else null;
+    var free_type: ?platform.fonts.FreeType = if (options.outline_fonts) platform.fonts.FreeType.init() catch null else null;
     defer if (free_type) |*library| library.deinit();
     var outlines: game.hud.outline.Outlines = .init(gpa, if (free_type) |*library| library.rasterizer() else null, &mods);
+    // Newtown has the Western page's letters alone, so a game in another page, such as the Russian
+    // release, draws with its own bitmap fonts, which were redrawn with its letters, but for the
+    // fonts a mod replaces.
+    outlines.newtown = game.language.page == .western;
     defer outlines.deinit();
     // Script font faces must close before the rasterizer, and images before the device.
     defer if (presentation) |shown| shown.assets.deinit(gpa);

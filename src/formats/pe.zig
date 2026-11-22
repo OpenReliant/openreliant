@@ -554,7 +554,7 @@ pub const testing = struct {
     }
 
     /// A resource section, to load at `rva`, holding one string table of `strings` from id 0 on,
-    /// ASCII, in language `0x409`. A string of null is left out of its block, as an empty one.
+    /// UTF-8 or Latin-1, in language `0x409`. A string of null is left out of its block, as an empty one.
     pub fn stringResources(allocator: std.mem.Allocator, rva: u32, strings: []const ?[]const u8) ![]u8 {
         const blocks = @divCeil(strings.len, strings_per_block);
         var out: std.ArrayList(u8) = .empty;
@@ -578,8 +578,16 @@ pub const testing = struct {
             for (0..strings_per_block) |index| {
                 const at = block * strings_per_block + index;
                 const text = if (at < strings.len) strings[at] orelse "" else "";
-                try appendRecord(allocator, &data, @as(u16, @intCast(text.len)));
-                for (text) |c| try appendRecord(allocator, &data, @as(u16, c));
+                // UTF-8 becomes its characters, so that a test can write any script. Bytes that
+                // aren't UTF-8 are each a unit, as Latin-1 is.
+                if (std.unicode.Utf8View.init(text)) |view| {
+                    try appendRecord(allocator, &data, @as(u16, @intCast(try std.unicode.utf8CountCodepoints(text))));
+                    var points = view.iterator();
+                    while (points.nextCodepoint()) |point| try appendRecord(allocator, &data, @as(u16, @intCast(point)));
+                } else |_| {
+                    try appendRecord(allocator, &data, @as(u16, @intCast(text.len)));
+                    for (text) |c| try appendRecord(allocator, &data, @as(u16, c));
+                }
             }
         }
         offsets[blocks] = @intCast(data.items.len);

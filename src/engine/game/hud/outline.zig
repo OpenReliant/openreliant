@@ -628,6 +628,10 @@ pub const Outlines = struct {
     rasterizer: ?Rasterizer,
     /// The mods, whose fonts replace the game's fonts.
     mods: *const bigfile.Mods,
+    /// Whether Newtown replaces the game's Handel Gothic fonts. It holds the Western code page's
+    /// letters alone, so a game whose text is in another page keeps its bitmap fonts, but for
+    /// those a mod has an outline font for (`language.Page`).
+    newtown: bool = true,
     /// Newtown's face, opened when the first font it replaces is opened.
     built_in: ?Face = null,
     fonts: std.ArrayList(Font) = .empty,
@@ -713,7 +717,7 @@ pub const Outlines = struct {
             gpa.free(file);
         }
         // One of the original fonts, which Newtown replaces.
-        if (outlines.mods.has(member) or !standsIn(member)) return null;
+        if (!outlines.newtown or outlines.mods.has(member) or !standsIn(member)) return null;
         const face = outlines.built_in orelse rasterizer.open(newtown) orelse {
             log.warn("can't use Newtown: it can't be read as a font", .{});
             return null;
