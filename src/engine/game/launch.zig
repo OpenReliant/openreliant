@@ -338,7 +338,9 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
 
 /// `order_launch` (`0x004191C0`): runs the launch of the ship in slot `index`, once an update.
 /// Until the style's own steps begin, a ship whose carrier is gone (a stand-in or exploding) is
-/// destroyed with it (`ai.objectDestroyed`). The exception is an escape pod leaving the Ulysses.
+/// destroyed with it (`ai.objectDestroyed`). The exception is an escape pod leaving the Ulysses,
+/// while the Ulysses explodes. A carrier that has left its slot for a stand-in counts as gone too,
+/// though the order's aim no longer finds it (`aigeneric.Aim.left`).
 /// Once StartLaunch sets `Data.go`, the launch waits a random delay of up to `most_delay` ticks,
 /// drawn from the ship's own numbers (`xtrabits.objectRandom15`), and then the style runs it from
 /// step 2. When the player's launch starts, the radio plays its line (`radio.launchLine`).
@@ -357,7 +359,13 @@ pub fn update(ctx: aigeneric.Context, index: u16) void {
     // doesn't start it itself (`sound3d.hearEngine`).
     if (index == all.player and state.step.isStyled() and !state.attached and !state.style.startsEngine()) sound3d.hearEngine(ctx.world);
     if (!state.step.isStyled()) {
-        const carrier = entry.target.slotIn(all) orelse return letGo(ctx, index);
+        const carrier = entry.target.slotIn(all) orelse {
+            // Aimed at nothing, it is let go. Aimed at a carrier that has since left its slot, it
+            // goes with the carrier: the game finds the stand-in there and destroys the ship.
+            if (!entry.target.left(all)) return letGo(ctx, index);
+            ai.objectDestroyed(ctx, index, false, false);
+            return;
+        };
         const from = &all.slots[carrier].object;
         if (from.gone() and !(from.type.base() == .ulysses and slot.object.type.base() == .escape_pod)) {
             ai.objectDestroyed(ctx, index, false, false);
@@ -864,6 +872,30 @@ test "a launch ends with its carrier, and an unknown style lets the ship go" {
     mission.slot(carrier).object.flags.exploding = true;
     aigeneric.objectOrders(ctx, lost);
     try std.testing.expectEqual(ai.orders.Order.explode, mission.slot(lost).orders[0].order);
+}
+
+test "a torpedo in its tube goes with a carrier that has left its slot" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    _ = try mission.add(.of(.predator), @splat(0));
+    const carrier = try mission.add(.of(.kamov), .{ 0, 0, 5000 });
+    const waiting = try mission.add(.of(.russian_torpedo), .{ 0, 0, 5000 });
+    const ctx = mission.orders();
+    _ = try aigeneric.pushShip(ctx, waiting, .launch, carrier, 0);
+    aigeneric.objectOrders(ctx, waiting);
+    try std.testing.expect(mission.slot(waiting).object.flags.no_collisions);
+
+    // The carrier blows up at once and leaves a stand-in, which the launch's aim no longer finds.
+    // The torpedo is destroyed, where letting it go would leave it flying with no collisions.
+    try std.testing.expect(!mission.slot(waiting).orders[0].target.left(mission.objects));
+    create.resetSlot(ctx, carrier);
+    try std.testing.expect(mission.slot(waiting).orders[0].target.left(mission.objects));
+    try std.testing.expectEqual(null, mission.slot(waiting).orders[0].target.slotIn(mission.objects));
+    aigeneric.objectOrders(ctx, waiting);
+    try std.testing.expectEqual(ai.orders.Order.explode, mission.slot(waiting).orders[0].order);
+    try std.testing.expect(mission.slot(waiting).object.flags.exploding);
 }
 
 test dropping {
