@@ -78,7 +78,10 @@ then runs again with the push of its argument before it.
 
 Until the style's own steps begin, `order_launch` destroys a ship whose carrier is gone (a stand-in
 or exploding) along with it (`object_destroyed_net`). The exception is an escape pod leaving the
-Ulysses. Once `StartLaunch` starts the launch, it waits a random delay of up to 200 ticks, drawn
+Ulysses while it explodes. So a torpedo still in its tube, which collides with nothing until its
+boost ends, never outlives its carrier. OpenReliant's orders keep an object's identity as their
+aim, and no longer find a carrier that has left its slot for a stand-in. The launch counts that
+carrier as gone too. Once `StartLaunch` starts the launch, it waits a random delay of up to 200 ticks, drawn
 from the ship's own numbers (`object_random15`), and then the style runs it from step 2. When the
 player's launch starts, the radio plays a line (`radio_launch_line`, `0x00456E50`,
 [The radio](radio.md#remarks)): the flight instructor's in training, and otherwise the bridge

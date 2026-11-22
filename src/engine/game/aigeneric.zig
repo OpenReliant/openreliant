@@ -225,6 +225,17 @@ pub const Aim = union(enum) {
         };
     }
 
+    /// Whether it was aimed at an object that has since left its slot, which `resolve` gives as no
+    /// target. The game keeps only the slot's number, so there it still finds the stand-in that
+    /// took the slot, and an order that asks whether its target is gone (`GameObject.gone`) is told
+    /// that it is. An order asks this where it has to tell that from being aimed at nothing.
+    pub fn left(aim: Aim, all: *const create.Objects) bool {
+        return switch (aim) {
+            .object => |ship| ship.subject.resolve(all) == null,
+            .none, .other => false,
+        };
+    }
+
     pub fn at(all: *const create.Objects, index: u16, component: ?u16) Aim {
         return .of(all, .at(index, component));
     }
@@ -284,8 +295,14 @@ test "retained targets keep their fields until their object leaves" {
     const group: Aim = .of(all, selected_record);
     const patrol: Aim = .forOrder(all, .patrol_route, record);
 
+    try std.testing.expect(!aim.left(all));
     create.resetSlot(mission.orders(), ship);
+    // The object has left its slot, which is not the same as being aimed at nothing.
+    try std.testing.expect(aim.left(all) and selected.left(all));
+    try std.testing.expect(!group.left(all) and !patrol.left(all));
+    try std.testing.expect(!@as(Aim, .none).left(all));
     _ = try create.createObject(all, &mission.tables, create.testing.no_models, ship, .of(.sabre), 0, @splat(0), &mission.random);
+    try std.testing.expect(aim.left(all));
     try std.testing.expectEqual(Target.none, aim.resolve(all));
     try std.testing.expectEqual(Target.none, selected.resolve(all));
     // A group still names the group, and Patrol still names its waypoint.
