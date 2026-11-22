@@ -35,6 +35,12 @@ pub const Header = extern struct {
     flags: VideoFlags,
     audio_tracks: u32,
 
+    /// The size the movie is shown at: its own, enlarged as its flags say (`VideoFlags.Scaling`).
+    pub fn shownSize(header: Header) [2]u32 {
+        const wide, const high = header.flags.scaling.factors();
+        return .{ header.width * wide, header.height * high };
+    }
+
     comptime {
         assert(@sizeOf(Header) == 0x2C);
     }
@@ -55,8 +61,51 @@ pub const VideoFlags = packed struct(u32) {
     _unknown_18: u2 = 0,
     /// With a plane of alpha besides the colour.
     alpha: bool = false,
-    _unknown_21: u11 = 0,
+    _unknown_21: u7 = 0,
+    /// How Bink's player enlarges the pictures as it shows them.
+    scaling: Scaling = .none,
+
+    /// A movie coded at half its width, its height or both, which Bink's player shows at twice
+    /// that, doubling its pixels or leaving every other line black. The game's own movies have
+    /// none; the Russian release's were coded again at half size to fit one disc
+    /// ([Russian release](../../docs/formats/russian-release.md)).
+    pub const Scaling = enum(u4) {
+        none = 0,
+        height_doubled = 1,
+        height_interlaced = 2,
+        width_doubled = 3,
+        both_doubled = 4,
+        both_interlaced = 5,
+        _,
+
+        /// How many times as wide and as high the movie is shown as it is coded.
+        pub fn factors(scaling: Scaling) [2]u32 {
+            return switch (scaling) {
+                .none, _ => .{ 1, 1 },
+                .height_doubled, .height_interlaced => .{ 1, 2 },
+                .width_doubled => .{ 2, 1 },
+                .both_doubled, .both_interlaced => .{ 2, 2 },
+            };
+        }
+    };
 };
+
+test "a movie coded at half size is shown at twice that" {
+    var header = std.mem.zeroes(Header);
+    header.width = 320;
+    header.height = 360;
+    try std.testing.expectEqual([2]u32{ 320, 360 }, header.shownSize());
+    header.flags.scaling = .width_doubled;
+    try std.testing.expectEqual([2]u32{ 640, 360 }, header.shownSize());
+    header.width = 320;
+    header.height = 240;
+    header.flags.scaling = .both_doubled;
+    try std.testing.expectEqual([2]u32{ 640, 480 }, header.shownSize());
+    header.flags.scaling = .height_interlaced;
+    try std.testing.expectEqual([2]u32{ 320, 480 }, header.shownSize());
+    // The flags' word, as a file has it.
+    try std.testing.expectEqual(0x40000000, @as(u32, @bitCast(VideoFlags{ .scaling = .both_doubled })));
+}
 
 /// An audio track's rate and flags, after a word for each track that none of it reads (the largest
 /// packet it decodes to).

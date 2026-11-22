@@ -17,6 +17,7 @@ const Io = std.Io;
 const assert = std.debug.assert;
 
 pub const cdi = @import("cdimage/cdi.zig");
+pub const nrg = @import("cdimage/nrg.zig");
 
 /// Size of a complete sector as stored in a raw image.
 pub const raw_sector_size = 2352;
@@ -255,6 +256,7 @@ pub const Image = struct {
 
     pub fn init(source: Source) !Image {
         if (try fromCdi(source)) |image| return image;
+        if (try fromNrg(source)) |image| return image;
         var probe: [sync_pattern.len]u8 = undefined;
         const layout: Layout = if (source.readAll(&probe, 0)) |_|
             if (std.mem.eql(u8, &probe, &sync_pattern)) .raw else .cooked
@@ -271,6 +273,30 @@ pub const Image = struct {
             .layout = layout,
             .block_count = std.math.cast(u32, len / sector_size) orelse return error.NotADiscImage,
         };
+    }
+
+    /// The first data track of a Nero `.nrg` image; null for a file that isn't one.
+    fn fromNrg(source: Source) !?Image {
+        const size = try source.length();
+        var tail: [nrg.footer_size]u8 = undefined;
+        if (size < tail.len) return null;
+        try source.readAll(&tail, size - tail.len);
+        const table_at = nrg.tableStart(&tail, size) orelse return null;
+        if (size - table_at > nrg.max_table) return null;
+        var buffer: [nrg.max_table]u8 = undefined;
+        const table = buffer[0..@intCast(size - table_at)];
+        try source.readAll(table, table_at);
+        // A file whose last bytes only look like a Nero image's is read as an image of another kind.
+        const found = nrg.firstDataTrack(table) catch return null;
+        const track = found orelse return error.NoDataTrack;
+        const layout: Layout = switch (track.sector_size) {
+            block_size => .cooked,
+            mode2_size => .mode2,
+            raw_sector_size => .raw,
+            else => return error.NotADiscImage,
+        };
+        if (track.offset + @as(u64, track.length) * layout.sectorSize() > table_at) return error.NotADiscImage;
+        return .{ .source = source, .layout = layout, .block_count = track.length, .start = track.offset };
     }
 
     /// The last data track of a `.cdi` image; null for a file that isn't one.
@@ -555,4 +581,19 @@ test "sectors without a logical block are rejected" {
     try std.testing.expectError(error.NoLogicalBlock, userData(&sector));
     sector[0] = 0xAA;
     try std.testing.expectError(error.BadSync, userData(&sector));
+}
+
+test "a Nero image's data track is read past its pregap" {
+    const gpa = std.testing.allocator;
+    var sectors: [3 * block_size]u8 = undefined;
+    for (0..3) |at| @memset(sectors[at * block_size ..][0..block_size], @intCast('a' + at));
+    const bytes = try nrg.testImage(gpa, 150 * block_size, block_size, &sectors);
+    defer gpa.free(bytes);
+    const image: Image = try .init(.{ .memory = bytes });
+    try std.testing.expectEqual(Image.Layout.cooked, image.layout);
+    try std.testing.expectEqual(3, image.block_count);
+    var block: [block_size]u8 = undefined;
+    try image.readBlocks(1, &block);
+    try std.testing.expectEqual('b', block[0]);
+    try std.testing.expectError(error.EndOfImage, image.readBlocks(3, &block));
 }

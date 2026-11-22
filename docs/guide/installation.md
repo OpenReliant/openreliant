@@ -66,6 +66,17 @@ The installer knows a release by the size of disc 1's `LANCER.CAB`, and says whi
 The English discs sold in North America and in Europe share one cabinet. A French or German copy
 plays in its language: its text, its voices and its movies.
 
+The Russian release by 7 Wolf comes on one disc, with the whole game in `setup.EXE`
+(639,042,179 bytes) in place of the cabinet. The installer knows it by that file, and takes the
+disc as a folder or as an image, a Nero `.nrg` among them:
+
+```bash
+./openreliant install --from Starlancer.nrg StarLancer
+```
+
+It plays in Russian, with the release's own fonts. A copy of that release that is installed
+already, or a repack of it, plays from its folder as it is.
+
 If the installer doesn't recognize your disc because it's from another release, add `--force` to install from it anyway:
 
 ```bash

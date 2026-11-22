@@ -30,7 +30,7 @@ The outline fonts that draw the interface's text at the window's resolution ([Ou
 
 [`platform/fonts.zig`](../../src/platform/fonts.zig) opens each font from its file in memory, and draws a glyph at the size the engine asks for, in 64ths of a pixel to the em, its strokes made as much wider or narrower as the engine asks (`FT_Outline_Embolden`), anti-aliased, with FreeType's light hinting, which fits the glyphs' heights to the pixels and leaves their widths as the outlines have them. FreeType is called from the game's thread alone.
 
-The font OpenReliant carries, Newtown, lies in [`deps/newtown`](../../deps/newtown/README.md), which gives its source and its licence, and the build puts it in the executable.
+The two fonts built into OpenReliant are Newtown, in [`deps/newtown`](../../deps/newtown/README.md), and Play Bold for Cyrillic text, in [`deps/play`](../../deps/play/README.md). Each folder gives the font's source and licence, and the build puts both fonts in the executable.
 
 ## Running
 

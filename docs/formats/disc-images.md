@@ -47,6 +47,23 @@ burned Dreamcast disc keeps its data track in the second session, so the track s
 address other than 0, such as 11702, and its sectors may be 2336 bytes: a Mode 2 sector without
 its sync pattern and header ([The Dreamcast version](dreamcast.md#the-disc)).
 
+## Nero images
+
+A Nero `.nrg` image holds the tracks' sectors, then a table of chunks, then a footer: its last 12
+bytes are `NER5` and where the table starts, as a big-endian 64-bit number, or for an image of
+an earlier Nero, its last 8 bytes are `NERO` and a 32-bit one. Each chunk is a four-letter name,
+its size as a big-endian 32-bit number, and that many bytes; `END!` is the last. A disc written
+at once lists its tracks in `DAOX`, or `DAOI` in an earlier image: 22 bytes of the disc's own,
+then for each track its ISRC (12 bytes), its sector size and its mode (16 bits each), two bytes
+more, and where its pregap starts, where its data starts and where it ends in the file, as
+64-bit numbers in `DAOX` and 32-bit ones in `DAOI`. A mode of 7 is audio.
+
+The reader opens the first track that isn't audio, at where its data starts
+([`cdimage/nrg.zig`](../../src/formats/cdimage/nrg.zig)). The
+[Russian release](russian-release.md#the-disc)'s image keeps one track of 2048-byte sectors
+after a pregap of 150 sectors. **Unverified:** an image written track at once, whose tracks are
+in `ETNF` or `ETN2` chunks, and a `DAOI` image.
+
 ## Filesystem
 
 Both discs carry a plain ISO 9660 filesystem with no Joliet supplementary descriptor, so all names

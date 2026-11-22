@@ -256,7 +256,9 @@ pub const Player = struct {
             return err;
         };
         picture.magnify = .edge_adaptive;
-        return .{ .gpa = gpa, .kind = kind, .bink = movie, .picture = picture, .pixels = rgba, .size = .{ movie.width, movie.height } };
+        // A Bink movie coded at half size is shown at twice that (`Header.shownSize`).
+        const shown: [2]u32 = if (container.readHeader(file)) |header| header.shownSize() else |_| .{ movie.width, movie.height };
+        return .{ .gpa = gpa, .kind = kind, .bink = movie, .picture = picture, .pixels = rgba, .size = shown };
     }
 
     /// Reads the movie `name` from where `kind` says, the game folder or the open CD archive
@@ -325,7 +327,7 @@ pub const Player = struct {
             .disc => archive.readStoredHead(name, &buffer),
         } catch return null) orelse return null;
         const header = container.readHeader(head) catch return null;
-        return .{ header.width, header.height };
+        return header.shownSize();
     }
 
     /// What the log says of an error opening a movie: why a mod's movie in another format can't

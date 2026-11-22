@@ -48,6 +48,9 @@ stream's last 8 bytes scrambled, which end the last frame in noise; OpenReliant 
 Where the stream runs out before the samples do, as it does by a few bytes in the shipped files,
 the game reads whatever follows the file in memory; OpenReliant reads zeros.
 
+The [Russian release](russian-release.md#the-voices)'s lines keep this header, but their stream
+is in a format of that release's own, which OpenReliant also plays.
+
 ## The codec
 
 The stream is read a bit at a time, least significant first (`0x004A7360`, `0x004A7850`), and

@@ -87,15 +87,17 @@ fn top(_: *anyopaque, face: outline.Face, character: u21) ?f32 {
 }
 
 /// `character` drawn at `em` pixels to the em, its strokes `weight` ems wider, or narrower below 0,
-/// as 256 levels of coverage; null where the face has no glyph for it, or one FreeType can't draw
+/// and `across` times as wide as its own width, as 256 levels of coverage; null where the face has no glyph for it, or one FreeType can't draw
 /// so. FreeType keeps a glyph's left and bottom where they are as it makes it heavier or lighter.
-fn draw(_: *anyopaque, face: outline.Face, character: u21, em: f32, weight: f32, gpa: Allocator) outline.Error!?outline.Bitmap {
+fn draw(_: *anyopaque, face: outline.Face, character: u21, em: f32, weight: f32, across: f32, gpa: Allocator) outline.Error!?outline.Bitmap {
     const shown = faceOf(face);
     const index = c.FT_Get_Char_Index(shown, character);
     if (index == 0) return null;
     // A size in 64ths of a point at 72 points to the inch: in 64ths of a pixel.
     const size = std.math.lossyCast(c.FT_F26Dot6, @round(em * outline.sixty_fourths));
-    if (c.FT_Set_Char_Size(shown, 0, size, 72, 72) != 0) return error.Rasterizing;
+    // A width of 0 is the height's: the glyph's own shape.
+    const wide = if (across == 1) 0 else std.math.lossyCast(c.FT_F26Dot6, @round(em * across * outline.sixty_fourths));
+    if (c.FT_Set_Char_Size(shown, wide, size, 72, 72) != 0) return error.Rasterizing;
     if (c.FT_Load_Glyph(shown, index, load_flags) != 0) return null;
     const glyph = shown.*.glyph;
     if (glyph.*.format != c.FT_GLYPH_FORMAT_OUTLINE) return null;
@@ -125,7 +127,7 @@ test FreeType {
     const capitals = rasterizer.top(face, 'H').?;
     try std.testing.expect(capitals > 0.6 and capitals < 0.8);
     // An H drawn at 100 pixels to the em stands on the baseline, as tall as its outline.
-    const h = (try rasterizer.draw(face, 'H', 100, 0, gpa)).?;
+    const h = (try rasterizer.draw(face, 'H', 100, 0, 1, gpa)).?;
     defer h.deinit(gpa);
     try std.testing.expectApproxEqAbs(capitals * 100, @as(f32, @floatFromInt(h.top)), 1);
     try std.testing.expectEqual(h.top, @as(i32, @intCast(h.height)));
@@ -133,12 +135,12 @@ test FreeType {
     // A character it has no glyph for, and a file that holds no font.
     // Five hundredths of an em lighter, it stands five pixels narrower and shorter on the same
     // baseline.
-    const light = (try rasterizer.draw(face, 'H', 100, -0.05, gpa)).?;
+    const light = (try rasterizer.draw(face, 'H', 100, -0.05, 1, gpa)).?;
     defer light.deinit(gpa);
     try std.testing.expectApproxEqAbs(@as(f32, @floatFromInt(h.width)) - 5, @as(f32, @floatFromInt(light.width)), 1);
     try std.testing.expectApproxEqAbs(@as(f32, @floatFromInt(h.top)) - 5, @as(f32, @floatFromInt(light.top)), 1);
     try std.testing.expectEqual(light.top, @as(i32, @intCast(light.height)));
-    try std.testing.expectEqual(null, try rasterizer.draw(face, 0x4E2D, 100, 0, gpa));
+    try std.testing.expectEqual(null, try rasterizer.draw(face, 0x4E2D, 100, 0, 1, gpa));
     try std.testing.expectEqual(null, rasterizer.top(face, 0x4E2D));
     try std.testing.expectEqual(null, rasterizer.open("not a font"));
 }

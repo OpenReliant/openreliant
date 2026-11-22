@@ -719,7 +719,9 @@ fonts](../formats/fnt.md#outline-fonts)):
   outline one bitmap pixel wide, like the text in the original.
 - **Built in.** OpenReliant draws all text except the developers' text with Newtown, a public domain
   font in the style of Handel Gothic, the original's typeface, with strokes as heavy as the bitmap
-  font's. A mod's font takes priority over Newtown, and a `.fnt` file in a mod over both.
+  font's. A game with Cyrillic text, such as the Russian release, gets Play Bold instead, which has
+  the Cyrillic letters. A mod's font takes priority over the built-in font, and a `.fnt` file in a
+  mod over both.
 - **Licence.** The font is distributed with the mod, so its licence must allow that.
 
 A script can also write text in a mod's font, over any of the game's fonts

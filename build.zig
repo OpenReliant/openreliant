@@ -20,6 +20,10 @@ pub fn build(b: *std.Build) void {
     });
     // The outline font OpenReliant carries built in, Newtown, which deps/newtown describes.
     lib.addAnonymousImport("Newtown.ttf", .{ .root_source_file = b.path("deps/newtown/Newtown.ttf") });
+    // The one it carries for a game whose text is Cyrillic, Play Bold, which deps/play describes,
+    // with its licence, which goes with every copy.
+    lib.addAnonymousImport("Play-Bold.ttf", .{ .root_source_file = b.path("deps/play/Play-Bold.ttf") });
+    b.getInstallStep().dependOn(&b.addInstallFile(b.path("deps/play/OFL.txt"), "LICENSE-play.txt").step);
     // The definitions and the reference page of mission source as generated, which their tests
     // check against.
     lib.addAnonymousImport("mission.d.luau", .{ .root_source_file = b.path("docs/guide/mission.d.luau") });

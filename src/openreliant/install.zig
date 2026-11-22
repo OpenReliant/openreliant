@@ -72,16 +72,26 @@ pub const Options = struct {
     }
 };
 
-/// The game's files the engine reads before anything else. It has none of its own.
-pub const game_files = [_][]const u8{ game.bigfile.resource_name, tcache.hardware_name, stats.Table.ships.fileName(), game.language.file_name };
+/// The game's files the engine reads before anything else, besides its strings (`strings_names`).
+/// It has none of its own.
+pub const game_files = [_][]const u8{ game.bigfile.resource_name, tcache.hardware_name, stats.Table.ships.fileName() };
+
+/// The names the game's strings go by, of which a folder has to hold one: the Russian release's
+/// own, and the game's (`game.language.names`). A repack of the Russian release holds its own
+/// alone.
+const strings_names = game.language.names(game.language.file_name);
 
 /// The first of the game's files `dir` lacks, or null when it has them all, each found in any case
 /// as the game finds it (`files.exists`, which lists the folder, so it works under Wine, where
 /// `access` fails for files that exist).
 pub fn missingGameFile(io: Io, dir: Io.Dir) ?[]const u8 {
     for (game_files) |name| if (!openreliant.engine.files.exists(io, dir, name)) return name;
-    return null;
+    for (strings_names) |name| if (openreliant.engine.files.exists(io, dir, name)) return null;
+    return game.language.file_name;
 }
+
+/// Every file a folder needs to count as the game, for the tests: `game_files` and the strings.
+const whole_game = game_files ++ [_][]const u8{game.language.file_name};
 
 /// What a folder holds, as OpenReliant looks for the game in it (`openGame`).
 pub const Found = union(enum) {
@@ -178,25 +188,37 @@ fn firstToTry(_: void, a: []const u8, b: []const u8) bool {
     return std.mem.lessThan(u8, a, b);
 }
 
-/// A release whose disc 1 the installer knows, by its fingerprint: the size of the disc's cabinet,
-/// which tells the releases apart.
+/// A release whose disc 1 the installer knows, by its fingerprint: the size of the file the
+/// disc's installer keeps the game in, which tells the releases apart.
 const Release = struct {
     name: []const u8,
-    cabinet_size: u64,
+    size: u64,
+    packing: Packing = .cabinet,
+
+    /// How a disc's installer keeps the game's files.
+    const Packing = enum {
+        /// In the cabinet `cabinet_path`, with more files beside it and each disc's archive, as
+        /// the releases Microsoft made have them.
+        cabinet,
+        /// All in the Wise installer `wise_path`, on one disc: the Russian release
+        /// (`docs/formats/russian-release.md`).
+        wise,
+    };
 };
 
 /// The releases the installer knows, which the installation guide lists too
 /// (`docs/guide/installation.md`, "Releases").
 const releases = [_]Release{
-    .{ .name = "the English release", .cabinet_size = 226_746_308 },
-    .{ .name = "the French release", .cabinet_size = 222_899_028 },
-    .{ .name = "the German release", .cabinet_size = 226_777_854 },
+    .{ .name = "the English release", .size = 226_746_308 },
+    .{ .name = "the French release", .size = 222_899_028 },
+    .{ .name = "the German release", .size = 226_777_854 },
+    .{ .name = "the Russian release by 7 Wolf, on one disc", .size = 639_042_179, .packing = .wise },
 };
 
 comptime {
     // Each release has a fingerprint of its own.
     for (releases, 0..) |release, i| {
-        for (releases[0..i]) |before| std.debug.assert(before.cabinet_size != release.cabinet_size);
+        for (releases[0..i]) |before| std.debug.assert(before.size != release.size);
     }
 }
 
@@ -205,6 +227,8 @@ const issues_url = "https://github.com/OpenReliant/openreliant/issues";
 
 /// The installer's cabinet on disc 1, and the folder whose files it copies next to the cabinet's.
 const cabinet_path = "LANCER.CAB";
+/// The Wise installer of a release that keeps the whole game in one (`Release.Packing.wise`).
+const wise_path = "SETUP.EXE";
 const extras_path = "GAME/CAB";
 /// Each disc's archive, which a full install copies next to the game's files.
 const first_archive = "GAME/CD1.HOG";
@@ -325,9 +349,15 @@ const Disc = union(enum) {
     fn identify(disc: Disc, io: Io, arena: Allocator, known: []const Release) !Identity {
         if (try disc.find(io, arena, cabinet_path)) |cabinet| {
             const release = for (known) |*release| {
-                if (release.cabinet_size == cabinet.size) break release;
+                if (release.packing == .cabinet and release.size == cabinet.size) break release;
             } else null;
             return .{ .first = .{ .entry = cabinet, .release = release } };
+        }
+        // Many discs have a setup program, so only one of a release the installer knows counts.
+        if (try disc.find(io, arena, wise_path)) |setup| {
+            for (known) |*release| {
+                if (release.packing == .wise and release.size == setup.size) return .{ .first = .{ .entry = setup, .release = release } };
+            }
         }
         if (try disc.label(arena)) |name| {
             if (std.ascii.eqlIgnoreCase(name, second_label)) return .second;
@@ -804,12 +834,24 @@ fn installGame(io: Io, arena: Allocator, options: Options, env: Environment) !vo
         return error.InstallFailed;
     };
     defer target.close(io);
-    try unpack(io, arena, first.cabinet.entry, target, env);
-    try copyExtras(io, arena, first.disc, target, env);
-    try copyArchive(io, arena, first.disc, first.path, first_archive, target, env);
+    const packing: Release.Packing = if (first.cabinet.release) |release| release.packing else .cabinet;
+    switch (packing) {
+        .cabinet => {
+            try unpack(io, arena, first.cabinet.entry, target, env);
+            try copyExtras(io, arena, first.disc, target, env);
+            try copyArchive(io, arena, first.disc, first.path, first_archive, target, env);
+        },
+        .wise => try unpackWise(io, arena, first.cabinet.entry, target, env),
+    }
     if (missingGameFile(io, target)) |name| {
         try env.err.print("openreliant: the disc is unpacked, but it had no {s}.\n", .{name});
         return error.InstallFailed;
+    }
+    if (packing == .wise) {
+        // The whole game is on the one disc.
+        try env.out.print("StarLancer is installed in {s}. To play it: openreliant {s}\n", .{ options.directory, options.directory });
+        try env.out.flush();
+        return;
     }
     // Closed, so that it can be taken out of its drive.
     discs.closeFirst(io);
@@ -937,6 +979,81 @@ fn unpack(io: Io, arena: Allocator, cabinet: Entry, target: Io.Dir, env: Environ
         try writer.interface.flush();
         try env.out.print("  {s}\n", .{path});
         try env.out.flush();
+    }
+}
+
+/// How much of a Wise installer's front is read to find its script and where its files start
+/// (`wise.Installer.read`).
+const wise_front = 1024 * 1024;
+
+/// Unpacks the game's files from the Wise installer `setup` into `target`, as the installer put
+/// them in the game's folder (`wise.File.gamePath`), each checked against the size and the CRC
+/// the installer's script gives it. The files the installer put elsewhere are left out.
+fn unpackWise(io: Io, arena: Allocator, setup: Entry, target: Io.Dir, env: Environment) !void {
+    const wise = openreliant.wise;
+    const gpa = std.heap.page_allocator;
+    var reader: Reader = try .open(io, arena, setup);
+    defer reader.close(io);
+    const front = try arena.alloc(u8, @intCast(@min(wise_front, setup.size)));
+    try readWhole(&reader, io, front);
+    const installer = wise.Installer.read(arena, front) catch |err| switch (err) {
+        error.OutOfMemory => |e| return e,
+        error.NotWise, error.Corrupt => {
+            try env.err.print("openreliant: {s} isn't the installer it should be.\n", .{setup.name});
+            return error.InstallFailed;
+        },
+    };
+    for (installer.files) |file| {
+        var buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+        const spelled = file.gamePath(&buffer) orelse continue;
+        const path = installPath(arena, spelled) catch |err| switch (err) {
+            error.UnsafeName => {
+                try env.err.print("openreliant: the installer has a file named {s}, outside the install.\n", .{file.name});
+                return error.InstallFailed;
+            },
+            error.OutOfMemory => |e| return e,
+        };
+        const from = installer.base + file.start;
+        if (installer.base + file.end > setup.size) {
+            try env.err.print("openreliant: the installer's list of files is damaged at {s}.\n", .{path});
+            return error.InstallFailed;
+        }
+        // The first files lie within the front already read.
+        reader.position = from;
+        // A file is deflated whole, so it is read whole: the largest is a few hundred megabytes.
+        const packed_bytes = try gpa.alloc(u8, file.end - file.start);
+        defer gpa.free(packed_bytes);
+        try readWhole(&reader, io, packed_bytes);
+
+        if (std.Io.Dir.path.dirnamePosix(path)) |folder| try target.createDirPath(io, folder);
+        const out = try target.createFile(io, path, .{});
+        defer out.close(io);
+        var out_buffer: [64 * 1024]u8 = undefined;
+        var writer = out.writer(io, &out_buffer);
+        const stream = wise.inflate(packed_bytes, &writer.interface) catch |err| switch (err) {
+            error.Corrupt => {
+                try env.err.print("openreliant: {s} is damaged in the installer.\n", .{path});
+                return error.InstallFailed;
+            },
+            error.WriteFailed => return writer.err orelse error.WriteFailed,
+        };
+        try writer.interface.flush();
+        if (stream.size != file.size or stream.crc != file.crc) {
+            try env.err.print("openreliant: {s} isn't what the installer's list says it is.\n", .{path});
+            return error.InstallFailed;
+        }
+        try env.out.print("  {s}\n", .{path});
+        try env.out.flush();
+    }
+}
+
+/// Fills `out` from `reader`, or fails where the file ends first.
+fn readWhole(reader: *Reader, io: Io, out: []u8) !void {
+    var done: usize = 0;
+    while (done < out.len) {
+        const n = try reader.read(io, out[done..]);
+        if (n == 0) return error.EndOfStream;
+        done += n;
     }
 }
 
@@ -1349,7 +1466,7 @@ test "telling the discs apart" {
 
     const cabinet = try testGameCabinet(gpa);
     defer gpa.free(cabinet);
-    const known = [_]Release{.{ .name = "the test release", .cabinet_size = cabinet.len }};
+    const known = [_]Release{.{ .name = "the test release", .size = cabinet.len }};
     // What a disc is, with disc 1 told apart by whether its release is known.
     const Told = enum { known, unrecognized, second, other };
     const Case = struct { path: []const u8, told: Told };
@@ -1457,7 +1574,7 @@ test "installing from disc images and folders" {
 
     const cabinet = try testGameCabinet(gpa);
     defer gpa.free(cabinet);
-    const known = [_]Release{.{ .name = "the test release", .cabinet_size = cabinet.len }};
+    const known = [_]Release{.{ .name = "the test release", .size = cabinet.len }};
     for ([_]cdimage.Image.Layout{ .raw, .cooked }) |layout| {
         const image = try testImage(gpa, "SL_CD1", &testDisc1(cabinet), layout);
         defer gpa.free(image);
@@ -1505,6 +1622,62 @@ test "installing from disc images and folders" {
     try expectFile(io, tmp.dir, "games/later/CD2.HOG", "second archive");
 }
 
+test "installing the Russian release from its Wise installer" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    // The whole game in one installer, with a file of the installer's own among the game's.
+    const ships = stats.Table.ships.fileName();
+    const setup = try openreliant.wise.testing.installer(gpa, &.{
+        .{ .name = "%SYS%\\helper.dll", .data = "the installer's own, which goes to the system's folder" },
+        .{ .name = try arena.print("%MAINDIR%\\{s}", .{game.bigfile.resource_name}), .data = "resources" },
+        .{ .name = try arena.print("%MAINDIR%\\{s}", .{tcache.hardware_name}), .data = "textures" },
+        .{ .name = try arena.print("%MAINDIR%\\{s}", .{ships}), .data = "ships" },
+        .{ .name = "%MAINDIR%\\ranguage.dll", .data = "the Russian strings" },
+        .{ .name = "%MAINDIR%\\Ms_speech\\Msspeech.hog", .data = "the Russian voices" },
+    });
+    defer gpa.free(setup);
+    const known = [_]Release{.{ .name = "the test release", .size = setup.len, .packing = .wise }};
+    const files = [_]TestFile{ .{ .path = "setup.EXE", .data = setup }, .{ .path = "README.DOC", .data = "read me" } };
+    const image = try testImage(gpa, "SL_CD1", &files, .cooked);
+    defer gpa.free(image);
+    try tmp.dir.writeFile(io, .{ .sub_path = "disc.iso", .data = image });
+    try testFolder(io, tmp.dir, "mounted", &files);
+
+    for ([_][]const u8{ "disc.iso", "mounted" }) |from| {
+        var test_run: TestRun = .init(gpa);
+        defer test_run.deinit();
+        const directory = try arena.print("games/from-{s}", .{from});
+        const code = try run(io, arena, .{ .directory = directory, .from = .{ from, null } }, test_run.environment(tmp.dir, &.{}, &known));
+        try std.testing.expectEqualStrings("", test_run.err.written());
+        try std.testing.expectEqual(0, code);
+        // One disc holds it all, so no second disc is asked for or missed.
+        try std.testing.expect(std.mem.find(u8, test_run.out.written(), "Disc 2") == null);
+        try std.testing.expect(std.mem.find(u8, test_run.out.written(), "StarLancer is installed") != null);
+
+        var target = try tmp.dir.openDir(io, directory, .{});
+        defer target.close(io);
+        try expectFile(io, target, game.bigfile.resource_name, "resources");
+        try expectFile(io, target, "ranguage.dll", "the Russian strings");
+        try expectFile(io, target, "Ms_speech/Msspeech.hog", "the Russian voices");
+        // The Russian strings alone make it a game, and the installer's own file stays out.
+        try std.testing.expectEqual(null, missingGameFile(io, target));
+        try std.testing.expectError(error.FileNotFound, target.statFile(io, "helper.dll", .{}));
+    }
+
+    // A setup program of another size is not the release's, and the disc is no StarLancer disc.
+    const other = [_]Release{.{ .name = "another release", .size = setup.len + 1, .packing = .wise }};
+    var test_run: TestRun = .init(gpa);
+    defer test_run.deinit();
+    try std.testing.expectEqual(1, try run(io, arena, .{ .directory = "games/other", .from = .{ "mounted", null } }, test_run.environment(tmp.dir, &.{}, &other)));
+    try std.testing.expect(std.mem.find(u8, test_run.err.written(), "isn't a StarLancer disc") != null);
+}
+
 test "looking for disc 1 in the drives" {
     const io = std.testing.io;
     const gpa = std.testing.allocator;
@@ -1516,7 +1689,7 @@ test "looking for disc 1 in the drives" {
 
     const cabinet = try testGameCabinet(gpa);
     defer gpa.free(cabinet);
-    const known = [_]Release{.{ .name = "the test release", .cabinet_size = cabinet.len }};
+    const known = [_]Release{.{ .name = "the test release", .size = cabinet.len }};
     const foreign = try testCabinet(gpa, &.{.{ .path = "CAB\\resource.hog", .data = "another country's" }});
     defer gpa.free(foreign);
     try testFolder(io, tmp.dir, "empty", &.{});
@@ -1576,7 +1749,7 @@ test "asking for disc 2" {
 
     const cabinet = try testGameCabinet(gpa);
     defer gpa.free(cabinet);
-    const known = [_]Release{.{ .name = "the test release", .cabinet_size = cabinet.len }};
+    const known = [_]Release{.{ .name = "the test release", .size = cabinet.len }};
     const Turn = TestPlayer.Turn;
     const Case = struct { turns: ?[]const Turn, installed: bool };
     const cases = [_]Case{
@@ -1674,7 +1847,7 @@ test missingGameFile {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     // Each of the game's files in turn, and none once all are there.
-    for (game_files) |name| {
+    for (whole_game) |name| {
         try std.testing.expectEqualStrings(name, missingGameFile(io, tmp.dir).?);
         try tmp.dir.writeFile(io, .{ .sub_path = name, .data = "" });
     }
@@ -1683,7 +1856,7 @@ test missingGameFile {
     // Each found in any case, as the game finds them.
     var other_case = std.testing.tmpDir(.{});
     defer other_case.cleanup();
-    for (game_files) |name| {
+    for (whole_game) |name| {
         var buffer: [64]u8 = undefined;
         const swapped = if (std.ascii.isUpper(name[0])) std.ascii.lowerString(&buffer, name) else std.ascii.upperString(&buffer, name);
         try other_case.dir.writeFile(io, .{ .sub_path = swapped, .data = "" });
@@ -1700,7 +1873,7 @@ test openGame {
     var folder = try tmp.dir.createDirPathOpen(io, "StarLancer", .{});
     defer folder.close(io);
     try std.testing.expectEqualStrings(game_files[0], (try openGame(io, tmp.dir, "StarLancer")).missing);
-    for (game_files) |name| try folder.writeFile(io, .{ .sub_path = name, .data = "" });
+    for (whole_game) |name| try folder.writeFile(io, .{ .sub_path = name, .data = "" });
     const found = try openGame(io, tmp.dir, "StarLancer");
     found.game.close(io);
 }
@@ -1720,7 +1893,7 @@ test findGameIn {
     for ([_][]const u8{ "bin/Lancer", "bin/StarLancer" }) |path| {
         var game_dir = try tmp.dir.createDirPathOpen(io, path, .{});
         defer game_dir.close(io);
-        for (game_files) |name| try game_dir.writeFile(io, .{ .sub_path = name, .data = "" });
+        for (whole_game) |name| try game_dir.writeFile(io, .{ .sub_path = name, .data = "" });
     }
     try std.testing.expectEqualStrings("bin" ++ sep ++ "StarLancer", (try findGameIn(io, arena, tmp.dir, "bin")).?);
     // The executable's folder isn't known: not found.
@@ -1728,10 +1901,10 @@ test findGameIn {
     // A folder in the current one comes before those beside the executable.
     var here = try tmp.dir.createDirPathOpen(io, "Games", .{});
     defer here.close(io);
-    for (game_files) |name| try here.writeFile(io, .{ .sub_path = name, .data = "" });
+    for (whole_game) |name| try here.writeFile(io, .{ .sub_path = name, .data = "" });
     try std.testing.expectEqualStrings("." ++ sep ++ "Games", (try findGameIn(io, arena, tmp.dir, "bin")).?);
     // And the current folder itself before both.
-    for (game_files) |name| try tmp.dir.writeFile(io, .{ .sub_path = name, .data = "" });
+    for (whole_game) |name| try tmp.dir.writeFile(io, .{ .sub_path = name, .data = "" });
     try std.testing.expectEqualStrings(".", (try findGameIn(io, arena, tmp.dir, "bin")).?);
 }
 
