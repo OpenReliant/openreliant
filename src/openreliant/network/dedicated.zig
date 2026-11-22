@@ -101,6 +101,11 @@ const Config = struct {
             break :identity .{ .root_path = root_path, .certificate_path = certificate_path };
         };
         const name = profile.value("Server", "Name") orelse "OpenReliant server";
+        const rendezvous = try optionalSwitch(profile, "Rendezvous", false);
+        const unlisted = try optionalSwitch(profile, "Unlisted", false);
+        // A server out of the list has only its rendezvous invite to be found by.
+        if (unlisted and !rendezvous) return error.UnlistedNeedsRendezvous;
+        if (rendezvous and profile.value("Server", "DirectoryServers") == null) return error.RendezvousNeedsDirectory;
         return .{
             .bind = bind,
             .invite_address = if (Invite.hasAddress(advertised)) advertised else null,
@@ -121,6 +126,8 @@ const Config = struct {
                 .description = profile.value("Server", "Description") orelse "",
                 .address = profile.value("Server", "PublicAddress"),
                 .port = port,
+                .rendezvous = rendezvous,
+                .unlisted = unlisted,
             } else null,
             .lan_name = if (try optionalSwitch(profile, "LanDiscovery", true)) name else null,
             .check_updates = try optionalSwitch(profile, "CheckUpdates", true),
@@ -201,6 +208,18 @@ test "headless settings share the game's INI syntax" {
     try std.testing.expect((try Config.parse(.{ .text = "[server]\nBindAddress=0.0.0.0" })).invite_address == null);
     const advertised = try Config.parse(.{ .text = "[server]\nBindAddress=0.0.0.0\nInviteAddress=192.0.2.1" });
     try std.testing.expect(advertised.invite_address.?.eql(&try std.Io.net.IpAddress.parseLiteral("192.0.2.1:27020")));
+}
+
+test "a server takes rendezvous through a directory, listed or not" {
+    const plain = try Config.parse(.{ .text = "[Server]\nDirectoryServers=https://directory.example" });
+    try std.testing.expect(!plain.advertise.?.rendezvous and !plain.advertise.?.unlisted);
+    const reached = try Config.parse(.{ .text = "[Server]\nDirectoryServers=https://directory.example\nRendezvous=1" });
+    try std.testing.expect(reached.advertise.?.rendezvous and !reached.advertise.?.unlisted);
+    const private = try Config.parse(.{ .text = "[Server]\nDirectoryServers=https://directory.example\nRendezvous=1\nUnlisted=1" });
+    try std.testing.expect(private.advertise.?.rendezvous and private.advertise.?.unlisted);
+    // A server out of the list has only its rendezvous invite to be found by.
+    try std.testing.expectError(error.UnlistedNeedsRendezvous, Config.parse(.{ .text = "[Server]\nDirectoryServers=https://directory.example\nUnlisted=1" }));
+    try std.testing.expectError(error.RendezvousNeedsDirectory, Config.parse(.{ .text = "[Server]\nRendezvous=1" }));
 }
 
 test "dedicated activation and metrics have independent settings" {

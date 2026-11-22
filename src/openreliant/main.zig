@@ -1034,7 +1034,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             .quit => return,
             .key => |key| if (options.screenshot == null) {
                 if (key.paste and flow.in_front_end and front.screen == .connection and front.connection.host_choice == null and front.connection.ship_picker == null and !front.connection.busy and !(if (console) |*shown| shown.isUp() else false)) {
-                    var buffer: [128]u8 = undefined;
+                    var buffer: [engine.game.interface.Connection.max_target]u8 = undefined;
                     if (platform.window.clipboard(&buffer)) |text| {
                         front.connection.address.set(text);
                         front.connection.editing = true;
@@ -1321,14 +1321,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         through.mode_saved = .unchosen;
                         try game_scripts.start();
                     },
-                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .new_coop_campaign, .loaded_coop_campaign, .lobby_ready, .remove_lobby_pilot, .debrief_choice, .choose_ship, .choose_team, .team_play, .arena_option, .send_chat => {},
+                    .quit, .briefing, .mode_mission, .mode_left, .join_server, .host_lan, .leave_session, .launch_session, .new_coop_campaign, .loaded_coop_campaign, .lobby_ready, .remove_lobby_pilot, .debrief_choice, .choose_ship, .choose_team, .team_play, .arena_option, .open_to, .copy_invite, .send_chat => {},
                 }
                 flow.next = switch (outcome) {
                     .host_lan => |kind| {
                         if (network_enabled) {
                             coop_saving = .init(front.pilot);
                             pilot_profile.saveWith(front.pilot.call_sign.slice());
-                            network_pilot.hostLan(io, gpa, directory, &front.connection, &front.pilot.call_sign, kind);
+                            network_pilot.hostLan(io, gpa, directory, &front.connection, &front.pilot.call_sign, kind, directory_servers);
                         }
                         continue;
                     },
@@ -1378,6 +1378,17 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     },
                     .team_play => |enabled| {
                         if (network_enabled) if (network_pilot.hosted) |hosted| hosted.host.setArenaTeams(enabled);
+                        continue;
+                    },
+                    .open_to => |reach| {
+                        if (network_enabled) network_pilot.openTo(reach);
+                        continue;
+                    },
+                    .copy_invite => {
+                        if (network_enabled) if (network_pilot.invite()) |text| {
+                            platform.window.setClipboard(text) catch |err| std.log.warn("the invite could not be copied: {t}", .{err});
+                            network_pilot.inviteCopied(io);
+                        };
                         continue;
                     },
                     .choose_ship => |ship| {
@@ -3133,6 +3144,7 @@ test {
     _ = @import("network/wire.zig");
     _ = @import("network/chat_budget.zig");
     _ = @import("network/flight_chat.zig");
+    _ = @import("network/rendezvous.zig");
     _ = @import("network/dedicated.zig");
     std.testing.refAllDecls(@This());
 }

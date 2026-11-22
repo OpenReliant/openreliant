@@ -23,9 +23,43 @@ const Crew = @import("debrief_crew.zig");
 pub const Team = @import("../../players.zig").ArenaTeam;
 pub const Pilot = struct { generation: u64, name: CallSign = .{}, team: Team = .first };
 pub const Admission = @import("../../players.zig").ParticipantRef;
-pub const Action = union(enum) { leave, main_menu, quit, launch, new_campaign, load_campaign, ready: bool, remove: Admission, choose_ship, choose_team: Team, team_play: bool, arena_option: ArenaOptions.Setting, send_chat: chat.Line };
-const Role = union(enum) { host: struct { can_launch: bool = false, port: u16 }, guest };
-const Control = enum { back, main_menu, quit, launch, new_campaign, load_campaign, ready, remove, ship, team, ai_turrets, target_players, teams, mode };
+pub const Action = union(enum) { leave, main_menu, quit, launch, new_campaign, load_campaign, ready: bool, remove: Admission, choose_ship, choose_team: Team, team_play: bool, arena_option: ArenaOptions.Setting, send_chat: chat.Line, open_to: Reach, copy_invite };
+/// Who a hosted game is open to. An OpenReliant addition: the original's games are found on the
+/// local network or joined by address.
+pub const Reach = enum {
+    /// Players on the host's own network, and players given its address.
+    lan,
+    /// Also the players the host sends its invite to, wherever they are.
+    invite,
+    /// Also everyone, through the server list.
+    public,
+
+    /// Whether players beyond the local network can join.
+    fn internet(open_to: Reach) bool {
+        return open_to != .lan;
+    }
+};
+/// The invite a host hands to the players it wants, as the lobby shows it.
+pub const Invite = union(enum) {
+    /// The game is for the local network, which needs none.
+    none,
+    /// The directory is being asked for one.
+    preparing,
+    /// The directory can't be reached, or passes no connections.
+    unavailable,
+    ready: struct { text: []const u8, copied: bool = false },
+};
+const Role = union(enum) {
+    host: struct {
+        can_launch: bool = false,
+        port: u16,
+        /// Who the game is open to, or null where it can only be a LAN game.
+        reach: ?Reach = null,
+        invite: Invite = .none,
+    },
+    guest,
+};
+const Control = enum { back, main_menu, quit, launch, new_campaign, load_campaign, ready, remove, ship, team, ai_turrets, target_players, teams, mode, setup };
 
 role: Role,
 roster: []const ?Pilot,
@@ -46,6 +80,9 @@ options: ArenaOptions = .{},
 team_open: bool = false,
 hover: ?Control = null,
 mode_open: bool = false,
+/// Whether the host setup is up, and what the pointer is over in it.
+setup_open: bool = false,
+setup_hover: enum { none, internet, listed, copy, done } = .none,
 option_under: ?usize = null,
 preview: scenarios.Scenario = .asteroid_field,
 first_pilot: usize = 0,
@@ -142,7 +179,6 @@ const ship_arrow: ArtButton = .{ .at = .{ 399, 168 }, .box = .{ .x = 398, .y = 1
 const ship_field: Field = .{ .box = .{ .x = 201, .y = 164, .width = 192, .height = 21 }, .label = ship_label };
 const team_field: Field = .{ .box = .{ .x = 201, .y = 126, .width = 59, .height = 21 }, .label = .{ .english = "TEAM", .installed = 0x2C2 } };
 const team_arrow: ArtButton = .{ .at = .{ 266, 130 }, .box = .{ .x = 264, .y = 126, .width = 29, .height = 21 }, .shapes = dropdown };
-// session_loadout_draw draws the stock checkbox and mark at 0x0044D898 and 0x0044D91A.
 const ArenaSwitch = struct {
     control: Control,
     label: Label,
@@ -166,15 +202,7 @@ const ArenaSwitch = struct {
             .teams => lobby.teams,
             else => unreachable,
         };
-        // Draw the stock mark underneath the frame so it covers the entire opening.
-        // The mark overlaps the frame's inner edge by one source pixel.
-        const factor = canvas.scale();
-        const anchor = canvas.point(.{ 578, setting.y });
-        const overhang = hud.round(factor);
-        const corner = [2]i32{ anchor[0] - overhang, anchor[1] - overhang };
-        const size_pixels = hud.round(17 * factor);
-        if (checked) try canvas.squareShape(art, 0x1D, .{ corner[0] + overhang, corner[1] + overhang }, size_pixels - 2 * overhang);
-        try canvas.squareShape(art, 0x1C, corner, size_pixels);
+        try drawCheck(canvas, art, .{ 578, setting.y }, checked);
         try write(canvas, .{ 572, setting.y - 1 }, setting.label, if (lobby.hover == setting.control) ui.white else ui.blue, .right);
     }
 };
@@ -203,6 +231,62 @@ const coop_lead: Field = .{ .box = .{ .x = 45, .y = 179, .width = 149, .height =
 const coop_game: Field = .{ .box = .{ .x = 45, .y = 217, .width = 149, .height = 21 }, .label = game_label };
 const coop_mission: Field = .{ .box = .{ .x = 201, .y = 217, .width = 84, .height = 21 }, .label = .{ .english = "MISSION", .installed = 0xE5 } };
 const arena_lead: Field = .{ .box = .{ .x = 45, .y = 164, .width = 149, .height = 21 }, .label = role_label };
+
+/// The button that opens the host setup, where the host's port is shown otherwise.
+const setup_button: ui.Rect = .{ .x = 460, .y = 432, .width = 135, .height = control_height };
+const setup_label: Label = .{ .english = "HOST SETUP" };
+const help_setup = "Click to choose who can join, and to copy the invite for your friends.";
+// The host setup, a dialog of OpenReliant's own in the style of the game type's.
+const setup_top = 107;
+/// A switch of the host setup: a checkbox, its name, and a line that says what its setting does.
+const SetupSwitch = struct {
+    y: i16,
+    label: Label,
+    on: Label,
+    off: Label,
+
+    fn box(setting: SetupSwitch) ui.Rect {
+        return .{ .x = 72, .y = setting.y - 4, .width = 496, .height = 38 };
+    }
+
+    fn draw(setting: SetupSwitch, canvas: ui.Canvas, art: *hud.Art, checked: bool, lit: bool) !void {
+        try drawCheck(canvas, art, .{ 72, setting.y }, checked);
+        try write(canvas, .{ 98, setting.y - 1 }, setting.label, if (lit) ui.white else ui.blue, .left);
+        try write(canvas, .{ 98, setting.y + 16 }, if (checked) setting.on else setting.off, ui.blue, .left);
+    }
+};
+const internet_switch: SetupSwitch = .{
+    .y = 160,
+    .label = .{ .english = "INTERNET GAME" },
+    .on = .{ .english = "Friends anywhere can join over the internet. Works on most networks." },
+    .off = .{ .english = "Only players on your network can join." },
+};
+const listed_switch: SetupSwitch = .{
+    .y = 206,
+    .label = .{ .english = "SHOW IN SERVER LIST" },
+    .on = .{ .english = "Everyone can find the game in the INTERNET list." },
+    .off = .{ .english = "Private: only friends you send the invite to can join." },
+};
+const invite_heading: Label = .{ .english = "INVITE" };
+const invite_box: ui.Rect = .{ .x = 72, .y = 270, .width = 384, .height = 21 };
+const invite_copy: ui.Rect = .{ .x = 468, .y = 270, .width = 100, .height = control_height };
+const copy_label: Label = .{ .english = "COPY" };
+const invite_help: Label = .{ .english = "Send it to your friends. They paste it as the address and connect." };
+const invite_copied: Label = .{ .english = "Copied. Paste it in a message to your friends." };
+const invite_preparing: Label = .{ .english = "Getting ready..." };
+const invite_unavailable: Label = .{ .english = "Not available: the directory can't be reached." };
+const setup_done: ui.Rect = .{ .x = 72, .y = 328, .width = 160, .height = control_height };
+const setup_modal: ui.Rect = .{ .x = 44, .y = setup_top, .width = 552, .height = setup_done.y + 35 - setup_top };
+
+/// The host's reach, where the lobby offers the choice.
+fn reach(lobby: *const Lobby) ?Reach {
+    return if (lobby.role == .host) lobby.role.host.reach else null;
+}
+
+/// The invite to show, where the game is open beyond the local network.
+fn invite(lobby: *const Lobby) Invite {
+    return if (lobby.reach() != null) lobby.role.host.invite else .none;
+}
 
 const help_start: tooltips.Tooltip = .{ .rect = arena_start.box, .string = 0x598, .fallback = "Click to start the game currently selected." };
 const help_lead = "Displays the host's callsign.";
@@ -242,7 +326,12 @@ pub fn updateHelp(lobby: *Lobby, at: ?[2]i32, ticks: u32) void {
         }
         break :switches tips;
     };
-    const help = if (lobby.mission == null) &arena else if (host) coop[0..] else coop[0..4];
+    const sharing = [_]tooltips.Tooltip{
+        .{ .rect = if (lobby.reach() != null) setup_button else tooltips.Tooltip.no_rect, .string = 0, .fallback = help_setup },
+    };
+    const arena_help = arena ++ sharing;
+    const coop_help = coop ++ sharing;
+    const help = if (lobby.mission == null) &arena_help else if (host) coop_help[0..] else coop_help[0..4];
     if (lobby.help.update(help, pointer, ticks)) |index| lobby.shown_help = help[index];
 }
 
@@ -303,6 +392,7 @@ fn controlAt(lobby: *const Lobby, at: [2]i32) ?Control {
         if (setting.visible(lobby) and setting.box().holds(at)) return setting.control;
     }
     if (!coop and lobby.role == .host and mode_list.holds(at)) return .mode;
+    if (lobby.reach() != null and setup_button.holds(at)) return .setup;
     return null;
 }
 
@@ -321,6 +411,79 @@ fn modeFrame(lobby: *Lobby, pointer: ui.Pointer, escape: bool) void {
             lobby.mode_open = false;
         }
     }
+}
+
+/// The host setup: who the game is open to, and the invite to hand out. A choice takes effect
+/// at once, so the dialog has one button, which closes it.
+fn setupFrame(lobby: *Lobby, pointer: ui.Pointer, escape: bool) ?Action {
+    const open_to = lobby.reach() orelse {
+        lobby.setup_open = false;
+        return null;
+    };
+    lobby.setup_hover = if (internet_switch.box().holds(pointer.at))
+        .internet
+    else if (open_to.internet() and listed_switch.box().holds(pointer.at))
+        .listed
+    else if (lobby.invite() == .ready and (invite_copy.holds(pointer.at) or invite_box.holds(pointer.at)))
+        .copy
+    else if (setup_done.holds(pointer.at))
+        .done
+    else
+        .none;
+    if (escape) lobby.setup_open = false;
+    if (escape or !pointer.down) return null;
+    switch (lobby.setup_hover) {
+        .none => return null,
+        // An internet game starts for invited players only: the host lists it if they want.
+        .internet => return .{ .open_to = if (open_to.internet()) .lan else .invite },
+        .listed => return .{ .open_to = if (open_to == .public) .invite else .public },
+        .copy => return .copy_invite,
+        .done => {
+            lobby.setup_open = false;
+            return null;
+        },
+    }
+}
+
+/// `session_loadout_draw` draws the stock checkbox and mark at 0x0044D898 and 0x0044D91A. The
+/// mark goes underneath the frame and overlaps its inner edge by one source pixel.
+fn drawCheck(canvas: ui.Canvas, art: *hud.Art, at: [2]i32, checked: bool) !void {
+    const factor = canvas.scale();
+    const anchor = canvas.point(at);
+    const overhang = hud.round(factor);
+    const corner = [2]i32{ anchor[0] - overhang, anchor[1] - overhang };
+    const size_pixels = hud.round(17 * factor);
+    if (checked) try canvas.squareShape(art, 0x1D, .{ corner[0] + overhang, corner[1] + overhang }, size_pixels - 2 * overhang);
+    try canvas.squareShape(art, 0x1C, corner, size_pixels);
+}
+
+fn drawSetup(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
+    const open_to = lobby.reach() orelse return;
+    const strings = canvas.strings.*;
+    widgets.modal(canvas, setup_modal);
+    try widgets.title(canvas, .{ 72, 122 }, setup_label);
+    try internet_switch.draw(canvas, art, open_to.internet(), lobby.setup_hover == .internet);
+    try listed_switch.draw(canvas.dimmedUnless(open_to.internet()), art, open_to == .public, lobby.setup_hover == .listed);
+    const shared = lobby.invite();
+    if (shared != .none) {
+        try write(canvas, .{ invite_box.x, invite_box.y - 17 }, invite_heading, ui.blue, .left);
+        outline(canvas, invite_box);
+        const inside: ui.Rect = .{ .x = invite_box.x + 4, .y = invite_box.y, .width = invite_box.width - 8, .height = invite_box.height };
+        const below: [2]i32 = .{ invite_box.x, invite_box.y + invite_box.height + 6 };
+        switch (shared) {
+            .none => unreachable,
+            .preparing => try canvas.text(canvas.fonts.small, .{ inside.x, inside.y + 2 }, invite_preparing.text(strings), ui.blue, .left),
+            .unavailable => try canvas.text(canvas.fonts.small, .{ inside.x, inside.y + 2 }, invite_unavailable.text(strings), ui.blue, .left),
+            .ready => |ready| {
+                // The invite is longer than the field, which shows its end, as a text field
+                // does once its text is typed.
+                try canvas.within(inside).text(canvas.fonts.small, .{ inside.x + inside.width, inside.y + 2 }, ready.text, ui.white, .right);
+                try write(canvas, below, if (ready.copied) invite_copied else invite_help, if (ready.copied) ui.white else ui.blue, .left);
+            },
+        }
+        try widgets.button(canvas, art, invite_copy, copy_label, shared == .ready, lobby.setup_hover == .copy);
+    }
+    try widgets.button(canvas, art, setup_done, select_mode, true, lobby.setup_hover == .done);
 }
 
 fn isReady(lobby: Lobby, slot: usize) bool {
@@ -384,6 +547,10 @@ pub fn frame(lobby: *Lobby, mouse: ui.Pointer, keys: *input.Keyboard, typed: *Ty
         lobby.modeFrame(pointer, escape);
         return null;
     }
+    if (lobby.setup_open) {
+        typed.clear();
+        return lobby.setupFrame(pointer, escape);
+    }
     if (lobby.team_open) {
         const chosen = for (std.enums.values(Team)) |team| {
             if (teamOption(team).holds(pointer.at)) break team;
@@ -418,6 +585,11 @@ pub fn frame(lobby: *Lobby, mouse: ui.Pointer, keys: *input.Keyboard, typed: *Ty
         .remove => .{ .remove = lobby.selectedPilot().? },
         .ship => .choose_ship,
         .teams => .{ .team_play = !lobby.teams },
+        .setup => open: {
+            lobby.setup_open = true;
+            lobby.option_under = null;
+            break :open null;
+        },
         .ai_turrets => .{ .arena_option = .ai_turrets },
         .target_players => .{ .arena_option = .target_players },
         .team => open: {
@@ -585,12 +757,15 @@ pub fn draw(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art, paging_art: ?
     try write(canvas, .{ 287, 441 }, .{ .english = "MAIN MENU", .installed = 0xBB }, ui.blue, .right);
     try quit_button.draw(canvas, art, lobby.hover == .quit, true);
     try write(canvas, .{ if (lobby.mission == null) 351 else 353, 441 }, .{ .english = "QUIT", .installed = 0xBC }, ui.blue, .left);
-    if (lobby.role == .host) {
+    if (lobby.reach() != null) {
+        try widgets.button(canvas, art, setup_button, setup_label, true, lobby.hover == .setup);
+    } else if (lobby.role == .host) {
         var port: [16]u8 = undefined;
         try write(canvas, .{ 460, 427 }, .{ .english = "PORT", .installed = 0x1A7 }, ui.blue, .left);
         try canvas.text(canvas.fonts.small, .{ 460, 441 }, std.fmt.bufPrint(&port, "UDP {d}", .{lobby.role.host.port}) catch unreachable, ui.blue, .left);
     }
     if (lobby.mode_open) try lobby.drawModes(canvas, art);
+    if (lobby.setup_open) try lobby.drawSetup(canvas, art);
     if (lobby.team_open and lobby.teams) for (std.enums.values(Team)) |team| {
         const box = teamOption(team);
         outline(canvas, box);
@@ -692,4 +867,46 @@ test "co-op help follows the guest's readiness and clears behind a modal" {
 
 test {
     std.testing.refAllDecls(@This());
+}
+
+test "a host chooses who its game is open to, and copies its invite" {
+    var keys: input.Keyboard = .{};
+    var typed: Typed = .{};
+    var lobby: Lobby = .{ .role = .{ .host = .{ .port = 27020 } }, .roster = &.{}, .local_slot = 0 };
+    const click = struct {
+        fn at(clicked: *Lobby, held: *input.Keyboard, text: *Typed, point: [2]i32) ?Action {
+            _ = clicked.frame(.{ .at = point }, held, text, .{ 640, 480 });
+            return clicked.frame(.{ .at = point, .down = true }, held, text, .{ 640, 480 });
+        }
+    }.at;
+    // A game that can only be a LAN game has no setup to open.
+    try std.testing.expectEqual(null, click(&lobby, &keys, &typed, setup_button.centre()));
+    try std.testing.expect(!lobby.setup_open);
+    lobby.role.host.reach = .lan;
+    try std.testing.expectEqual(null, click(&lobby, &keys, &typed, setup_button.centre()));
+    try std.testing.expect(lobby.setup_open);
+    // A LAN game can't be listed. The internet switch opens it to invited players first.
+    try std.testing.expectEqual(null, click(&lobby, &keys, &typed, listed_switch.box().centre()));
+    try std.testing.expectEqual(Reach.invite, click(&lobby, &keys, &typed, internet_switch.box().centre()).?.open_to);
+    lobby.role.host.reach = .invite;
+    try std.testing.expectEqual(Reach.public, click(&lobby, &keys, &typed, listed_switch.box().centre()).?.open_to);
+    lobby.role.host.reach = .public;
+    try std.testing.expectEqual(Reach.invite, click(&lobby, &keys, &typed, listed_switch.box().centre()).?.open_to);
+    try std.testing.expectEqual(Reach.lan, click(&lobby, &keys, &typed, internet_switch.box().centre()).?.open_to);
+    // An invite is copied only once there is one, from its button or its field.
+    lobby.role.host.reach = .invite;
+    lobby.role.host.invite = .preparing;
+    try std.testing.expectEqual(null, click(&lobby, &keys, &typed, invite_copy.centre()));
+    lobby.role.host.invite = .{ .ready = .{ .text = "orl3:directory.example/key/session" } };
+    try std.testing.expect(click(&lobby, &keys, &typed, invite_copy.centre()).? == .copy_invite);
+    try std.testing.expect(click(&lobby, &keys, &typed, invite_box.centre()).? == .copy_invite);
+    // While it is up, the lobby under it takes no clicks, and OK closes it.
+    try std.testing.expectEqual(null, click(&lobby, &keys, &typed, coop_back.box.centre()));
+    try std.testing.expect(lobby.setup_open);
+    try std.testing.expectEqual(null, click(&lobby, &keys, &typed, setup_done.centre()));
+    try std.testing.expect(!lobby.setup_open);
+    // A guest has none.
+    lobby.role = .guest;
+    try std.testing.expectEqual(null, click(&lobby, &keys, &typed, setup_button.centre()));
+    try std.testing.expect(!lobby.setup_open);
 }

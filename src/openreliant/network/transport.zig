@@ -16,6 +16,16 @@ pub extern fn session_listen_close(listener: u32) void;
 /// sender's IPv6 address, an IPv4 one mapped into it, writes at most `capacity` bytes of answer,
 /// and returns how many to send back.
 pub extern fn session_datagram_handler(handler: ?*const fn (packet: [*]const u8, size: c_int, from: *const [16]u8, answer: [*]u8, capacity: c_int) callconv(.c) c_int) void;
+/// Turns ICE on, with a comma-separated list of the STUN servers each side learns its public
+/// address from. Only public addresses are offered to the other side, unless `local` asks for
+/// the machine's own network's too.
+pub extern fn session_ice_enable(stun_servers: [*:0]const u8, local: bool) bool;
+/// A host's listener for connections through ICE, beside its IP one.
+pub extern fn session_ice_listen() u32;
+/// A player's connection through ICE to the host at the other end of `exchange`.
+pub extern fn session_ice_connect(exchange: u32) Connection;
+/// Gives the transport a signal received in `exchange`. A host's first one opens a connection.
+pub extern fn session_signal_in(exchange: u32, signal: [*]const u8, size: c_int) bool;
 pub extern fn session_accept(conn: Connection) bool;
 pub extern fn session_close(conn: Connection) void;
 pub extern fn session_drop(conn: Connection) void;

@@ -6,6 +6,8 @@ const identity = @import("identity.zig");
 const wire = @import("wire.zig");
 const version = @import("version");
 const Host = @import("server.zig");
+const net = @import("transport.zig");
+const Rendezvous = @import("rendezvous.zig");
 const KeyPair = std.crypto.sign.Ed25519.KeyPair;
 const Publisher = @This();
 
@@ -32,7 +34,36 @@ pub const Config = struct {
     description: []const u8,
     address: ?[]const u8,
     port: u16,
+    hosting: Hosting = .dedicated,
+    /// Whether players reach the host through the first directory's rendezvous, for a host
+    /// behind a router with no forwarded port. The host then publishes to that directory alone:
+    /// another one would list an address nobody can reach.
+    rendezvous: bool = false,
+    /// Whether the game stays out of the list, so that only players with its invite find it. It
+    /// needs `rendezvous`, and is published nowhere while the directory offers none.
+    unlisted: bool = false,
+
+    /// The directory protocol's names for who hosts a game.
+    pub const Hosting = enum { dedicated, player_hosted };
+
+    /// The first of `origins`, which is the one rendezvous goes through.
+    fn first(config: Config) ?[]const u8 {
+        var origins = std.mem.splitScalar(u8, config.origins, ',');
+        while (origins.next()) |part| {
+            const origin = std.mem.trim(u8, part, " \t/");
+            if (origin.len != 0) return origin;
+        }
+        return null;
+    }
 };
+
+test "rendezvous goes through the first directory" {
+    const config: Config = .{ .origins = " , https://one.example/ ,https://two.example", .name = "", .description = "", .address = null, .port = 1 };
+    try std.testing.expectEqualStrings("https://one.example", config.first().?);
+    var none = config;
+    none.origins = " , ";
+    try std.testing.expectEqual(null, none.first());
+}
 
 const Job = struct {
     arena: std.heap.ArenaAllocator,
@@ -40,14 +71,21 @@ const Job = struct {
     body: []const u8,
     key: KeyPair,
     session: [16]u8,
+    /// Whether `origins` is the one directory rendezvous goes through, whose answer may carry a
+    /// token.
+    takes_token: bool = false,
+    token: ?[Rendezvous.token_len]u8 = null,
 
     pub fn deinit(job: *Job) void {
         std.crypto.secureZero(u8, std.mem.asBytes(&job.key));
         job.arena.deinit();
     }
 
-    pub fn run(job: *Job, io: std.Io, _: *web.Progress) !void {
+    /// Registers with each directory, and gives the rendezvous token the first one answered
+    /// with, where it gave one.
+    pub fn run(job: *Job, io: std.Io, _: *web.Progress) !?[Rendezvous.token_len]u8 {
         job.sendAll(io, .register);
+        return job.token;
     }
 
     /// Sends `operation` to each directory in turn. One that fails or is slow is logged and
@@ -105,7 +143,18 @@ const Job = struct {
         };
         const url = try std.fmt.allocPrint(allocator, "{s}/v1/{t}", .{ origin, operation });
         response = .fixed(&response_buffer);
-        if (try post(&client, url, body, &headers, &response) != operation.answer()) return error.AdvertisementRefused;
+        const status = try post(&client, url, body, &headers, &response);
+        if (status != operation.answer()) {
+            // What the directory said tells an operator which setting it refuses.
+            std.log.warn("directory {s} answered {d}: {s}", .{ origin, @backingInt(status), response.buffered() });
+            return error.AdvertisementRefused;
+        }
+        if (operation == .register and job.takes_token) {
+            const Lease = struct { rendezvous_token: ?[]const u8 = null };
+            const lease = std.json.parseFromSliceLeaky(Lease, allocator, response.buffered(), .{ .ignore_unknown_fields = true }) catch return;
+            const text = lease.rendezvous_token orelse return;
+            if (text.len == Rendezvous.token_len) job.token = text[0..Rendezvous.token_len].*;
+        }
     }
 };
 
@@ -158,6 +207,14 @@ config: Config,
 key: KeyPair,
 session: [16]u8,
 download: web.Download(Job) = .{},
+/// The rendezvous a host behind a router takes players through, and how far it has got.
+signals: ?*Rendezvous = null,
+signalling: Signalling = .off,
+/// The listener for the connections that come through ICE, beside the host's IP one.
+ice_listener: u32 = 0,
+/// Whether the directory's last answer registered the host for rendezvous, which is when its
+/// invite works. Null until it has answered.
+registered: ?bool = null,
 next: i64 = 0,
 revision: u64 = 0,
 last: ?Snapshot = null,
@@ -169,9 +226,118 @@ pub fn init(io: std.Io, config: Config, server: *const identity.Server) !Publish
     return .{ .config = config, .key = server.issuer, .session = session };
 }
 
+const Signalling = enum {
+    /// The host is reached at its address.
+    off,
+    /// The directory is being asked whether it takes rendezvous.
+    starting,
+    /// The host listens for ICE connections and passes their signals.
+    listening,
+    /// The directory offers no rendezvous, or can't be reached.
+    unavailable,
+};
+
+/// Brings the rendezvous up and hands the transport the signals it brought.
+fn signal(publisher: *Publisher) void {
+    switch (publisher.signalling) {
+        .off => {
+            if (!publisher.config.rendezvous) return;
+            const origin = publisher.config.first() orelse {
+                publisher.signalling = .unavailable;
+                return;
+            };
+            publisher.signals = Rendezvous.create(origin, .host) catch |err| {
+                std.log.warn("rendezvous could not start: {t}", .{err});
+                publisher.signalling = .unavailable;
+                return;
+            };
+            publisher.signalling = .starting;
+        },
+        .starting => switch (publisher.signals.?.state.load(.acquire)) {
+            .starting => {},
+            .failed => {
+                std.log.warn("the directory offers no rendezvous: players need the host's address and a forwarded port", .{});
+                publisher.endSignals();
+                publisher.signalling = .unavailable;
+            },
+            .ready => {
+                // A host that opens itself again takes its players through the listener it has.
+                if (!net.session_ice_enable(publisher.signals.?.stun().?, publisher.signals.?.local)) {
+                    publisher.ice_listener = 0;
+                } else if (publisher.ice_listener == 0) publisher.ice_listener = net.session_ice_listen();
+                if (publisher.ice_listener == 0) {
+                    std.log.warn("the transport could not listen for ICE connections", .{});
+                    publisher.endSignals();
+                    publisher.signalling = .unavailable;
+                    return;
+                }
+                publisher.signalling = .listening;
+                // Publish again at once, now with the rendezvous fields.
+                publisher.next = 0;
+            },
+        },
+        .listening => publisher.signals.?.pump(),
+        .unavailable => {},
+    }
+}
+
+/// How far the host's invite has got, for a screen to show.
+pub const Sharing = enum { preparing, unavailable, ready };
+
+pub fn sharing(publisher: *const Publisher) Sharing {
+    return switch (publisher.signalling) {
+        .unavailable => .unavailable,
+        .off, .starting => .preparing,
+        .listening => if (publisher.registered) |registered| (if (registered) .ready else .unavailable) else .preparing,
+    };
+}
+
+/// Lists the game or takes it off the list, for a host that changes its mind while it runs.
+pub fn setUnlisted(publisher: *Publisher, unlisted: bool) void {
+    if (publisher.config.unlisted == unlisted) return;
+    publisher.config.unlisted = unlisted;
+    // Publish again at once.
+    publisher.next = 0;
+}
+
+/// Takes the ICE listener out of the publisher, so that `close` leaves it open. The transport
+/// drops every connection that came through a listener when it closes, and a host that goes
+/// back to a LAN game keeps the players it has. The caller closes it, or gives it to the next
+/// publisher in `ice_listener`.
+pub fn keepListener(publisher: *Publisher) u32 {
+    defer publisher.ice_listener = 0;
+    return publisher.ice_listener;
+}
+
+fn endSignals(publisher: *Publisher) void {
+    if (publisher.signals) |signals| signals.destroy();
+    publisher.signals = null;
+}
+
+/// The invite that brings a player to this host through the directory's rendezvous, once the
+/// host is listed there: what the host hands to the players it wants.
+pub fn invite(publisher: *const Publisher, buffer: []u8) ?[]const u8 {
+    if (publisher.signalling != .listening or publisher.registered != true) return null;
+    const shared: identity.RendezvousInvite = .{ .origin = publisher.config.first() orelse return null, .key = publisher.key.public_key, .session = publisher.session };
+    return std.fmt.bufPrint(buffer, "{f}", .{shared}) catch null;
+}
+
 pub fn tick(publisher: *Publisher, host: *const Host, now: i64) void {
-    if (publisher.download.take()) |answer| answer catch |err| std.log.warn("directory advertisement failed: {t}", .{err});
+    publisher.signal();
+    if (publisher.download.take()) |answer| {
+        if (answer) |token| {
+            if (publisher.signalling == .listening) {
+                publisher.signals.?.setToken(token);
+                publisher.registered = token != null;
+            }
+        } else |err| std.log.warn("directory advertisement failed: {t}", .{err});
+    }
     if (publisher.download.busy()) return;
+    // A game for invited players only is published once it can be reached through rendezvous,
+    // and nowhere before that: published plainly, it would be listed. Nor is a player's own
+    // game, which has no forwarded port to be reached at.
+    if ((publisher.config.unlisted or publisher.config.hosting == .player_hosted) and publisher.signalling != .listening) return;
+    if (publisher.signalling == .starting) return;
     const current = Snapshot.of(host);
     if (!due(publisher.last, current, now, publisher.next, publisher.next_change)) return;
     publisher.next = now + 30 * std.time.us_per_s;
@@ -205,7 +371,9 @@ fn send(publisher: *Publisher, snapshot: Snapshot) !void {
     var owned = true;
     errdefer if (owned) arena.deinit();
     const allocator = arena.allocator();
-    const origins = try allocator.dupe(u8, publisher.config.origins);
+    const through_rendezvous = publisher.signalling == .listening;
+    // Through rendezvous the host publishes to that one directory.
+    const origins = try allocator.dupe(u8, if (through_rendezvous) publisher.config.first().? else publisher.config.origins);
     publisher.revision += 1;
     const mode = if (snapshot.scenario) |chosen| mode: {
         const id = try allocator.dupe(u8, @tagName(chosen));
@@ -219,7 +387,7 @@ fn send(publisher: *Publisher, snapshot: Snapshot) !void {
         .revision = publisher.revision,
         .name = publisher.config.name,
         .description = publisher.config.description,
-        .hosting = "dedicated",
+        .hosting = publisher.config.hosting,
         .mode = mode,
         .players = snapshot.players,
         .capacity = snapshot.capacity,
@@ -228,9 +396,13 @@ fn send(publisher: *Publisher, snapshot: Snapshot) !void {
         .release = version.string,
         .port = publisher.config.port,
         .address = publisher.config.address,
-    }, .{});
+        // A directory that doesn't know these fields refuses the advertisement, so they go only
+        // to one that said it takes rendezvous.
+        .rendezvous = if (through_rendezvous) true else null,
+        .unlisted = if (through_rendezvous and publisher.config.unlisted) true else null,
+    }, .{ .emit_null_optional_fields = false });
     owned = false;
-    try publisher.download.start(.{ .arena = arena, .origins = origins, .body = body, .key = publisher.key, .session = publisher.session }, .{ .whole = .fromSeconds(15) });
+    try publisher.download.start(.{ .arena = arena, .origins = origins, .body = body, .key = publisher.key, .session = publisher.session, .takes_token = through_rendezvous }, .{ .whole = .fromSeconds(15) });
 }
 
 /// How long `close` waits for an update on its way to stop: 50 polls of 10 ms.
@@ -250,9 +422,15 @@ pub fn close(publisher: *Publisher, io: std.Io) void {
     }
     publisher.download.abandon();
     if (publisher.last != null) {
-        var job: Job = .{ .arena = .init(web.allocator), .origins = publisher.config.origins, .body = "", .key = publisher.key, .session = publisher.session };
+        // Through rendezvous the host is known to the first directory alone.
+        const origins = if (publisher.signalling == .listening) publisher.config.first().? else publisher.config.origins;
+        var job: Job = .{ .arena = .init(web.allocator), .origins = origins, .body = "", .key = publisher.key, .session = publisher.session };
         defer job.deinit();
         job.sendAll(io, .withdraw);
     }
+    publisher.endSignals();
+    if (publisher.ice_listener != 0) net.session_listen_close(publisher.ice_listener);
+    publisher.ice_listener = 0;
+    publisher.signalling = .off;
     std.crypto.secureZero(u8, std.mem.asBytes(&publisher.key));
 }

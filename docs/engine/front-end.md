@@ -97,6 +97,18 @@ leaves the lobby for the browser. **Main Menu** leaves the lobby for the main me
 The dedicated server uses the same simulation and admission checks and starts on its existing
 two-pilot threshold.
 
+**Improvement:** the host's lobby has a **HOST SETUP** button where the port is shown
+otherwise, which opens a dialog in the style of the game type's (`lobby.drawSetup`). Its two
+switches are the original's checkboxes. **INTERNET GAME** opens the game to players beyond the
+local network, through the first directory's rendezvous
+([Connections through a directory](../port/transport-probe.md#connections-through-a-directory)),
+and starts for invited players only. **SHOW IN SERVER LIST** also lists it. A switch takes effect
+at once, so the dialog has one button, which closes it. Under the switches is the invite, in a
+field that shows its end, with **COPY**, which puts it on the clipboard
+(`SDL_SetClipboardText`). The field says so while the directory is still being asked, or can't be
+reached. A game whose `DirectoryServers` is empty keeps the port in place of the button. The
+original's games are found on the local network or joined by address.
+
 The original's Host Co-op opens `multiplayer_sessions_screen` (`0x0043CA50`). Host Deathmatch
 opens `session_loadout_screen` (`0x0044B950`). Both screens open the network session on entry
 for the host (`directplay_create_session`, `0x004BC550`). The deathmatch screen combines setup

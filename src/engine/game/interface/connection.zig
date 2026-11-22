@@ -19,6 +19,8 @@ const tooltips = @import("../itac/tooltips.zig");
 pub const background = "interface\\sinfade.tga";
 pub const shapes = "interface\\frntend3.spr";
 pub const Source = enum { internet, lan };
+/// The longest address or invite the field takes.
+pub const max_target = 224;
 pub const Server = struct {
     name: []const u8,
     description: []const u8,
@@ -34,10 +36,12 @@ const chat = @import("../chat.zig");
 pub const Debrief = @import("connection/debrief.zig");
 pub const DebriefCrew = @import("connection/debrief_crew.zig");
 
-pub const Action = union(enum) { send_chat: chat.Line, back, quit, host_lan: HostChoice.Kind, leave_session, launch_session, new_campaign, load_campaign, save_campaign, lobby_ready: bool, remove_lobby_pilot: Lobby.Admission, debrief_choice: DebriefCrew.Choice, choose_ship: scenarios.Fighter, choose_team: Lobby.Team, team_play: bool, arena_option: @import("../deathmatch.zig").Options.Setting, join: []const u8 };
+pub const Action = union(enum) { send_chat: chat.Line, back, quit, host_lan: HostChoice.Kind, leave_session, launch_session, new_campaign, load_campaign, save_campaign, lobby_ready: bool, remove_lobby_pilot: Lobby.Admission, debrief_choice: DebriefCrew.Choice, choose_ship: scenarios.Fighter, choose_team: Lobby.Team, team_play: bool, arena_option: @import("../deathmatch.zig").Options.Setting, join: []const u8, open_to: Lobby.Reach, copy_invite };
 pub const Label = widgets.Label;
 
-address: language.Text(128) = .{},
+/// The address or invite typed. An invite through a directory holds its URL, a key and a
+/// session, which is longer than any address.
+address: language.Text(max_target) = .{},
 message: Label = .{},
 busy: bool = false,
 host_available: bool = false,
@@ -204,6 +208,8 @@ pub fn frame(screen: *Connection, mouse: ui.Pointer, keys: *input.Keyboard, type
         .choose_team => |team| .{ .choose_team = team },
         .team_play => |playing| .{ .team_play = playing },
         .arena_option => |setting| .{ .arena_option = setting },
+        .open_to => |reach| .{ .open_to = reach },
+        .copy_invite => .copy_invite,
         .choose_ship => open: {
             screen.ship_picker = .{ .preview = lobby.ship };
             break :open null;

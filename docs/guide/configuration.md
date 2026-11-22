@@ -283,7 +283,41 @@ Description=Friendly deathmatches
 DirectoryServers=https://directory.example.org
 ```
 
-Direct Connect accepts an IP address or a host name, with an optional UDP port.
+A server behind a router with no forwarded port sets `Rendezvous=1`. Players then reach it
+through the first directory of `DirectoryServers`, which passes the two sides' connection signals
+to each other until they are connected. The game traffic itself never goes through the directory.
+The server publishes to that directory alone, and prints a second invite, which starts with
+`orl3:` and carries the directory, the server's key and its session in place of an address. This
+invite ends with the game: a restarted server prints a new one. Add `Unlisted=1` to keep the
+server out of the list, for the players who have its invite only. A connection through rendezvous
+works on most home networks. The few routers that give every connection a different port need a
+relay, which OpenReliant doesn't use yet
+([#1540](https://github.com/OpenReliant/openreliant/issues/1540)).
+
+```ini
+[Server]
+Name=Friday night
+DirectoryServers=https://directory.openreliant.space
+Rendezvous=1
+Unlisted=1
+```
+
+Direct Connect accepts an IP address, a host name with an optional UDP port, or an invite.
+
+### Hosting from the game
+
+**HOST GAME** on the multiplayer screen starts a game for the local network. **HOST SETUP** in
+its lobby opens the game to others:
+
+- **INTERNET GAME** lets friends anywhere join, with no port to forward. The game makes an
+  invite: **COPY** puts it on the clipboard, to paste in a message. A friend pastes it as the
+  address on the multiplayer screen and connects.
+- **SHOW IN SERVER LIST** also lists the game under INTERNET for everyone. Leave it off for a
+  private game.
+
+Both go through the first directory of the client's `DirectoryServers`, and can be changed while
+the game is in its lobby. With an empty `DirectoryServers`, a game can only be a LAN
+game.
 
 The public game browser uses `https://directory.openreliant.space` by default. To use other
 directories instead, put their URLs in the client's `starlancer.ini`.
@@ -379,6 +413,8 @@ your pilots can reach. Allow incoming UDP on `Port` and use the same port if you
 | `Description` | Empty | Description shown in directory listings |
 | `DirectoryServers` | Unset | Comma-separated directory URLs. When set, the host publishes itself to each directory |
 | `PublicAddress` | Unset | Public IP to advertise when the incoming address differs from the observed outgoing address |
+| `Rendezvous` | `0` | Let players reach the server through the first directory of `DirectoryServers`, for a server behind a router with no forwarded port. The server then publishes to that directory alone |
+| `Unlisted` | `0` | Keep the server out of the list, for players with its `orl3:` invite only. Needs `Rendezvous=1` |
 | `LanDiscovery` | `1` | Show the server in the LAN lists of players on the local network, which find servers with a `Port` from 27020 to 27027. The server answers the lists on its `Port`. Listen on `0.0.0.0` or `::` for this: a server bound to a single address may not receive the lists' broadcast queries. Only players on the same machine see a server that listens on `127.0.0.1`. Set to `0` to stay out of LAN lists |
 | `CheckUpdates` | `1` | Check for a newer OpenReliant release at startup and every six hours. Set to `0` to disable |
 | `Players` | `8` for arenas, `2` for co-op | How many pilots can join. Choose 2 to 8 for an arena or 2 to 4 for co-op |

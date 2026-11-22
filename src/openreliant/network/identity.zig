@@ -130,6 +130,69 @@ pub const DirectoryInvite = struct {
     }
 };
 
+/// An invite to a host that is reached through a directory's rendezvous: the directory, the
+/// host's key and its session. It carries no address, since such a host has none to give, and
+/// ends with the game, since each hosted game has a new session.
+pub const RendezvousInvite = struct {
+    /// The directory's URL. An invite leaves `https://` out, and keeps any other scheme.
+    origin: []const u8,
+    key: PublicKey,
+    session: [16]u8,
+    pub const prefix = "orl3:";
+    const secure = "https://";
+
+    pub fn parse(text: []const u8) !RendezvousInvite {
+        const body = std.mem.cutPrefix(u8, text, prefix) orelse return error.InvalidInvite;
+        const last = std.mem.lastIndexOfScalar(u8, body, '/') orelse return error.InvalidInvite;
+        const middle = std.mem.lastIndexOfScalar(u8, body[0..last], '/') orelse return error.InvalidInvite;
+        const origin = body[0..middle];
+        const key_text = body[middle + 1 .. last];
+        const session_text = body[last + 1 ..];
+        if (origin.len == 0 or key_text.len != 43 or session_text.len != 32) return error.InvalidInvite;
+        var key: [32]u8 = undefined;
+        std.base64.url_safe_no_pad.Decoder.decode(&key, key_text) catch return error.InvalidInvite;
+        var session: [16]u8 = undefined;
+        _ = std.fmt.hexToBytes(&session, session_text) catch return error.InvalidInvite;
+        return .{ .origin = origin, .key = PublicKey.fromBytes(key) catch return error.InvalidInvite, .session = session };
+    }
+
+    /// The directory's URL, written into `buffer` with its scheme.
+    pub fn url(invite: RendezvousInvite, buffer: []u8) ![]const u8 {
+        const schemed = std.mem.indexOf(u8, invite.origin, "://") != null;
+        return std.fmt.bufPrint(buffer, "{s}{s}", .{ if (schemed) "" else secure, invite.origin });
+    }
+
+    pub fn format(invite: RendezvousInvite, out: *Writer) Writer.Error!void {
+        var key_text: [43]u8 = undefined;
+        const key = std.base64.url_safe_no_pad.Encoder.encode(&key_text, &invite.key.toBytes());
+        const origin = std.mem.cutPrefix(u8, invite.origin, secure) orelse invite.origin;
+        try out.print(prefix ++ "{s}/{s}/{s}", .{ origin, key, std.fmt.bytesToHex(invite.session, .lower) });
+    }
+};
+
+test RendezvousInvite {
+    const pair = std.crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(9)) catch unreachable;
+    var buffer: [256]u8 = undefined;
+    var url_buffer: [128]u8 = undefined;
+    // The secure scheme is left out of the invite and put back for the request.
+    const shared: RendezvousInvite = .{ .origin = "https://directory.example", .key = pair.public_key, .session = @splat(0xAB) };
+    const text = try std.fmt.bufPrint(&buffer, "{f}", .{shared});
+    try std.testing.expect(std.mem.startsWith(u8, text, "orl3:directory.example/"));
+    const read = try RendezvousInvite.parse(text);
+    try std.testing.expectEqualStrings("directory.example", read.origin);
+    try std.testing.expectEqualStrings("https://directory.example", try read.url(&url_buffer));
+    try std.testing.expectEqual(shared.session, read.session);
+    try std.testing.expectEqualSlices(u8, &pair.public_key.toBytes(), &read.key.toBytes());
+    // Another scheme, as a directory on this machine has, is kept.
+    const local: RendezvousInvite = .{ .origin = "http://127.0.0.1:8080", .key = pair.public_key, .session = @splat(1) };
+    var second: [256]u8 = undefined;
+    const kept = try RendezvousInvite.parse(try std.fmt.bufPrint(&second, "{f}", .{local}));
+    try std.testing.expectEqualStrings("http://127.0.0.1:8080", try kept.url(&url_buffer));
+    for ([_][]const u8{ "orl3:", "orl3:directory.example", "orl3:directory.example/short/00", "orl1:directory.example/a/b", "orl3:/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/00000000000000000000000000000000" }) |bad| {
+        try std.testing.expectError(error.InvalidInvite, RendezvousInvite.parse(bad));
+    }
+}
+
 // Field numbers from steamnetworkingsockets_messages_certs.proto. Only the fields this issuer
 // sets are encoded here. GameNetworkingSockets reads them and checks the signature.
 const CertField = enum(u5) { key_type = 1, key_data = 2, time_created = 8, time_expiry = 9, app_ids = 10, identity_string = 12 };
