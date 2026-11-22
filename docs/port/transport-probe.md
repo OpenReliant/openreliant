@@ -102,6 +102,14 @@ after restart and that a pilot can leave and return during a round. A separate S
 starts the host with managed identity files and verifies that both active pilots and the returning
 pilot see the beacon in the same position after a carrier leaves.
 
+With `--game-dir`, the check also flies a long Tag Bomb round, in whose rocks the pilots' fighters
+die of collisions ([#1501](https://github.com/OpenReliant/openreliant/issues/1501)). The terminal
+client prints each view of a dying ship as `dying <view tick> <slot> <generation> <ticks of
+spin-out left, or -1>`, and `death over` for the view it is gone in. A fighter that may spin does
+so for 200 to 399 ticks. Each pilot has to see a spin-out count down to the same tick, whichever
+views its link lost, see its end, and see the ship gone soon after. A pilot who joins while a
+fighter spins has to see the rest of the same spin-out. `--only deaths` runs this alone.
+
 The check also joins a host with two clients that misbehave on purpose (`faulty.zig`), while two
 pilots fly ([#1432](https://github.com/OpenReliant/openreliant/issues/1432)):
 
