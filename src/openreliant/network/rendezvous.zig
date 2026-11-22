@@ -200,8 +200,18 @@ stun_buffer: [256:0]u8 = @splat(0),
 token: ?[token_len]u8 = null,
 token_lock: std.atomic.Value(bool) = .init(false),
 
-/// The one rendezvous the transport's signals go out through.
+/// The one rendezvous the transport's signals go out through, guarded by `active_lock`: the
+/// transport's thread reads it while the game's may be taking it away.
 var active: ?*Rendezvous = null;
+var active_lock: std.atomic.Value(bool) = .init(false);
+
+fn lockActive() void {
+    while (active_lock.swap(true, .acquire)) std.atomic.spinLoopHint();
+}
+
+fn unlockActive() void {
+    active_lock.store(false, .release);
+}
 
 comptime {
     if (@import("network_options").enabled) @export(&signalOut, .{ .name = "session_signal_out" });
@@ -209,8 +219,10 @@ comptime {
 
 /// What the transport calls with a signal to send, on its own thread.
 fn signalOut(exchange: u32, signal: [*]const u8, size: c_int) callconv(.c) bool {
-    const rendezvous = active orelse return false;
     if (size <= 0) return false;
+    lockActive();
+    defer unlockActive();
+    const rendezvous = active orelse return false;
     return rendezvous.outbox.push(exchange, signal[0..@intCast(size)]);
 }
 
@@ -227,18 +239,22 @@ pub fn create(directory: []const u8, role: Role) !*Rendezvous {
     if (trimmed.len == 0 or trimmed.len > rendezvous.origin_buffer.len) return error.InvalidDirectory;
     @memcpy(rendezvous.origin_buffer[0..trimmed.len], trimmed);
     rendezvous.origin_len = trimmed.len;
-    active = rendezvous;
-    errdefer active = null;
     rendezvous.thread = try std.Thread.spawn(.{}, run, .{rendezvous});
+    lockActive();
+    defer unlockActive();
+    active = rendezvous;
     return rendezvous;
 }
 
 /// Stops the thread, waits for it and frees the record. A request on its way gets
 /// `request_timeout` at most.
 pub fn destroy(rendezvous: *Rendezvous) void {
+    // No signal goes into the record from here on, so that it can be freed.
+    lockActive();
+    if (active == rendezvous) active = null;
+    unlockActive();
     rendezvous.stop.store(true, .release);
     if (rendezvous.thread) |thread| thread.join();
-    if (active == rendezvous) active = null;
     web.allocator.destroy(rendezvous);
 }
 
