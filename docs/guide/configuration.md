@@ -272,6 +272,9 @@ URLs with commas. Set `Description` for the browser. `PublicAddress` is optional
 the public IP when the host's incoming address differs from its outgoing address. Directory
 advertisement uses the host's automatically managed identity.
 It is not available with an externally managed `RootPublicKey` and `Certificate`.
+When the server stops, it asks each directory to withdraw its listing, and waits at most two
+seconds for each. If a directory can't be reached then, the listing goes when its lease runs
+out, 90 seconds after the last update.
 
 ```ini
 [Server]
