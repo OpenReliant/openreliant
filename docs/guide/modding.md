@@ -509,6 +509,16 @@ sRGB-encoded, as a PNG's are.
 
 **Improvement:** the original only uses the textures in its cache, at most 256x256.
 
+### Memory
+
+High-resolution pictures take a lot of memory: a 4096x4096 picture with a normal map and a
+material map takes about 67 MB compressed. OpenReliant gives the mods' pictures a sixth of the
+computer's memory, which the log's `textures` line says as it starts. Once they have taken it,
+further pictures are drawn smaller, at half the size or less, and the log names each one. A
+player with many high-resolution mods on a computer with little memory then sees some ships less
+sharp, rather than the game running out of memory. TEXTURE DETAIL at MEDIUM draws every picture at
+256 pixels.
+
 ### Textures in the loadout
 
 The loadout draws the ships in green and the missiles and guns in red. The game keeps a green and a

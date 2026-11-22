@@ -178,7 +178,12 @@ fn inflatedKtx2(gpa: Allocator, container: Container, name: []const u8, bytes: [
 /// it keeps; `compressor` compresses it, where the device takes compressed textures. With `copy`,
 /// it is that copy of the picture (`copies`), kept by the compressor under the copy's own name.
 pub fn load(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: u32, compressor: ?Compressor, copy: ?Copy) Allocator.Error!?Image {
-    var started = try start(gpa, files, name, longest, compressor, copy);
+    return loadWithin(gpa, files, name, longest, compressor, copy, null);
+}
+
+/// `load`, the picture taking `room` bytes at most where it can (`sideFor`); null for any size.
+pub fn loadWithin(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: u32, compressor: ?Compressor, copy: ?Copy, room: ?u64) Allocator.Error!?Image {
+    var started = try start(gpa, files, name, longest, compressor, copy, room);
     switch (started) {
         .none => return null,
         .kept => |kept| return kept,
@@ -188,6 +193,50 @@ pub fn load(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: u
             return loading.finish();
         },
     }
+}
+
+/// The longest side a picture keeps where the memory for the mods' pictures is spent: the
+/// original's limit at its HIGH texture detail (`xtrabits.TextureDetail.medium`).
+pub const scarce_side = 256;
+
+/// About how many bytes a picture of `size` takes with its mipmaps, drawn with its longest side
+/// `side` at most, in `planes` planes: the picture and each of its maps. Compressed, a plane
+/// takes a byte a pixel, in BC7 as in BC5; uncompressed, four.
+pub fn cost(size: [2]u32, planes: u32, compressed: bool, side: u32) u64 {
+    const longer = @max(size[0], size[1], 1);
+    const kept = @min(side, longer);
+    const width = @max(@as(u64, size[0]) * kept / longer, 1);
+    const height = @max(@as(u64, size[1]) * kept / longer, 1);
+    const per_pixel: u64 = if (compressed) 1 else 4;
+    // A picture's mipmaps add a third to its finest level.
+    return width * height * per_pixel * planes * 4 / 3;
+}
+
+/// The longest side a picture of `size` in `planes` planes keeps, `longest` at most, so as to
+/// take `room` bytes at most: halved until it fits, down to `scarce_side`. A picture that loses
+/// its finest level takes a quarter of the memory.
+pub fn sideFor(size: [2]u32, planes: u32, compressed: bool, longest: u32, room: u64) u32 {
+    var side = @min(longest, @max(size[0], size[1]));
+    while (side > scarce_side and cost(size, planes, compressed, side) > room) side = @max(side / 2, scarce_side);
+    return side;
+}
+
+test sideFor {
+    const size: [2]u32 = .{ 4096, 4096 };
+    // A 4096 by 4096 picture with two maps, compressed, takes about 67 MB.
+    try std.testing.expectEqual(67_108_864, cost(size, 3, true, 4096));
+    try std.testing.expectEqual(268_435_456, cost(size, 3, false, 4096));
+    // With room for it, it keeps every pixel, or the texture detail's limit.
+    try std.testing.expectEqual(4096, sideFor(size, 3, true, 8192, 100_000_000));
+    try std.testing.expectEqual(1024, sideFor(size, 3, true, 1024, 100_000_000));
+    // Short of room, it loses levels until it fits, each a quarter of the last.
+    try std.testing.expectEqual(2048, sideFor(size, 3, true, 8192, 60_000_000));
+    try std.testing.expectEqual(1024, sideFor(size, 3, true, 8192, 5_000_000));
+    // With none, it keeps what the original's HIGH did, never less.
+    try std.testing.expectEqual(scarce_side, sideFor(size, 3, true, 8192, 0));
+    try std.testing.expectEqual(128, sideFor(.{ 128, 64 }, 1, false, 8192, 0));
+    // A picture that isn't square is sized by its longer side.
+    try std.testing.expectEqual(4096, sideFor(.{ 8192, 4096 }, 1, true, 8192, 12_000_000));
 }
 
 /// How a picture's loading starts (`start`).
@@ -203,7 +252,10 @@ pub const Started = union(enum) {
 /// Starts loading the picture `name` as `load` loads it: reads its files, and takes it from the
 /// compressor where it kept it. What's left, decoding the files, can then run on a thread of its
 /// own (`Loading.decode`), beside other pictures', as `srtexture.Table.prefetch` runs it.
-pub fn start(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: u32, compressor: ?Compressor, copy: ?Copy) Allocator.Error!Started {
+///
+/// With `room`, the picture keeps fewer of its finest levels where it would take more bytes than
+/// that (`sideFor`), which the log says.
+pub fn start(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: u32, compressor: ?Compressor, copy: ?Copy, room: ?u64) Allocator.Error!Started {
     var loading: Loading = .{ .gpa = gpa, .longest = longest, .compressor = compressor, .copy = copy };
     errdefer loading.deinit();
     try loading.read.fill(gpa, files, name);
@@ -211,7 +263,20 @@ pub fn start(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: 
         loading.deinit();
         return .none;
     }
-    loading.key = loading.read.key(longest, copy);
+    if (sizeOf(loading.read.picture.?)) |size| {
+        var planes: u32 = 1;
+        for (loading.read.maps.values) |map| planes += @intFromBool(map != null);
+        const compressed = compressor != null;
+        if (room) |bytes| {
+            const fitted = sideFor(size, planes, compressed, longest, bytes);
+            if (fitted < @min(longest, @max(size[0], size[1]))) {
+                log.info("{s} keeps {d} of its {d} pixels: the mods' textures have used the memory set aside for them", .{ name, fitted, @max(size[0], size[1]) });
+            }
+            loading.longest = fitted;
+        }
+        loading.estimate = cost(size, planes, compressed, loading.longest);
+    }
+    loading.key = loading.read.key(loading.longest, copy);
     loading.kept_name = if (copy) |made| try gpa.print("{c}{s}", .{ made.letter(), name }) else try gpa.dupe(u8, name);
     if (compressor) |held| if (try held.load(gpa, loading.kept_name, &loading.key)) |kept| {
         loading.deinit();
@@ -233,6 +298,8 @@ pub const Loading = struct {
     kept_name: []u8 = &.{},
     /// What `decode` made: the image, null where the files can't be read, or the error.
     decoded: Allocator.Error!?Image = null,
+    /// About how many bytes the picture will take, with its maps (`cost`).
+    estimate: u64 = 0,
 
     pub fn deinit(loading: *Loading) void {
         const gpa = loading.gpa;

@@ -428,6 +428,12 @@ pub fn openUrl(url: [:0]const u8) Error!void {
     if (!c.SDL_OpenURL(url)) return fail("SDL_OpenURL");
 }
 
+/// The computer's memory in bytes (`SDL_GetSystemRAM`), or null where SDL can't tell.
+pub fn systemMemory() ?u64 {
+    const megabytes = c.SDL_GetSystemRAM();
+    return if (megabytes > 0) @as(u64, @intCast(megabytes)) * 1024 * 1024 else null;
+}
+
 /// Puts `text` on the clipboard (`SDL_SetClipboardText`), for the player to paste elsewhere.
 pub fn setClipboard(text: [:0]const u8) Error!void {
     if (!c.SDL_SetClipboardText(text)) return fail("SDL_SetClipboardText");

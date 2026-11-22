@@ -112,6 +112,12 @@ fn panicked(message: []const u8, first: ?usize) noreturn {
     std.debug.defaultPanic(message, first);
 }
 
+/// The share of the computer's memory the mods' pictures may take: a sixth
+/// (`srtexture.Table.budget`). The device keeps one copy, and for a moment the game another.
+const texture_memory_share = 6;
+/// The share of that the loadout's own textures may take, beside the game's.
+const loadout_budget_share = 2;
+
 pub fn main(init: std.process.Init) !u8 {
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
@@ -419,6 +425,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The GPU keeps its own copy of the textures, and takes the mods' pictures compressed, which
     // the texture cache keeps between runs.
     textures.release_held = true;
+    // The mods' pictures take a share of the computer's memory at most, so that a player with
+    // many high-resolution mods degrades to smaller textures rather than running out of memory.
+    // An integrated GPU's video memory is the computer's own.
+    if (platform.window.systemMemory()) |memory| {
+        textures.budget = memory / texture_memory_share;
+        std.log.scoped(.textures).info("the mods' textures get {d} MB of the computer's {d} MB", .{ textures.budget.? / (1024 * 1024), memory / (1024 * 1024) });
+    }
     var texture_store: platform.texture_cache.Store = undefined;
     if (options.texture_compression) {
         texture_store = .{ .io = io, .root = directory, .takes = gpu.compressed };
@@ -1138,6 +1151,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .loadout_look = options.loadout_look,
                     .texture_compressor = textures.compressor,
                     .release_textures = textures.release_held,
+                    // The loadout's table lives beside the game's, for as long as the loadout.
+                    .loadout_texture_budget = if (textures.budget) |budget| budget / loadout_budget_share else null,
                     .saved = &saved_loadout,
                     .stats = tables,
                     .missile_stats = &objects.missile_stats,

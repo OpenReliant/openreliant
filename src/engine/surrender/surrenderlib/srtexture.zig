@@ -438,6 +438,14 @@ pub const Table = struct {
     /// OpenReliant's: what compresses the mods' pictures, where the device takes compressed
     /// textures; null to keep them as they are.
     compressor: ?Compressor = null,
+    /// OpenReliant's: the most bytes the mods' pictures may take in all, with their maps; null for
+    /// no limit. Once they have taken it, a picture keeps fewer of its finest levels
+    /// (`mod_pictures.sideFor`), so that the mods a player installs can't take more memory than the
+    /// computer has ([#1545](https://github.com/OpenReliant/openreliant/issues/1545)). The pictures
+    /// found first keep their full size.
+    budget: ?u64 = null,
+    /// The bytes the mods' pictures found so far take.
+    spent: u64 = 0,
     /// OpenReliant's: whether the table lets go of an image's pixels once the device holds them
     /// (`releaseHeld`): with the GPU, which keeps its own copy, and not in the tools and tests that
     /// read them.
@@ -485,6 +493,7 @@ pub const Table = struct {
     /// read, and the pictures made ready for the device, on the caller's thread.
     pub fn prefetch(table: *Table, names: []const []const u8, copy: ?Copy) Allocator.Error!void {
         const files = table.files orelse return;
+        var promised: u64 = 0;
         var started: std.ArrayList(Prefetched) = .empty;
         defer {
             for (started.items) |*item| item.deinit(table.gpa);
@@ -501,27 +510,41 @@ pub const Table = struct {
             }
             // As `make` orders them: a picture of the name, or for a copy, the copy made from a
             // picture of the name alone.
+            // What the pictures started before this one will take is theirs already.
+            const left = if (table.room()) |bytes| bytes -| promised else null;
             const outcome = if (copy) |made|
-                try mod_pictures.start(table.gpa, files, key[1..], table.longest(), table.compressor, made)
+                try mod_pictures.start(table.gpa, files, key[1..], table.longest(), table.compressor, made, left)
             else
-                try mod_pictures.start(table.gpa, files, key, table.longest(), table.compressor, null);
+                try mod_pictures.start(table.gpa, files, key, table.longest(), table.compressor, null, left);
             switch (outcome) {
                 .none => table.gpa.free(key),
-                .kept => |image| try table.keep(key, image),
-                .loading => |loading| started.append(table.gpa, .{ .key = key, .loading = loading }) catch |err| {
-                    var unwanted = loading;
-                    unwanted.deinit();
-                    table.gpa.free(key);
-                    return err;
+                .kept => |image| {
+                    table.spent += bytesOf(&image);
+                    try table.keep(key, image);
+                },
+                .loading => |loading| {
+                    promised += loading.estimate;
+                    started.append(table.gpa, .{ .key = key, .loading = loading }) catch |err| {
+                        var unwanted = loading;
+                        unwanted.deinit();
+                        table.gpa.free(key);
+                        return err;
+                    };
                 },
             }
         }
-        shareRows(started.items.len, 1, started.items, Prefetched.decode);
-        for (started.items) |*item| {
-            const image = try item.loading.finish() orelse continue;
-            const key = item.key;
-            item.key = &.{};
-            try table.keep(key, image);
+        // A few at a time: a decoded picture takes several times what it will compressed.
+        var first: usize = 0;
+        while (first < started.items.len) : (first += decoded_at_once) {
+            const batch = started.items[first..@min(first + decoded_at_once, started.items.len)];
+            shareRows(batch.len, 1, batch, Prefetched.decode);
+            for (batch) |*item| {
+                const image = try item.loading.finish() orelse continue;
+                table.spent += bytesOf(&image);
+                const key = item.key;
+                item.key = &.{};
+                try table.keep(key, image);
+            }
         }
     }
 
@@ -607,6 +630,25 @@ pub const Table = struct {
         return image;
     }
 
+    /// How many bytes the mods' pictures can still take within `budget`; null for any.
+    fn room(table: *const Table) ?u64 {
+        return (table.budget orelse return null) -| table.spent;
+    }
+
+    /// The bytes `image` takes: its levels and its maps'.
+    fn bytesOf(image: *const Image) u64 {
+        var bytes: u64 = 0;
+        for (image.levels) |level| bytes += level.texels.len;
+        for (image.maps.list()) |held| if (held) |levels| {
+            for (levels) |level| bytes += level.texels.len;
+        };
+        return bytes;
+    }
+
+    /// How many of a model's pictures `prefetch` decodes at once. A 4096 by 4096 picture with a
+    /// 16-bit normal map and a material map takes about 270 MB decoded, before it is compressed.
+    const decoded_at_once = 4;
+
     /// The longest side a mod's picture can have: the texture detail's limit, at most `max_side`.
     fn longest(table: Table) u32 {
         return @min(table.largest orelse max_side, max_side);
@@ -616,8 +658,9 @@ pub const Table = struct {
     /// device (`mod_pictures.load`), or its `copy`; null where they give none, or it can't be used.
     fn picture(table: *Table, name: []const u8, copy: ?Copy) Allocator.Error!?*Image {
         const files = table.files orelse return null;
-        var made = try mod_pictures.load(table.gpa, files, name, table.longest(), table.compressor, copy) orelse return null;
+        var made = try mod_pictures.loadWithin(table.gpa, files, name, table.longest(), table.compressor, copy, table.room()) orelse return null;
         errdefer made.deinit(table.gpa);
+        table.spent += bytesOf(&made);
         const image = try table.gpa.create(Image);
         image.* = made;
         return image;
@@ -1087,6 +1130,46 @@ test "Table.prefetch" {
     try table.prefetch(&.{ "nose", "tail" }, .green);
     try std.testing.expectEqual(null, try table.findCopy("nose", .green));
     try std.testing.expectEqual([4]u8{ 23, 255, 13, 0xFF }, (try table.findCopy("tail", .green)).?.levels[0].texels[0..4].*);
+}
+
+test "the mods' pictures keep fewer levels once they have taken the table's budget" {
+    const gpa = std.testing.allocator;
+    const bytes = try tcache.testing.build(gpa, &.{.{ .name = "hull", .encoding = .index8, .width = 2, .height = 2 }});
+    defer gpa.free(bytes);
+    const cache: tcache.Cache = try .parse(gpa, bytes);
+    defer cache.deinit(gpa);
+    const palette: tga.Palette = @splat(.{ 0, 0, 0 });
+
+    // Three mods' pictures, each 1024 by 1024: about 5.6 MB with its mipmaps, uncompressed.
+    const side = 1024;
+    const pixels = try gpa.alloc(u8, side * side * 4);
+    defer gpa.free(pixels);
+    @memset(pixels, 0x80);
+    var written: std.Io.Writer.Allocating = .init(gpa);
+    defer written.deinit();
+    try png.writeRgba(gpa, &written.writer, side, side, pixels);
+    const pictures: testing.Pictures = .{ .held = &.{
+        .{ .name = "first.png", .bytes = written.written() },
+        .{ .name = "second.png", .bytes = written.written() },
+        .{ .name = "third.png", .bytes = written.written() },
+    } };
+
+    var table: Table = .init(gpa, cache, palette);
+    defer table.deinit();
+    table.files = pictures.files();
+    // Room for one whole picture and a little more.
+    table.budget = 7_500_000;
+    // The first found keeps its size, the second what is left has room for, and the third, with
+    // nothing left, what the original's HIGH kept.
+    try std.testing.expectEqual(side, (try table.find("first")).?.width());
+    try std.testing.expectEqual(512, (try table.find("second")).?.width());
+    try std.testing.expectEqual(mod_pictures.scarce_side, (try table.find("third")).?.width());
+    try std.testing.expect(table.spent <= table.budget.? + mod_pictures.cost(.{ side, side }, 1, false, mod_pictures.scarce_side));
+    // Without a budget, every picture keeps its size.
+    var free: Table = .init(gpa, cache, palette);
+    defer free.deinit();
+    free.files = pictures.files();
+    try std.testing.expectEqual(side, (try free.find("third")).?.width());
 }
 
 test "Table.findCopy" {

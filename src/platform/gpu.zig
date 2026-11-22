@@ -390,10 +390,32 @@ const Made = struct {
     texture: *c.SDL_GPUTexture,
 };
 
-/// The layers an array that holds `count` textures grows to: the next power of two, at most
-/// `max_layers`.
-fn grownCapacity(count: u32) u32 {
-    return @min(std.math.ceilPowerOfTwoAssert(u32, count), max_layers);
+/// The memory the finest levels of one array's layers take at most. A larger array wastes more
+/// in the layers it has yet to fill, and takes twice its size for a moment each time it grows,
+/// which a few dozen 4096 by 4096 textures in one array made gigabytes of.
+const array_bytes = 256 * 1024 * 1024;
+
+/// The most layers an array of `shape` takes: as many as `array_bytes` hold, at least one and at
+/// most `max_layers`. More textures of the shape go to another array. The game's own textures,
+/// 256 by 256 at most, get `max_layers`.
+fn mostLayers(shape: Shape) u32 {
+    const layer = @max(shape.format.size(shape.width, shape.height), 1);
+    return @intCast(std.math.clamp(array_bytes / layer, 1, max_layers));
+}
+
+test mostLayers {
+    try std.testing.expectEqual(max_layers, mostLayers(.{ .width = 256, .height = 256, .levels = 9 }));
+    // Mods' pictures: 16 of 4096 by 4096 compressed, 4 uncompressed, and 8 of 8192 by 4096.
+    try std.testing.expectEqual(16, mostLayers(.{ .width = 4096, .height = 4096, .levels = 13, .format = .bc7 }));
+    try std.testing.expectEqual(4, mostLayers(.{ .width = 4096, .height = 4096, .levels = 13 }));
+    try std.testing.expectEqual(8, mostLayers(.{ .width = 8192, .height = 4096, .levels = 14, .format = .bc7 }));
+    try std.testing.expectEqual(1, mostLayers(.{ .width = 8192, .height = 8192, .levels = 14 }));
+}
+
+/// The layers an array of `shape` that holds `count` textures grows to: the next power of two, at
+/// most `mostLayers`.
+fn grownCapacity(shape: Shape, count: u32) u32 {
+    return @min(std.math.ceilPowerOfTwoAssert(u32, count), mostLayers(shape));
 }
 
 /// The format of the arrays of material maps, whose values are linear.
@@ -1294,7 +1316,7 @@ pub const Gpu = struct {
     /// The next layer of an array of `shape` with room, or the first of a new one.
     fn newLayer(gpu: *Gpu, shape: Shape) Error!Slot {
         const index = for (gpu.arrays.items, 0..) |array, i| {
-            if (std.meta.eql(array.shape, shape) and array.count < max_layers) break i;
+            if (std.meta.eql(array.shape, shape) and array.count < mostLayers(shape)) break i;
         } else made: {
             const index = std.math.cast(u16, gpu.arrays.items.len) orelse return error.OutOfMemory;
             try gpu.arrays.ensureUnusedCapacity(gpu.gpa, 1);
@@ -1425,12 +1447,51 @@ pub const Gpu = struct {
         const size = gpu.frameSize();
         try gpu.ensureTargets(size);
         const targets = gpu.targets.?;
+        // Many large textures go up in parts first, so that the frame's own upload is small.
+        gpu.uploadInParts() catch |err| log.warn("the textures that wait go up with the frame: {t}", .{err});
         const commands = c.SDL_AcquireGPUCommandBuffer(gpu.handle) orelse return fail("SDL_AcquireGPUCommandBuffer");
         gpu.sending = 0;
         const rendered = gpu.render(commands, size, targets);
         if (!c.SDL_SubmitGPUCommandBuffer(commands)) return fail("SDL_SubmitGPUCommandBuffer");
         gpu.sent();
         return rendered;
+    }
+
+    /// The bytes of textures that go up in one transfer buffer at most, but for a single texture
+    /// larger than that. A mission's textures all wait at once as its loading ends, and one buffer
+    /// for them all took as much memory again as the textures themselves.
+    const upload_part = 256 * 1024 * 1024;
+
+    /// The bytes `item` sends up: its levels and its maps'.
+    fn uploadBytes(item: Upload) u64 {
+        var bytes: u64 = 0;
+        for ([_]?[]const srtexture.Level{item.levels} ++ item.maps.list()) |each| {
+            for (each orelse &.{}) |level| bytes += level.texels.len;
+        }
+        return bytes;
+    }
+
+    /// While more than `upload_part` bytes of textures wait, sends them up a part at a time, each
+    /// in a command buffer of its own, and waits for the GPU to finish with it, which frees its
+    /// transfer buffer. What is left goes up with the frame.
+    fn uploadInParts(gpu: *Gpu) Error!void {
+        while (true) {
+            var waiting: u64 = 0;
+            for (gpu.uploads.items) |item| waiting += uploadBytes(item);
+            if (waiting <= upload_part) return;
+            const commands = c.SDL_AcquireGPUCommandBuffer(gpu.handle) orelse return fail("SDL_AcquireGPUCommandBuffer");
+            gpu.sending = 0;
+            const copied = copied: {
+                const copy = c.SDL_BeginGPUCopyPass(commands) orelse break :copied fail("SDL_BeginGPUCopyPass");
+                defer c.SDL_EndGPUCopyPass(copy);
+                break :copied gpu.uploadTextures(copy, upload_part);
+            };
+            // The copies recorded go up whatever failed, as a frame's do (`submit`).
+            if (!c.SDL_SubmitGPUCommandBuffer(commands)) return fail("SDL_SubmitGPUCommandBuffer");
+            gpu.sent();
+            try copied;
+            _ = c.SDL_WaitForGPUIdle(gpu.handle);
+        }
     }
 
     /// Records the frame into `commands`. Capture runs finish the frame in a texture. Interactive
@@ -1751,7 +1812,7 @@ pub const Gpu = struct {
     /// Sends the frame's new textures, its vertices and indices, and the shadows' casters to the
     /// GPU.
     fn upload(gpu: *Gpu, copy: *c.SDL_GPUCopyPass) Error!void {
-        try gpu.uploadTextures(copy);
+        try gpu.uploadTextures(copy, null);
         try Geometry.upload(&gpu.geometry, gpu.handle, copy, std.mem.sliceAsBytes(gpu.vertices.items), std.mem.sliceAsBytes(gpu.indices.items));
         try gpu.shadows.upload(gpu.handle, copy);
     }
@@ -1761,8 +1822,20 @@ pub const Gpu = struct {
     /// maps of an array need. Every texture it needs and the transfer buffer are made before
     /// anything changes, so that where one can't be, nothing changes, and the uploads wait for the
     /// next frame. They are done once the frame has gone to the GPU (`sent`).
-    fn uploadTextures(gpu: *Gpu, copy: *c.SDL_GPUCopyPass) Error!void {
+    ///
+    /// With `most`, only the first of them go up, as many as take that many bytes, and at least
+    /// one: the rest wait (`uploadInParts`).
+    fn uploadTextures(gpu: *Gpu, copy: *c.SDL_GPUCopyPass, most: ?u64) Error!void {
         if (gpu.uploads.items.len == 0) return;
+        const going = going: {
+            const limit = most orelse break :going gpu.uploads.items;
+            var bytes: u64 = 0;
+            for (gpu.uploads.items, 0..) |item, index| {
+                bytes += uploadBytes(item);
+                if (bytes > limit and index != 0) break :going gpu.uploads.items[0..index];
+            }
+            break :going gpu.uploads.items;
+        };
         gpu.made.clearRetainingCapacity();
         errdefer {
             for (gpu.made.items) |made| c.SDL_ReleaseGPUTexture(gpu.handle, made.texture);
@@ -1770,7 +1843,7 @@ pub const Gpu = struct {
         }
         for (gpu.arrays.items, 0..) |array, index| {
             if (array.count <= array.capacity) continue;
-            const capacity = grownCapacity(array.count);
+            const capacity = grownCapacity(array.shape, array.count);
             try gpu.make(index, null, capacity);
             for (array.maps.values, 0..) |map, kind| {
                 if (map != null) try gpu.make(index, @fromBackingInt(@intCast(kind)), capacity);
@@ -1782,8 +1855,10 @@ pub const Gpu = struct {
             for (item.maps.list(), array.maps.values, 0..) |levels, map, kind| {
                 const map_kind: MapKind = @fromBackingInt(@intCast(kind));
                 if (levels == null or map != null or gpu.making(item.slot.array, map_kind)) continue;
-                try gpu.make(item.slot.array, map_kind, if (array.count > array.capacity) grownCapacity(array.count) else array.capacity);
+                try gpu.make(item.slot.array, map_kind, if (array.count > array.capacity) grownCapacity(array.shape, array.count) else array.capacity);
             }
+        }
+        for (going) |item| {
             for ([_]?[]const srtexture.Level{item.levels} ++ item.maps.list()) |each| {
                 for (each orelse &.{}) |level| _ = sizing.place(level.texels.len);
             }
@@ -1797,10 +1872,10 @@ pub const Gpu = struct {
         for (gpu.made.items) |made| gpu.install(copy, made);
         gpu.made.clearRetainingCapacity();
         for (gpu.arrays.items) |*array| {
-            if (array.count > array.capacity) array.capacity = grownCapacity(array.count);
+            if (array.count > array.capacity) array.capacity = grownCapacity(array.shape, array.count);
         }
         var filling: Packing = .{};
-        for (gpu.uploads.items) |item| {
+        for (going) |item| {
             const array = gpu.arrays.items[item.slot.array];
             uploadLevels(copy, transfer, mapped, &filling, array.texture, item.slot.layer, item.levels);
             for (item.maps.list(), array.maps.values) |map, texture| {
@@ -1808,7 +1883,7 @@ pub const Gpu = struct {
             }
         }
         c.SDL_UnmapGPUTransferBuffer(gpu.handle, transfer);
-        gpu.sending = gpu.uploads.items.len;
+        gpu.sending = going.len;
     }
 
     /// Makes a texture `layers` layers long for the array at `index`, its own or a map of `kind`'s,
@@ -2555,9 +2630,14 @@ test "an image whose pixels were let go of isn't sent up again" {
 }
 
 test grownCapacity {
-    try std.testing.expectEqual(32, grownCapacity(17));
-    try std.testing.expectEqual(16, grownCapacity(16));
-    try std.testing.expectEqual(max_layers, grownCapacity(max_layers));
+    const small: Shape = .{ .width = 256, .height = 256, .levels = 9 };
+    try std.testing.expectEqual(32, grownCapacity(small, 17));
+    try std.testing.expectEqual(16, grownCapacity(small, 16));
+    try std.testing.expectEqual(max_layers, grownCapacity(small, max_layers));
+    // A large texture's array stops at what `array_bytes` hold.
+    const large: Shape = .{ .width = 4096, .height = 4096, .levels = 13, .format = .bc7 };
+    try std.testing.expectEqual(8, grownCapacity(large, 5));
+    try std.testing.expectEqual(16, grownCapacity(large, 16));
 }
 
 test Slot {

@@ -109,6 +109,9 @@ pub const Context = struct {
     /// OpenReliant's: whether the loadout lets go of a texture's pixels once the device holds
     /// them (`srtexture.Table.release_held`), as it can where the GPU keeps its own copy.
     release_textures: bool = false,
+    /// OpenReliant's: the most bytes the mods' pictures may take in the loadout
+    /// (`srtexture.Table.budget`), null for no limit.
+    texture_budget: ?u64 = null,
     /// What the game's models are built with: the light maps (`Lmaps`) and the lights.
     models: srofiles.Settings = .{},
     /// How it draws the models the original draws solid.
@@ -700,6 +703,7 @@ pub const Loadout = struct {
         textures.largest = context.largest_texture;
         textures.compressor = context.texture_compressor;
         textures.release_held = context.release_textures;
+        textures.budget = context.texture_budget;
 
         // The ships the tier or the rank offers (`loadout_ships_create`, `0x00444760`), each an
         // object of the interface whose tooltip is its name (`0x00441E43` on), reached by the green
