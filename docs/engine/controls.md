@@ -472,7 +472,9 @@ OpenReliant keeps the joystick as the choice and steers with the keyboard while 
 where they are not what the file gives already ([Front end](front-end.md#controls)).
 
 `object_orders` (`aigeneric.objectOrders`) clears the two burns before each order update and, after
-it, stops them where the ship is out of fuel or its engines are disabled. Not yet ported: the special
-cases `player_controls` reads for the byte at `0x529FB8`, the player's deathmatch power-up and the
-flags at `0x51CEF8`, `0x51CEFC` and `0x51CF04`
-([#722](https://github.com/OpenReliant/openreliant/issues/722)).
+it, stops them where the ship is out of fuel or its engines are disabled. The special cases
+`player_controls` reads besides the controls are all accounted for: the chat line's byte at
+`0x529FB8`, which holds the pilot's actions while they type; the player's deathmatch power-up,
+which reverses the steering or halves the throttle (`flight.apply`, `flight.limitArenaThrottle`);
+the flags at `0x51CEF8` and `0x51CEFC` for POWERBALL WINDOW and SHIELD BALANCING; and the flag at
+`0x51CF04`, which nothing in the game sets.
