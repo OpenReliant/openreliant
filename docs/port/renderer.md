@@ -74,7 +74,10 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
   `host_statistics64` on macOS, `GlobalMemoryStatusEx` on Windows). The game keeps 1 GB back for
   the rest of the computer and halves what is left, since a picture is held twice while it
   loads. A picture that wouldn't fit keeps fewer of its finest levels, each a quarter of the last,
-  down to 256 pixels (`mod_pictures.sideFor`), which the log says. Nothing is set aside ahead. An
+  down to 256 pixels (`mod_pictures.sideFor`), which the log says. The compressor keeps a
+  picture drawn smaller in a file of its own for that size (`keptName`), so that a picture drawn
+  full size in one run and smaller in the next is compressed once at each size. Nothing is set
+  aside ahead. An
   allocation the computer can't back doesn't fail on Linux or macOS: the system swaps, and Linux
   stalls once the swap is full, so the game asks first. An integrated GPU's video memory is the
   computer's own, which is where enough mods took all of it; with a card of its own, sending

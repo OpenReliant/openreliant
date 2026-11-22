@@ -263,26 +263,54 @@ pub fn start(gpa: Allocator, files: srtexture.Files, name: []const u8, longest: 
         loading.deinit();
         return .none;
     }
+    // The side it is drawn at where memory is short, which is less than it would keep otherwise.
+    var smaller: ?u32 = null;
     if (sizeOf(loading.read.picture.?)) |size| {
         var planes: u32 = 1;
         for (loading.read.maps.values) |map| planes += @intFromBool(map != null);
         const compressed = compressor != null;
         if (room) |bytes| {
             const fitted = sideFor(size, planes, compressed, longest, bytes);
+            // A picture that fits loads as it always did, under the key it always had, so that
+            // what the compressor kept of it before still serves.
             if (fitted < @min(longest, @max(size[0], size[1]))) {
                 log.info("{s} keeps {d} of its {d} pixels: the computer has no more memory free for it", .{ name, fitted, @max(size[0], size[1]) });
+                loading.longest = fitted;
+                smaller = fitted;
             }
-            loading.longest = fitted;
         }
         loading.estimate = cost(size, planes, compressed, loading.longest);
     }
     loading.key = loading.read.key(loading.longest, copy);
-    loading.kept_name = if (copy) |made| try gpa.print("{c}{s}", .{ made.letter(), name }) else try gpa.dupe(u8, name);
+    loading.kept_name = try keptName(gpa, name, copy, smaller);
     if (compressor) |held| if (try held.load(gpa, loading.kept_name, &loading.key)) |kept| {
         loading.deinit();
         return .{ .kept = kept };
     };
     return .{ .loading = loading };
+}
+
+/// The name the compressor keeps a picture under: its own, after its copy's letter, and for one
+/// drawn smaller for lack of memory, with that side. Each size then has a file of its own, so
+/// that a picture drawn full size in one run and smaller in the next is compressed once at each
+/// size, rather than again every time the size changes.
+fn keptName(gpa: Allocator, name: []const u8, copy: ?Copy, smaller: ?u32) Allocator.Error![]u8 {
+    var buffer: [16]u8 = undefined;
+    const side = if (smaller) |pixels| std.fmt.bufPrint(&buffer, "@{d}", .{pixels}) catch unreachable else "";
+    return if (copy) |made| gpa.print("{c}{s}{s}", .{ made.letter(), name, side }) else gpa.print("{s}{s}", .{ name, side });
+}
+
+test keptName {
+    const gpa = std.testing.allocator;
+    const plain = try keptName(gpa, "hull", null, null);
+    defer gpa.free(plain);
+    try std.testing.expectEqualStrings("hull", plain);
+    const green = try keptName(gpa, "hull", .green, null);
+    defer gpa.free(green);
+    try std.testing.expectEqualStrings("ghull", green);
+    const half = try keptName(gpa, "hull", .green, 2048);
+    defer gpa.free(half);
+    try std.testing.expectEqualStrings("ghull@2048", half);
 }
 
 /// A picture whose files are read (`start`): `decode` decodes them, on any thread, and `finish`
