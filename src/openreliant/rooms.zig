@@ -99,6 +99,8 @@ pub const Driver = struct {
     /// its own, which takes both.
     texture_compressor: ?engine.surrender.surrenderlib.srtexture.Compressor = null,
     release_textures: bool = false,
+    /// What says how much memory is free for another of the mods' pictures, null to take any.
+    texture_memory: ?engine.surrender.surrenderlib.srtexture.Memory = null,
     /// The campaign's saved loadout, which the loadout starts from and keeps the ship chosen and
     /// its racks in.
     saved: *loadout.Saved,
@@ -411,6 +413,7 @@ pub const Driver = struct {
             .largest_texture = driver.details.texture.largest(),
             .texture_compressor = driver.texture_compressor,
             .release_textures = driver.release_textures,
+            .texture_memory = driver.texture_memory,
             .models = driver.models,
             .look = driver.loadout_look,
         };

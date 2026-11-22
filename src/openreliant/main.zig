@@ -112,6 +112,32 @@ fn panicked(message: []const u8, first: ?usize) noreturn {
     std.debug.defaultPanic(message, first);
 }
 
+/// How much memory the computer has free for another of the mods' pictures
+/// (`srtexture.Table.memory`): what the system says is free now (`platform.memory.available`),
+/// less what the rest of the computer keeps, halved, since while a picture loads the game holds
+/// one copy and the device another. Nothing is set aside ahead: the mods' pictures take what there
+/// is, and a picture is drawn smaller only where it wouldn't fit.
+const TextureMemory = struct {
+    io: std.Io,
+    gpa: std.mem.Allocator,
+
+    /// The memory left to the system and the other programs, which a game that took it would
+    /// push into swap.
+    const kept_free = 1024 * 1024 * 1024;
+    /// The copies of a picture in memory while it loads: the game's and the device's.
+    const copies = 2;
+
+    fn free(context: *anyopaque) ?u64 {
+        const asking: *const TextureMemory = @ptrCast(@alignCast(context));
+        const available = platform.memory.available(asking.io, asking.gpa) orelse return null;
+        return (available -| kept_free) / copies;
+    }
+
+    fn memory(asking: *TextureMemory) engine.surrender.surrenderlib.srtexture.Memory {
+        return .{ .context = asking, .free = free };
+    }
+};
+
 pub fn main(init: std.process.Init) !u8 {
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
@@ -419,6 +445,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The GPU keeps its own copy of the textures, and takes the mods' pictures compressed, which
     // the texture cache keeps between runs.
     textures.release_held = true;
+    // The mods' pictures take the memory the computer has free, and are drawn smaller where one
+    // wouldn't fit, so that a player with many high-resolution mods never runs out of memory. An
+    // integrated GPU's video memory is the computer's own.
+    var texture_memory: TextureMemory = .{ .io = io, .gpa = gpa };
+    textures.memory = texture_memory.memory();
+    if (platform.memory.available(io, gpa)) |available| {
+        std.log.scoped(.textures).info("{d} MB of memory is free as the game starts", .{available / (1024 * 1024)});
+    }
     var texture_store: platform.texture_cache.Store = undefined;
     if (options.texture_compression) {
         texture_store = .{ .io = io, .root = directory, .takes = gpu.compressed };
@@ -1138,6 +1172,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .loadout_look = options.loadout_look,
                     .texture_compressor = textures.compressor,
                     .release_textures = textures.release_held,
+                    .texture_memory = textures.memory,
                     .saved = &saved_loadout,
                     .stats = tables,
                     .missile_stats = &objects.missile_stats,

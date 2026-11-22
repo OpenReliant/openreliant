@@ -31,7 +31,7 @@ The original also has a software renderer, which runs when no Direct3D device is
 
 The GPU device draws what the driver hands over with SDL's GPU interface: Metal on macOS, Vulkan elsewhere. The driver draws a strip, a fan or a single blended polygon at a time, and the game's textures are small, so the device gathers a frame before drawing it:
 
-- Each texture is a layer of a texture array holding the textures of its width, height and number of levels, up to 256 layers, the fewest Vulkan guarantees. A texture goes up to the GPU, every level, the first time it is drawn or as the mission that loaded it starts (below), and the image keeps its array and layer as its texture, with the device that holds it (`srtexture.Image.texture`), as the driver's `texture_upload` keeps the device texture it makes.
+- Each texture is a layer of a texture array holding the textures of its width, height and number of levels, up to 256 layers, the fewest Vulkan guarantees, and at most as many as take 256 MB at their finest level (`mostLayers`): 16 compressed 4096x4096 textures, or 4 uncompressed. More textures of a shape go to another array. An array grows by doubling, so one array for dozens of large textures left up to half of it unused, and held twice its size each time it grew. A texture goes up to the GPU, every level, the first time it is drawn or as the mission that loaded it starts (below), and the image keeps its array and layer as its texture, with the device that holds it (`srtexture.Image.texture`), as the driver's `texture_upload` keeps the device texture it makes.
 - Freeing an image hands its texture back to the device, as the original's `texture_release` (`0x004CA2B0`) hands it to the driver's release (`sr + 0x4C`). This covers a screen's shapes, a font's glyphs, a movie's or a loading screen's picture, a script's picture that the cache takes out, and an outline font's atlas that outgrew its texture. An image whose pixels are freed with an arena, or belong to something else, such as a face film's frame, hands its texture back itself (`Image.releaseTexture`). Its pixels no longer go up to the GPU. From the next frame on, since the current frame may still draw from it, its layer goes to the next texture of its shape before the array grows. When `openreliant` quits, the texture table's images are freed after the GPU device closes, and the device ignores the textures they hand back: `openreliant` makes it in the arena that lasts the whole run, so its memory outlasts them.
 - Each vertex names its texture's layer, or none. Strips and fans become lists of triangles, and consecutive draws with the same primitive and render states, whose textures share an array, go to the GPU as one draw.
 - A pipeline is made as the device starts for each primitive and set of render states the driver draws with: every layer's and blend mode's in the scene, and again those that test no depth for what is drawn over the finished frame, into the [reflections](#improvements) and into what lies behind a mod's atmosphere ([Surface and lighting functions](#surface-and-lighting-functions)). The depth test is greater or equal, depth being reversed, and the blend factors are the driver's. The system compiles a pipeline's shaders for its states, which can take a quarter of a second the first time, so a pipeline made when an effect first shows would hold up its frame. Depth is clamped rather than clipped, as Direct3D 7 did not clip transformed vertices in depth, and the pipelines write colour only, as the original's back buffer kept no alpha.
@@ -65,6 +65,26 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
   (`srtexture.Compressor`), with bc7enc and rgbcx from bc7enc_rdo, built from a pinned source
   package (`deps/texture-compressor`), the rows of blocks shared out between threads
   (`platform/texture_compressor.zig`).
+- The textures that wait go up in parts of 256 MB at most, each in a command buffer of its own
+  that the GPU finishes before the next (`Gpu.uploadInParts`), where more than that wait, as when
+  a mission's loading ends. One transfer buffer for them all took as much memory again as the
+  textures.
+- Before it loads a mod's picture, the texture table asks how much memory the computer has free
+  (`srtexture.Table.memory`, `platform.memory.available`: `MemAvailable` on Linux,
+  `host_statistics64` on macOS, `GlobalMemoryStatusEx` on Windows). The game keeps 1 GB back for
+  the rest of the computer and halves what is left, since a picture is held twice while it
+  loads. A picture that wouldn't fit keeps fewer of its finest levels, each a quarter of the last,
+  down to 256 pixels (`mod_pictures.sideFor`), which the log says. The compressor keeps a
+  picture drawn smaller in a file of its own for that size (`keptName`), so that a picture drawn
+  full size in one run and smaller in the next is compressed once at each size. Nothing is set
+  aside ahead. An
+  allocation the computer can't back doesn't fail on Linux or macOS: the system swaps, and Linux
+  stalls once the swap is full, so the game asks first. An integrated GPU's video memory is the
+  computer's own, which is where enough mods took all of it; with a card of its own, sending
+  textures up takes none of the computer's memory and the check stays out of the way. A model's
+  pictures decode four at a time (`decoded_at_once`).
+  Still open: the pictures a mission loads all stay in the computer's memory until its loading
+  ends ([#1545](https://github.com/OpenReliant/openreliant/issues/1545)).
 - The loadout keeps a texture table of its own, for the green and red copies it draws its
   ships and weapons with. It takes the same compressor, and lets go of a texture's pixels once
   the device holds them, as the game's table does (`loadout.Context.texture_compressor`,

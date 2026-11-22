@@ -13,6 +13,7 @@ pub const link = @import("platform/link.zig");
 pub const logs = @import("platform/logs.zig");
 pub const shader_cache = @import("platform/shader_cache.zig");
 pub const shader_compiler = @import("platform/shader_compiler.zig");
+pub const memory = @import("platform/memory.zig");
 pub const texture_cache = @import("platform/texture_cache.zig");
 pub const texture_compressor = @import("platform/texture_compressor.zig");
 pub const video = @import("platform/video.zig");
