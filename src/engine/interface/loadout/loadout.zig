@@ -102,6 +102,13 @@ pub const Context = struct {
     /// The longest side a texture keeps, by the settings' texture detail
     /// (`srtexture.Table.largest`), null for any.
     largest_texture: ?u32 = null,
+    /// OpenReliant's: what compresses the mods' pictures for the device, as the game's own
+    /// textures have it (`srtexture.Table.compressor`); null to keep them as they are. Without it
+    /// a mod's 4096 by 4096 picture and its two maps take 268 MB for each copy the loadout shows.
+    texture_compressor: ?srtexture.Compressor = null,
+    /// OpenReliant's: whether the loadout lets go of a texture's pixels once the device holds
+    /// them (`srtexture.Table.release_held`), as it can where the GPU keeps its own copy.
+    release_textures: bool = false,
     /// What the game's models are built with: the light maps (`Lmaps`) and the lights.
     models: srofiles.Settings = .{},
     /// How it draws the models the original draws solid.
@@ -691,6 +698,8 @@ pub const Loadout = struct {
         const textures = &loadout.textures.?;
         textures.files = resources.mods.pictures();
         textures.largest = context.largest_texture;
+        textures.compressor = context.texture_compressor;
+        textures.release_held = context.release_textures;
 
         // The ships the tier or the rank offers (`loadout_ships_create`, `0x00444760`), each an
         // object of the interface whose tooltip is its name (`0x00441E43` on), reached by the green
@@ -1137,6 +1146,8 @@ pub const Loadout = struct {
     /// `loadout_frame` (`0x004433C0`): a frame of the loadout at `in`'s time and pointer, and
     /// whether it runs on (`loadout_running`). The O key asks for a screenshot.
     pub fn frame(loadout: *Loadout, in: Frame, keyboard: *input.Keyboard) Allocator.Error!bool {
+        // The textures the device took with the last frame need their pixels no longer.
+        if (loadout.textures) |*textures| textures.releaseHeld();
         const running = try loadout.step(in);
         loadout.screenshot = keyboard.pressed(@backingInt(input.Key.o), .none, true);
         return running;
