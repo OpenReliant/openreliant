@@ -380,7 +380,7 @@ equal it comes round to within a half turn either way. `node_place` places the n
 
 ## Drawing between steps
 
-The simulation steps 25 times a second, but `mission_frame` draws each object where it stands that
+The original's simulation steps 25 times a second, but `mission_frame` draws each object where it stands that
 far into the step (`0x0049A880`, for every object before the camera is placed): each node that a
 step committed a new place for is drawn `simulation_counter / 4` of the way from that place to the
 next (`node_frame_update`, `0x0049A460`). At the start of a step it is drawn at the committed
@@ -398,7 +398,8 @@ shots and missiles test what they strike against them.
 
 **Improvement:** OpenReliant runs `mission_frame`'s game work once a tick
 ([The game loop](loop.md#game-frames-and-drawn-frames)), so the frames the game reads are always
-`simulation_counter / 4` of the way through the step. Each drawn frame draws a copy of the objects
+`simulation_counter / 4` of the way through the step, or `simulation_counter / 2` of the way
+through OpenReliant's shorter step ([The step](loop.md#the-step)). Each drawn frame draws a copy of the objects
 and the missiles (`main.Drawn`), their models, guns and shield bubbles included. With smooth motion
 it places the copy further on, by how far the platform's clock has run past the tick. Whatever
 drawing changes, such as the planets the atmospheres turn or the level of detail each part is drawn

@@ -464,7 +464,7 @@ scripts on their object.
 | `side` | [Side](#side) | *Changes.* The side it's on. Setting it changes its side, as a mission's SetHostile does. |
 | `position` | vector | *Changes.* Where it is. Setting it moves it there at once, as a mission's SnapToPoint does. |
 | `orientation` | [Orientation](#orientation) | *Changes.* Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). Setting it turns it at once, its axes made unit length and at right angles first, the forward one keeping its direction. |
-| `velocity` | vector | *Changes.* How far it moves in a simulation step, of which there are 25 a second. Setting it pushes it, and its engines carry on from there. |
+| `velocity` | vector | *Changes.* How far it moves in 1/25 of a second. Setting it pushes it, and its engines carry on from there. |
 | `speed` | number | How fast it moves: the length of its velocity. |
 | `radius` | number | How far its model reaches from its middle. |
 | `is_player` | boolean | Whether it's the player's ship. |
@@ -529,7 +529,7 @@ marked *changes* on any missile, and a missile's own scripts on their missile.
 | `side` | [Side](#side) | The side it's on: its launcher's, as it was launched. |
 | `position` | vector | *Changes.* Where it is. Setting it moves it there at once. |
 | `orientation` | [Orientation](#orientation) | *Changes.* Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). Setting it turns it at once, its axes made unit length and at right angles first, and its guidance turns on from there. |
-| `velocity` | vector | *Changes.* How far it moves in a simulation step, of which there are 25 a second. Setting it pushes it, and its motor carries on from there. |
+| `velocity` | vector | *Changes.* How far it moves in 1/25 of a second. Setting it pushes it, and its motor carries on from there. |
 | `speed` | number | How fast it moves: the length of its velocity. |
 
 | Method | Returns | What it does |

@@ -401,7 +401,7 @@ pub const Pieces = struct {
 /// to `first_tumble` either way about each axis a tick (`0x004DC610`), trailing smoke for its
 /// flight, two to five seconds; the rest cut again, in two for the second and four for the third,
 /// each flying away at `second_speed` a step times the cuts (`0x004DC72C`). Each carries on with
-/// the ship's velocity, and moves at a quarter of that a tick (`objects.tick_share`).
+/// the ship's velocity, and moves at a quarter of that a tick (`objects.velocity_tick_share`).
 const first_speed: f32 = 14;
 const first_speed_range: f32 = 10;
 const first_tumble: f32 = 0.04;
@@ -497,7 +497,7 @@ fn breakUpPart(explosions: *explode.Explosions, world: gameobj.World, motion: Fl
             const tumble = random.centredVector(@splat(first_tumble));
             explosions.pieces.add(.{
                 .until = @as(i32, random.below(flight_range)) + first_flight + now,
-                .velocity = away(piece.object.position, centre, speed, carried, objects.tick_share),
+                .velocity = away(piece.object.position, centre, speed, carried, objects.velocity_tick_share),
                 .tumble = tumble,
                 .trail = trailFrom(kind, now),
                 .piece = piece,
@@ -512,7 +512,7 @@ fn breakUpPart(explosions: *explode.Explosions, world: gameobj.World, motion: Fl
             const tumble = random.centredVector(@splat(count * kind.tumble()));
             explosions.pieces.add(.{
                 .until = @as(i32, random.below(flight_range)) + kind.flight() + now,
-                .velocity = away(flying.object.position, centre, count * second_speed, carried, objects.tick_share),
+                .velocity = away(flying.object.position, centre, count * second_speed, carried, objects.velocity_tick_share),
                 .tumble = tumble,
                 .piece = flying,
             });

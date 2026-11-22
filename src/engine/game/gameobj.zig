@@ -1980,7 +1980,8 @@ pub fn rechargeShields(object: *GameObject, combat: *const create.ShipCombat, re
     }
     if (object.power_up == .no_shield_recharge) return;
     const full = combat.fullShields() - 1;
-    const rate = full * object.shield_factor * object.shield_condition / (combat.shield_recharge * recharge_steps);
+    // The recharge is counted per original step, and a step gives its share of it.
+    const rate = step_share * full * object.shield_factor * object.shield_condition / (combat.shield_recharge * recharge_steps);
     for (std.enums.values(collision.Quadrant)) |quadrant| {
         const shield = object.shields.at(quadrant);
         var most = full;
@@ -2043,15 +2044,67 @@ test objectAlloc {
 
 // --- The simulation's step ---------------------------------------------------------------
 
-/// The game ticks a simulation step takes: it steps on every fourth.
-pub const ticks_per_step = 4;
+/// The game ticks the original's simulation step takes: `simulation_step` (`0x004774D0`) does its
+/// work on every fourth tick, 25 times a second. The ships' and the missiles' speeds, turn rates
+/// and inertias, the shots' speeds and the parts' animation speeds are all counted per one of
+/// these, in the game's files and in its code.
+pub const original_ticks_per_step = 4;
 
-/// The simulation steps due at tick `now` since tick `paced_at`, which moves on by them: for what
+/// The game ticks a simulation step takes.
+///
+/// **Improvement:** OpenReliant steps on every second tick, 50 times a second, where the original
+/// steps on every fourth. A pilot's controls then reach the ship in half the time, a ship is
+/// drawn half as far behind its place, and collisions are checked twice as often
+/// ([#1530](https://github.com/OpenReliant/openreliant/issues/1530)). It plays differently, so
+/// `--original` doesn't bring the longer step back.
+///
+/// Everything keeps the original's units. A step applies its share of a speed or a turn
+/// (`step_share`), and keeps `kept` of what a quantity kept over an original step, so a ship
+/// reaches the same speeds and rates in the same time. What the original does once a step and
+/// counts in whole steps stays at 25 a second (`onOriginalGrid`).
+pub const ticks_per_step = 2;
+
+/// How much of an original step one step covers.
+pub const step_share: f32 = @as(f32, ticks_per_step) / original_ticks_per_step;
+
+/// What a quantity keeps of itself over one step, where it keeps `inertia` over an original step:
+/// the share that, kept once for each step of an original one, comes to `inertia`.
+pub fn kept(inertia: f32) f32 {
+    return std.math.pow(f32, inertia, step_share);
+}
+
+test kept {
+    // Two steps keep what one original step kept.
+    try std.testing.expectApproxEqAbs(0.87, kept(0.87) * kept(0.87), 1e-6);
+    try std.testing.expectEqual(1, kept(1));
+    try std.testing.expectEqual(0, kept(0));
+}
+
+/// Whether the step at the clock's tick falls on the original's grid of 25 steps a second. The
+/// guns fire and recharge there, so that a gun whose interval isn't a whole number of original
+/// steps fires as often as it does in the original, and mods' `on_step` handlers run there, as the
+/// reference gives them.
+pub fn onOriginalGrid(clock: *const Clock) bool {
+    return @rem(clock.mission_ticks, original_ticks_per_step) < ticks_per_step;
+}
+
+test onOriginalGrid {
+    var clock: Clock = .{};
+    var on: u32 = 0;
+    for (0..100) |tick| {
+        clock.mission_ticks = @intCast(tick);
+        if (tick % ticks_per_step == 0 and onOriginalGrid(&clock)) on += 1;
+    }
+    try std.testing.expectEqual(25, on);
+}
+
+/// The original's simulation steps (`original_ticks_per_step`) due at tick `now` since tick
+/// `paced_at`, which moves on by them: for what
 /// OpenReliant paces by the steps where the game paces it by the frames, so that it keeps its pace
 /// whatever the frame rate.
 pub fn stepsDue(paced_at: *i32, now: i32) u32 {
-    const due: u32 = @intCast(@divFloor(@max(now -% paced_at.*, 0), ticks_per_step));
-    paced_at.* +%= @intCast(due * ticks_per_step);
+    const due: u32 = @intCast(@divFloor(@max(now -% paced_at.*, 0), original_ticks_per_step));
+    paced_at.* +%= @intCast(due * original_ticks_per_step);
     return due;
 }
 
@@ -2279,8 +2332,9 @@ pub const World = struct {
     }
 };
 
-/// `simulation_step` (`0x004774D0`): the work of every fourth tick, so 25 times a second, which
-/// is why the [flight model](../../../docs/engine/objects.md#motion) moves at that rate.
+/// `simulation_step` (`0x004774D0`): in the original the work of every fourth tick, so 25 times a
+/// second, which is the rate the [flight model](../../../docs/engine/objects.md#motion) is
+/// counted in.
 /// **Unverified:** it and `game_tick` lie after this file's known code, before `guns.cpp`'s. It
 /// reads the input devices and moves `simulation_turn` on (`nextTurn`). Then each live object in
 /// the loops' order (`create.Objects.walk`), stand-ins and disabled ones passed over, has its own
@@ -2292,6 +2346,9 @@ pub const World = struct {
 ///
 /// **Improvement:** each participant's control order receives this extra update before movement.
 /// Remote orders apply commands without reading local devices.
+///
+/// **Improvement:** it runs on every second tick (`ticks_per_step`). The guns' step and mods'
+/// `on_step` handlers keep to every fourth (`onOriginalGrid`).
 pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool {
     clock.simulation_counter += 1;
     if (clock.simulation_counter < ticks_per_step) return false;
@@ -2299,6 +2356,7 @@ pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool
     if (!world.presentation_only) devices.read();
     clock.simulation_counter = 0;
     const all = world.objects;
+    const on_grid = onOriginalGrid(clock);
     const turn = nextTurn(clock, all.count);
     var slots = all.walk();
     while (slots.next()) |index| {
@@ -2314,7 +2372,7 @@ pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool
         // The host skips it only for the Shadow's fighter.
         if (world.damage_rules != .arena or !@import("dmscenarios/hunt_the_shadow.zig").isShadow(all, index))
             rechargeShields(object, combat, if (all.playerState(index)) |state| state.shield_reserves else null);
-        guns.step(world, clock, index);
+        if (on_grid) guns.step(world, clock, index);
     }
     // Each participant's controls run again before movement, at the original local player's
     // extra physical-step update. Remote orders read commands, never this machine's devices.
@@ -2331,7 +2389,7 @@ pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool
     if (world.presentation_only) return true;
     missiles.move(world.objects);
     guns.moveBullets(world);
-    if (all.scripts) |scripts| scripts.step();
+    if (on_grid) if (all.scripts) |scripts| scripts.step();
     return true;
 }
 
@@ -2723,7 +2781,8 @@ fn visit(model: *objects.Model, index: usize, windows: *Windows, events: ?Events
     if (a.track >= a.tracks.len) return;
     const track = &a.tracks[a.track];
     const was = a.time;
-    const time = a.speed + a.time;
+    // The track's speed is per original step.
+    const time = a.speed * step_share + a.time;
     a.time = time;
     const length: f32 = @floatFromInt(track.clip.length);
     if (length > 0) switch (a.mode) {
@@ -2981,7 +3040,7 @@ test rechargeShields {
     object.shield_condition = 1;
     const combat = std.mem.zeroInit(create.ShipCombat, .{ .shield_power = 8, .shield_recharge = 10 });
     // From empty, the full charge, 47, comes back over the ten seconds of steps, and no further.
-    for (0..249) |_| rechargeShields(&object, &combat, null);
+    for (0..10 * 100 / ticks_per_step - 1) |_| rechargeShields(&object, &combat, null);
     try std.testing.expect(object.shields.left < 47);
     rechargeShields(&object, &combat, null);
     try std.testing.expectApproxEqAbs(47, object.shields.left, 1e-3);
@@ -3196,6 +3255,7 @@ test "each participant receives the extra physical-step control update" {
     var devices: input.Devices = .{};
     mission.clock.simulation_counter = ticks_per_step - 1;
     try std.testing.expect(simulationStep(&mission.clock, &devices, mission.world()));
-    try std.testing.expectApproxEqAbs(0.02, all.playerState(first).?.controls.throttle, 1e-6);
-    try std.testing.expectApproxEqAbs(0.02, all.playerState(second).?.controls.throttle, 1e-6);
+    // The throttle key's ramp of 0.02 an original step, of which this step is a share.
+    try std.testing.expectApproxEqAbs(0.02 * step_share, all.playerState(first).?.controls.throttle, 1e-6);
+    try std.testing.expectApproxEqAbs(0.02 * step_share, all.playerState(second).?.controls.throttle, 1e-6);
 }

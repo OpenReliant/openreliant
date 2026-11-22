@@ -3111,8 +3111,9 @@ test objectsUpdate {
         slot.motion = null;
     }
     objectsUpdate(mission.world());
-    // The first moves on; the disabled and the frozen ones stay where they are.
-    try std.testing.expectEqual(10, all.slots[0].object.root.next_position.z);
+    // The first moves on by a step's share of its velocity; the disabled and the frozen ones stay
+    // where they are.
+    try std.testing.expectEqual(10 * gameobj.step_share, all.slots[0].object.root.next_position.z);
     try std.testing.expectEqual(0, all.slots[1].object.root.next_position.z);
     try std.testing.expectEqual(0, all.slots[2].object.root.next_position.z);
 }

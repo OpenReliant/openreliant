@@ -3034,7 +3034,7 @@ test Drawn {
     // Halfway through a step that takes the ship from 0 to 100, the game frame frames it at 50.
     slot.object.root.flags.committed = true;
     slot.object.root.next_position = .{ .x = 100, .y = 0, .z = 0 };
-    mission.clock.simulation_counter = 2;
+    mission.clock.simulation_counter = gameobj.ticks_per_step / 2;
     frameObjects(mission.objects, .atTick(&mission.clock, .together), 0);
     try std.testing.expectEqual(math.Vector{ 50, 0, 0 }, slot.drawn.position);
     const framed = slot.object;
@@ -3042,13 +3042,13 @@ test Drawn {
 
     var copies: Drawn = try .init(gpa);
     defer copies.deinit();
-    // Half a tick past the tick, the drawn frame draws it an eighth of the step further on, and
+    // Half a tick past the tick, the drawn frame draws it half a tick's share of the step further on, and
     // the game's ship stays where the game frame framed it. The frame reads copies of the game's
     // records too: the player's, with the view, and the clock.
     mission.clock.past_tick = 0.5;
     mission.player.viewing.view = .chase;
     const copy = try copies.take(mission.world(), .of(&mission.clock, true, .together));
-    try std.testing.expectEqual(math.Vector{ 62.5, 0, 0 }, copy.slots[ship].drawn.position);
+    try std.testing.expectEqual(math.Vector{ 50 + 100 * 0.5 / @as(f32, gameobj.ticks_per_step), 0, 0 }, copy.slots[ship].drawn.position);
     try std.testing.expectEqual(camera.View.chase, copies.player.viewing.view);
     try std.testing.expectEqual(0.5, copies.clock.past_tick);
     mission.player.viewing.view = .cockpit;
@@ -3182,17 +3182,17 @@ test runLock {
     try std.testing.expectEqual(lock.Phase.idle, weapons.lock.phase);
 }
 
-test "the simulation steps on every fourth tick" {
+test "the simulation steps on every second tick" {
     var devices: input.Devices = .{};
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     // The world's clock is the one that ticks.
     const clock = &mission.clock;
-    // A second of the timer: 100 ticks, 100 game ticks, 25 steps.
+    // A second of the timer: 100 ticks, 100 game ticks, 50 steps.
     clock.advanceTimer(100);
     try std.testing.expectEqual(100, clock.game_ticks);
-    try std.testing.expectEqual(25, clock.runTicks(&devices, mission.world()));
+    try std.testing.expectEqual(100 / gameobj.ticks_per_step, clock.runTicks(&devices, mission.world()));
     try std.testing.expectEqual(100, clock.mission_ticks);
     // The ticks already run are not run again.
     try std.testing.expectEqual(0, clock.runTicks(&devices, mission.world()));
@@ -3216,7 +3216,7 @@ test "a paused game stops its clocks but not the timer" {
     // Paused ticks are counted only for the game ticks the loop asks for.
     clock.paused = false;
     clock.advanceTimer(4);
-    try std.testing.expectEqual(1, clock.runTicks(&devices, mission.world()));
+    try std.testing.expectEqual(4 / gameobj.ticks_per_step, clock.runTicks(&devices, mission.world()));
     try std.testing.expectEqual(12, clock.mission_ticks);
 }
 
@@ -3298,13 +3298,13 @@ test "the clocks keep to the platform's count however the frames fall" {
         clock.advanceTo(now);
         steps += clock.runTicks(&devices, mission.world());
     }
-    // Every hundredth between the first count and the last is a tick, and every fourth a step.
+    // Every hundredth between the first count and the last is a tick, and every second a step.
     const elapsed: u32 = @intCast(now - began);
     try std.testing.expectEqual(520, elapsed);
     try std.testing.expectEqual(elapsed, clock.timer_ticks);
     try std.testing.expectEqual(elapsed, clock.game_ticks);
     try std.testing.expectEqual(@as(i32, @intCast(elapsed)), clock.mission_ticks);
-    try std.testing.expectEqual(elapsed / 4, steps);
+    try std.testing.expectEqual(elapsed / gameobj.ticks_per_step, steps);
     // Frames shorter than a tick neither run one nor lose one: the count rules.
     try std.testing.expectEqual(now, clock.timer_at);
 }
@@ -3362,11 +3362,11 @@ test "the frame rate is decoupled from the tick rate" {
             clock.frameBegin();
             drawn += 1;
         }
-        // However often it drew, a second of play is 100 ticks and 25 simulation steps.
+        // However often it drew, a second of play is 100 ticks and 50 simulation steps.
         try std.testing.expectEqual(frames, drawn);
         try std.testing.expectEqual(100, clock.game_ticks);
         try std.testing.expectEqual(100, clock.mission_ticks);
-        try std.testing.expectEqual(25, steps);
+        try std.testing.expectEqual(100 / gameobj.ticks_per_step, steps);
     }
 }
 
@@ -3386,7 +3386,7 @@ test "a frame faster than the tick runs none, and a slow one runs the lot" {
     }
     // One frame that took a quarter of a second catches up all 25 ticks at once.
     clock.advanceTo(25);
-    try std.testing.expectEqual(6, clock.runTicks(&devices, mission.world()));
+    try std.testing.expectEqual(25 / gameobj.ticks_per_step, clock.runTicks(&devices, mission.world()));
     clock.frameBegin();
     try std.testing.expectEqual(25, clock.frame_duration);
 }

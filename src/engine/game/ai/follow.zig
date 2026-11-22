@@ -121,7 +121,7 @@ pub const Step = enum(u8) {
 
 /// How far along the path, in ticks, the ship looks from its start for the way to face as it
 /// arrives there: a simulation step, which the game holds as a float (`0x004DC424`).
-const lead_ticks: f32 = gameobj.ticks_per_step;
+const lead_ticks: f32 = gameobj.original_ticks_per_step;
 
 /// Game ticks to a second, which the game holds as a float (`0x004DC440`).
 const ticks_per_second: f32 = main.ticks_per_second;

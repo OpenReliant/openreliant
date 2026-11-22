@@ -28,6 +28,42 @@ How the payload paces a mission: a timer ticks 100 times a second, the loop runs
 
 The rates and speeds of the [flight model](objects.md#motion) are therefore measured per 1/25 of a second. Afterburner fuel burns 4 units per update from the ship's 100 per second stat, lasting that many seconds. Each frame draws moving objects interpolated between their last two positions based on elapsed ticks since the step ([Drawing between steps](objects.md#drawing-between-steps)), so visual motion advances 100 times a second.
 
+## The step
+
+**Improvement:** OpenReliant runs the simulation step on every second tick, 50 times a second
+(`gameobj.ticks_per_step`), where the original runs it on every fourth
+([#1530](https://github.com/OpenReliant/openreliant/issues/1530)). A pilot's controls then reach
+the ship in half the time, each object is drawn half as far behind its place
+([Drawing between steps](objects.md#drawing-between-steps)), and collisions are checked twice as
+often. It changes how the game plays, not how it looks, so `--original` keeps the shorter step.
+
+The original's units stay. Speeds, turn rates, inertias, the shots' speeds and the parts'
+animation speeds are all counted per original step, 1/25 of a second, in the game's files, in its
+code and in what mods' scripts read. Each step applies half of them:
+
+- **Speeds and turns.** A step moves an object by half its velocity and turns it by half its
+  rotation (`motion.move`). Missiles and shots move the same way.
+- **Inertias.** Each quantity of the flight model keeps `inertia` of itself over an original step
+  and takes the rest from its target. A step keeps the square root of `inertia`
+  (`gameobj.kept`), which comes to the same over two steps. So a ship reaches the same speeds and
+  turn rates in the same time. A Predator's speed and distance from rest match the original's
+  step to a tenth of a unit, and its turn stays within 2%: 84.7 degrees after a second of full
+  stick against 85.8.
+- **Recharge and fuel.** The shields gain half a step's charge each step, and the afterburner
+  burns 2 units of fuel a step where the original burns 4.
+- **The keys' ramps.** The steering and throttle keys move by a fixed amount each time the
+  controls run, once a game frame and once more a step. The step's pass moves them by half
+  (`flight.Pass`), so the ramps take as long as before.
+
+What the original does once a step and counts in whole steps stays at 25 a second
+(`gameobj.onOriginalGrid`, `gameobj.stepsDue`):
+
+- **The guns.** A gun fires at the first step after its interval. On the shorter step the Laser
+  Cannon would fire 5.56 times a second where it fires 5, and the Gattling lasers 10 where they
+  fire 8.33. So the guns fire and recharge on every second step.
+- **Effects paced by the steps**, such as the gates' rumbles and the big explosion's bits.
+- **Mods' `on_step`**, which runs 25 times a second as the reference says.
+
 ## Porting
 
 [`game/main.zig`](../../src/engine/game/main.zig) holds the clocks as `Clock`, with `frameBegin`, `frameReset`, `nextTick`, and `runTicks` for `mission_run` pacing (one game tick per timer tick). The ticking functions live in their respective files: `hog_snd.tickTimer` for `tick_timer` logic, and `gameobj.gameTick` and `gameobj.simulationStep`. OpenReliant runs the timer in the loops that wait on it: the missions, the rooms and their screens, the movies, and the second before the hangar's movie ([Movies](movies.md#the-hangar)). `Clock.start` starts a loop's clocks again: the mission's from zero, while `timer_ticks` and `game_ticks` keep running, as the original's do from `sound_init`, so the sound's fades, which it times by `game_ticks`, carry on.

@@ -2796,9 +2796,12 @@ pub const View = struct {
     }
 };
 
-/// The share of a simulation step each game tick takes, which `node_frame_update` counts in, and
-/// what turns a velocity a step into one a tick.
+/// The share of a simulation step each game tick takes, which `node_frame_update` counts in.
 pub const tick_share: f32 = 1.0 / @as(f32, @import("gameobj.zig").ticks_per_step);
+
+/// What turns a velocity into one a tick: velocities are counted per original step
+/// (`gameobj.original_ticks_per_step`), a quarter of which is a tick.
+pub const velocity_tick_share: f32 = 1.0 / @as(f32, @import("gameobj.zig").original_ticks_per_step);
 
 /// How far into its step the simulation is, which `node_frame_update` draws each object between
 /// its last two places by: a quarter for each tick since the step (`simulation_counter`).
@@ -4495,9 +4498,12 @@ test "a track plays once, round and round, and back and forth" {
     var root = std.mem.zeroes(Node);
     var fired: Fired = .{};
 
+    // A track's speed is per original step, of which a step is a share. These speeds are scaled
+    // so that each step here moves the track on by a round number.
+    const a_step = 1 / gameobj.step_share;
     // Once: each step moves it on by its speed, setting off the events it passes, a kind the
     // update doesn't know aside; at the end it stops, and the part stops animating.
-    model.play(1, .fire, 0, null, 40);
+    model.play(1, .fire, 0, null, 40 * a_step);
     gameobj.updateTree(&root, &model, fired.events());
     try std.testing.expectEqual(40, a.time);
     try std.testing.expectEqual(1, fired.count);
@@ -4521,7 +4527,7 @@ test "a track plays once, round and round, and back and forth" {
 
     // Round and round: past the end it starts again, and the events on both sides go off.
     fired.count = 0;
-    model.play(1, .fire, 80, .loop, 40);
+    model.play(1, .fire, 80, .loop, 40 * a_step);
     gameobj.updateTree(&root, &model, fired.events());
     try std.testing.expectEqual(20, a.time);
     try std.testing.expectEqual(2, fired.count);
@@ -4529,7 +4535,7 @@ test "a track plays once, round and round, and back and forth" {
 
     // Back and forth: out over the length and back over the next, with no events.
     fired.count = 0;
-    model.play(1, .fire, 60, .swing, 70);
+    model.play(1, .fire, 60, .swing, 70 * a_step);
     gameobj.updateTree(&root, &model, fired.events());
     try std.testing.expectEqual(130, a.time);
     try std.testing.expectEqual(@as(Vector, .{ 0, 0, 70 }), a.offset);
@@ -4567,6 +4573,9 @@ test "Model.frame" {
     const linked = part.origin;
 
     create.startUp(&model);
+    // The track's speed is per original step. Scaled, each step here moves it on as far as an
+    // original step does.
+    part.animation.speed /= gameobj.step_share;
     // The first step works out the next pose but commits nothing yet: the frame stays.
     gameobj.updateTree(&root, &model, null);
     model.frame(0.5);
@@ -4743,11 +4752,12 @@ test "Node.framePlace" {
 test stepFraction {
     var clock: Clock = .{};
     clock.start(0);
-    // A frame two ticks into a step, and three quarters of the way through the next tick.
+    // A frame half a step in, and three quarters of the way through the next tick.
+    const gameobj_step = @import("gameobj.zig").ticks_per_step;
     clock.advanceToFine(275, 100);
-    clock.simulation_counter = 2;
+    clock.simulation_counter = gameobj_step / 2;
     try std.testing.expectEqual(0.5, stepFraction(&clock, false));
-    try std.testing.expectEqual(0.6875, stepFraction(&clock, true));
+    try std.testing.expectEqual(0.5 + 0.75 / @as(f32, gameobj_step), stepFraction(&clock, true));
     // Paused, nothing moves, so the time past the tick doesn't count.
     clock.paused = true;
     try std.testing.expectEqual(0.5, stepFraction(&clock, true));

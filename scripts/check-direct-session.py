@@ -20,6 +20,10 @@ STOCK_TRACKS = {
 }
 
 
+# The host steps 50 times a second and sends the flight view of every second step.
+STEPS_PER_VIEW = 2
+
+
 class Session:
     def __init__(self, process):
         self.process = process
@@ -210,10 +214,10 @@ async def check_training(binary, credentials, seed):
         with tempfile.TemporaryDirectory() as directory:
             invalid_key = Path(directory) / "root.pub"
             invalid_key.write_text("invalid public key\n", encoding="ascii")
-            invalid = await game.session("host", "host", "175", trust=invalid_key)
+            invalid = await game.session("host", "host", "350", trust=invalid_key)
             require(await invalid.wait() == 1 and invalid.last_line == "session: InvalidTransportIdentity",
                     "the host accepted an invalid trust root")
-        host = await game.session("host", "host", "175")
+        host = await game.session("host", "host", "350")
         await host.expect("listening ")
         keyboard = os.name == "posix"
         first = await game.join("pilot1", "keyboard" if keyboard else "left")
@@ -245,7 +249,7 @@ async def check_training(binary, credentials, seed):
             departed = generations.index(old_generation)
             rejoined = generations.index(new_generation)
             require(departed < rejoined and 0 in generations[departed:rejoined], "an active pilot missed the departure")
-            require(len(peer.views) >= end // 2, "an active pilot missed most of the moving snapshots")
+            require(len(peer.views) >= end // (2 * STEPS_PER_VIEW), "an active pilot missed most of the moving snapshots")
         first_slot, _ = first.admission
         second_slot, _ = second.admission
         start = first.views[min(first.views)]
@@ -282,7 +286,7 @@ InviteAddress=127.0.0.1
 Port={game.port}
 Arena=training
 Players=2
-RoundTicks=175
+RoundTicks=350
 """, encoding="ascii")
 
     async def start_host():
@@ -335,7 +339,7 @@ async def six_beacons(game, config):
 Port={game.port}
 Arena=six-beacons
 Players=8
-RoundTicks=225
+RoundTicks=450
 
 [Identity]
 RootPublicKey={root}
@@ -381,7 +385,7 @@ async def check_full_arena(binary, credentials, seed, mode="training", game_dir=
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "server.ini"
             count = 8
-            settings = f"[Server]\nPort={game.port}\nArena={mode}\nPlayers={count}\nRoundTicks=175\n"
+            settings = f"[Server]\nPort={game.port}\nArena={mode}\nPlayers={count}\nRoundTicks=350\n"
             if game_dir is not None:
                 settings += f"GameDirectory={game_dir}\nRepeatRounds=0\nStartDelaySeconds=0\n"
             config.write_text(settings, encoding="utf-8")
@@ -403,7 +407,7 @@ async def check_full_arena(binary, credentials, seed, mode="training", game_dir=
                     require(peer.music == [f"now {track}"], f"{mode}: pilot {peer.admission[0]} received {peer.music}")
                 live_views = sum(tuple(ship[0] for ship in view) == generations
                                  for tick, view in peer.views.items() if tick < end)
-                require(live_views >= end // 3, f"{mode}: pilot {peer.admission[0]} saw only {live_views} full-roster views")
+                require(live_views >= end // (3 * STEPS_PER_VIEW), f"{mode}: pilot {peer.admission[0]} saw only {live_views} full-roster views")
                 require(tuple(ship[0] for ship in peer.views[end]) == generations, "the final view lost an admitted pilot")
             music = f", received the cue for {track}," if track else ""
             print(f"{mode}: eight pilots saw the full roster in flight{music} and agreed on tick {end}.")
@@ -419,7 +423,7 @@ async def check_team_cycle(binary, credentials, seed, game_dir):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "server.ini"
             settings = {"Port": game.port, "GameDirectory": game_dir, "Arena": "dark-reign",
-                        "Players": 8, "Teams": 1, "RoundTicks": 125, "RepeatRounds": 1, "StartDelaySeconds": 5}
+                        "Players": 8, "Teams": 1, "RoundTicks": 250, "RepeatRounds": 1, "StartDelaySeconds": 5}
             config.write_text("[Server]\n" + "".join(f"{key}={value}\n" for key, value in settings.items()), encoding="utf-8")
             host = await game.start("--headless", str(config))
             await host.expect("listening ")

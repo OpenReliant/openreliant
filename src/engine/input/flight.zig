@@ -104,28 +104,48 @@ const steering_step: f32 = 0.3;
 const throttle_step: f32 = 0.02;
 const bank_share: f32 = 0.5;
 
-fn stepped(previous: f32, direction: Direction) f32 {
+/// Which of its two passes a command is applied in. The game applies a pilot's controls once a
+/// frame with the ship's orders and once more in each simulation step, and its keys move the
+/// steering and the throttle by a fixed amount each time.
+///
+/// **Improvement:** the simulation steps twice as often as the original's
+/// (`gameobj.ticks_per_step`), so a step's pass moves the keys' ramps by its share of an original
+/// step (`gameobj.step_share`). The ramps then take as long as they do in the original.
+pub const Pass = enum {
+    frame,
+    step,
+
+    fn ramp(pass: Pass) f32 {
+        return switch (pass) {
+            .frame => 1,
+            .step => gameobj.step_share,
+        };
+    }
+};
+
+fn stepped(previous: f32, direction: Direction, pass: Pass) f32 {
     return switch (direction) {
-        .negative => previous - steering_step,
+        .negative => previous - steering_step * pass.ramp(),
         .neutral => 0,
-        .positive => previous + steering_step,
+        .positive => previous + steering_step * pass.ramp(),
     };
 }
 
 /// `player_throttle_keys` (`0x004132C0`) after the bindings have been read. ACCELERATE wins over
 /// DECELERATE; FULL THROTTLE runs after ZERO THROTTLE. The setting follows neither an axis nor a
 /// held power window. With keys, the ship follows the setting unless its afterburner is on.
-pub fn applyThrottle(state: *State, object: *gameobj.GameObject, throttle: Throttle) void {
+pub fn applyThrottle(state: *State, object: *gameobj.GameObject, throttle: Throttle, pass: Pass) void {
+    const step = throttle_step * pass.ramp();
     switch (throttle) {
         .held => {},
         .axis => |value| object.throttle = value,
         .keys => |keys| {
             if (keys.accelerate) {
-                state.throttle = @min(state.throttle + throttle_step, 1);
-                object.throttle = @min(object.throttle + throttle_step, 1);
+                state.throttle = @min(state.throttle + step, 1);
+                object.throttle = @min(object.throttle + step, 1);
             } else if (keys.decelerate) {
-                state.throttle = @max(state.throttle - throttle_step, 0);
-                object.throttle = @max(object.throttle - throttle_step, 0);
+                state.throttle = @max(state.throttle - step, 0);
+                object.throttle = @max(object.throttle - step, 0);
             }
             if (keys.zero) {
                 state.throttle = 0;
@@ -144,7 +164,7 @@ pub fn applyThrottle(state: *State, object: *gameobj.GameObject, throttle: Throt
 
 /// The simulation half of `player_controls` (`0x00413410`). Bindings and devices stay in
 /// `input.sampleFlight`. **Improvement:** the same rules apply to each participant's commands.
-pub fn apply(state: *State, reserves: *gameobj.ShieldReserves, object: *gameobj.GameObject, combat: *const create.ShipCombat, command: Command, frame_duration: i32) void {
+pub fn apply(state: *State, reserves: *gameobj.ShieldReserves, object: *gameobj.GameObject, combat: *const create.ShipCombat, command: Command, frame_duration: i32, pass: Pass) void {
     // player_controls (0x0041345D) reverses steering and strafe during the arena penalty.
     const handed: f32 = if (object.power_up == .reversed_controls) -1 else 1;
     switch (command.steering) {
@@ -155,8 +175,8 @@ pub fn apply(state: *State, reserves: *gameobj.ShieldReserves, object: *gameobj.
             object.roll_input += object.yaw_input * bank_share;
         },
         .keys => |keys| {
-            object.yaw_input = handed * stepped(handed * object.yaw_input, keys.yaw);
-            object.pitch_input = handed * stepped(handed * object.pitch_input, keys.pitch);
+            object.yaw_input = handed * stepped(handed * object.yaw_input, keys.yaw, pass);
+            object.pitch_input = handed * stepped(handed * object.pitch_input, keys.pitch, pass);
             object.roll_input = handed * keys.roll;
             object.roll_input += object.yaw_input * bank_share;
         },
@@ -169,7 +189,7 @@ pub fn apply(state: *State, reserves: *gameobj.ShieldReserves, object: *gameobj.
             power.balanceShields(object, reserves, combat, y);
         },
     }
-    applyThrottle(state, object, command.throttle);
+    applyThrottle(state, object, command.throttle, pass);
     object.lateral_input = handed * @as(f32, switch (command.strafe) {
         .negative => -1,
         .neutral => 0,
@@ -221,17 +241,17 @@ test "arena penalties apply to normalised flight commands" {
         .strafe = .positive,
     };
     object.power_up = .reversed_controls;
-    apply(&state, &reserves, &object, combat, command, gameobj.ticks_per_step);
+    apply(&state, &reserves, &object, combat, command, gameobj.ticks_per_step, .frame);
     try std.testing.expectEqual(-0.4, object.yaw_input);
     try std.testing.expectEqual(-0.25, object.pitch_input);
     try std.testing.expectApproxEqAbs(-0.3, object.roll_input, 0.001);
     try std.testing.expectEqual(-1, object.lateral_input);
     object.power_up = .half_throttle;
-    apply(&state, &reserves, &object, combat, command, gameobj.ticks_per_step);
+    apply(&state, &reserves, &object, combat, command, gameobj.ticks_per_step, .frame);
     limitArenaThrottle(&object);
     try std.testing.expectEqual(0.5, object.throttle);
     object.power_up = .none;
-    apply(&state, &reserves, &object, combat, command, gameobj.ticks_per_step);
+    apply(&state, &reserves, &object, combat, command, gameobj.ticks_per_step, .frame);
     limitArenaThrottle(&object);
     try std.testing.expectEqual(1, object.throttle);
 }
