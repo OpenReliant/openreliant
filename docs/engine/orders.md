@@ -78,6 +78,14 @@ kind when they select a group member, and Escort keeps the selected member's ide
 from its original state record. Target selection, steering, timing and order priorities use the
 same routines and values.
 
+Some orders ask whether their target is gone, which in the game means a stand-in in its slot or
+an exploding object, and end or destroy their ship when it is. An `Aim` no longer finds an
+object that has left its slot, so these orders also ask `Aim.left`, which tells that apart from
+being aimed at nothing: Launch while its ship still waits ([Launches](launch.md)), Scoop Up, Ripper
+grabs target object, and a limpet car's Dock. Without it, a target that blew up and left its slot
+in one frame would leave a torpedo flying with no collisions, a Nanny with its doors open or a
+Ripper holding nothing.
+
 `order_push` (`0x0040CC10`) takes a slot, an order and its target, and:
 
 1. fails if the ship refuses the order (`order_refused`, `0x0040CA00`): the ship is a player's,

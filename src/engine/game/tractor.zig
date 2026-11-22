@@ -650,13 +650,14 @@ pub fn scoopUp(ctx: Context, index: u16) void {
     const state = &slot.state.scoop_up;
     const now = ctx.world.clock.frame_start;
     const seconds = inSeconds(gameobj.ticksSince(&state.updated, now));
-    const pod_index = targetOf(all, slot) orelse return;
+    const pod_index = targetOf(all, slot) orelse {
+        // A pod that has left its slot is gone, as the stand-in the game finds there is.
+        if (slot.current()) |entry| if (entry.target.left(all)) return giveUp(ctx, index);
+        return;
+    };
     const pod = &all.slots[pod_index];
     const tractor = tractorOf(world, state.*);
-    if (pod.object.gone()) {
-        closeDoors(world, slot);
-        return aigeneric.end(ctx, index);
-    }
+    if (pod.object.gone()) return giveUp(ctx, index);
     if (state.stage.steers()) _ = ai.steer(world, index, pod.drawn.position, ai.full_limit, ai.no_ease, .{});
     switch (state.stage) {
         .claiming => {
@@ -746,6 +747,13 @@ pub fn scoopUp(ctx: Context, index: u16) void {
         },
         _ => {},
     }
+}
+
+/// Scoop Up's end where the pod is gone before it is aboard (`order_scoop_up`, `0x0041BD4E`): the
+/// ship closes its doors and the order ends.
+fn giveUp(ctx: Context, index: u16) void {
+    closeDoors(ctx.world, &ctx.world.objects.slots[index]);
+    aigeneric.end(ctx, index);
 }
 
 /// The ship its order in `slot` aims at, where it names one of `all`'s.
@@ -1278,14 +1286,17 @@ test "a claim left by a ship whose hull is shot away" {
 
 test "Scoop Up gives up on a pod gone first" {
     const gpa = std.testing.allocator;
-    var scoop: testing.Scoop = undefined;
-    try scoop.init(gpa);
-    defer scoop.deinit(gpa);
-    scoop.mission.slot(scoop.pod).object.flags.exploding = true;
-    scoopUp(scoop.ctx, scoop.nanny);
-    // It closes its door as it goes, and lets the tractor go.
-    const slot = scoop.mission.slot(scoop.nanny);
-    try std.testing.expectEqual(0, slot.object.order_count);
-    try std.testing.expectEqual(closing, slot.model.?.parts[sounding_door].animation.speed);
-    try std.testing.expectEqual(null, scoop.built.tractors.slots[0]);
+    // The pod explodes, or has left its slot for a stand-in already.
+    for ([_]bool{ false, true }) |left| {
+        var scoop: testing.Scoop = undefined;
+        try scoop.init(gpa);
+        defer scoop.deinit(gpa);
+        if (left) create.resetSlot(scoop.ctx, scoop.pod) else scoop.mission.slot(scoop.pod).object.flags.exploding = true;
+        scoopUp(scoop.ctx, scoop.nanny);
+        // It closes its door as it goes, and lets the tractor go.
+        const slot = scoop.mission.slot(scoop.nanny);
+        try std.testing.expectEqual(0, slot.object.order_count);
+        try std.testing.expectEqual(closing, slot.model.?.parts[sounding_door].animation.speed);
+        try std.testing.expectEqual(null, scoop.built.tractors.slots[0]);
+    }
 }
