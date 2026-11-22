@@ -8,6 +8,7 @@ const Host = @import("server.zig");
 const LaunchWait = @import("launch_wait.zig");
 const Metrics = @import("metrics.zig");
 const Advertiser = @import("advertise.zig");
+const faulty = @import("faulty.zig");
 const HeadlessUpdates = @import("headless_updates.zig");
 pub const Client = @import("client.zig");
 
@@ -226,7 +227,27 @@ pub fn directAddress(text: []const u8) !std.Io.net.IpAddress {
     return address;
 }
 
+/// The clients of `faulty.zig`, which the session check joins a host with.
+const Fault = enum { stall, intrude };
+
 fn join(io: std.Io, args: []const [:0]const u8) !void {
+    if (args.len > 1) if (std.meta.stringToEnum(Fault, args[1])) |fault| switch (fault) {
+        .stall => {
+            if (args.len != 3) return error.InvalidSessionArguments;
+            try initTransport(null, null);
+            defer net.session_deinit();
+            var buffer: [credential.Invite.max_address]u8 = undefined;
+            const address = try std.fmt.bufPrintSentinel(&buffer, "{f}", .{try directAddress(args[0])}, 0);
+            return faulty.stall(io, address, try number(args[2]));
+        },
+        .intrude => {
+            if (args.len != 2) return error.InvalidSessionArguments;
+            var client: Client = undefined;
+            try connect(&client, io, args[0]);
+            defer disconnect(&client);
+            return faulty.intrude(&client, io);
+        },
+    };
     const steering = if (args.len > 1) try controls(args[1]) else .keyboard;
     const limit = if (args.len > 2) try number(args[2]) else null;
     var client: Client = undefined;

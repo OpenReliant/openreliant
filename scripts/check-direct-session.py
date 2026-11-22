@@ -606,9 +606,58 @@ async def check_metrics_shutdown(binary, credentials, seed):
             print("Metrics: the independent HTTP listener served a scrape and closed with the game.")
 
 
+async def check_isolation(binary, credentials, seed):
+    """Two pilots fly on while four connections stall in admission and a third pilot sends a
+    message only a host may send."""
+    async with Loopback(binary, credentials, seed) as game:
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "server.ini"
+            metrics = free_metrics_port(game.port)
+            config.write_text(f"[Server]\nPort={game.port}\nArena=training\nPlayers=4\nRoundTicks=500\n"
+                              f"[Metrics]\nPort={metrics}\n", encoding="ascii")
+            host = await game.start("--headless", str(config))
+            await host.expect("listening ")
+            healthy = await asyncio.gather(*(game.join_target(game.address, way) for way in ("left", "right")))
+            await asyncio.gather(*(pilot.expect("view ") for pilot in healthy))
+            stalled = [await game.start("session", "join", await game.path(game.address), "stall", "1") for _ in range(4)]
+            intruder = await game.start("session", "join", await game.path(game.address), "intrude")
+            await intruder.expect("admitted ")
+            await intruder.expect("intruding")
+            await intruder.expect("removed ")
+            require(await intruder.wait() == 0, "the intruding pilot did not report its removal")
+            for connection in stalled:
+                require(await connection.wait() == 0, "a stalled connection did not close cleanly")
+
+            # The host removed the intruder alone, and none of the stalled connections took a place.
+            rejected = 'openreliant_departures_total{outcome="rejected"}'
+            ticks = "openreliant_simulation_tick_duration_seconds_count"
+            sample = await await_sample(metrics, lambda data: data[rejected] == 1 and data["openreliant_players"] == 2)
+            require(sample['openreliant_joins_total{outcome="admitted"}'] == 3, "a stalled connection was admitted")
+            await await_sample(metrics, lambda data: data[ticks] > sample[ticks] + 25)
+
+            end = await finish(host, healthy)
+            slots = {pilot.admission[0]: pilot.admission[1] for pilot in healthy}
+            gone = intruder.admission
+            for pilot in healthy:
+                seen = sorted(pilot.views)
+                # The host kept stepping and sending: no long silence, right up to the last step.
+                longest = max(later - earlier for earlier, later in zip(seen, seen[1:]))
+                require(longest <= 10 * STEPS_PER_VIEW, f"pilot {pilot.admission[0]} went {longest} steps without a view")
+                # Both pilots kept the ships they were admitted with, and the intruder's ship left.
+                together = [tick for tick in seen if all(pilot.views[tick][slot][0] for slot in slots)]
+                require(together and together[-1] == end, "a healthy pilot's ship was missing from the final view")
+                for tick in together:
+                    require(all(pilot.views[tick][slot][0] == generation for slot, generation in slots.items()),
+                            "a healthy pilot's ship changed when the intruder was removed")
+                with_intruder = [tick for tick in seen if pilot.views[tick][gone[0]][0] == gone[1]]
+                require(bool(with_intruder), "the intruder never flew")
+                require(pilot.views[end][gone[0]][0] != gone[1], "the intruder was still flying at the end")
+            print(f"Isolation: two pilots flew on to tick {end} while four connections stalled and an intruding pilot was removed.")
+
+
 async def run(binary, credentials, seed, game_dir):
     print("Clean loopback" if seed is None else f"Loopback seed {seed}, 6% packet loss, 8 to 44 ms one-way lag")
-    for check in (check_training, check_beacons, check_invites, check_full_arena, check_metrics_shutdown):
+    for check in (check_training, check_beacons, check_invites, check_full_arena, check_metrics_shutdown, check_isolation):
         await asyncio.wait_for(check(binary, credentials, seed), 40)
     if game_dir is not None:
         if seed is not None:

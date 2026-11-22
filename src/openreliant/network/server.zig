@@ -1864,6 +1864,57 @@ test "co-op waits for every guest and discards a departed guest's readiness" {
     try std.testing.expect(!host.canLaunch());
 }
 
+test "a pilot's refused messages leave the other pilots' ships, scores and objectives as they were" {
+    const arena = try Arena.create(std.testing.allocator, .@"six-beacons", std.testing.io, .cwd());
+    defer arena.destroy();
+    for (0..3) |slot| _ = try arena.join(@intCast(slot), .predator);
+    const all = arena.mission.objects;
+    try std.testing.expect(all.arena_scenario == .six_beacons);
+    // Something for the two other pilots to keep: a score, a death, and a beacon in hand.
+    all.player_states[0].membership.joined.kills.count = 3;
+    all.player_states[1].membership.joined.deaths = 2;
+    all.arena_scenario.six_beacons.beacons[0].carrier = all.playerBinding(1).?;
+
+    var host: Host = .{ .io = std.testing.io, .arena = arena, .start = .launched };
+    for (host.peers[0..3], 1..) |*entry, conn| entry.* = .{ .conn = @intCast(conn), .state = .playing, .expires = timeout, .sequence = 10 };
+    const peer = &host.peers[2].?;
+
+    // What the others hold, byte for byte: each one's ship, with its flight, its guns' charge and
+    // its fuel; its record, with its score, its lock and its devices; and the scenario's state,
+    // which says who carries what.
+    const Kept = struct {
+        ships: [2][@sizeOf(game.gameobj.GameObject)]u8,
+        records: [2][@sizeOf(game.players.State)]u8,
+        scenario: [@sizeOf(@TypeOf(all.arena_scenario))]u8,
+
+        fn of(objects: *const game.create.Objects) @This() {
+            var kept: @This() = undefined;
+            for (&kept.ships, &kept.records, 0..) |*ship, *record, slot| {
+                ship.* = std.mem.asBytes(&objects.slots[slot].object).*;
+                record.* = std.mem.asBytes(&objects.player_states[slot]).*;
+            }
+            kept.scenario = std.mem.asBytes(&objects.arena_scenario).*;
+            return kept;
+        }
+    };
+    const before = Kept.of(all);
+    const hard_over: flight.Command = .{ .steering = .{ .axes = .{ 1, 1, 1 } }, .throttle = .{ .axis = 1 }, .afterburner = true };
+
+    // An input out of order is passed over, and so is one for another round. The pilot keeps
+    // their place, and the command they were flying.
+    try std.testing.expect(try host.receive(2, peer, .{ .input = .{ .sequence = 9, .command = hard_over } }, 0));
+    try std.testing.expect(try host.receive(2, peer, .{ .input = .{ .sequence = 11, .command = hard_over, .arena_floor = 7 } }, 0));
+    try std.testing.expectEqual(flight.Command{}, peer.flight_command);
+    try std.testing.expectEqualDeep(before, Kept.of(all));
+
+    // A message only a host may send is refused, and the pilot who sent it leaves. `service`
+    // then removes them (`remove`), which takes their ship out of the arena.
+    try std.testing.expect(!(try host.receive(2, peer, .{ .roster = .{} }, 0)));
+    arena.leave(2);
+    try std.testing.expectEqual(null, arena.pilots[2]);
+    try std.testing.expectEqualDeep(before, Kept.of(all));
+}
+
 test "the host counts a third rescue once and allows the pilot to replay" {
     const arena = try Arena.create(std.testing.allocator, .training, std.testing.io, .cwd());
     defer arena.destroy();

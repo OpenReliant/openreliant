@@ -102,6 +102,19 @@ after restart and that a pilot can leave and return during a round. A separate S
 starts the host with managed identity files and verifies that both active pilots and the returning
 pilot see the beacon in the same position after a carrier leaves.
 
+The check also joins a host with two clients that misbehave on purpose (`faulty.zig`), while two
+pilots fly ([#1432](https://github.com/OpenReliant/openreliant/issues/1432)):
+
+- `openreliant session join <ip:port> stall <seconds>` connects, never asks to join, and closes
+  after that long, as a client that stalls or leaves during admission does.
+- `openreliant session join <ip-address|invite> intrude` joins and flies, then sends a message
+  only a host may send.
+
+The host has to remove the intruding pilot alone, admit none of the stalled connections, and
+keep stepping and sending views to the two pilots up to the last step, with their ships as they
+were. What the terminal client can't see, the other pilots' scores, weapons and objectives, is
+checked in the host's own tests (`server.zig`).
+
 The training session is the first game-executable path under
 [#954](https://github.com/OpenReliant/openreliant/issues/954). The release build prepares the
 transport prefix automatically. Test identities are generated separately and stay outside the

@@ -163,6 +163,8 @@ pub const session_help =
     \\
     \\usage: openreliant session host <ip:port> <root-public-key> <certificate> [round-ticks]
     \\       openreliant session join <ip-address|invite> [keyboard|left|straight|right] [views-before-leaving]
+    \\       openreliant session join <ip:port> stall <seconds>
+    \\       openreliant session join <ip-address|invite> intrude
     \\       openreliant session join <ip:port> <root-public-key> <certificate> <host-identity> <keyboard|left|straight|right> [views-before-leaving]
     \\
 ;
