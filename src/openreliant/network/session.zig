@@ -201,7 +201,7 @@ pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity
         try Advertiser.init(io, config, if (server) |*automatic| automatic else return error.ManagedIdentityCannotAdvertise)
     else
         null;
-    defer if (advertiser) |*publisher| publisher.close();
+    defer if (advertiser) |*publisher| publisher.close(io);
     if (advertiser) |publisher| host.directory_session = publisher.session;
     if (options.lan_name) |name| host.openDiscovery(try std.Io.net.IpAddress.parseLiteral(options.address), name);
     var update_check: HeadlessUpdates = .{};
