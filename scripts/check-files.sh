@@ -26,9 +26,9 @@ case $mode in
 esac
 cd "$(git rev-parse --show-toplevel)"
 
-# The only binary files the repository holds: the compiled shaders, and the font OpenReliant
-# carries built in, which is no file of the game's (deps/newtown/README.md).
-allowed_binary='^(src/platform/shaders/[^/]+\.spv|deps/newtown/Newtown\.ttf)$'
+# The only binary files the repository holds: the compiled shaders, and the two fonts built into
+# OpenReliant, which are not the game's files (deps/newtown/README.md, deps/play/README.md).
+allowed_binary='^(src/platform/shaders/[^/]+\.spv|deps/newtown/Newtown\.ttf|deps/play/Play-Bold\.ttf)$'
 game_dirs='^(game|references|tools|ghidra/projects|ghidra/export)/'
 game_types='hog|shp|fm8|spr|dte|fat|fnt|frc|tga|bik|icd|exe|dll|m3d|asi|ccb|cab|bin|dat|iso|cue|mdf|mds|nrg|img|wav|mp3|ogg|png|jpg|jpeg|gif|bmp|pcx|ppm|obj|pdf|rtf|doc|ini|sav|zip'
 # Files of OpenReliant's own that share an extension with the game's or hold binary data: the

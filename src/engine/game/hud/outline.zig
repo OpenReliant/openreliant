@@ -36,6 +36,49 @@ const log = std.log.scoped(.fonts);
 /// built into OpenReliant (`deps/newtown/README.md`).
 pub const newtown = @embedFile("Newtown.ttf");
 
+/// Play Bold, by Jonas Hecksher, under the SIL Open Font License: the outline font built into
+/// OpenReliant for a game whose text is Cyrillic, which Newtown has no letters for
+/// (`deps/play/README.md`).
+pub const play_bold = @embedFile("Play-Bold.ttf");
+
+/// The fonts OpenReliant carries, one of which replaces the game's Handel Gothic fonts.
+pub const BuiltIn = enum {
+    newtown,
+    play_bold,
+
+    /// The font that holds the letters of the game's text in `page`.
+    pub fn of(page: language.Page) BuiltIn {
+        return switch (page) {
+            .western => .newtown,
+            .cyrillic => .play_bold,
+        };
+    }
+
+    fn file(font: BuiltIn) []const u8 {
+        return switch (font) {
+            .newtown => newtown,
+            .play_bold => play_bold,
+        };
+    }
+
+    fn name(font: BuiltIn) []const u8 {
+        return switch (font) {
+            .newtown => "Newtown",
+            .play_bold => "Play Bold",
+        };
+    }
+
+    /// How it is fitted to a bitmap font. Newtown was chosen for the game's own fonts and keeps
+    /// its width. Play Bold's letters are wider than the Russian release's, so it is also drawn
+    /// no wider than they are.
+    fn heft(font: BuiltIn) Heft {
+        return switch (font) {
+            .newtown => .bitmap,
+            .play_bold => .bitmap_narrowed,
+        };
+    }
+};
+
 /// The game's Handel Gothic fonts, which Newtown replaces unless a mod has a font for them: the
 /// menu and ITAC fonts, drawn in one colour, and the flight display and loadout fonts, drawn
 /// through palettes.
@@ -165,19 +208,15 @@ pub const Fit = struct {
             const top = rasterizer.top(face, letter) orelse continue;
             if (!(top > 0)) continue;
             const height = rows[1] - rows[0];
-            const weight = switch (heft) {
-                .own => 0,
-                .bitmap => try weighed(rasterizer, face, font, cover, height, top, gpa),
-            };
+            const weight = if (heft.weighs()) try weighed(rasterizer, face, font, cover, height, top, gpa) else 0;
             var fit: Fit = .{ .em = emFor(height, top, weight), .baseline = rows[1], .weight = weight, .middles = @splat(null) };
             for (&fit.middles, 0..) |*middle, code| {
                 const shown = font.glyph(code) orelse continue;
                 const across = inkSpan(cover, shown.pixels, shown.width, .across) orelse continue;
                 middle.* = (across[0] + across[1]) / 2;
-                if (heft == .own) fit.widths[code] = across[1] - across[0];
+                if (heft.narrows()) fit.widths[code] = across[1] - across[0];
             }
-            // Newtown was chosen for the game's fonts and keeps its own width.
-            if (heft == .own) fit.across = try narrowed(rasterizer, face, font, cover, fit.em, gpa);
+            if (heft.narrows()) fit.across = try narrowed(rasterizer, face, font, cover, fit.em, fit.weight, gpa);
             return fit;
         }
         return null;
@@ -202,13 +241,13 @@ const narrowest = 0.7;
 /// keeps: the bitmap font's ink over the outline font's, across every character both have, at
 /// most 1 and at least `narrowest`. A font as narrow as the bitmap one, or narrower, keeps its
 /// width.
-fn narrowed(rasterizer: Rasterizer, face: Face, font: fnt.Font, cover: *const Cover, em: f32, gpa: Allocator) Allocator.Error!f32 {
+fn narrowed(rasterizer: Rasterizer, face: Face, font: fnt.Font, cover: *const Cover, em: f32, weight: f32, gpa: Allocator) Allocator.Error!f32 {
     var bitmap_width: f32 = 0;
     var outline_width: f32 = 0;
     for (0..codes) |code| {
         const glyph = font.glyph(code) orelse continue;
         const span = inkSpan(cover, glyph.pixels, glyph.width, .across) orelse continue;
-        const drawn = rasterizer.draw(face, language.toUnicode(@intCast(code)), em * weigh_scale, 0, 1, gpa) catch |err| switch (err) {
+        const drawn = rasterizer.draw(face, language.toUnicode(@intCast(code)), em * weigh_scale, weight, 1, gpa) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             error.Rasterizing => continue,
         } orelse continue;
@@ -296,7 +335,22 @@ fn inkOf(rasterizer: Rasterizer, face: Face, font: fnt.Font, cover: *const Cover
 
 /// How heavy an outline font's strokes are drawn: at the font's normal weight, for a mod's font,
 /// or as heavy as the bitmap font's, for Newtown, which replaces the original fonts.
-pub const Heft = enum { own, bitmap };
+pub const Heft = enum {
+    /// A mod's font: at its own weight, and no wider than the bitmap font's letters.
+    own,
+    /// Strokes as heavy as the bitmap font's, at its own width.
+    bitmap,
+    /// Strokes as heavy as the bitmap font's, and no wider than its letters.
+    bitmap_narrowed,
+
+    fn weighs(heft: Heft) bool {
+        return heft != .own;
+    }
+
+    fn narrows(heft: Heft) bool {
+        return heft != .bitmap;
+    }
+};
 
 /// How much of a pixel each byte of a glyph covers, from 0 for none to 1 for full.
 pub const Cover = [256]f32;
@@ -681,11 +735,10 @@ pub const Outlines = struct {
     rasterizer: ?Rasterizer,
     /// The mods, whose fonts replace the game's fonts.
     mods: *const bigfile.Mods,
-    /// Whether Newtown replaces the game's Handel Gothic fonts. It holds the Western code page's
-    /// letters alone, so a game whose text is in another page keeps its bitmap fonts, but for
-    /// those a mod has an outline font for (`language.Page`).
-    newtown: bool = true,
-    /// Newtown's face, opened when the first font it replaces is opened.
+    /// The font OpenReliant carries that replaces the game's Handel Gothic fonts, unless a mod
+    /// has one for them: the one with the letters of the game's text (`BuiltIn.of`).
+    carried: BuiltIn = .newtown,
+    /// Its face, opened when the first font it replaces is opened.
     built_in: ?Face = null,
     fonts: std.ArrayList(Font) = .empty,
 
@@ -771,15 +824,16 @@ pub const Outlines = struct {
             rasterizer.close(face);
             gpa.free(file);
         }
-        // One of the original fonts, which Newtown replaces.
-        if (!outlines.newtown or outlines.mods.has(member) or !standsIn(member)) return null;
-        const face = outlines.built_in orelse rasterizer.open(newtown) orelse {
-            log.warn("can't use Newtown: it can't be read as a font", .{});
+        // One of the original fonts, which the font OpenReliant carries replaces.
+        if (outlines.mods.has(member) or !standsIn(member)) return null;
+        const carried = outlines.carried;
+        const face = outlines.built_in orelse rasterizer.open(carried.file()) orelse {
+            log.warn("can't use {s}: it can't be read as a font", .{carried.name()});
             return null;
         };
         outlines.built_in = face;
-        const outline = try outlines.fitted(rasterizer, face, null, font, cover, .bitmap, "Newtown") orelse return null;
-        log.info("{s} uses Newtown, with strokes {d:.3} em {s}", .{ member, @abs(outline.fit.weight), if (outline.fit.weight < 0) "narrower" else "wider" });
+        const outline = try outlines.fitted(rasterizer, face, null, font, cover, carried.heft(), carried.name()) orelse return null;
+        log.info("{s} uses {s}, with strokes {d:.3} em {s}", .{ member, carried.name(), @abs(outline.fit.weight), if (outline.fit.weight < 0) "narrower" else "wider" });
         return outline;
     }
 
@@ -1082,4 +1136,14 @@ test Outlines {
     var bitmaps: Outlines = .init(gpa, null, &mods);
     defer bitmaps.deinit();
     try std.testing.expectEqual(null, try bitmaps.of(hud.large_menu_font, font, &level_cover));
+}
+
+test BuiltIn {
+    // Newtown has no Cyrillic letters, so a Cyrillic game gets Play Bold, which is also narrowed.
+    try std.testing.expectEqual(BuiltIn.newtown, BuiltIn.of(.western));
+    try std.testing.expectEqual(BuiltIn.play_bold, BuiltIn.of(.cyrillic));
+    try std.testing.expect(!BuiltIn.newtown.heft().narrows());
+    try std.testing.expect(BuiltIn.play_bold.heft().narrows());
+    try std.testing.expect(BuiltIn.play_bold.heft().weighs());
+    try std.testing.expect(!Heft.own.weighs());
 }

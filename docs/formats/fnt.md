@@ -60,14 +60,14 @@ renders the glyphs ([Platform](../port/platform.md#fonts)).
 - **The loadout's panels.** The loadout writes its panels' text into their textures, through remaps
   of their own. Outline fonts draw it only in panels larger than the original's, from a mod's larger
   picture, in the colours of the remap ([Loadout](../engine/loadout.md#the-panels)).
-- **Weight.** Newtown's strokes are made as heavy as the bitmap font's. OpenReliant makes them
+- **Weight.** The built-in font's strokes are made as heavy as the bitmap font's. OpenReliant makes them
   wider or narrower (FreeType's `FT_Outline_Embolden`) until its digits and letters, drawn at eight
   times the size with capitals of the same height, cover as many pixels as the bitmap font's. The
   first estimate of the change is the missing coverage divided by half the length of the glyphs'
   edges, and OpenReliant repeats the estimate from the result until it settles. A mod's font is
   drawn at its normal weight.
-- **Width.** The text keeps the bitmap font's spacing, so a mod's font whose letters are wider
-  than the bitmap font's would run them together. Such a font is drawn narrower (FreeType takes a
+- **Width.** The text keeps the bitmap font's spacing, so a font whose letters are wider than the
+  bitmap font's would run them together. A mod's font and Play Bold are drawn narrower (FreeType takes a
   width apart from the height): by the bitmap font's ink over its own, across every character
   both have, never wider than it is and at least 70% (`narrowed`). A glyph still wider than the
   ink of the bitmap glyph it stands for is drawn again as wide as that ink (`render`), so that
@@ -95,9 +95,16 @@ renders the glyphs ([Platform](../port/platform.md#fonts)).
   new one. A frame that draws a font at more sizes, as a mod's display may, keeps every size it
   draws until it is done, up to 16; past them, the text is drawn in the bitmap font.
 
-Newtown holds the Western code page's letters alone. A game whose strings are in another page,
-as the [Russian release](russian-release.md#the-text)'s are, draws with its own bitmap fonts,
-which hold that page's letters ([#1549](https://github.com/OpenReliant/openreliant/issues/1549)).
+Newtown has only the Western code page's letters. For a game whose strings are in the Cyrillic
+page, such as the [Russian release](russian-release.md#the-text), OpenReliant uses its second
+built-in font, Play Bold ([`deps/play`](../../deps/play/README.md)), in Newtown's place
+(`outline.BuiltIn.of`). Play Bold gets the bitmap font's weight like Newtown, and is also drawn
+narrower, because its letters are wider than the Russian release's.
+
+The HUD draws a glyph from the outline font only when it uses the colours of the font's letters
+and digits, and keeps the bitmap for the others, which are symbols with colours of their own. The
+Russian release's Cyrillic letters use other palette entries than its Latin ones, so the letters
+of the game's page count as letters there too (`language.Page.ownLetter`).
 
 **Improvement:** the original draws its text with its bitmap fonts at 640x480. `--bitmap-fonts`,
 `--original` and the OUTLINE FONTS setting draw the bitmap fonts instead, scaled up, with opaque

@@ -575,9 +575,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer if (free_type) |*library| library.deinit();
     var outlines: game.hud.outline.Outlines = .init(gpa, if (free_type) |*library| library.rasterizer() else null, &mods);
     // Newtown has the Western page's letters alone, so a game in another page, such as the Russian
-    // release, draws with its own bitmap fonts, which were redrawn with its letters, but for the
-    // fonts a mod replaces.
-    outlines.newtown = game.language.page == .western;
+    // release, draws with the font OpenReliant carries for that page.
+    outlines.carried = .of(game.language.page);
     defer outlines.deinit();
     // Script font faces must close before the rasterizer, and images before the device.
     defer if (presentation) |shown| shown.assets.deinit(gpa);

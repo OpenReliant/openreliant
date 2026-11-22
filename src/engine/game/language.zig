@@ -75,6 +75,16 @@ pub const Page = enum {
         return .western;
     }
 
+    /// Whether the page holds a letter at `byte` beyond the Latin ones every page shares: the
+    /// Russian alphabet, with Ё and ё, in the Cyrillic page. The Western page's accented letters
+    /// don't count, as the game's fonts were measured by their plain ones.
+    pub fn ownLetter(in: Page, byte: u8) bool {
+        return switch (in) {
+            .western => false,
+            .cyrillic => byte >= 0xC0 or byte == 0xA8 or byte == 0xB8,
+        };
+    }
+
     /// The Unicode block of the Cyrillic letters.
     const cyrillic_first = 0x0400;
     const cyrillic_last = 0x04FF;
@@ -438,4 +448,15 @@ test upperCase {
     var text = "Max Speed \xE9\xF7\xFF\x9A\xDF\xB5".*;
     upperCase(&text);
     try std.testing.expectEqualStrings("MAX SPEED \xC9\xF7\x9F\x8A\xDF\xB5", &text);
+}
+
+test "Page.ownLetter" {
+    // The Russian alphabet, with Ё and ё, in the Cyrillic page alone.
+    try std.testing.expect(Page.cyrillic.ownLetter(0xC0));
+    try std.testing.expect(Page.cyrillic.ownLetter(0xFF));
+    try std.testing.expect(Page.cyrillic.ownLetter(0xA8));
+    try std.testing.expect(Page.cyrillic.ownLetter(0xB8));
+    try std.testing.expect(!Page.cyrillic.ownLetter('A'));
+    try std.testing.expect(!Page.cyrillic.ownLetter(0xA9));
+    try std.testing.expect(!Page.western.ownLetter(0xC0));
 }

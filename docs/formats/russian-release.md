@@ -9,7 +9,7 @@ few places of its own:
 |---|---|---|
 | The disc | One disc, the whole game in a Wise installer | [`formats/wise.zig`](../../src/formats/wise.zig), `openreliant install` |
 | The strings | In modules of their own names, in Cyrillic | [`language.zig`](../../src/engine/game/language.zig) |
-| The fonts | Redrawn with Cyrillic letters | The game's own bitmap fonts |
+| The fonts | Redrawn with Cyrillic letters | Play Bold, or the game's bitmap fonts ([Fonts](fnt.md#outline-fonts)) |
 | The voices | In a format of the makers' own | [`cbox/ddem.zig`](../../src/engine/game/cbox/ddem.zig) |
 | The movies | Coded at half size | [`formats/bink.zig`](../../src/formats/bink.zig) |
 
@@ -77,8 +77,8 @@ to `0xFF`.
 OpenReliant takes the page from the strings: the Cyrillic page where any string holds a Cyrillic
 letter, the Western page, 1252, otherwise (`language.Page.of`). Everything that turns the game's
 text to or from Unicode goes by it (`language.page`). OpenReliant's outline font, Newtown, has
-the Western page's letters alone, so a game in another page draws with its own bitmap fonts
-([Fonts](fnt.md#outline-fonts)).
+only the Western page's letters, so a game in the Cyrillic page is drawn in Play Bold, the other
+font OpenReliant has built in ([Fonts](fnt.md#outline-fonts)).
 
 ## The voices
 
