@@ -66,6 +66,12 @@ renders the glyphs ([Platform](../port/platform.md#fonts)).
   first estimate of the change is the missing coverage divided by half the length of the glyphs'
   edges, and OpenReliant repeats the estimate from the result until it settles. A mod's font is
   drawn at its normal weight.
+- **Width.** The text keeps the bitmap font's spacing, so a mod's font whose letters are wider
+  than the bitmap font's would run them together. Such a font is drawn narrower (FreeType takes a
+  width apart from the height): by the bitmap font's ink over its own, across every character
+  both have, never wider than it is and at least 70% (`narrowed`). A glyph still wider than the
+  ink of the bitmap glyph it stands for is drawn again as wide as that ink (`render`), so that
+  each letter keeps the room the bitmap font gave it. Newtown keeps its own width.
 - **Outline.** VFX draws every pixel of a bitmap glyph that has any coverage as fully opaque,
   blending the ink colour with black by how much the glyph covers it, so the original text has a
   dark edge wherever the background is lighter. An outline glyph's pixels are only as opaque as

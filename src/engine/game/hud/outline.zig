@@ -80,9 +80,10 @@ pub const Rasterizer = struct {
         /// has no glyph for it.
         top: *const fn (*anyopaque, Face, u21) ?f32,
         /// Renders `character` at `em` pixels per em, with its strokes made wider by the second
-        /// `f32`, in ems (narrower if negative), keeping its left edge and baseline. The coverage
-        /// is allocated with the allocator. Null if the face has no glyph for it.
-        draw: *const fn (*anyopaque, Face, u21, f32, f32, Allocator) Error!?Bitmap,
+        /// `f32`, in ems (narrower if negative), and the whole glyph as wide as the third says of
+        /// its own width, keeping its left edge and baseline. The coverage is allocated with the
+        /// allocator. Null if the face has no glyph for it.
+        draw: *const fn (*anyopaque, Face, u21, f32, f32, f32, Allocator) Error!?Bitmap,
     };
 
     pub fn open(rasterizer: Rasterizer, bytes: []const u8) ?Face {
@@ -94,8 +95,8 @@ pub const Rasterizer = struct {
     pub fn top(rasterizer: Rasterizer, face: Face, character: u21) ?f32 {
         return rasterizer.vtable.top(rasterizer.context, face, character);
     }
-    pub fn draw(rasterizer: Rasterizer, face: Face, character: u21, em: f32, weight: f32, gpa: Allocator) Error!?Bitmap {
-        return rasterizer.vtable.draw(rasterizer.context, face, character, em, weight, gpa);
+    pub fn draw(rasterizer: Rasterizer, face: Face, character: u21, em: f32, weight: f32, across: f32, gpa: Allocator) Error!?Bitmap {
+        return rasterizer.vtable.draw(rasterizer.context, face, character, em, weight, across, gpa);
     }
 };
 
@@ -142,9 +143,17 @@ pub const Fit = struct {
     /// negative): enough to make its letters and digits cover as many pixels as the bitmap font's
     /// (`weighed`), so the text is as heavy as the original.
     weight: f32,
+    /// How wide the outline font's glyphs are drawn, of their own width: less than 1 for a mod's
+    /// font whose letters are wider than the bitmap font's, which keep the bitmap font's spacing
+    /// and would run into each other (`narrowed`).
+    across: f32 = 1,
     /// For each character, the horizontal middle of its ink in the bitmap glyph, from the glyph's
     /// left edge; null for a character without ink.
     middles: [codes]?f32,
+    /// For each character, how wide its ink is in the bitmap glyph, for a mod's font, each of
+    /// whose glyphs is drawn no wider than that (`render`); 0 for a character that keeps the
+    /// outline font's width.
+    widths: [codes]f32 = @splat(0),
 
     /// Fits `face` over `font`, whose bytes cover pixels as `cover` says, by the height of the
     /// first of `references` that both fonts have, measured from the bitmap's ink and the outline,
@@ -165,7 +174,10 @@ pub const Fit = struct {
                 const shown = font.glyph(code) orelse continue;
                 const across = inkSpan(cover, shown.pixels, shown.width, .across) orelse continue;
                 middle.* = (across[0] + across[1]) / 2;
+                if (heft == .own) fit.widths[code] = across[1] - across[0];
             }
+            // Newtown was chosen for the game's fonts and keeps its own width.
+            if (heft == .own) fit.across = try narrowed(rasterizer, face, font, cover, fit.em, gpa);
             return fit;
         }
         return null;
@@ -177,6 +189,37 @@ pub const Fit = struct {
         return @intFromFloat(std.math.clamp(@round(fit.em * scale * sixty_fourths), 1, largest_em * sixty_fourths));
     }
 };
+
+/// How many pixels wider than its room a glyph may be before it is drawn again narrower: less
+/// than that doesn't show.
+const within_room = 0.5;
+
+/// The narrowest a mod's font is drawn, of its own width.
+const narrowest = 0.7;
+
+/// How wide to draw the glyphs of `face`, a mod's font at `em` pixels per em, of their own width,
+/// so that its characters are no wider on the whole than those of `font`, whose spacing the text
+/// keeps: the bitmap font's ink over the outline font's, across every character both have, at
+/// most 1 and at least `narrowest`. A font as narrow as the bitmap one, or narrower, keeps its
+/// width.
+fn narrowed(rasterizer: Rasterizer, face: Face, font: fnt.Font, cover: *const Cover, em: f32, gpa: Allocator) Allocator.Error!f32 {
+    var bitmap_width: f32 = 0;
+    var outline_width: f32 = 0;
+    for (0..codes) |code| {
+        const glyph = font.glyph(code) orelse continue;
+        const span = inkSpan(cover, glyph.pixels, glyph.width, .across) orelse continue;
+        const drawn = rasterizer.draw(face, language.toUnicode(@intCast(code)), em * weigh_scale, 0, 1, gpa) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            error.Rasterizing => continue,
+        } orelse continue;
+        defer drawn.deinit(gpa);
+        if (drawn.width == 0) continue;
+        bitmap_width += span[1] - span[0];
+        outline_width += @as(f32, @floatFromInt(drawn.width)) / weigh_scale;
+    }
+    if (outline_width <= 0 or bitmap_width <= 0) return 1;
+    return std.math.clamp(bitmap_width / outline_width, narrowest, 1);
+}
 
 /// Sizes are given in 64ths of a pixel, as FreeType takes them.
 pub const sixty_fourths = 64;
@@ -232,7 +275,7 @@ fn inkOf(rasterizer: Rasterizer, face: Face, font: fnt.Font, cover: *const Cover
     var edges: f32 = 0;
     for (letters_and_digits) |letter| {
         const glyph = font.glyph(letter) orelse continue;
-        const drawn = rasterizer.draw(face, letter, size, weight, gpa) catch |err| switch (err) {
+        const drawn = rasterizer.draw(face, letter, size, weight, 1, gpa) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             error.Rasterizing => return null,
         } orelse continue;
@@ -544,10 +587,20 @@ fn render(outline: *Outline, slot: *?Atlas, gpa: Allocator, size: u32) Error!voi
     var widest: u32 = 0;
     for (fit.middles, &drawn, &glyphs, 0..) |middle, *bitmap, *glyph, code| {
         if (middle == null) continue;
-        const made = try rasterizer.draw(face, language.toUnicode(@intCast(code)), em, fit.weight, gpa) orelse {
+        var made = try rasterizer.draw(face, language.toUnicode(@intCast(code)), em, fit.weight, fit.across, gpa) orelse {
             glyph.* = .bitmap;
             continue;
         };
+        // A glyph still wider than the bitmap glyph's ink would run into its neighbours, which
+        // stand where the bitmap font put them, so it is drawn again as wide as that ink.
+        const room = fit.widths[code] * em / fit.em;
+        if (room > 0 and @as(f32, @floatFromInt(made.width)) > room + within_room) {
+            const fitted = @max(fit.across * room / @as(f32, @floatFromInt(made.width)), fit.across * narrowest);
+            if (try rasterizer.draw(face, language.toUnicode(@intCast(code)), em, fit.weight, fitted, gpa)) |again| {
+                made.deinit(gpa);
+                made = again;
+            }
+        }
         if (made.width == 0 or made.height == 0) {
             made.deinit(gpa);
             continue;
@@ -710,7 +763,9 @@ pub const Outlines = struct {
                 return err;
             };
             if (made) |outline| {
-                log.info("{s} uses {s}", .{ member, name });
+                if (outline.fit.across < 1) {
+                    log.info("{s} uses {s}, {d:.0}% as wide to keep the game's spacing", .{ member, name, outline.fit.across * 100 });
+                } else log.info("{s} uses {s}", .{ member, name });
                 return outline;
             }
             rasterizer.close(face);
@@ -780,10 +835,10 @@ pub const testing = struct {
             return if (has(character)) capitals else null;
         }
 
-        fn draw(context: *anyopaque, _: Face, character: u21, em: f32, weight: f32, gpa: Allocator) Error!?Bitmap {
+        fn draw(context: *anyopaque, _: Face, character: u21, em: f32, weight: f32, across: f32, gpa: Allocator) Error!?Bitmap {
             if (!has(character)) return null;
             // A heavier box grows to the right and up, as FreeType's glyphs do.
-            const width: u32 = @intFromFloat(@max(0, @round(em * of(context).wide + weight * em)));
+            const width: u32 = @intFromFloat(@max(0, @round((em * of(context).wide + weight * em) * across)));
             const height: u32 = @intFromFloat(@max(0, @round(em * capitals + weight * em)));
             const coverage = try gpa.alloc(u8, @as(usize, width) * height);
             @memset(coverage, 0xFF);
@@ -866,6 +921,27 @@ test Fit {
     try std.testing.expectEqual(null, try Fit.of(rasterizer, rasterizer.open("face").?, try .parse(comptime fnt.testing.font(false)), &level_cover, .bitmap, gpa));
 }
 
+test narrowed {
+    const gpa = std.testing.allocator;
+    const font: fnt.Font = try .parse(testing.font);
+    // The bitmap font's ink is four pixels wide where its capitals are five high. Boxes a quarter
+    // wider than that are drawn four fifths as wide, so that they keep the bitmap font's spacing.
+    var wider: testing.Boxes = .{ .wide = 0.75 };
+    const fit = (try Fit.of(wider.rasterizer(), wider.rasterizer().open("face").?, font, &level_cover, .own, gpa)).?;
+    try std.testing.expectApproxEqAbs(0.8, fit.across, 0.02);
+    // Each character's own room is kept too, for the glyphs still wider than it.
+    try std.testing.expectEqual(4, fit.widths['H']);
+    // Far wider ones stop at the narrowest a font is drawn.
+    var widest: testing.Boxes = .{ .wide = 1.5 };
+    try std.testing.expectEqual(narrowest, (try Fit.of(widest.rasterizer(), widest.rasterizer().open("face").?, font, &level_cover, .own, gpa)).?.across);
+    // A font as narrow as the bitmap one, or narrower, keeps its width, and so does Newtown.
+    var slim: testing.Boxes = .{ .wide = 0.5 };
+    try std.testing.expectEqual(1, (try Fit.of(slim.rasterizer(), slim.rasterizer().open("face").?, font, &level_cover, .own, gpa)).?.across);
+    const built_in = (try Fit.of(wider.rasterizer(), wider.rasterizer().open("face").?, font, &level_cover, .bitmap, gpa)).?;
+    try std.testing.expectEqual(1, built_in.across);
+    try std.testing.expectEqual(0, built_in.widths['H']);
+}
+
 test weighed {
     const gpa = std.testing.allocator;
     // Boxes a hundredth of an em wider than the bitmap's ink, which covers four by five pixels, are
@@ -876,7 +952,7 @@ test weighed {
     const face = rasterizer.open("face").?;
     const fit = (try Fit.of(rasterizer, face, try .parse(testing.font), &level_cover, .bitmap, gpa)).?;
     try std.testing.expect(fit.weight < 0);
-    const drawn = (try rasterizer.draw(face, 'H', fit.em * weigh_scale, fit.weight, gpa)).?;
+    const drawn = (try rasterizer.draw(face, 'H', fit.em * weigh_scale, fit.weight, 1, gpa)).?;
     defer drawn.deinit(gpa);
     try std.testing.expectEqual(4 * 5 * weigh_scale * weigh_scale, drawn.width * drawn.height);
     try std.testing.expectEqual(5 * weigh_scale, drawn.height);
