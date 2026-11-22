@@ -65,6 +65,11 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
   (`srtexture.Compressor`), with bc7enc and rgbcx from bc7enc_rdo, built from a pinned source
   package (`deps/texture-compressor`), the rows of blocks shared out between threads
   (`platform/texture_compressor.zig`).
+- The loadout keeps a texture table of its own, for the green and red copies it draws its
+  ships and weapons with. It takes the same compressor, and lets go of a texture's pixels once
+  the device holds them, as the game's table does (`loadout.Context.texture_compressor`,
+  `release_textures`). Uncompressed, a 4096 by 4096 picture with its normal and material maps
+  takes 268 MB for each copy.
 - **Improvement:** a model's mods' pictures load together (`srtexture.Table.prefetch`, called by
   `srofiles.modelLoad`). Their files are read on the game's thread, decoded on as many threads as
   the computer has cores, each picture's maps on threads of their own, and made ready for the

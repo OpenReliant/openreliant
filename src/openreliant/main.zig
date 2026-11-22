@@ -1136,6 +1136,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .details = details,
                     .models = models,
                     .loadout_look = options.loadout_look,
+                    .texture_compressor = textures.compressor,
+                    .release_textures = textures.release_held,
                     .saved = &saved_loadout,
                     .stats = tables,
                     .missile_stats = &objects.missile_stats,
