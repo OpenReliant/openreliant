@@ -232,7 +232,7 @@ fuller set of replies (`0x004539A0`, by the table at `0x004539D0`):
 **Fix:** the game copies the reply of a pilot with no voice from nowhere, and stops; OpenReliant
 leaves it out.
 
-Not ported: a multiplayer game's commands ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+In a network game the original also sends a command to the other players. OpenReliant's host runs the wingmen for every pilot.
 
 ## The menu
 

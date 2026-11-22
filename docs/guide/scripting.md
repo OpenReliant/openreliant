@@ -161,8 +161,7 @@ Some functions only work in some kinds of script:
 
 ### In a network game
 
-Network games come after 1.0 ([#55](https://github.com/OpenReliant/openreliant/issues/55)). The scripts
-are already split the way they will run in them, so a mod written now works there too if it keeps
+The scripts are split the way a network game runs them, so a mod works there too if it keeps
 to these rules:
 
 - Global, mission, object, missile and turret scripts run where the game is hosted, and in a

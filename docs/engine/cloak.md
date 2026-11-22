@@ -163,5 +163,5 @@ the Toggle Cloak order, the other way from how it stands (`order_toggle_cloak`, 
 Cloaking posts the ship's Cloaked event first, and uncloaking a ship with a cloak its Decloaked
 ([Script VM](script-vm.md#events)).
 
-Not ported: the Kamov's craft, and the multiplayer game's cloak
-([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+Not ported: the Kamov's craft. A multiplayer game's cloaks are the arena's: the power-up's
+(`deathmatch/powerups.zig`) and the shadow's (`dmscenarios/hunt_the_shadow.zig`).

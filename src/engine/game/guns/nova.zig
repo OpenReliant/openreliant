@@ -296,8 +296,9 @@ fn charged(ship: *const create.Slot) guns.GunType {
 /// smaller charge is just lost. If every beam slot is in use, nothing happens and the charge is
 /// kept.
 ///
-/// Not ported: the message a multiplayer game sends about it (`0x004BB9C0`), and the release it
-/// runs for another player's ship ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a network game the original also sends a message about it (`0x004BB9C0`), and runs the
+/// release for another player's ship as one arrives. OpenReliant's host releases every pilot's
+/// cannon.
 pub fn release(world: gameobj.World, index: u16) void {
     releaseWithFeedback(world, index, true);
 }

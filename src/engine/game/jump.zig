@@ -14,8 +14,8 @@
 //! (`jump_player_going`, `0x0051D0B0`; `jump_countdown`, `0x0051D0B4`; `jump_countdown_next`,
 //! `0x0051CFA0`; `jump_countdown_step`, `0x0051D0A4`).
 //!
-//! Not ported: a multiplayer game's jumps
-//! ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+//! A co-op game's jumps are the host's: a pilot asks, and the host jumps the crew
+//! (`network/server.zig`, `crewJump`).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -458,8 +458,8 @@ fn showFinest(model: *objects.Model, finest: bool) void {
 /// it, but those jumping with it, is marked jumping (`markJumping`). Otherwise the ship goes to its
 /// target, or `nowhere_reach` ahead of it where it names nothing or itself.
 ///
-/// Not ported: in a multiplayer game, the formation of the player whose game it is
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a multiplayer game the original takes the formation of the player whose game it is.
+/// OpenReliant's host jumps a co-op crew together (`crewJump`).
 fn placeOut(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
@@ -575,9 +575,10 @@ fn placeIn(all: *create.Objects, index: u16) void {
 /// burst fade, and over the first part of the flight the flare stretches across and flattens
 /// (`effect.Effect.squashFlare`).
 ///
-/// Not ported: in a multiplayer game, the JumpedIn posted for the first player's ship too as the
-/// ship of the first player still flying jumps in
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a multiplayer game the original posts JumpedIn for the first player's ship too as the ship
+/// of the first player still flying jumps in. **Unverified:** whether a co-op mission's scripts
+/// need that once the first pilot is lost
+/// ([#1541](https://github.com/OpenReliant/openreliant/issues/1541)).
 pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;

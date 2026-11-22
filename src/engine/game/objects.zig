@@ -203,9 +203,9 @@ pub const Node = extern struct {
     /// where it was, until the first step moves the object. A root is never posed, since
     /// `node_place` places part nodes alone.
     ///
-    /// Not ported: in a multiplayer game, another player's ship, whose root has flag bit 9, is
-    /// drawn between the places its last two messages gave it (`+0x768`, `+0x798`)
-    /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+    /// In a network game the original draws another player's ship, whose root has flag bit 9,
+    /// between the places its last two messages gave it (`+0x768`, `+0x798`). OpenReliant's clients
+    /// draw every ship between the host's views (`network/flight_frame.zig`).
     pub fn framePlace(node: *Node, fraction: f32) ?Model.Local {
         if (!node.flags.committed and !node.flags.unframed) return null;
         node.flags.unframed = false;
@@ -244,8 +244,9 @@ pub const Node = extern struct {
 
 /// `object_set_position` (`0x0049B600`): places the object's root at `at`: its frame, which the
 /// port keeps as `frame` (`frameTree`), where it is and where it goes next, so that it doesn't
-/// move from where it was. The game also sets the two places a multiplayer game draws another
-/// player's ship between (`+0x768`, `+0x798`), which OpenReliant doesn't keep (#55).
+/// move from where it was. The game also sets the two places a network game draws another
+/// player's ship between (`+0x768`, `+0x798`). OpenReliant doesn't keep them: its clients draw
+/// every ship between the host's views.
 /// **Unverified:** it and the functions after it lie after this file's known code, before
 /// `particles.cpp`'s.
 pub fn setPosition(object: *GameObject, frame: *Model.Local, at: Vector) void {

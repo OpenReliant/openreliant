@@ -310,8 +310,9 @@ pub const Players = struct {
 /// OpenReliant leaves a target past the objects for the update to pop, and fights with the pilot
 /// its number gives (`pilots.Table.get`).
 ///
-/// Not ported: a multiplayer game's, where the host chooses the maneuvers and the ship starts on
-/// 200 ticks of the first ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a network game the original's host chooses the maneuvers and tells the other machines, and
+/// the ship starts on 200 ticks of the first. OpenReliant's host chooses them as a game of one
+/// does.
 pub fn init(ctx: aigeneric.Context, index: u16) void {
     const fighter = Fighter.unchecked(ctx, index) orelse return;
     if (fighter.against.slot >= ctx.world.objects.count) return;
@@ -328,8 +329,8 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
 /// chosen one, aims and fires, calls for help, cloaks or uncloaks as the maneuver asks
 /// (`updateCloak`) and runs the maneuver.
 ///
-/// Not ported: a multiplayer game's, where the host chooses the maneuvers
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a network game the original's host chooses the maneuvers and tells the other machines.
+/// OpenReliant's host is the one place the order runs.
 pub fn update(ctx: aigeneric.Context, index: u16) void {
     const fighter: Fighter = .of(ctx, index, ai.targetOrPop(ctx, index, .{}) orelse return);
     if (fighter.now() > fighter.state.maneuver_end) choose(fighter);
@@ -680,8 +681,8 @@ const launch_odds: f32 = 0.2;
 /// the wait comes round the ship launches one time in five, and either way draws its wait again
 /// and locks again from the start.
 ///
-/// Not ported: a multiplayer game's client, which leaves the launch to the host
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// The original's client in a network game leaves the launch to the host. OpenReliant's clients
+/// don't run the order.
 fn aimMissile(fighter: Fighter) void {
     const ship = fighter.ship();
     const all = fighter.objects();
@@ -707,8 +708,8 @@ fn aimMissile(fighter: Fighter) void {
 /// held at the pilot's least; with one, once the wait has passed, the ship draws it again and
 /// drops a countermeasure.
 ///
-/// Not ported: a multiplayer game's client, which leaves the countermeasure to the host
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// The original's client in a network game leaves the countermeasure to the host. OpenReliant's
+/// clients don't run the order.
 fn counterMissiles(fighter: Fighter) void {
     const ship = fighter.ship();
     const range = fighter.pilot.timings.countermeasures;

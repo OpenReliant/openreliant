@@ -293,7 +293,7 @@ the script go on. Its description is the developers' own, from the catalogue.
 | `0x2A` | `CommsFromPilotOnce` | As `CommsFromPilot`, the film played once | Yes |
 | `0x2B` | `DisableLights` | Puts out the lights of each ship the first argument names while the second is set, the static lights baked into its parts with them, and lights them again where it is not ([Static lights](rendering.md#static-lights)) | Yes |
 | `0x2C` | `SetEnvironmentFX` | Turns the environment effect the first argument numbers on while the second is set, or off: the ice field, and effect 2, which does nothing ([Environment effects](backdrop.md#environment-effects)) | Yes |
-| `0x2D` | `MultiPlayerSync` | The thread yields; in a network game, the local player's script first waits for the others' ([#55](https://github.com/OpenReliant/openreliant/issues/55)) | Yes |
+| `0x2D` | `MultiPlayerSync` | The thread yields. In a network game the original's local player's script first waits for the others'; OpenReliant's host runs the one script | Yes |
 | `0x2E` | `DisableGenericComms` | Keeps the remarks the radio makes by itself (`0x00529538`) quiet while the argument is set; a mission's start clears it ([Radio](radio.md#remarks)) | Yes |
 | `0x2F` | `DisableGuns` | Each ship the first argument names fires no guns while the second is set, its turrets resting too | Yes |
 | `0x30` | `SetNavPoint` | Each ship the first argument names takes the object the second names as its nav point (`+0x720`), which the display points the player's ship to, or none | Yes |

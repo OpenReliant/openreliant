@@ -83,8 +83,8 @@ pub const permission_every: u32 = 500;
 /// (`ailand.landingCarrier`), and asks nothing otherwise, as where there is no carrier.
 ///
 /// Not ported: the debug line it writes naming the mission's rating, which nothing shows; and a
-/// multiplayer game's side of it, in which a remote player's ship is cleared whatever the script
-/// says ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// network game's side of it, in which a remote player's ship is cleared whatever the script
+/// says: OpenReliant's host asks for every pilot alike.
 pub fn permissionToLand(world: gameobj.World, game_ticks: u32) void {
     if (hooks.enter(.permission_to_land, permissionToLand, .{ world, game_ticks })) |done| return done;
     const player = world.player;

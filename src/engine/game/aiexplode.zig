@@ -284,8 +284,8 @@ fn limpetCarInit(ctx: Context, index: u16) void {
 /// car blows up (`explode.blast`), and a limpet pod takes its slot, where that part was going;
 /// otherwise the car blows up and is retired.
 ///
-/// Not ported: the message that tells the other players of a network game of the car's end
-/// (`0x004B9C70`, [#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a network game the original also tells the other players of the car's end (`0x004B9C70`).
+/// OpenReliant's host runs it for every pilot.
 fn limpetCarUpdate(ctx: Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;

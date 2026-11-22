@@ -10,7 +10,7 @@ What each object is doing: flying in formation, escorting, docking, exploding, o
 
 [`aigeneric.zig`](../../src/engine/game/aigeneric.zig) holds the stack and runs the orders, [`ai.zig`](../../src/engine/game/ai.zig) the steering they turn by, [`aifuncs.zig`](../../src/engine/game/aifuncs.zig) the orders that fly a ship, a capital ship's lurch and orders 44 and 45, [`aieject.zig`](../../src/engine/game/aieject.zig) and [`tractor.zig`](../../src/engine/game/tractor.zig) those of the [ejection](ejection.md), [`launch.zig`](../../src/engine/game/launch.zig) the [launches](launch.md) and [`jump.zig`](../../src/engine/game/jump.zig) the [jumps](jump.md), [`aiioncan.zig`](../../src/engine/game/aiioncan.zig) the [ion cannon](ion-cannon.md), [`ai/formations.zig`](../../src/engine/game/ai/formations.zig) the [formations](#formations), and [`ai/orders.zig`](../../src/engine/game/ai/orders.zig) lists every order with its flags, priorities and routines; `make order-tables` transcribes that table from the executable. The names below are those `make ghidra-annotate` gives the Ghidra project, which names each order's routines `order_` and the order's name, with `_init` and `_exit` for those two.
 
-Ported so far: the stack (`order_push`, `order_pop`, `orders_clear`, `orders_pop_all`), the queue (`order_queue`), what runs them (`object_orders`, `orders_update`, `order_retaliate`), and the steering (`ai_steer`, `ai_roll_upright`) with its avoidance. [The orders](#the-orders) says which orders are ported, Player Control being the player's [controls](controls.md). Not ported: the multiplayer orders, which still hold their place on the stack, pushing one still popping and starting what it should, and the orders sent to and from the other machines in a network game ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+Ported so far: the stack (`order_push`, `order_pop`, `orders_clear`, `orders_pop_all`), the queue (`order_queue`), what runs them (`object_orders`, `orders_update`, `order_retaliate`), and the steering (`ai_steer`, `ai_roll_upright`) with its avoidance. [The orders](#the-orders) says which orders are ported, Player Control being the player's [controls](controls.md). In a network game the original also sends orders to and from the other machines. OpenReliant's host runs every order, so it sends none.
 
 OpenReliant keeps each object's stack and order state in its slot rather than allocating them with its first order, and hands a fatal "Cannot set ai" back to its caller as an error. **Fix:** where the game stops with it, OpenReliant logs it in the game's words and the order is not taken (`aigeneric.give`).
 
@@ -204,8 +204,8 @@ out. The game writes the queued order's data over the order on top of the stack 
 push did not take; OpenReliant writes it to the order pushed alone.
 
 [`aigeneric.zig`](../../src/engine/game/aigeneric.zig) ports the queue (`queue`, `startQueued`).
-Not ported: the orders sent to and from the other machines
-([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+In a network game the original also sends orders to and from the other machines, which
+OpenReliant's host, running every order, has no use for.
 
 ## Steering
 
@@ -325,9 +325,8 @@ choices come from `object_random` (`0x004ADD10`), each object's own generator: a
 set from C's `rand()` when the object is created, that steps as `seed * 0x343FD + 0x269EC3`, bits
 16 to 30 of it over 32767 giving a number from 0 to 1.
 
-Every order, by its number, with what it does and whether OpenReliant runs it. A multiplayer order
-OpenReliant does not run yet holds its place on the stack and does nothing
-([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+Every order, by its number, with what it does and whether OpenReliant runs it. Move to spawn pos
+(34) holds its place on the stack and does nothing: the host places a pilot's fighter itself.
 
 The Order column holds the developers' names. Scripts and `ai/orders.zig` use them in lower case,
 with underscores, but for the orders the table names nothing, or names as an earlier one, which
@@ -369,7 +368,7 @@ take OpenReliant's own names, for what they do differently (tablegen's `own_name
 | 31 | Fixed Gate Collapse | The gate comes down in fireballs, its tunnel burning out ([Gates](gates.md#collapse)). | Yes |
 | 32 | Match Speed | Sets the throttle to the target's speed over the ship's cruise speed. Pops when the target is no longer valid. | Yes |
 | 33 | Dark Reign shoot | Picks the nearest ship of its target it can fire at and queues 110 at it; with none, pops ([The ion cannon](ion-cannon.md#picking-a-ship)). | Yes |
-| 34 | Move to spawn pos | A deathmatch's (`deathmatch.cpp`). Not read yet. | No ([#55](https://github.com/OpenReliant/openreliant/issues/55)) |
+| 34 | Move to spawn pos | `order_move_to_spawn_pos` (`0x004AF590`): resets the pilot's fighter at a spawn marker (`multiplayer_reset_ship`, `0x004AF1D0`) and pops. | No: the host respawns a pilot itself ([`deathmatch/spawn.zig`](../../src/engine/game/deathmatch/spawn.zig)) and never pushes it |
 | 35 | Turns object lights on | Turns on the light maps of the parts flagged `lightmap` (the second pass of their surfaces), heard (`bigon`), and pops. The rogue base (165) turns on a surface of its first part each 100 ticks, four of them, then those of its other parts, heard at each step, and pops after 500 ticks. Where the light maps aren't drawn (`Lmaps`, `0x5D5618`) it pops at once. A ship type shares its meshes, so every ship of the type goes with it. **Fix:** the game turns on only the level of detail each part is drawn at, and a second pass for every surface, drawing those with no second texture flat; OpenReliant turns them on at every level, and only where a surface has a second texture. | Yes |
 | 36 | Make Boridin section break away | The Boridin hides the nine parts its breakaway section takes (`Bor break off section`, its core, cylinder, projector, projector generator and that generator's wreck, two launch doors and `Object02`), its `Bor main body` streams great grey smoke for 5000 ticks, and the first Boridin breakaway among the objects stands where the section stood, 4000 along its nose, turned as it was, so that it seems to come away from the Boridin. Its update does nothing. **Fix:** with no breakaway, the game stops with an assertion; OpenReliant logs it. | Yes |
 | 37 | Rotate Boridin breakaway warp projector | The ship's `Bor brkawy proj ` (its name ending in a space) loops its `Rotate Proj ` track from where it stands, at four times its pace, and the order pops. No shipped mission gives it. | Yes |
@@ -380,7 +379,7 @@ take OpenReliant's own names, for what they do differently (tablegen's `own_name
 | 44 | Immediately set ship to zero velocity and rotation | `object_stop` (`0x00403000`), then it pops. | Yes |
 | 45 | Fly ship backwards | Throttle -0.5, no turning. | Yes |
 | 100 | Player Control | The player's controls fly the ship ([Controls](controls.md)). | Yes |
-| 101 | Multiplayer Control | Disables the object once it has object flag `0x10000000`. | No ([#55](https://github.com/OpenReliant/openreliant/issues/55)) |
+| 101 | Multiplayer Control | Disables the object once it has object flag `0x10000000`. **Improvement:** a pilot's ship also flies from the commands the host has of them. | Yes |
 | 102 | Avoid Target | While on course to hit its target (`ai_collision_course`, 75 steps ahead with a margin of 2000), pitches at full input away from it at half throttle. Once clear, it flies straight at full throttle until 50 ticks after it started, or 50 to 150 after it last turned away, the extra drawn from its own random numbers, and pops. It pops at once where its target is not a ship. No shipped mission gives it. | Yes |
 | 103 | Torpedo | Find New Target's for a ship of the torpedo class. On starting, full throttle. Each update it pops once it can aim at its target no more; otherwise it steers with a limit of 2 and no ease at the target's node, led along the target's nose by the target's speed times the ticks the torpedo takes to get there at its top speed, less its own velocity times half those ticks, 25 at most. It goes off against what it meets ([Collisions](loop.md#collisions)). | Yes |
 | 104 | Launch | The ship leaves its carrier, in the style the carrier's type picks ([Launches](launch.md)). | Yes |
@@ -399,7 +398,7 @@ take OpenReliant's own names, for what they do differently (tablegen's `own_name
 | 118 | Eject Player | The player's ship drifts, unpowered, for 400 to 599 ticks, then explodes, unless the pilot ejects first ([Destruction](objects.md#destruction), [Ejection](ejection.md#ejecting)). | Yes |
 | 119 | Ship Follow Curve Backwards | Flies the path of Ship Follow Curve (17) backwards, from its end to its start. | Yes |
 | 120 | Mill | On starting, where it can aim at its target, cloaked or not, keeps the tick and a circle facing from the target's node to where the ship will be next. Each update it pops once it can aim at the target no more or 500 ticks have passed; otherwise it flies at full throttle, steering with flags `0x3` for a point on the circle 50000 from the node, which comes round from the ship's side by 0.000005 of its cruise speed a tick. **Improvement:** OpenReliant computes the sine and cosine rather than reading the engine's tables (`sr_sin`, `sr_cos`). | Yes |
-| 121 | Deathmatch Respawn Effect | A deathmatch's (`deathmatch.cpp`). Not read yet. | No ([#55](https://github.com/OpenReliant/openreliant/issues/55)) |
+| 121 | Deathmatch Respawn Effect | Protects a fighter as it appears, behind the sweep, clipping plane and beam of its spawn ([`deathmatch/respawn.zig`](../../src/engine/game/deathmatch/respawn.zig)). | Yes |
 | 122 | Deathmatch Dark Reign target | It has no routines: nothing to run. | Yes |
 | 200 | (nameless) | It has no routines: nothing to run. | Yes |
 
@@ -427,9 +426,9 @@ state:
 | Step | What it does |
 |---|---|
 | 0 | It arrives (`ai_arrive`) at the path's start, turned toward the path's point 4 ticks on and at the throttle the path keeps between them over its cruise speed; the curve's clock holds at its start. The order backwards arrives at the path's end instead, turned toward its point 4 ticks back, its motion `motion_forward` |
-| 1 | In a multiplayer game it waits for the other players (`ai_sequence_sync`, `0x00401000`, not ported: [#55](https://github.com/OpenReliant/openreliant/issues/55)); in a game of one, it goes on |
+| 1 | In a network game the original waits for the other players (`ai_sequence_sync`, `0x00401000`); in a game of one, and in OpenReliant, whose host has nothing to wait for, it goes on |
 | 2 | It flies `motion_follow` along the path, or `motion_follow_backwards` where its motion was astern; backwards, `motion_follow`. The path moves it on to step 3 |
-| 3 | The order pops, in a multiplayer game once the other players are there too (not ported: [#55](https://github.com/OpenReliant/openreliant/issues/55)), and its `exit` gives the ship `motion_forward`, or `motion_backward` after `motion_follow_backwards` |
+| 3 | The order pops, in the original's network game once the other players are there too, and its `exit` gives the ship `motion_forward`, or `motion_backward` after `motion_follow_backwards` |
 
 The path's routine, each update of the motion, gives the curve's point as far along as its ticks
 have gone by `mission_ticks`, which runs on through a frame's simulation steps (`curve_point`),

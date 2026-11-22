@@ -220,8 +220,9 @@ The Fight order and its maneuvers read the ship's pilot, a record of `pilot_stat
 
 ## In OpenReliant
 
-The Fight order and every command run as described, but for multiplayer, where the host chooses
-the maneuvers ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+The Fight order and every command run as described. In a network game the original's host
+chooses the maneuvers and tells the other machines; OpenReliant's host is the one place the order
+runs.
 
 **Improvement:** the game's maneuvers are built into its executable. In OpenReliant, mods' load
 scripts can change them and add new ones (`records.maneuvers`, [Combat

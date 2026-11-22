@@ -972,8 +972,8 @@ fn showHudIcon(call: Call, game: aigeneric.Context) void {
 /// network game, the game first marks the local player's script as waiting for the others
 /// (`0x004B58D0`), which does nothing in single player.
 ///
-/// Not ported: a multiplayer game's players' scripts kept in step
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// OpenReliant's host runs the one script of a network game, so there are no players' scripts to
+/// keep in step.
 fn multiPlayerSync(call: Call) u32 {
     _ = call;
     return yield;
@@ -1425,8 +1425,8 @@ fn setPrimaryTarget(call: Call, game: aigeneric.Context) void {
 /// is exploding, ejected or sent off (`GameObject.Flags.sent_off`), is put where the object the
 /// second names will stand next, turned as it will be, and stopped (`ai.stop`).
 ///
-/// Not ported: in a multiplayer game, the move told to the other players
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a network game the original also tells the other players of the move. OpenReliant's host
+/// sends each pilot where every object is.
 fn snapToPoint(call: Call, game: aigeneric.Context) void {
     const all = game.world.objects;
     const ship = call.argumentShip(all, 0) orelse return;

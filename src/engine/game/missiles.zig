@@ -432,8 +432,8 @@ pub const Missiles = Linked(Missile, max_missiles);
 /// Where memory runs out for a pod's missile, nothing is launched, and for a trail, the missile
 /// flies without one.
 ///
-/// Not ported: what a multiplayer game sends
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// In a network game the original also tells the other machines of the launch. OpenReliant's
+/// host launches every pilot's missiles and sends each pilot what it sees.
 pub fn launch(world: gameobj.World, launcher: u16, rack: usize, target: aigeneric.Target) void {
     if (hooks.enter(.missile_launch, launch, .{ world, launcher, rack, target })) |done| return done;
     const all = world.objects;
@@ -974,8 +974,9 @@ pub fn draw(all: *create.Objects, gpa: Allocator, scene: *srcore.Scene, attachme
 /// side (`shockwave.Shockwave.strike`); its blast (`explode.missileBlast`); and its record freed.
 /// The scripts hear of it first, and a missile they end meanwhile ends only once.
 ///
-/// Its trail fades out from here. Not ported: in a multiplayer game, a remote missile's id
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// Its trail fades out from here. In a network game the original also keeps the id
+/// another machine gave a missile, which OpenReliant's host, the one place missiles fly, has no
+/// use for.
 pub fn end(world: gameobj.World, at: u8) void {
     const all = world.objects;
     const missile = all.missiles.get(at) orelse return;

@@ -429,5 +429,5 @@ blinking beacons get the longer reach and the thrown-back light: when the steady
 real lights, they keep their own reach and throw nothing back. `--original` keeps the beacons'
 normal reach and throws nothing back.
 
-Not ported: a multiplayer game's starting of launches
-([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+In a network game the original's host also tells the other machines to start a launch.
+OpenReliant's host runs every launch.
