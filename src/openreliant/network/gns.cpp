@@ -1,5 +1,6 @@
 // The transport owns sockets. Zig owns admission, input validation and the simulation.
 #include "gns_common.h"
+#include <steam/steamnetworkingcustomsignaling.h>
 #if defined(_WIN32)
 #include <conio.h>
 #else
@@ -105,6 +106,69 @@ extern "C" int session_ping_ms(uint32_t conn) {
 
 extern "C" void session_datagram_handler(DatagramHandler handler) {
     OpenReliant_SetDatagramHandler(handler);
+}
+
+// --- Connections through ICE ---------------------------------------------------------------
+//
+// A host behind a router has no address a player can connect to. Both sides then open an ICE
+// connection, and something else has to carry its signals between them: the directory's
+// rendezvous. Zig owns that. Here a signal the transport wants sent is handed to Zig with the
+// number of the exchange it belongs to, and a signal Zig received is handed to the transport.
+
+// Hands Zig a signal to send in `exchange`. Called on the transport's thread.
+extern "C" bool session_signal_out(uint32_t exchange, const uint8_t *signal, int size);
+
+namespace {
+class Signals final : public ISteamNetworkingConnectionSignaling {
+  public:
+    explicit Signals(uint32_t exchange) : exchange(exchange) {}
+    bool SendSignal(HSteamNetConnection, const SteamNetConnectionInfo_t &, const void *signal, int size) override {
+        return session_signal_out(exchange, static_cast<const uint8_t *>(signal), size);
+    }
+    void Release() override { delete this; }
+
+  private:
+    uint32_t exchange;
+};
+
+// The exchange whose signal the transport is reading, which a new connection's signals go back
+// through.
+thread_local uint32_t reading_exchange;
+
+class Incoming final : public ISteamNetworkingSignalingRecvContext {
+    ISteamNetworkingConnectionSignaling *OnConnectRequest(HSteamNetConnection, const SteamNetworkingIdentity &, int port) override {
+        return port == 0 ? new Signals(reading_exchange) : nullptr;
+    }
+    void SendRejectionSignal(const SteamNetworkingIdentity &, const void *, int) override {}
+};
+}
+
+// Turns ICE on, with the STUN servers each side learns its public address from. Only public
+// addresses are offered, so that a machine's addresses on its own network stay private, unless
+// `local` asks for those too, as a directory on this machine does for a test.
+extern "C" bool session_ice_enable(const char *stun_servers, bool local) {
+    auto *utils = SteamNetworkingUtils();
+    constexpr int native = 1;
+    const int offered = k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Public |
+                        (local ? k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Private : 0);
+    return utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_P2P_Transport_ICE_Implementation, native) &&
+           utils->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_P2P_Transport_ICE_Enable, offered) &&
+           utils->SetGlobalConfigValueString(k_ESteamNetworkingConfig_P2P_STUN_ServerList, stun_servers);
+}
+
+// A host's listener for ICE connections, beside its IP one.
+extern "C" uint32_t session_ice_listen() { return SteamNetworkingSockets()->CreateListenSocketP2P(0, 0, nullptr); }
+
+// A player's connection to the host at the other end of `exchange`.
+extern "C" uint32_t session_ice_connect(uint32_t exchange) {
+    return SteamNetworkingSockets()->ConnectP2PCustomSignaling(new Signals(exchange), nullptr, 0, 0, nullptr);
+}
+
+// Gives the transport a signal received in `exchange`. A host's first one opens a connection.
+extern "C" bool session_signal_in(uint32_t exchange, const uint8_t *signal, int size) {
+    static Incoming incoming;
+    reading_exchange = exchange;
+    return SteamNetworkingSockets()->ReceivedP2PCustomSignal(signal, size, &incoming);
 }
 
 extern "C" void session_listen_close(uint32_t listener) {

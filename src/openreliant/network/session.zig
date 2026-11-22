@@ -91,12 +91,34 @@ pub const LocalGame = struct {
     directory: std.Io.Dir,
     server: credential.Server,
     host: Host,
+    /// Who the game is open to. Past the local network, `advertiser` takes players to it
+    /// through the first of `directories`.
+    reach: Reach,
+    advertiser: ?Advertiser,
+    directories: []const u8,
+    name: wire.CallSign,
+    port: u16,
+    /// The listener of the players who came through the directory, kept while the game is a
+    /// LAN game again, so that they stay.
+    ice_listener: u32,
 
-    pub fn start(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, client: *Client, port: u16, call_sign: wire.CallSign, mission: ?u16) !*LocalGame {
+    pub const Reach = @import("openreliant").engine.game.interface.Connection.Lobby.Reach;
+    /// What the list calls the game of a host with no call sign.
+    const unnamed_game = "OpenReliant game";
+
+    /// `directories` are the directory URLs the game can be opened through, which the caller
+    /// keeps for as long as the game runs, or empty where it can only be a LAN game.
+    pub fn start(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, client: *Client, port: u16, call_sign: wire.CallSign, mission: ?u16, directories: []const u8) !*LocalGame {
         const game = try gpa.create(LocalGame);
         errdefer gpa.destroy(game);
         game.gpa = gpa;
         game.directory = directory;
+        game.reach = .lan;
+        game.advertiser = null;
+        game.directories = directories;
+        game.name = call_sign;
+        game.port = port;
+        game.ice_listener = 0;
         game.server = try .load(io, directory);
         errdefer game.server.wipe();
         try initAutomatic(&game.server, io);
@@ -128,6 +150,54 @@ pub const LocalGame = struct {
         return game;
     }
 
+    /// Whether the game can be opened to players beyond the local network.
+    pub fn canShare(game: *const LocalGame) bool {
+        return game.directories.len != 0;
+    }
+
+    /// Opens the game to the local network alone, to invited players, or to everyone. The
+    /// players already in it stay.
+    pub fn openTo(game: *LocalGame, reach: Reach) void {
+        if (reach == game.reach or !game.canShare()) return;
+        game.reach = reach;
+        if (reach == .lan) return game.unpublish();
+        if (game.advertiser) |*publisher| return publisher.setUnlisted(reach == .invite);
+        game.advertiser = Advertiser.init(game.host.io, .{
+            .origins = game.directories,
+            // The list shows the game under its host's call sign.
+            .name = if (game.name.slice().len != 0) game.name.slice() else unnamed_game,
+            .description = "",
+            .address = null,
+            .port = game.port,
+            .hosting = .player_hosted,
+            .rendezvous = true,
+            .unlisted = reach == .invite,
+        }, &game.server) catch |err| {
+            std.log.warn("could not open the game beyond the LAN: {t}", .{err});
+            game.reach = .lan;
+            return;
+        };
+        game.advertiser.?.ice_listener = game.ice_listener;
+        game.ice_listener = 0;
+        game.host.directory_session = game.advertiser.?.session;
+    }
+
+    /// Takes the game off the directory. The players who came through it stay.
+    fn unpublish(game: *LocalGame) void {
+        if (game.advertiser) |*publisher| {
+            game.ice_listener = publisher.keepListener();
+            publisher.close(game.host.io);
+        }
+        game.advertiser = null;
+        game.host.directory_session = null;
+    }
+
+    /// Keeps the game published and passes the signals of the players coming through the
+    /// directory. Call it where the host is pumped.
+    pub fn share(game: *LocalGame) void {
+        if (game.advertiser) |*publisher| publisher.tick(&game.host, game.host.now());
+    }
+
     pub fn launch(game: *LocalGame) !void {
         if (!game.host.canLaunch()) return;
         const lobby = game.host.start.lobby;
@@ -146,6 +216,9 @@ pub const LocalGame = struct {
     pub fn stop(game: *LocalGame, client: ?*Client) void {
         current = .{};
         if (client) |local_pilot| local_pilot.close();
+        game.unpublish();
+        if (game.ice_listener != 0) net.session_listen_close(game.ice_listener);
+        game.ice_listener = 0;
         game.host.close();
         net.session_deinit();
         game.host.arena.destroy();
@@ -257,6 +330,15 @@ fn join(io: std.Io, args: []const [:0]const u8) !void {
 }
 
 pub fn connect(client: *Client, io: std.Io, target: []const u8) !void {
+    if (std.mem.startsWith(u8, target, credential.RendezvousInvite.prefix)) {
+        const shared = try credential.RendezvousInvite.parse(target);
+        try initTransport(&credential.openSshKey(shared.key), null);
+        errdefer net.session_deinit();
+        client.* = .{ .expected_host = credential.host_name, .expected_session = shared.session };
+        try client.openThrough(io, shared);
+        current.client = client;
+        return;
+    }
     const listing = if (std.mem.startsWith(u8, target, credential.DirectoryInvite.prefix)) try credential.DirectoryInvite.parse(target) else null;
     const invite = if (listing) |entry| entry.invite else if (std.mem.startsWith(u8, target, credential.Invite.prefix))
         try credential.Invite.parse(target)

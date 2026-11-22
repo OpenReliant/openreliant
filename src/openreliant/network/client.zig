@@ -7,6 +7,8 @@ const flight_input = @import("flight_input.zig");
 const Presses = flight_input.Presses;
 const wire = @import("wire.zig");
 const net = @import("transport.zig");
+const identity = @import("identity.zig");
+const Rendezvous = @import("rendezvous.zig");
 const Client = @This();
 
 pub const Controls = union(enum) { keyboard, fixed: Steering };
@@ -24,11 +26,25 @@ pub const Steering = enum(i8) {
 };
 
 const timeout = 10 * std.time.us_per_s;
+/// How long a connection through a rendezvous may take: the directory is asked first, and then
+/// both sides try each other's addresses. Not ported: a relay for the networks where no address
+/// works ([#1540](https://github.com/OpenReliant/openreliant/issues/1540)).
+const rendezvous_timeout = 20 * std.time.us_per_s;
 const poll_ms = 4;
 
 expected_host: ?[]const u8,
 expected_session: ?[16]u8 = null,
 conn: net.Connection = 0,
+/// The rendezvous an invite to a host behind a router takes the connection through.
+signals: ?*Rendezvous = null,
+signalling: enum {
+    /// The host is reached at its address.
+    off,
+    /// The directory is being asked whether it takes rendezvous.
+    starting,
+    /// The connection is opening, or open, and its signals pass through the directory.
+    passing,
+} = .off,
 state: enum { connecting, connected, unverified, closed, lost, dropped } = .connecting,
 
 deadline: i64 = 0,
@@ -108,6 +124,48 @@ pub fn open(client: *Client, io: Io, address: [:0]const u8) !void {
     client.deadline = Io.Clock.awake.now(io).toMicroseconds() + timeout;
 }
 
+/// Starts a connection to the host of `invite`, which has no address to connect to: the
+/// directory passes the signals of an ICE connection between the two. `poll` opens the
+/// connection once the directory has answered.
+pub fn openThrough(client: *Client, io: Io, invite: identity.RendezvousInvite) !void {
+    var buffer: [256]u8 = undefined;
+    const url = invite.url(&buffer) catch return error.ConnectFailed;
+    client.signals = Rendezvous.create(url, .{ .join = .{
+        .key = std.fmt.bytesToHex(invite.key.toBytes(), .lower),
+        .session = std.fmt.bytesToHex(invite.session, .lower),
+    } }) catch return error.ConnectFailed;
+    client.signalling = .starting;
+    client.deadline = Io.Clock.awake.now(io).toMicroseconds() + rendezvous_timeout;
+}
+
+/// Opens the ICE connection once the directory has said it takes rendezvous, and passes the
+/// signals it brings. Returns whether there is a connection to poll yet.
+fn signal(client: *Client) !bool {
+    const signals = client.signals orelse return true;
+    switch (client.signalling) {
+        .off => return true,
+        .starting => switch (signals.state.load(.acquire)) {
+            .starting => return false,
+            .failed => return error.ConnectFailed,
+            .ready => {
+                if (!net.session_ice_enable(signals.stun().?, signals.local)) return error.ConnectFailed;
+                client.conn = net.session_ice_connect(Rendezvous.joining_exchange);
+                if (client.conn == 0) return error.ConnectFailed;
+                client.signalling = .passing;
+                return true;
+            },
+        },
+        .passing => {
+            signals.pump();
+            if (client.state == .connected) {
+                signals.settle();
+                // The directory refused the offer, or the host never answered it.
+            } else if (client.state == .connecting and signals.state.load(.acquire) == .failed) return error.ConnectFailed;
+            return true;
+        },
+    }
+}
+
 pub fn local(client: *Client, io: Io, client_end: net.Connection) void {
     client.* = .{
         .expected_host = null,
@@ -120,6 +178,9 @@ pub fn local(client: *Client, io: Io, client_end: net.Connection) void {
 pub fn close(client: *Client) void {
     if (client.conn != 0 and (client.state == .connecting or client.state == .connected)) net.session_close(client.conn);
     client.conn = 0;
+    if (client.signals) |signals| signals.destroy();
+    client.signals = null;
+    client.signalling = .off;
 }
 
 pub fn leave(client: *Client, io: Io) !void {
@@ -327,6 +388,7 @@ pub fn finishBriefing(client: *Client, fit: ?wire.CampaignLoadout) !void {
 /// Advance the connection without waiting for a packet or a simulation tick.
 pub fn poll(client: *Client, io: Io) !Event {
     net.session_poll();
+    const reachable = try client.signal();
     if (client.state == .unverified) return error.UnverifiedServer;
     if (client.state == .closed) return if (client.leaving) .closed else error.Disconnected;
     if (client.state == .dropped) return error.DroppedForLag;
@@ -347,6 +409,7 @@ pub fn poll(client: *Client, io: Io) !Event {
     }
     if (client.joined != null and !client.leaving and now >= client.next_input)
         try client.sendInput(now, client.flight_command, client.flown_tick);
+    if (!reachable) return .idle;
     var buffer: [wire.capacity]u8 = undefined;
     const message = try net.receive(client.conn, &buffer) orelse return .idle;
     switch (message) {

@@ -71,12 +71,20 @@ coop_kept_kills: i32 = 0,
 coop_rank: game.gameflow.Rank = 0,
 stick: [2]i16 = @splat(0),
 standings_first: ?usize = null,
+/// The host's invite as the lobby and the clipboard take it, and until when the lobby says it
+/// was copied.
+invite_text: [Connection.max_target + 1]u8 = undefined,
+invite_copied_until: i64 = 0,
+
+/// How long the lobby says the invite was copied.
+const invite_copied_us = 3 * std.time.us_per_s;
 
 pub fn start(pilot: *Graphical, io: std.Io, target: []const u8, screen: *Connection, name: *const wire.CallSign) void {
     if (pilot.client != null or pilot.hosted != null or pilot.resolving.busy()) return;
     const call_sign = wire.lobbyName(name.slice());
     if (!std.mem.startsWith(u8, target, identity.Invite.prefix) and
         !std.mem.startsWith(u8, target, identity.DirectoryInvite.prefix) and
+        !std.mem.startsWith(u8, target, identity.RendezvousInvite.prefix) and
         (session.directAddress(target) catch null) == null)
     {
         const job = Resolve.parse(target, session.default_port) catch {
@@ -112,12 +120,51 @@ fn connectTarget(pilot: *Graphical, io: std.Io, target: []const u8, screen: *Con
     screen.message = .{ .english = "Connecting..." };
 }
 
-pub fn hostLan(pilot: *Graphical, io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, screen: *Connection, name: *const wire.CallSign, kind: Connection.HostChoice.Kind) void {
+/// The host's invite, once there is one, for the clipboard.
+pub fn invite(pilot: *Graphical) ?[:0]const u8 {
+    const hosted = pilot.hosted orelse return null;
+    const publisher = if (hosted.advertiser) |*open| open else return null;
+    const text = publisher.invite(pilot.invite_text[0 .. pilot.invite_text.len - 1]) orelse return null;
+    pilot.invite_text[text.len] = 0;
+    return pilot.invite_text[0..text.len :0];
+}
+
+/// Opens the hosted game to the local network, to invited players or to everyone.
+pub fn openTo(pilot: *Graphical, reach: Connection.Lobby.Reach) void {
+    if (pilot.hosted) |hosted| hosted.openTo(reach);
+    pilot.invite_copied_until = 0;
+}
+
+/// Notes that the invite went to the clipboard, which the lobby says for a moment.
+pub fn inviteCopied(pilot: *Graphical, io: std.Io) void {
+    pilot.invite_copied_until = std.Io.Clock.awake.now(io).toMicroseconds() + invite_copied_us;
+}
+
+/// What the host's lobby shows of who the game is open to and its invite.
+fn showSharing(pilot: *Graphical, io: std.Io, lobby: *Connection.Lobby) void {
+    const hosted = pilot.hosted orelse return;
+    if (lobby.role != .host or !hosted.canShare()) return;
+    lobby.role.host.reach = hosted.reach;
+    const publisher = if (hosted.advertiser) |*open| open else {
+        lobby.role.host.invite = .none;
+        return;
+    };
+    lobby.role.host.invite = switch (publisher.sharing()) {
+        .preparing => .preparing,
+        .unavailable => .unavailable,
+        .ready => if (pilot.invite()) |text| .{ .ready = .{
+            .text = text,
+            .copied = std.Io.Clock.awake.now(io).toMicroseconds() < pilot.invite_copied_until,
+        } } else .preparing,
+    };
+}
+
+pub fn hostLan(pilot: *Graphical, io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, screen: *Connection, name: *const wire.CallSign, kind: Connection.HostChoice.Kind, directories: []const u8) void {
     if (pilot.client != null or pilot.hosted != null) return;
     pilot.client = .{ .expected_host = null };
     const call_sign = wire.lobbyName(name.slice());
     const mission: ?u16 = if (kind == .cooperative) game.gameflow.first_mission else null;
-    pilot.hosted = session.LocalGame.start(io, gpa, directory, &pilot.client.?, session.default_port, call_sign, mission) catch |err| {
+    pilot.hosted = session.LocalGame.start(io, gpa, directory, &pilot.client.?, session.default_port, call_sign, mission, directories) catch |err| {
         std.log.warn("could not host a LAN game: {s}", .{@errorName(err)});
         pilot.client = null;
         screen.message = switch (err) {
@@ -176,6 +223,7 @@ pub const Briefing = struct {
         const pilot = briefing.pilot;
         if (pilot.hosted) |hosted| {
             if (try hosted.host.pump() == .finished) return error.SessionEnded;
+            hosted.share();
         }
         const client = &pilot.client.?;
         for (0..messages_per_frame) |_| {
@@ -397,8 +445,10 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             pilot.returnToBrowser(&front.connection, presentation, message);
             return;
         }
+        hosted.share();
         if (front.connection.lobby) |*lobby| {
             if (lobby.role == .host) lobby.role.host.can_launch = hosted.host.canLaunch();
+            pilot.showSharing(io, lobby);
         }
     }
     const client = local orelse {

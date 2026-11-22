@@ -428,6 +428,11 @@ pub fn openUrl(url: [:0]const u8) Error!void {
     if (!c.SDL_OpenURL(url)) return fail("SDL_OpenURL");
 }
 
+/// Puts `text` on the clipboard (`SDL_SetClipboardText`), for the player to paste elsewhere.
+pub fn setClipboard(text: [:0]const u8) Error!void {
+    if (!c.SDL_SetClipboardText(text)) return fail("SDL_SetClipboardText");
+}
+
 /// Copy clipboard text into a bounded field when the player asks to paste.
 pub fn clipboard(buffer: []u8) ?[]const u8 {
     const bytes = c.SDL_GetClipboardText() orelse return null;

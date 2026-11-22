@@ -150,7 +150,7 @@ final_tick: ?u32 = null,
 final_receipts: usize = 0,
 drain_until: i64 = 0,
 
-fn now(host: *const Host) i64 {
+pub fn now(host: *const Host) i64 {
     return Io.Clock.awake.now(host.io).toMicroseconds();
 }
 
@@ -1738,11 +1738,20 @@ pub fn run(host: *Host, address: [:0]const u8, ticks: ?u32, invite: ?identity.In
         std.debug.print("Set InviteAddress in server.ini to print an invite for this listener.\n", .{});
     }
 
+    var shared_invite = false;
     while (true) {
         net.session_poll();
         const result = try host.pump();
         if (host.metrics) |exporter| exporter.publish(host.playingCount());
-        if (advertiser) |publisher| publisher.tick(host, host.now());
+        if (advertiser) |publisher| {
+            publisher.tick(host, host.now());
+            // The invite through the directory, once the host is registered there.
+            var buffer: [256]u8 = undefined;
+            if (!shared_invite) if (publisher.invite(&buffer)) |text| {
+                std.debug.print("invite {s}\n", .{text});
+                shared_invite = true;
+            };
+        }
         if (updates) |check| check.tick(host.now());
         if (result == .finished) break;
         const wait = if (host.final_tick != null)

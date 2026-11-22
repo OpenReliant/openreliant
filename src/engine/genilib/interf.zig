@@ -94,6 +94,10 @@ pub const Outcome = union(enum) {
     choose_team: game.interface.Connection.Lobby.Team,
     team_play: bool,
     arena_option: game.deathmatch.Options.Setting,
+    /// The host's choice of who its game is open to.
+    open_to: interface.Connection.Lobby.Reach,
+    /// The host's click on its invite, which goes to the clipboard.
+    copy_invite,
     send_chat: game.chat.Line,
     /// QUIT, answered YES: 3.
     quit,
@@ -545,6 +549,8 @@ pub const Interface = struct {
                     .choose_team => |team| return .{ .choose_team = team },
                     .team_play => |enabled| return .{ .team_play = enabled },
                     .arena_option => |setting| return .{ .arena_option = setting },
+                    .open_to => |reach| return .{ .open_to = reach },
+                    .copy_invite => return .copy_invite,
                     .back => {
                         front.screen = .main_menu;
                         return null;

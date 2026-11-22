@@ -4,6 +4,7 @@ const engine = @import("openreliant").engine;
 const web = engine.web;
 const Connection = engine.game.interface.Connection;
 const DirectoryInvite = @import("identity.zig").DirectoryInvite;
+const RendezvousInvite = @import("identity.zig").RendezvousInvite;
 const Key = @import("identity.zig").PublicKey;
 
 /// The directory the browser uses unless the player configures another one.
@@ -25,6 +26,9 @@ const Listing = struct {
         players: u16,
         capacity: u16,
         protocol: u32,
+        /// Whether the host is reached through this directory's rendezvous rather than at
+        /// its address, which is then its router's.
+        rendezvous: bool = false,
     },
 };
 const Identity = struct { key: [32]u8, session: [16]u8 };
@@ -63,7 +67,7 @@ const Job = struct {
                 const url = try std.fmt.allocPrint(allocator, "{s}/v1/listings?game=org.openreliant.starlancer&cursor={d}", .{ origin, cursor });
                 const response = fetchPage(io, url, progress) catch break;
                 defer web.allocator.free(response);
-                const next_page = appendPage(allocator, response, &rows, &identities) catch break;
+                const next_page = appendPage(allocator, origin, response, &rows, &identities) catch break;
                 answered = true;
                 const next = next_page orelse break;
                 if (next <= cursor) break;
@@ -95,7 +99,7 @@ fn fetchInto(io: std.Io, url: []const u8, progress: *web.Progress, response: *?[
     response.* = web.fetch(io, .{ .url = url, .loopback = .of(url) }, 128 * 1024, progress) catch null;
 }
 
-fn appendPage(allocator: std.mem.Allocator, response: []const u8, rows: *std.ArrayList(Connection.Server), identities: *std.ArrayList(Identity)) !?usize {
+fn appendPage(allocator: std.mem.Allocator, origin: []const u8, response: []const u8, rows: *std.ArrayList(Connection.Server), identities: *std.ArrayList(Identity)) !?usize {
     var temporary = std.heap.ArenaAllocator.init(web.allocator);
     defer temporary.deinit();
     const page = try std.json.parseFromSliceLeaky(Page, temporary.allocator(), response, .{ .ignore_unknown_fields = true });
@@ -118,7 +122,10 @@ fn appendPage(allocator: std.mem.Allocator, response: []const u8, rows: *std.Arr
         const address = std.Io.net.IpAddress.parseLiteral(entry.address) catch continue;
         if (address.getPort() == 0 or !@import("identity.zig").Invite.hasAddress(address)) continue;
         const key = Key.fromBytes(id.key) catch continue;
-        const target = try std.fmt.allocPrint(allocator, "{f}", .{DirectoryInvite{ .invite = .{ .address = address, .key = key }, .session = id.session }});
+        const target = if (entry.advertisement.rendezvous)
+            try std.fmt.allocPrint(allocator, "{f}", .{RendezvousInvite{ .origin = origin, .key = key, .session = id.session }})
+        else
+            try std.fmt.allocPrint(allocator, "{f}", .{DirectoryInvite{ .invite = .{ .address = address, .key = key }, .session = id.session }});
         try rows.append(allocator, .{
             .name = try allocator.dupe(u8, entry.advertisement.name),
             .description = try allocator.dupe(u8, entry.advertisement.description),
@@ -142,12 +149,30 @@ test "listings from two directories share one key and session" {
     const page =
         \\{"listings":[{"key":"a2f337e19ba160c0708622f9cc6f64476ebd3a28d0b698f54778e85fd1991fe3","session":"16098744024934c8f343e2d6c9689d10","address":"8.8.8.8:27020","advertisement":{"name":"Example","players":2,"capacity":8,"protocol":29}}],"next":null}
     ;
-    try std.testing.expectEqual(null, try appendPage(allocator, page, &rows, &identities));
-    _ = try appendPage(allocator, page, &rows, &identities);
+    try std.testing.expectEqual(null, try appendPage(allocator, "https://directory.example", page, &rows, &identities));
+    _ = try appendPage(allocator, "https://directory.example", page, &rows, &identities);
     try std.testing.expectEqual(1, rows.items.len);
     try std.testing.expectEqual(29, rows.items[0].protocol.?);
     const invite = try DirectoryInvite.parse(rows.items[0].target);
     try std.testing.expectEqualStrings("a2f337e19ba160c0708622f9cc6f64476ebd3a28d0b698f54778e85fd1991fe3", &std.fmt.bytesToHex(invite.invite.key.toBytes(), .lower));
+}
+
+test "a listing that takes rendezvous becomes an invite through its directory" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    var rows: std.ArrayList(Connection.Server) = .empty;
+    var identities: std.ArrayList(Identity) = .empty;
+    // The address is the host's router's, which nobody can connect to.
+    const page =
+        \\{"listings":[{"key":"a2f337e19ba160c0708622f9cc6f64476ebd3a28d0b698f54778e85fd1991fe3","session":"16098744024934c8f343e2d6c9689d10","address":"8.8.8.8:27020","advertisement":{"name":"Example","players":1,"capacity":8,"protocol":41,"rendezvous":true}}],"next":null}
+    ;
+    _ = try appendPage(allocator, "https://directory.example", page, &rows, &identities);
+    try std.testing.expectEqual(1, rows.items.len);
+    const invite = try RendezvousInvite.parse(rows.items[0].target);
+    try std.testing.expectEqualStrings("directory.example", invite.origin);
+    try std.testing.expectEqualStrings("16098744024934c8f343e2d6c9689d10", &std.fmt.bytesToHex(invite.session, .lower));
+    try std.testing.expectEqualStrings("a2f337e19ba160c0708622f9cc6f64476ebd3a28d0b698f54778e85fd1991fe3", &std.fmt.bytesToHex(invite.key.toBytes(), .lower));
 }
 
 const Directory = @This();

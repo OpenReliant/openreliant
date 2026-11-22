@@ -115,6 +115,47 @@ keep stepping and sending views to the two pilots up to the last step, with thei
 were. What the terminal client can't see, the other pilots' scores, weapons and objectives, is
 checked in the host's own tests (`server.zig`).
 
+### Connections through a directory
+
+A host behind a router has no address a player can connect to. Both sides then open an ICE
+connection, and the directory's rendezvous carries its signals between them
+([directory protocol](https://github.com/OpenReliant/openreliant-directory/blob/main/docs/protocol.md#rendezvous)).
+
+- **The transport** (`gns.cpp`): `session_ice_enable` turns ICE on with the STUN servers each
+  side learns its public address from, a host opens a second listener with `session_ice_listen`,
+  and a player connects with `session_ice_connect`. A signal the transport wants sent goes to Zig
+  with the number of its exchange (`session_signal_out`), and one Zig received goes in with
+  `session_signal_in`. Only public addresses are offered as candidates, so a machine's addresses
+  on its own network stay private. A directory on the same machine, as in a test, gets those too.
+- **The rendezvous** (`rendezvous.zig`): a thread of its own asks the directory what it offers,
+  then posts the signals the transport queued and polls for the other side's, every 200 ms while
+  a connection is being made and every 1.5 seconds otherwise. Each request has four seconds. The
+  two queues hold 32 signals of up to 2880 bytes. A host keeps up to eight exchanges at once and
+  forgets the oldest. The STUN servers are the directory's own, then two public ones.
+- **The host** (`advertise.zig`): asks for rendezvous in its signed advertisement, to the first
+  directory alone, and only once that directory said it offers it: one that doesn't know the
+  field refuses the advertisement. The answer carries the token the host polls with. A game for
+  invited players, and a player's own game, are published nowhere until then.
+- **The invite** (`identity.RendezvousInvite`): `orl3:`, the directory's URL without `https://`,
+  the host's key and its session. The key is the root the player's transport trusts, so the
+  directory can pass signals but can't stand in for the host, and the session is checked by the
+  host on the game connection. A listing that takes rendezvous becomes this invite in the
+  player's list (`directory.zig`).
+- **The player** (`client.zig`): opens the connection once the directory has answered, within 20
+  seconds, and polls slowly once it is connected. The directory closes the exchange on its own.
+
+Run `python3 scripts/check-rendezvous.py <openreliant> <openreliant-directory>` to check it with a
+directory on this machine. Two pilots join a host for invited players and fly a round on after
+the directory stops, and two join a listed host from its listing. A stranger's guessed session
+and token, rubbish and oversized signals, more offers than one address may make, an invite for
+another session and a directory that isn't there all have to get nowhere, and a host for invited
+players has to stay unlisted and without an invite where the directory offers no rendezvous.
+
+**Unverified:** a connection between two real home networks
+([#1404](https://github.com/OpenReliant/openreliant/issues/1404)). A network whose router gives
+each connection another port needs a TURN relay, which the game doesn't ask for yet
+([#1540](https://github.com/OpenReliant/openreliant/issues/1540)).
+
 The training session is the first game-executable path under
 [#954](https://github.com/OpenReliant/openreliant/issues/954). The release build prepares the
 transport prefix automatically. Test identities are generated separately and stay outside the
