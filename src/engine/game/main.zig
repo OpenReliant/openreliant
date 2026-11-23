@@ -3643,6 +3643,20 @@ test "a headless host fits and drains devices independently for two pilots" {
     input.multiplayerControlOrder(mission.orders().inStep(), second);
     try std.testing.expect(shielded.object.flags.spectral_shields);
 
+    // A press acts once, though an update's pass sees it before the step's pass takes it.
+    const ecm: ship_devices.Requests = .init(.{ .ecm = true });
+    const ecm_was = shielded.object.flags.ecm;
+    try std.testing.expect(all.submitPlayerCommand(sources[1], .{ .devices = ecm, .cockpit = .{ .sync_guns = true } }));
+    const synchronised = shielded.object.gun_mode.synchronised;
+    input.multiplayerControlOrder(mission.orders(), second);
+    try std.testing.expectEqual(ecm_was, shielded.object.flags.ecm);
+    try std.testing.expectEqual(synchronised, shielded.object.gun_mode.synchronised);
+    input.multiplayerControlOrder(mission.orders().inStep(), second);
+    try std.testing.expectEqual(!ecm_was, shielded.object.flags.ecm);
+    try std.testing.expectEqual(!synchronised, shielded.object.gun_mode.synchronised);
+    input.multiplayerControlOrder(mission.orders().inStep(), second);
+    try std.testing.expectEqual(!ecm_was, shielded.object.flags.ecm);
+
     // In an arena the cloak's and the spectral shields' keys do nothing, and ECM's still works.
     var arena = mission.orders();
     arena.world.damage_rules = .{ .arena = null };
