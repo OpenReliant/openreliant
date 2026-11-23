@@ -1471,6 +1471,10 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
         .eject
     else
         .cockpit;
+    // The ship the camera sits in is not drawn, as `camera_set_view` sets its flag for the views
+    // from the cockpit (`camera.Viewing.inside`). Its pod, and the ship in the chase mode, are.
+    const own_ship = &all.slots[admission.slot].object;
+    if (own_ship.created) own_ship.flags.hidden = game.camera.inCockpit(viewing.view, viewing.cockpit_mode);
     if (snapshot.blast) |blast| frame.presentBlast(scene, blast);
     if (snapshot.hasOrdnance()) frame.presentWeapons(snapshot.weapons);
     if (snapshot.scenario != null and snapshot.scenario.?.hasPowerUps()) frame.presentPower(snapshot.power);
@@ -1534,6 +1538,15 @@ test "the flight view follows host admissions and objective carriers" {
     const all = frame.drawn.objects;
     try std.testing.expectEqual(admission.slot, all.player);
     try std.testing.expectEqual(@as(engine.surrender.math.Vector, .{ 3, 4, 5 }), all.slots[0].drawn.position);
+    // In the chase mode the pilot's own ship is drawn. From the cockpit it isn't, and the other
+    // pilot's still is.
+    try std.testing.expect(!all.slots[all.player].object.flags.hidden);
+    frame.drawn.player.viewing.cockpit_mode = .open;
+    snapshot.tick = 2;
+    try frame.apply(&snapshot, admission, local, no_models);
+    try std.testing.expectEqual(.cockpit, frame.drawn.player.viewing.view);
+    try std.testing.expect(all.slots[all.player].object.flags.hidden);
+    try std.testing.expect(!all.slots[0].object.flags.hidden);
     try std.testing.expectEqual(1, frame.drawn.beacon_snapshot.?.countAt(all, all.player));
     const slot = &all.slots[all.player];
     const gauges = game.hud.Cluster.Gauges.of(slot).?;
