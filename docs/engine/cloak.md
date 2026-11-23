@@ -41,7 +41,8 @@ start with, and mods can give one to any type
 lets ships aim at a component of a cloaked object whose part is in sight: one its type's list
 leaves out, such as the Kafelnikof's turrets, or one a script has brought out of the cloak with
 `uncloak_component` (`cloak.uncloakPart`), which shows the part as it is uncloaked until the object
-cloaks again.
+cloaks again. The small target form shows such a component too, where it hides any other
+cloaked hostile target (`target_display.hidden`).
 
 ## The cloak's record
 

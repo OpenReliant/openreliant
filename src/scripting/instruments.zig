@@ -480,10 +480,11 @@ pub const target_display = api.Field(?TargetDisplay, "What the target display sh
     pub fn get(call: Call) ?TargetDisplay {
         const flight, _ = flightOf(call) orelse return null;
         const all = call.runtime().objects orelse return null;
-        const index = ((flight.hud.target orelse return null).resolve(all) orelse return null).slot;
+        const valid = (flight.hud.target orelse return null).resolve(all) orelse return null;
+        const index = valid.slot;
         const slot = &all.slots[index];
         const form = target_forms.Form.of(hud.targetWindow(slot)) orelse return null;
-        if (form == .small and target_forms.hidden(slot)) return null;
+        if (form == .small and target_forms.hidden(slot, valid.target.part())) return null;
         const facts: target_forms.Facts = .of(all, index);
         const pilot = target_forms.PilotName.of(all, index, flight.multiplayer);
         const pilot_text = if (pilot) |*name| name.text(flight.strings) else null;
