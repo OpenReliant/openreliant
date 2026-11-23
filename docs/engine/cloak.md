@@ -30,6 +30,13 @@ with the ship that carries them. On the Kafelnikof only seven parts cloak
 `Kaf ext vent`, `Kaf frnt vent`, `Kaf land plat`, `Kaf shield gen` and `Kaf top vent`
 (`cloak_node_cloaks`).
 
+**Improvement:** the game goes by the Kafelnikof's type number for this list and for the other ways
+the base cloaks differently, below: it has no shimmer, it doesn't wobble, and a hit shows a part by
+the part's own size. OpenReliant keeps the list in each ship type's record (`cloak.Parts`), and an
+object whose type has one cloaks like the Kafelnikof. Only the Kafelnikof's record has a list to
+start with, and mods can give one to any type
+([The records](../guide/scripting.md#the-records)).
+
 ## The cloak's record
 
 `object_cloak` allocates `0x2C` bytes at `GameObject + 0x63C`, which stay until the cloak has gone.

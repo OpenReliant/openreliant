@@ -1669,7 +1669,7 @@ pub fn drawObjects(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, all: 
         if (slot.cloak) |*cloaking| {
             view.lights = false;
             view.glows = false;
-            view.cloak = .{ .cloak = cloaking, .kafelnikof = object.type.base() == .kafelnikof };
+            view.cloak = .{ .cloak = cloaking, .partly = slot.cloaking_parts != null };
         }
         try model.draw(gpa, scene, .world, view);
         if (slot.extra) |extra| try drawExtra(gpa, arena, scene, all, object, extra, attachments.frame_start);

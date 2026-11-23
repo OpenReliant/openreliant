@@ -834,11 +834,18 @@ test "the ship types' words the executable holds" {
         \\shuttle.class = "fighter"
         \\assert(records.ship_types.victorious.landing == nil)
         \\records.ship_types.victorious.landing = "bay"
+        \\assert(records.ship_types.stalag.cloaking_parts == nil)
+        \\records.ship_types.stalag.cloaking_parts = { "Turret 1", "Turret 2" }
+        \\local parts = records.ship_types.stalag.cloaking_parts
+        \\assert(#parts == 2 and parts[1] == "Turret 1" and parts[2] == "Turret 2")
     );
     try std.testing.expectEqual(.fighter, records.ship_types[@backingInt(game.gameobj.GameType.yakob_shuttle)].class);
     try std.testing.expectEqual(game.ailand.Style.bay, records.ship_types[@backingInt(game.gameobj.GameType.victorious)].landing.?);
+    const parts = records.ship_types[@backingInt(game.gameobj.GameType.stalag)].cloaking_parts.?;
+    try std.testing.expectEqualStrings("Turret 2", std.mem.sliceTo(&parts.slice()[1], 0));
     try bind.testing.expectSourceError(thread, "records.ship_types.yakob_shuttle.class = 'gunboat'", "class");
     try bind.testing.expectSourceError(thread, "records.ship_types.victorious.landing = 'runway'", "landing");
+    try bind.testing.expectSourceError(thread, "records.ship_types.stalag.cloaking_parts = { string.rep('x', 32) }", "cloaking_parts");
 }
 
 test "the pilots' faces" {
@@ -897,7 +904,7 @@ test "the field names scripts see don't change" {
         .{ stats.Missile, "name,speed,turn_rate,flight_time,damage,lock_time,decoy_chance,lock_range,component_damage" },
         .{ stats.Pilot, "name,tier_a,tier_b,tier_c,skill" },
         .{ game.pilots.FaceRecord, "name,talking,laughing,squadron,dying" },
-        .{ game.create.combat_stats.Static, "targetable,name,class,side,display,landing" },
+        .{ game.create.combat_stats.Static, "targetable,name,class,side,display,landing,cloaking_parts" },
     };
     inline for (expected) |pinned| {
         comptime var names: []const u8 = "";

@@ -593,6 +593,7 @@ declare extern type ShipTypeRecord with
     side: Side
     display: TargetForm
     landing: Landing?
+    cloaking_parts: { string }?
 end
 declare extern type Gun with
     name: string

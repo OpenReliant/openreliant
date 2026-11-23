@@ -6,6 +6,7 @@
 //! 0x004FC670. Do not edit by hand; run `make combat-tables`.
 
 const ailand = @import("../ailand.zig");
+const cloak = @import("../cloak.zig");
 const create = @import("../create.zig");
 const gameobj = @import("../gameobj.zig");
 
@@ -27,6 +28,10 @@ pub const Static = struct {
     /// code rather than in this table. The records start from the game's (`ailand.Style.of`).
     /// Null where the player can't land on it.
     landing: ?ailand.Style = null,
+    /// OpenReliant's own: the parts of its model that cloak, where it cloaks only some, which the
+    /// game keeps in its code for the Kafelnikof alone. The records start from the game's
+    /// (`cloak.partsOf`). Null where it cloaks whole.
+    cloaking_parts: ?cloak.Parts = null,
 };
 
 /// Every ship type's, by its number.
