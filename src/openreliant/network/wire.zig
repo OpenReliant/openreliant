@@ -184,6 +184,9 @@ pub const Roster = struct {
     lobby: ?Scenario = null,
     mission: ?u16 = null,
     paused: bool = false,
+    /// The round has ended and the host holds its last moment for the final standings. The
+    /// round is paused while it does.
+    round_over: bool = false,
     briefing: bool = false,
     dedicated: bool = false,
     arena_floor: u32 = 0,
@@ -1298,7 +1301,7 @@ pub const Message = union(enum(u8)) {
             .roster => |roster| {
                 try writeMode(&w, roster.lobby, roster.mission != null);
                 if (roster.mission) |number| try w.writeInt(u16, number, .little);
-                try w.writeByte(if (roster.briefing) 2 else @intFromBool(roster.paused));
+                try w.writeByte(if (roster.briefing) 2 else if (roster.round_over) 3 else @intFromBool(roster.paused));
                 try w.writeByte(roster.limit);
                 try w.writeByte(roster.ready.mask);
                 try w.writeInt(u32, roster.arena_floor, .little);
@@ -1528,6 +1531,10 @@ pub const Message = union(enum(u8)) {
                     0 => {},
                     1 => view.paused = true,
                     2 => view.briefing = true,
+                    3 => {
+                        view.paused = true;
+                        view.round_over = true;
+                    },
                     else => return error.InvalidRoster,
                 }
                 if (view.paused and (view.lobby != null or view.mission != null)) return error.InvalidRoster;
@@ -2025,7 +2032,7 @@ test "ordnance orders address both ship lifetimes and carry bounded cockpit comm
 test "a view can carry private ordnance and cockpit panel readings" {
     var buffer: [capacity]u8 = undefined;
     var view: Snapshot = .{ .tick = 1, .scenario = .asteroid_field, .ships = @splat(null) };
-    view.weapons = .{ .countermeasures = 3, .incoming = true, .armed = 1 };
+    view.weapons = .{ .countermeasures = 3, .incoming = true, .armed = 1, .ecm = true, .spectral_shields = true };
     view.weapons.?.ammo[0] = .{ .kind = .screamer, .count = 0 };
     view.weapons.?.ammo[1] = .{ .kind = .raptor, .count = 2 };
     view.weapons.?.held = .{ .phase = .locked, .count = 0, .ticks = 12, .point = .{ 3, 8, 21 } };
@@ -2085,6 +2092,12 @@ test "chat requests carry a destination and bounded text without a sender field"
 
 test "a paused roster names the host and cannot describe a waiting lobby" {
     var buffer: [capacity]u8 = undefined;
+    {
+        // A finished round's roster says so, and reads back as paused too.
+        const over: Message = .{ .roster = .{ .paused = true, .round_over = true } };
+        const read = try Message.decode(try over.encode(&buffer));
+        try std.testing.expect(read.roster.paused and read.roster.round_over);
+    }
     var roster: Message = .{ .roster = .{ .paused = true } };
     roster.roster.pilots[0] = .{ .generation = 19, .name = lobbyName("Falcon") };
     const encoded = try roster.encode(&buffer);

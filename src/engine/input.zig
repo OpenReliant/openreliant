@@ -1613,7 +1613,15 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
             flight.limitArenaThrottle(&slot.object);
             return;
         }
-        switch (command.target) {
+        // A press acts once, in the step's pass, which takes it from the command. An update's
+        // pass before the step in the same frame sees it too, and must leave it alone: acted on
+        // twice, a key that switches something over switches it straight back.
+        const pressed: players.Command = if (ctx.stepping) command else held: {
+            var only = command;
+            only.consumePresses();
+            break :held only;
+        };
+        switch (pressed.target) {
             .keep => {},
             .clear => {
                 if (ai.controlEntry(all, index)) |entry| entry.target = .none;
@@ -1624,10 +1632,10 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
                 _ = aimPlayerFor(world, index, target);
             },
         }
-        if (command.cockpit.next_guns) guns.nextGroup(&slot.object, slot.groupCount());
-        if (command.cockpit.sync_guns) slot.object.gun_mode.synchronised = !slot.object.gun_mode.synchronised;
-        if (command.cockpit.full_guns) _ = guns.fullGuns(&slot.object, slot.guns, slot.gun_groups, slot.groupCount());
-        if (command.cockpit.power) |preset| power.choose(&slot.object, preset);
+        if (pressed.cockpit.next_guns) guns.nextGroup(&slot.object, slot.groupCount());
+        if (pressed.cockpit.sync_guns) slot.object.gun_mode.synchronised = !slot.object.gun_mode.synchronised;
+        if (pressed.cockpit.full_guns) _ = guns.fullGuns(&slot.object, slot.guns, slot.gun_groups, slot.groupCount());
+        if (pressed.cockpit.power) |preset| power.choose(&slot.object, preset);
         if (ctx.stepping) flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, command.flight, world.clock.frame_duration, .step);
         const view: camera.View = if (index == all.player) world.view() else .cockpit;
         // The target's speed is matched every pass, as each update runs it; the press
@@ -1636,10 +1644,10 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
         if (ctx.stepping) toggleMatchSpeed(world, index, &state.controls, command.match_speed, view);
         flight.limitArenaThrottle(&slot.object);
         for ([_]ship_devices.Device{ .ecm, .spectral_shields }) |kind| {
-            if (command.devices.contains(kind)) ship_devices.toggle(world, index, kind);
+            if (pressed.devices.contains(kind)) ship_devices.toggle(world, index, kind);
         }
-        applyWeaponCommand(world, index, command.weapons);
-        if (command.devices.contains(.cloak)) ship_devices.toggle(world, index, .cloak);
+        applyWeaponCommand(world, index, pressed.weapons);
+        if (pressed.devices.contains(.cloak)) ship_devices.toggle(world, index, .cloak);
         return;
     }
     // Non-player Player Control orders retain their local-input behaviour in single player.
