@@ -393,6 +393,7 @@ pub const methods = struct {
     pub const attachments = api.Function("The attachment points on its parts, such as engine glows and missile hardpoints, part by part in the order of `object:parts()`.", &.{"self"}, attachmentsOf);
     pub const destroy = api.Function("Destroys it the same way running out of armour does: a ship that lists components, such as a capital ship, loses its hull components, and any other ship explodes, unless its pilot ejects first. Returns false for an object that takes no damage, such as a nav point, and for one that is already exploding or jumping. Global scripts can destroy any object, and an object's scripts their own.", &.{"self"}, destroyObject);
     pub const destroy_component = api.Function("Destroys its component number `component`, counting from 0, the same way a hit that takes its last armour does: the component blows up and takes the rest of its assembly with it, its damaged model shows in its place, and losing a hull part ends the ship. Returns false if the component is already destroyed, or the object is exploding or jumping. Global scripts can destroy any object's components, and an object's scripts their own.", &.{ "self", "component" }, destroyComponent);
+    pub const uncloak_component = api.Function("Brings its component number `component`, counting from 0, out of its cloak while it's cloaked: the part shows as it does uncloaked, with no shimmer, and ships can aim at it, until the object cloaks again. Returns false if the object isn't cloaked, or the component is destroyed or already in sight, as a part its type's `cloaking_parts` leaves out is. Global scripts can uncloak any object's components, and an object's scripts their own.", &.{ "self", "component" }, uncloakComponent);
 };
 
 /// `object:is_valid()`.
@@ -452,6 +453,18 @@ fn destroyComponent(call: Call, object: Object, component: u8) bool {
     const model = slot.model.?.holding(part) orelse return false;
     engine.game.objects.destroyComponent(model, part);
     return true;
+}
+
+/// `object:uncloak_component(component)`: `cloak.uncloakPart`.
+fn uncloakComponent(call: Call, object: Object, component: u8) bool {
+    if (!mayChange(call.context, object.slot())) call.raise("{t} scripts can't uncloak this object", .{call.context.family});
+    const all = call.runtime().objects orelse call.raise("objects only exist while a game runs", .{});
+    const slot = &all.slots[object.slot()];
+    const listed = slot.listed();
+    if (component >= listed.len) call.raise("the object has {d} components, numbered from 0", .{listed.len});
+    const part = listed[component] orelse return false;
+    if (part.destroyed()) return false;
+    return engine.game.cloak.uncloakPart(slot, part);
 }
 
 /// Whether the object in `slot` can be destroyed now: it has stats, it isn't debris, and it isn't

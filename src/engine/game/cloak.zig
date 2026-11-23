@@ -26,6 +26,7 @@ const objects = @import("objects.zig");
 const particles = @import("particles.zig");
 const table = @import("table.zig");
 const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
+const ai = @import("ai.zig");
 const aigeneric = @import("aigeneric.zig");
 const create = @import("create.zig");
 const ease = @import("../genilib/interf/ease.zig");
@@ -320,6 +321,33 @@ pub fn partsOf(ship_type: gameobj.Type) ?Parts {
     return if (originalParts(game_type)) |parts| parts.* else null;
 }
 
+/// Whether `part`, one of the parts of a cloaked object, is in sight: its cloak leaves the part out,
+/// as on an object that cloaks only some of its parts (`Parts`), or a script has brought it out
+/// (`uncloakPart`).
+///
+/// **Improvement:** the game lets nothing aim at a cloaked object (`order_target_valid`), even at a
+/// part of the Kafelnikof that its cloak leaves in sight. OpenReliant lets a part in sight be aimed
+/// at. With the game's list for the Kafelnikof, that is its turrets.
+pub fn inSight(part: *const objects.Model.Part) bool {
+    const effect = if (part.cloak) |*kept| kept else return false;
+    return !effect.cloaks;
+}
+
+/// OpenReliant's: brings `part` of the cloaked object in `slot` out of its cloak, until the
+/// object cloaks again. The part is drawn as it is uncloaked, with no shimmer, a hit no longer
+/// shows through it, and ships can aim at it (`inSight`). Returns whether it was cloaked. A mod
+/// uses it to show a part that a mission's script points the player at, such as the Kafelnikof's
+/// cloak generator once the wing finds it.
+pub fn uncloakPart(slot: *const create.Slot, part: *objects.Model.Part) bool {
+    if (slot.cloak == null) return false;
+    const effect = if (part.cloak) |*kept| kept else return false;
+    if (!effect.cloaks) return false;
+    effect.showOwn(part);
+    effect.cloaks = false;
+    effect.shimmer_made = false;
+    return true;
+}
+
 /// Whether the part named `name` cloaks: any part of an object that cloaks whole, and on one that
 /// cloaks only some, those on its list `parts` (`cloak_node_cloaks`, `0x00463C30`).
 fn cloaks(parts: ?*const Parts, name: []const u8) bool {
@@ -362,10 +390,7 @@ fn shimmerOn(model: *objects.Model, random: *Random) void {
 fn restore(model: *objects.Model) void {
     eachCloaking(model, {}, struct {
         fn visit(_: void, part: *objects.Model.Part, effect: *PartCloak) void {
-            if (!effect.cloaks) return;
-            part.object.colour[3] = 1;
-            part.object.levels = effect.own;
-            effect.clearHull();
+            if (effect.cloaks) effect.showOwn(part);
         }
     }.visit);
 }
@@ -474,6 +499,14 @@ pub const PartCloak = struct {
     /// The hull's own colours cleared, on every level.
     fn clearHull(effect: *PartCloak) void {
         for (effect.hull_colours) |colours| @memset(colours, @splat(0));
+    }
+
+    /// Its part, `part`, as it is uncloaked: its own levels, solid, its own colours clear
+    /// (`cloak_node_restore`).
+    fn showOwn(effect: *PartCloak, part: *objects.Model.Part) void {
+        part.object.colour[3] = 1;
+        part.object.levels = effect.own;
+        effect.clearHull();
     }
 
     /// `cloak_hull_fade` (`0x004632F0`) for one part while its hull is clear, `ticks` since it was
@@ -590,16 +623,18 @@ const TestStage = struct {
     index: u16,
 
     pub fn init(stage: *TestStage, gpa: Allocator) !void {
-        try stage.initAs(gpa, .of(.predator), "");
+        try stage.initAs(gpa, .of(.predator), "", .{});
     }
 
-    /// The stage with a ship of type `ship_type`, whose one part is named `name`.
-    pub fn initAs(stage: *TestStage, gpa: Allocator, ship_type: gameobj.Type, name: []const u8) !void {
+    /// The stage with a ship of type `ship_type`, whose one part is named `name`, and is its one
+    /// component where `options` says so.
+    pub fn initAs(stage: *TestStage, gpa: Allocator, ship_type: gameobj.Type, name: []const u8, options: struct { component: bool = false }) !void {
         try stage.mission.init(gpa);
         errdefer stage.mission.deinit();
         try stage.model.init(gpa);
         errdefer stage.model.deinit(gpa);
         @memcpy(stage.model.data[0].part.name_bytes[0..name.len], name);
+        if (options.component) stage.model.withComponent();
         stage.image = .{ .levels = &.{} };
         try stage.model.withCloak(gpa, &stage.image);
         const mission = &stage.mission;
@@ -673,7 +708,7 @@ test set {
 test "the Kafelnikof's parts on its list cloak" {
     const gpa = std.testing.allocator;
     var stage: TestStage = undefined;
-    try stage.initAs(gpa, .of(.kafelnikof), "Kaf shield gen");
+    try stage.initAs(gpa, .of(.kafelnikof), "Kaf shield gen", .{});
     defer stage.deinit(gpa);
     const part = stage.part();
     const effect = &part.cloak.?;
@@ -687,12 +722,38 @@ test "the Kafelnikof's parts on its list cloak" {
 test "the Kafelnikof's parts off its list stay as they are" {
     const gpa = std.testing.allocator;
     var stage: TestStage = undefined;
-    try stage.initAs(gpa, .of(.kafelnikof), "Kaf BODY");
+    try stage.initAs(gpa, .of(.kafelnikof), "Kaf BODY", .{});
     defer stage.deinit(gpa);
     const part = stage.part();
     set(stage.mission.world(), stage.index, true);
     try std.testing.expect(!part.cloak.?.cloaks);
     try std.testing.expectEqual(part.cloak.?.own.ptr, part.object.levels.ptr);
+}
+
+test uncloakPart {
+    const gpa = std.testing.allocator;
+    var stage: TestStage = undefined;
+    try stage.initAs(gpa, .of(.predator), "", .{ .component = true });
+    defer stage.deinit(gpa);
+    const all = stage.mission.objects;
+    const slot = stage.slot();
+    slot.object.flags.targetable = true;
+    const part = stage.part();
+    // Uncloaked, there is nothing to bring out.
+    try std.testing.expect(!uncloakPart(slot, part));
+    // Cloaked, the part can't be aimed at, until it is brought out: then it is drawn as it is
+    // uncloaked, with no shimmer, and can be aimed at, while the ship as a whole can't.
+    set(stage.mission.world(), stage.index, true);
+    try std.testing.expect(!inSight(part));
+    try std.testing.expect(!ai.targetValid(all, .at(stage.index, 0), .{}));
+    try std.testing.expect(uncloakPart(slot, part));
+    try std.testing.expect(inSight(part) and !part.cloak.?.shimmer_made);
+    try std.testing.expectEqual(part.cloak.?.own.ptr, part.object.levels.ptr);
+    try std.testing.expectEqual(1, part.object.colour[3]);
+    try std.testing.expect(ai.targetValid(all, .at(stage.index, 0), .{}));
+    try std.testing.expect(!ai.targetValid(all, .at(stage.index, null), .{}));
+    // Once out, it stays out.
+    try std.testing.expect(!uncloakPart(slot, part));
 }
 
 test wobble {
