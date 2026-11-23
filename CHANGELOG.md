@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.1.0-rc.2](https://github.com/OpenReliant/openreliant/compare/v1.1.0-rc.1...v1.1.0-rc.2) (2026-11-23)
+
+
+### Features
+
+* play and install the Russian release ([#1550](https://github.com/OpenReliant/openreliant/issues/1550)) ([caabf7a](https://github.com/OpenReliant/openreliant/commit/caabf7a71ceb084715babd9023b0ad0aea85615c)), closes [#1347](https://github.com/OpenReliant/openreliant/issues/1347) [#1549](https://github.com/OpenReliant/openreliant/issues/1549)
+* say that a dedicated server waits for pilots ([#1558](https://github.com/OpenReliant/openreliant/issues/1558)) ([6f7aed3](https://github.com/OpenReliant/openreliant/commit/6f7aed3d7f6f4327df3c3c28bde2adc3bc1009c9)), closes [#1509](https://github.com/OpenReliant/openreliant/issues/1509)
+
+
+### Fixes
+
+* act on a joined pilot's key press once, and send the ECM and shield state back ([#1557](https://github.com/OpenReliant/openreliant/issues/1557)) ([d2fb4d3](https://github.com/OpenReliant/openreliant/commit/d2fb4d3bc2f18add6d92d7e5eae494a27c7d023c))
+* don't draw a joined pilot's own ship around the cockpit ([#1553](https://github.com/OpenReliant/openreliant/issues/1553)) ([bad4d2b](https://github.com/OpenReliant/openreliant/commit/bad4d2b78c55a06850fd89ea27990e6702711f66))
+* follow the original's network rules for JumpedIn, the ion tower, own mines and avoidance ([#1551](https://github.com/OpenReliant/openreliant/issues/1551)) ([32a8dd1](https://github.com/OpenReliant/openreliant/commit/32a8dd126fa1a2e17fcb14c3c57701dbcbd23960)), closes [#1541](https://github.com/OpenReliant/openreliant/issues/1541)
+* keep high-resolution texture mods from running the computer out of memory ([#1548](https://github.com/OpenReliant/openreliant/issues/1548)) ([8bc8cd9](https://github.com/OpenReliant/openreliant/commit/8bc8cd9475552dbbfdc6bf818a4c098cac7de76e))
+* send a joined pilot's ECM, cloak and spectral shield keys to the host ([#1554](https://github.com/OpenReliant/openreliant/issues/1554)) ([e5506ce](https://github.com/OpenReliant/openreliant/commit/e5506ce1b371bea54f1f237bcc73fbe9a8cffff0))
+* show damaged ships' smoke to pilots who joined a network game ([#1552](https://github.com/OpenReliant/openreliant/issues/1552)) ([4098a9e](https://github.com/OpenReliant/openreliant/commit/4098a9e04a25f9d74cf213fe3fd282900705a461))
+* stop the loadout taking gigabytes of memory with 4K ship mods ([#1546](https://github.com/OpenReliant/openreliant/issues/1546)) ([d5bc2c0](https://github.com/OpenReliant/openreliant/commit/d5bc2c0990c30daa24a09027c71b463062e2c104))
+
+
+### Documentation
+
+* `docs/formats/russian-release.md`. ([caabf7a](https://github.com/OpenReliant/openreliant/commit/caabf7a71ceb084715babd9023b0ad0aea85615c))
+
 ## [1.1.0-rc.1](https://github.com/OpenReliant/openreliant/compare/v1.0.1...v1.1.0-rc.1) (2026-11-22)
 
 
