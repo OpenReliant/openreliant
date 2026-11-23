@@ -549,14 +549,20 @@ const TestStage = struct {
     index: u16,
 
     pub fn init(stage: *TestStage, gpa: Allocator) !void {
+        try stage.initAs(gpa, .of(.predator), "");
+    }
+
+    /// The stage with a ship of type `ship_type`, whose one part is named `name`.
+    pub fn initAs(stage: *TestStage, gpa: Allocator, ship_type: gameobj.Type, name: []const u8) !void {
         try stage.mission.init(gpa);
         errdefer stage.mission.deinit();
         try stage.model.init(gpa);
         errdefer stage.model.deinit(gpa);
+        @memcpy(stage.model.data[0].part.name_bytes[0..name.len], name);
         stage.image = .{ .levels = &.{} };
         try stage.model.withCloak(gpa, &stage.image);
         const mission = &stage.mission;
-        stage.index = try mission.addWith(stage.model.types(), .of(.predator), @splat(0));
+        stage.index = try mission.addWith(stage.model.types(), ship_type, @splat(0));
     }
 
     pub fn deinit(stage: *TestStage, gpa: Allocator) void {
@@ -621,6 +627,31 @@ test set {
     stage.model.source.header.flags.cloak = false;
     set(world, stage.index, true);
     try std.testing.expect(!slot.object.flags.cloaked);
+}
+
+test "the Kafelnikof's parts on its list cloak" {
+    const gpa = std.testing.allocator;
+    var stage: TestStage = undefined;
+    try stage.initAs(gpa, .of(.kafelnikof), "Kaf shield gen");
+    defer stage.deinit(gpa);
+    const part = stage.part();
+    const effect = &part.cloak.?;
+    // The part's name is read from the model it was made from, which outlives the part.
+    try std.testing.expectEqual(@as([*]const u8, &stage.model.data[0].part.name_bytes), effect.name.ptr);
+    set(stage.mission.world(), stage.index, true);
+    try std.testing.expect(effect.cloaks and effect.shimmer_made);
+    try std.testing.expectEqual(effect.see_through.ptr, part.object.levels.ptr);
+}
+
+test "the Kafelnikof's parts off its list stay as they are" {
+    const gpa = std.testing.allocator;
+    var stage: TestStage = undefined;
+    try stage.initAs(gpa, .of(.kafelnikof), "Kaf BODY");
+    defer stage.deinit(gpa);
+    const part = stage.part();
+    set(stage.mission.world(), stage.index, true);
+    try std.testing.expect(!part.cloak.?.cloaks);
+    try std.testing.expectEqual(part.cloak.?.own.ptr, part.object.levels.ptr);
 }
 
 test wobble {

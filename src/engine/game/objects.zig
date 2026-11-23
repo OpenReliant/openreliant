@@ -1814,7 +1814,8 @@ pub const Model = struct {
             for (parts[0..parts_made]) |made| if (made.cloak) |effect| effect.deinit(gpa);
             gpa.free(parts);
         }
-        for (parts, model.parts, loaded.parts, 0..) |*node, source, part, index| {
+        // `source` by pointer: a part's cloak keeps its name, which must stay in the model.
+        for (parts, model.parts, loaded.parts, 0..) |*node, *source, part, index| {
             var radius: f32 = 0;
             for (part.meshes) |mesh| radius = @max(radius, mesh.radius);
             const at = source.part.position;
