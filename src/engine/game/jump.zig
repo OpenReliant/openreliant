@@ -575,10 +575,8 @@ fn placeIn(all: *create.Objects, index: u16) void {
 /// burst fade, and over the first part of the flight the flare stretches across and flattens
 /// (`effect.Effect.squashFlare`).
 ///
-/// In a multiplayer game the original posts JumpedIn for the first player's ship too as the ship
-/// of the first player still flying jumps in. **Unverified:** whether a co-op mission's scripts
-/// need that once the first pilot is lost
-/// ([#1541](https://github.com/OpenReliant/openreliant/issues/1541)).
+/// In a network session JumpedIn is posted for the first player's ship too, as the ship of the
+/// first pilot still flying jumps in (`0x00416CD7`, `events.jumpedIn`).
 pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;

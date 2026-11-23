@@ -1224,7 +1224,10 @@ pub const GameObject = extern struct {
     /// The slot of the ship Fight has it attack: Fight sets it as it starts (`order_fight_init`),
     /// an attack run leaves it clear until it is done, and a new order clears it. None when created.
     fighting: Slot,
-    _unknown_624: u8,
+    /// Nonzero for an arena's beacon and comms relay, which `create_object` sets (`0x00467854`,
+    /// `0x004678A1`): in a multiplayer mission `avoidance_scan` passes over such an object and a
+    /// pilot's ship for each other.
+    pilots_fly_into: u8,
     _unknown_625: [3]u8,
     _unknown_628: shp.Vec3,
     /// Where its lights stand in their blinks, in ticks added to the mission's clock
@@ -1656,7 +1659,7 @@ pub const GameObject = extern struct {
         assert(@offsetOf(GameObject, "ends") == 0x610);
         assert(@offsetOf(GameObject, "component_loss") == 0x614);
         assert(@offsetOf(GameObject, "passes_through") == 0x618);
-        assert(@offsetOf(GameObject, "_unknown_624") == 0x624);
+        assert(@offsetOf(GameObject, "pilots_fly_into") == 0x624);
         assert(@offsetOf(GameObject, "_unknown_628") == 0x628);
         assert(@offsetOf(GameObject, "smoke") == 0x65C);
         assert(@offsetOf(GameObject, "smoke_level") == 0x660);

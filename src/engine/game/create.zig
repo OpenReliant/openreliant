@@ -1407,6 +1407,8 @@ fn typeMade(slot: *Slot, ship_type: gameobj.Type) void {
         .asteroid_with_hole_1, .asteroid_with_hole_2, .asteroid_with_hole_3, .asteroid_with_hole_4 => standStill(object),
         .victorious, .kurgan, .washington => object.flags.shield_generator = true,
         .rogue_base => wgate.secondPasses(slot, false),
+        // The pilots fly into these, so they don't steer round them (`0x00467854`, `0x004678A1`).
+        .dm_beacon, .comms_relay => object.pilots_fly_into = 1,
         .saladin => if (slot.model) |*model| model.playNamedTree(saladin_spin, 0, .loop, 1),
         .darkreign => if (slot.model) |*model| if (model.partNamed(extra.dark_low_body)) |body| {
             object.mass += gameobj.nodeMass(body.model, body.index);

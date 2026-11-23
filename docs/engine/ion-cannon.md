@@ -15,9 +15,9 @@ through is in [`game/aigeneric.zig`](../../src/engine/game/aigeneric.zig)
 
 In a network game the original also waits for every player at each step
 (`ai_sequence_sync`, `0x00401000`) and sends the cannon's turn and kill to the other players.
-OpenReliant's host runs the cannon for every pilot, so it has neither. **Unverified:** the
-towers that give up a long search in a network game
-([#1541](https://github.com/OpenReliant/openreliant/issues/1541)).
+OpenReliant's host runs the cannon for every pilot, so it has neither. It also has no use for the
+branch that makes the other machines drop the order when the machine that runs a tower gives up
+its search (`0x0040D3E8`).
 
 ## Picking a ship
 
@@ -72,13 +72,15 @@ where the cannon's part or its focus is gone. Then:
    than 8000 across the world's X and Z axes (110000 in mission 28, [Rules by mission number](missions.md#rules-by-mission-number)). The order then pops and
    pushes itself again at the ship, so the cannon starts again. While the mission's script sets
    `ion_cannons_hold_lock` ([Script VM](script-vm.md#the-games-variables)), the lock holds.
-4. Before the glow step, the cannon gives up once it has searched for 2500 ticks, and the order
-   pops; the ready step starts the count again.
+4. Before the glow step, the cannon gives up once it has searched for 2500 ticks (`0x0040D866`),
+   and the order pops; the ready step starts the count again. **Fix:** the original runs this test
+   only in a single-player game and on the host of a multiplayer mission (`0x0040D84E`), so in a
+   co-op network session the search never ends. OpenReliant's cannon gives up in every game.
 
 In Dark Reign, the scenario queues the cannon against a random eligible pilot after a 1000-tick
 delay (0x004B3CF0). The relay carrier is immune, as is their team in a team game. A broken
 lock ends the shot so the tower can choose again (0x0040D7F8). A search before the glow step
-ends after 2000 ticks (0x0040D866), and a cannon kill credits the current carrier (0x0040E717).
+ends after the same 2500 ticks, and a cannon kill credits the current carrier (0x0040E717).
 
 ## The steps
 

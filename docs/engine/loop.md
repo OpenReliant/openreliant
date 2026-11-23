@@ -197,6 +197,6 @@ Impact damage is calculated from the collision impulse (`collision_damage`, `0x0
 
 Ported so far: the sweep, ignored pairs, shove impulse, object separation, hull collision tree tests, the trigger polygons, a torpedo's strike on a hull, and damage ([`collision.zig`](../../src/engine/game/collision.zig)). Collisions do not damage components but for a torpedo's strike.
 
-A destroyed torpedo or mine runs Explode ([Destruction](objects.md#destruction)), through `object_destroyed_net` (`0x00402100`), which first tells the other players where a network session runs a mission that is not multiplayer's. OpenReliant's host destroys them for every pilot, so it sends no such message. **Unverified:** a mine's 5000 in a multiplayer game, which credits the kill to its owner ([#1541](https://github.com/OpenReliant/openreliant/issues/1541)).
+A destroyed torpedo or mine runs Explode ([Destruction](objects.md#destruction)), through `object_destroyed_net` (`0x00402100`), which first tells the other players where a network session runs a mission that is not multiplayer's. OpenReliant's host destroys them for every pilot, so it sends no such message. In a multiplayer mission a mine does 5000 to the fighter, not 500, and the fighter's last attacker becomes the pilot who laid the mine (`0x00466379`, `0x00466441`), or nobody where that pilot flew into their own mine (`0x004663D4`, `0x0046644A`).
 
 Difficulty scales collision damage ([Destruction](objects.md#destruction)).

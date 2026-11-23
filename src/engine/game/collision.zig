@@ -83,8 +83,9 @@ pub fn collide(world: gameobj.World, first: u16, second: u16, pass: u8) bool {
         if (owner) |source| {
             if (all.slots[mine].object.flags.exploding) return false;
             // The arena mine hits for 5000 and credits its owner (0x00466379, 0x00466441).
-            damageFrom(world, fighter, .fore, 5000, 1, source, .collision);
+            damageFrom(world, fighter, .fore, arena_mine_blow, 1, source, .collision);
             ai.objectDestroyed(.of(world), mine, false, false);
+            all.slots[fighter].setAttacker(mineCredit(all, source, fighter));
         } else {
             goOff(world, mine, fighter, mine_blow, .collision, false);
         }
@@ -101,6 +102,16 @@ pub fn collide(world: gameobj.World, first: u16, second: u16, pass: u8) bool {
 /// What a torpedo does to what it meets, and a mine to a fighter.
 const torpedo_blow: f32 = 5001;
 const mine_blow: f32 = 500;
+
+/// What a pilot's mine does to a fighter in a multiplayer mission (`0x00466379`).
+const arena_mine_blow: f32 = 5000;
+
+/// Who is credited with what a pilot's mine did to the fighter in slot `fighter`: the pilot who
+/// laid it, `owner`, or nobody where that pilot flew into their own mine (`0x004663D4`,
+/// `0x0046644A`).
+fn mineCredit(all: *const create.Objects, owner: gameobj.DamageSource, fighter: u16) ?gameobj.DamageSource {
+    return if (owner.resolve(all) == fighter) null else owner;
+}
 
 /// A torpedo or a mine in slot `from` going off against what it met in slot `struck`: `blow` to the
 /// fore quadrant of what it met as `kind`, which is named its own attacker, and the torpedo or the
@@ -727,9 +738,8 @@ const shielded_hit: f32 = 1000;
 ///
 /// In a network game the original also keeps the damage to send to the other players
 /// (`net_component_damage`, `0x004BA810`), which OpenReliant's host, applying all damage itself,
-/// has no use for. **Unverified:** whether the original's rule that keeps a friend's engines
-/// from a player's hits in a network session is applied
-/// ([#1541](https://github.com/OpenReliant/openreliant/issues/1541)).
+/// has no use for. In a network session a player's hit on a friend's engine does no damage
+/// (`0x004647CE`, `wearComponent`).
 pub fn componentDamage(world: gameobj.World, index: u16, struck_part: objects.PartRef, value: f32, attacker: u16, kind: Kind) void {
     componentDamageFrom(world, index, struck_part, value, .of(world.objects, attacker), kind);
 }
@@ -1659,6 +1669,11 @@ test goOff {
     try std.testing.expectApproxEqAbs(1000 - mine_blow, all.slots[ship].object.shields.fore, 1);
     try std.testing.expectEqual(.explode, all.slots[mine].current().?.order);
     try std.testing.expectEqual(0, all.slots[ship].object.root.position.x);
+
+    // A pilot's mine credits the pilot who laid it, but nobody when that pilot flies into it.
+    const layer: gameobj.DamageSource = .of(all, torpedo);
+    try std.testing.expectEqual(torpedo, mineCredit(all, layer, ship).?.resolve(all));
+    try std.testing.expectEqual(null, mineCredit(all, layer, torpedo));
 }
 
 test "what never collides" {

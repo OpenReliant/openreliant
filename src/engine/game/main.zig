@@ -1183,6 +1183,10 @@ const avoid_widening: f32 = 10000;
 const avoid_steps: f32 = 50;
 const avoid_margin: f32 = 2000;
 
+/// The slots a multiplayer mission keeps for its pilots' ships, which `avoidance_scan` counts
+/// whatever the session's own number of pilots (`0x00492273`, `0x004922A0`).
+const pilot_slots = 8;
+
 /// `avoidance_scan` (`0x00492190`): for a ship whose current order avoids
 /// (`orders.Flags.avoidance`) and that has no `no_avoidance`, the objects it could hit, for the
 /// avoidance code (`ai.avoidNear`, `ai.avoidAhead`), up to ten of each: those that list components
@@ -1191,9 +1195,9 @@ const avoid_margin: f32 = 2000;
 /// stand-ins, disabled and jumping objects, planets, the ship itself, what it fights, and what
 /// either passes through the other.
 ///
-/// **Unverified:** in a multiplayer game the original also passes over the other players' ships,
-/// which OpenReliant's host steers round like any other ship
-/// ([#1541](https://github.com/OpenReliant/openreliant/issues/1541)).
+/// In a multiplayer mission it also passes over a pair of a pilot's ship, in the first
+/// `pilot_slots` slots, and an object the pilots fly into, a beacon or the comms relay
+/// (`GameObject.pilots_fly_into`), whichever of the two is scanning (`0x00492269`, `0x00492296`).
 fn avoidanceScan(world: gameobj.World, index: u16) void {
     const all = world.objects;
     const slot = &all.slots[index];
@@ -1211,6 +1215,10 @@ fn avoidanceScan(world: gameobj.World, index: u16) void {
         if (other_slot.combat) |combat| if (combat.class == .planet) continue;
         if (ship.passes_through[0].index() == other or ship.fighting.index() == other) continue;
         if (object.passes_through[0].index() == index) continue;
+        if (world.damage_rules == .arena) {
+            if (ship.pilots_fly_into != 0 and other < pilot_slots) continue;
+            if (object.pilots_fly_into != 0 and index < pilot_slots) continue;
+        }
         if (object.flags.components) {
             if (ship.overlaps(object, avoid_widening)) ship.avoid_near.add(other);
         } else if (!ship.flags.components and ai.collisionCourse(world, index, other, avoid_steps, avoid_margin)) {
@@ -3414,6 +3422,16 @@ test avoidanceScan {
     avoidanceScan(world, ship);
     try std.testing.expectEqualSlices(i32, &.{hull}, mission.slot(ship).object.avoid_near.list());
     try std.testing.expectEqualSlices(i32, &.{ahead}, mission.slot(ship).object.avoid_ahead.list());
+    // In an arena a beacon passes over a pilot's ship, in slot 0 here. Outside an arena it
+    // doesn't.
+    objects.setPosition(&mission.slot(0).object, &mission.slot(0).drawn, .{ 0, 0, 3500 });
+    mission.slot(ship).object.pilots_fly_into = 1;
+    avoidanceScan(world, ship);
+    try std.testing.expect(std.mem.indexOfScalar(i32, mission.slot(ship).object.avoid_ahead.list(), 0) != null);
+    var arena = world;
+    arena.damage_rules = .{ .arena = null };
+    avoidanceScan(arena, ship);
+    try std.testing.expect(std.mem.indexOfScalar(i32, mission.slot(ship).object.avoid_ahead.list(), 0) == null);
 }
 
 test givePilots {
