@@ -58,7 +58,8 @@ The installer puts the English game in the folder and adds the translation besid
 
 - `rancer.exe`, the game's executable with the names of the two modules of strings changed to
   `ranguage.dll` and `rtaclang.dll`, and the head-up display's two units, `kps` and `k`, changed
-  to `км/с` and `к` (`language.Units`). The English `lancer.exe`, `Language.dll` and
+  to `км/с` and `к`. OpenReliant keeps `kps` and `k` (`language.display_units`): the only text it holds
+  itself is English, and a translation's text comes from its string files alone. The English `lancer.exe`, `Language.dll` and
   `Itaclang.dll` stay, so both languages start from the one folder. The repack keeps the Russian
   ones alone.
 - `Resource.hog`, `Cd1.hog`, `Cd2.hog` and `Ms_speech\Msspeech.hog` in place of the English ones.
@@ -75,7 +76,8 @@ them in the system's code page: 1251 on a Russian Windows. The release's fonts, 
 to `0xFF`.
 
 OpenReliant takes the page from the strings: the Cyrillic page where any string holds a Cyrillic
-letter, the Western page, 1252, otherwise (`language.Page.of`). Everything that turns the game's
+letter, and otherwise the Central European page or the Western page, 1252
+([Fan translations](translations.md#the-code-page), `language.Page.of`). Everything that turns the game's
 text to or from Unicode goes by it (`language.page`). OpenReliant's outline font, Newtown, has
 only the Western page's letters, so a game in the Cyrillic page is drawn in Play Bold, the other
 font OpenReliant has built in ([Fonts](fnt.md#outline-fonts)).

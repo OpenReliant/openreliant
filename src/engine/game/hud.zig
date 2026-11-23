@@ -4771,7 +4771,7 @@ pub fn kilometres(all: *const create.Objects, index: u16) i32 {
 
 /// A range as the display writes it, `%dk`.
 pub fn rangeText(buffer: *[16]u8, km: i32) []const u8 {
-    return std.mem.print(buffer, "{d}{s}", .{ km, language.Units.shown().range }) catch "";
+    return std.mem.print(buffer, "{d}{s}", .{ km, language.display_units.range }) catch "";
 }
 
 /// How much shorter each unit the missile lock's count is short of 100 makes the lead cursor's

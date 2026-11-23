@@ -406,7 +406,7 @@ const Context = struct {
     fn figures(context: Context, shown: Facts, lines: Lines) Allocator.Error!void {
         var buffer: [16]u8 = undefined;
         try context.canvas.text(.target_display_range, hud.rangeText(&buffer, shown.range), lines.range, lines.alignment);
-        try context.canvas.print(.target_display_speed, "{d} {s}", .{ shown.speed, language.Units.shown().speed }, lines.speed, lines.alignment);
+        try context.canvas.print(.target_display_speed, "{d} {s}", .{ shown.speed, language.display_units.speed }, lines.speed, lines.alignment);
     }
 };
 

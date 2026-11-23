@@ -62,17 +62,30 @@ pub const Page = enum {
     western,
     /// Code page 1251.
     cyrillic,
+    /// Code page 1250: the Latin alphabets of central Europe, such as Slovak and Czech.
+    central_european,
 
     /// The page a string table's text needs: the Cyrillic one where any of its strings holds a
-    /// Cyrillic letter, the Western one otherwise.
+    /// Cyrillic letter, the Central European one where any holds a letter that page has and the
+    /// Western one lacks, such as `č`, and the Western one otherwise.
     pub fn of(module: pe.Image) Page {
+        var found: Page = .western;
         var id: u32 = 1;
         while (id <= std.math.maxInt(u16)) : (id += 1) {
             const units = module.string(@intCast(id)) orelse break;
             if (units.len == 0) break;
-            for (units) |unit| if (unit >= cyrillic_first and unit <= cyrillic_last) return .cyrillic;
+            for (units) |unit| {
+                if (unit >= cyrillic_first and unit <= cyrillic_last) return .cyrillic;
+                if (centralOnly(unit)) found = .central_european;
+            }
         }
-        return .western;
+        return found;
+    }
+
+    /// Whether `unit` is a letter the Central European page holds and the Western one doesn't.
+    fn centralOnly(unit: u16) bool {
+        if (unit < latin_extended_first or unit > latin_extended_last) return false;
+        return Page.western.fromUnit(unit) == '?' and Page.central_european.fromUnit(unit) != '?';
     }
 
     /// Whether the page holds a letter at `byte` beyond the Latin ones every page shares: the
@@ -80,7 +93,7 @@ pub const Page = enum {
     /// don't count, as the game's fonts were measured by their plain ones.
     pub fn ownLetter(in: Page, byte: u8) bool {
         return switch (in) {
-            .western => false,
+            .western, .central_european => false,
             .cyrillic => byte >= 0xC0 or byte == 0xA8 or byte == 0xB8,
         };
     }
@@ -89,12 +102,18 @@ pub const Page = enum {
     const cyrillic_first = 0x0400;
     const cyrillic_last = 0x04FF;
 
+    /// The Unicode block Latin Extended-A, which holds the letters of the Central European page
+    /// that Latin-1 lacks.
+    const latin_extended_first = 0x0100;
+    const latin_extended_last = 0x017F;
+
     /// What the page holds from `0x80` on, as far as it differs from Unicode's own characters of
     /// those numbers.
     fn high(in: Page) []const u16 {
         return switch (in) {
             .western => &cp1252_high,
             .cyrillic => &cp1251_high,
+            .central_european => &cp1250_high,
         };
     }
 
@@ -121,21 +140,17 @@ pub const Page = enum {
 /// Windows gives a program the system's. Every conversion below goes by it.
 pub var page: Page = .western;
 
-/// The units the head-up display writes after a target's speed and its range, which the game
-/// keeps in its executable rather than among its strings (`0x00502523`, `0x0050252C`): `kps` and
-/// `k`. The Russian release's executable has them in Russian, in the Cyrillic page.
+/// The units the head-up display writes after a target's speed and range, which the game keeps in
+/// its executable rather than among its strings (`0x00502523`, `0x0050252C`): `kps` and `k`.
+///
+/// The Russian release's executable has them in Russian. OpenReliant keeps the English ones for
+/// every release: it holds no text of its own but English, and a translation's text comes from
+/// its string files alone.
+pub const display_units: Units = .{ .speed = "kps", .range = "k" };
+
 pub const Units = struct {
     speed: []const u8,
     range: []const u8,
-
-    /// The units in the game's page (`page`).
-    pub fn shown() Units {
-        return switch (page) {
-            .western => .{ .speed = "kps", .range = "k" },
-            // "км/с" and "к".
-            .cyrillic => .{ .speed = "\xEA\xEC/\xF1", .range = "\xEA" },
-        };
-    }
 };
 
 pub const Language = struct {
@@ -305,6 +320,27 @@ const cp1251_high = [64]u16{
     break :russian letters;
 };
 
+/// What code page 1250 holds from `0x80` on. The places it leaves undefined map to the control
+/// characters of the same number.
+const cp1250_high = [128]u16{
+    0x20AC, 0x0081, 0x201A, 0x0083, 0x201E, 0x2026, 0x2020, 0x2021,
+    0x0088, 0x2030, 0x0160, 0x2039, 0x015A, 0x0164, 0x017D, 0x0179,
+    0x0090, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
+    0x0098, 0x2122, 0x0161, 0x203A, 0x015B, 0x0165, 0x017E, 0x017A,
+    0x00A0, 0x02C7, 0x02D8, 0x0141, 0x00A4, 0x0104, 0x00A6, 0x00A7,
+    0x00A8, 0x00A9, 0x015E, 0x00AB, 0x00AC, 0x00AD, 0x00AE, 0x017B,
+    0x00B0, 0x00B1, 0x02DB, 0x0142, 0x00B4, 0x00B5, 0x00B6, 0x00B7,
+    0x00B8, 0x0105, 0x015F, 0x00BB, 0x013D, 0x02DD, 0x013E, 0x017C,
+    0x0154, 0x00C1, 0x00C2, 0x0102, 0x00C4, 0x0139, 0x0106, 0x00C7,
+    0x010C, 0x00C9, 0x0118, 0x00CB, 0x011A, 0x00CD, 0x00CE, 0x010E,
+    0x0110, 0x0143, 0x0147, 0x00D3, 0x00D4, 0x0150, 0x00D6, 0x00D7,
+    0x0158, 0x016E, 0x00DA, 0x0170, 0x00DC, 0x00DD, 0x0162, 0x00DF,
+    0x0155, 0x00E1, 0x00E2, 0x0103, 0x00E4, 0x013A, 0x0107, 0x00E7,
+    0x010D, 0x00E9, 0x0119, 0x00EB, 0x011B, 0x00ED, 0x00EE, 0x010F,
+    0x0111, 0x0144, 0x0148, 0x00F3, 0x00F4, 0x0151, 0x00F6, 0x00F7,
+    0x0159, 0x016F, 0x00FA, 0x0171, 0x00FC, 0x00FD, 0x0163, 0x02D9,
+};
+
 /// `CharUpperBuffA` over `text`, in place, under the game's code page (`page`): the small letters
 /// of the page become its capitals, and the rest stay, `ß` and `µ` among them, which have no
 /// capital in the Western page. The loadout's panels write their labels so.
@@ -329,6 +365,17 @@ pub fn upperCase(text: []u8) void {
             0xB4 => 0xA5,
             0xBC => 0xA3,
             0xBE => 0xBD,
+            else => character.*,
+        },
+        // The page's small letters from 0xE0, but the division sign and the dot above, and its
+        // other pairs.
+        .central_european => switch (character.*) {
+            'a'...'z', 0xE0...0xF6, 0xF8...0xFE => character.* - 0x20,
+            0x9A, 0x9C...0x9F, 0xB3 => character.* - 0x10,
+            0xB9 => 0xA5,
+            0xBA => 0xAA,
+            0xBE => 0xBC,
+            0xBF => 0xAF,
             else => character.*,
         },
     };
@@ -375,6 +422,16 @@ test Page {
     try std.testing.expectEqual('?', Page.cyrillic.fromUnit(0xE9));
     try std.testing.expectEqual('A', Page.cyrillic.fromUnit('A'));
     try std.testing.expectEqual(0x0416, Page.cyrillic.toUnicode(0xC6));
+    // The Central European page: Slovak's and Czech's letters, and Latin-1's where it keeps them.
+    try std.testing.expectEqual(0xE8, Page.central_european.fromUnit(0x010D));
+    try std.testing.expectEqual(0xBE, Page.central_european.fromUnit(0x013E));
+    try std.testing.expectEqual(0xE1, Page.central_european.fromUnit(0xE1));
+    try std.testing.expectEqual('?', Page.central_european.fromUnit(0xF1));
+    try std.testing.expectEqual(0x0164, Page.central_european.toUnicode(0x8D));
+    try std.testing.expect(Page.centralOnly(0x010D));
+    // The Western page has these two of the block itself.
+    try std.testing.expect(!Page.centralOnly(0x0161));
+    try std.testing.expect(!Page.centralOnly(0x0152));
     // Every byte of each page comes back from its character.
     for (std.enums.values(Page)) |in| for (0..256) |byte| {
         try std.testing.expectEqual(byte, in.fromUnit(@intCast(in.toUnicode(@intCast(byte)))));

@@ -71,7 +71,9 @@ renders the glyphs ([Platform](../port/platform.md#fonts)).
   width apart from the height): by the bitmap font's ink over its own, across every character
   both have, never wider than it is and at least 70% (`narrowed`). A glyph still wider than the
   ink of the bitmap glyph it stands for is drawn again as wide as that ink (`render`), so that
-  each letter keeps the room the bitmap font gave it. Newtown keeps its own width.
+  each letter keeps the room the bitmap font gave it. Newtown isn't narrowed as a whole, but its
+  glyphs wider than that ink are drawn as wide as it too, so that letters such as `H` and `R`
+  don't touch.
 - **Outline.** VFX draws every pixel of a bitmap glyph that has any coverage as fully opaque,
   blending the ink colour with black by how much the glyph covers it, so the original text has a
   dark edge wherever the background is lighter. An outline glyph's pixels are only as opaque as
@@ -86,7 +88,7 @@ renders the glyphs ([Platform](../port/platform.md#fonts)).
   bitmap glyph. Ink is measured to a fraction of a pixel: a pixel half covered at the edge of the
   ink puts the edge halfway into the pixel. A character the outline font has no glyph for keeps the
   bitmap glyph, and a character whose bitmap glyph has no ink draws nothing. Characters are in the
-  game's code page, 1252.
+  game's code page (`language.page`).
 - **Pixels.** Each size of a font is rendered once into a texture, in white with each pixel's alpha
   set by its coverage, and the text colour tints it. Each glyph is drawn aligned to the window's
   pixels, so the text is as sharp as the window's resolution allows. FreeType's light hinting fits
@@ -100,6 +102,12 @@ page, such as the [Russian release](russian-release.md#the-text), OpenReliant us
 built-in font, Play Bold ([`deps/play`](../../deps/play/README.md)), in Newtown's place
 (`outline.BuiltIn.of`). Play Bold gets the bitmap font's weight like Newtown, and is also drawn
 narrower, because its letters are wider than the Russian release's.
+
+A game in the Central European page, 1250, such as the
+[Slovak translation](translations.md#the-code-page), keeps Newtown. The few letters Newtown lacks,
+such as `č` and `ň`, come from Play Bold (`BuiltIn.spare`), at the size that makes its capitals
+as tall as Newtown's, with Newtown's weight, and no wider than the ink of the bitmap glyph at
+that byte.
 
 The HUD draws a glyph from the outline font only when it uses the colours of the font's letters
 and digits, and keeps the bitmap for the others, which are symbols with colours of their own. The

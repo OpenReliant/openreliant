@@ -25,11 +25,15 @@ const c = @import("archive");
 const help = @import("help.zig");
 
 pub const usage =
-    \\usage: openreliant install [--from <disc>]... [--force] <directory>
+    \\usage: openreliant install [--from <disc>]... [--translation <files>] [--force] <directory>
     \\  <directory>      where to put the game's files; made if it doesn't exist
     \\  --from <disc>    a StarLancer disc, as a disc image (.bin or .iso) or a folder with the
     \\                   disc's files; once for each disc, in either order. Without it, the CD
     \\                   drives are searched for the discs. Disc 2 alone adds it to an install
+    \\  --translation <files>
+    \\                   a fan translation to put over the game's text: a folder with its
+    \\                   LANGUAGE.DLL and ITACLANG.DLL, or the program that installs it. Alone,
+    \\                   it is added to the install in <directory>
     \\  --force          install from a disc 1 that OpenReliant doesn't know, such as another
     \\                   country's release
     \\  -h, --help       show this page
@@ -40,6 +44,8 @@ pub const Options = struct {
     directory: []const u8,
     /// The discs named with `--from`, one for each disc at most.
     from: [2]?[]const u8 = @splat(null),
+    /// A fan translation to put over the game's text, named with `--translation`.
+    translation: ?[]const u8 = null,
     force: bool = false,
 
     pub fn parse(args: []const [:0]const u8) error{Usage}!Options {
@@ -56,6 +62,10 @@ pub const Options = struct {
                 if (i == args.len or named == options.from.len) return error.Usage;
                 options.from[named] = args[i];
                 named += 1;
+            } else if (std.mem.eql(u8, arg, "--translation")) {
+                i += 1;
+                if (i == args.len or options.translation != null) return error.Usage;
+                options.translation = args[i];
             } else if (std.mem.startsWith(u8, arg, "-") or directory != null) {
                 return error.Usage;
             } else {
@@ -206,8 +216,8 @@ const Release = struct {
     };
 };
 
-/// The releases the installer knows, which the installation guide lists too
-/// (`docs/guide/installation.md`, "Releases").
+/// The releases the installer knows, which the guide lists too
+/// ([Supported editions](../../docs/guide/editions.md#releases)).
 const releases = [_]Release{
     .{ .name = "the English release", .size = 226_746_308 },
     .{ .name = "the French release", .size = 222_899_028 },
@@ -233,6 +243,30 @@ const extras_path = "GAME/CAB";
 /// Each disc's archive, which a full install copies next to the game's files.
 const first_archive = "GAME/CD1.HOG";
 const second_archive = "GAME/CD2.HOG";
+/// A fan translation the installer knows: the game's two modules of strings, made again in
+/// another language. It is told by the size of what it comes as.
+const Translation = struct {
+    name: []const u8,
+    form: union(enum) {
+        /// The two modules as they are, in a folder: the sizes of the strings' and the ITAC's.
+        modules: [2]u64,
+        /// A program that makes them (`openreliant.patcher`), and its size.
+        patcher: u64,
+    },
+};
+
+/// The translations the installer knows ([Editions](../../docs/guide/editions.md)).
+const translations = [_]Translation{
+    .{ .name = "the Spanish translation by Clan DLAN", .form = .{ .modules = .{ 118_855, 441_856 } } },
+    .{ .name = "the Slovak translation", .form = .{ .patcher = 495_444 } },
+};
+
+/// The two modules a translation replaces, the strings' first.
+const translated = [_][]const u8{ game.language.file_name, game.itac.strings_name };
+
+/// The largest program taken for a translation's, which is read whole.
+const largest_patcher = 16 * 1024 * 1024;
+
 /// Disc 2 is told apart by its label, or by the archive only it has.
 const second_label = "SL_CD2";
 
@@ -802,6 +836,13 @@ fn run(io: Io, arena: Allocator, options: Options, env: Environment) !u8 {
 /// Installs the game into its directory from the discs named, or else those in the drives: disc 1's
 /// files and archive, then disc 2's archive. Disc 2 alone adds its archive to an install there.
 fn installGame(io: Io, arena: Allocator, options: Options, env: Environment) !void {
+    // A translation alone is added to the install that is there.
+    if (options.translation != null and options.fromDrives()) {
+        if (env.dir.openDir(io, options.directory, .{})) |target| {
+            defer target.close(io);
+            if (missingGameFile(io, target) == null) return translate(io, arena, options, env, target);
+        } else |_| {}
+    }
     var discs: Discs = try .named(io, arena, options, env);
     defer discs.close(io);
     if (options.fromDrives()) {
@@ -849,6 +890,7 @@ fn installGame(io: Io, arena: Allocator, options: Options, env: Environment) !vo
     }
     if (packing == .wise) {
         // The whole game is on the one disc.
+        try translate(io, arena, options, env, target);
         try env.out.print("StarLancer is installed in {s}. To play it: openreliant {s}\n", .{ options.directory, options.directory });
         try env.out.flush();
         return;
@@ -867,7 +909,87 @@ fn installGame(io: Io, arena: Allocator, options: Options, env: Environment) !vo
             \\
         , .{options.directory});
     }
+    try translate(io, arena, options, env, target);
     try env.out.print("StarLancer is installed in {s}. To play it: openreliant {s}\n", .{ options.directory, options.directory });
+    try env.out.flush();
+}
+
+/// Puts the translation named with `--translation`, where one is, over the game's text in
+/// `target`: its two modules of strings, from a folder that holds them or from the program that
+/// makes them. Each takes the place of the module of that name, however the folder spells it.
+fn translate(io: Io, arena: Allocator, options: Options, env: Environment, target: Io.Dir) !void {
+    const path = options.translation orelse return;
+    var modules: [translated.len][]const u8 = undefined;
+    const known: ?*const Translation = if (env.dir.openDir(io, path, .{ .iterate = true })) |folder| from_folder: {
+        defer folder.close(io);
+        const entries = try folderEntries(io, arena, folder, "");
+        var sizes: [translated.len]u64 = undefined;
+        for (translated, &modules, &sizes) |name, *module, *size| {
+            const entry = for (entries) |entry| {
+                if (entry.kind == .file and std.ascii.eqlIgnoreCase(entry.name, name)) break entry;
+            } else {
+                try env.err.print("openreliant: {s} is no translation: it has no {s}.\n", .{ path, name });
+                return error.InstallFailed;
+            };
+            module.* = try folder.readFileAlloc(io, entry.name, arena, .limited(largest_patcher));
+            size.* = entry.size;
+        }
+        break :from_folder for (&translations) |*translation| {
+            if (translation.form == .modules and std.mem.eql(u64, &translation.form.modules, &sizes)) break translation;
+        } else null;
+    } else |err| switch (err) {
+        error.NotDir => from_program: {
+            const bytes = env.dir.readFileAlloc(io, path, arena, .limited(largest_patcher)) catch |read_err| {
+                try env.err.print("openreliant: {s} can't be read: {s}\n", .{ path, @errorName(read_err) });
+                return error.InstallFailed;
+            };
+            const patcher = openreliant.patcher.Patcher.read(arena, bytes) catch |read_err| switch (read_err) {
+                error.OutOfMemory => |e| return e,
+                error.NotAPatcher, error.Corrupt => {
+                    try env.err.print(
+                        \\openreliant: {s} is no translation OpenReliant can read. Name the folder that
+                        \\holds its LANGUAGE.DLL and ITACLANG.DLL, or the program that installs it.
+                        \\
+                    , .{path});
+                    return error.InstallFailed;
+                },
+            };
+            for (translated, &modules) |name, *module| {
+                const file = patcher.find(name) orelse {
+                    try env.err.print("openreliant: {s} is no translation: it makes no {s}.\n", .{ path, name });
+                    return error.InstallFailed;
+                };
+                module.* = patcher.write(arena, file) catch |write_err| switch (write_err) {
+                    error.OutOfMemory => |e| return e,
+                    error.NotAPatcher, error.Corrupt => {
+                        try env.err.print("openreliant: {s} is damaged: its {s} can't be made.\n", .{ path, name });
+                        return error.InstallFailed;
+                    },
+                };
+            }
+            break :from_program for (&translations) |*translation| {
+                if (translation.form == .patcher and translation.form.patcher == bytes.len) break translation;
+            } else null;
+        },
+        error.FileNotFound => {
+            try env.err.print("openreliant: there's no {s}.\n", .{path});
+            return error.InstallFailed;
+        },
+        else => |e| return e,
+    };
+    if (known) |translation| {
+        try env.out.print("Adding {s} from {s}.\n", .{ translation.name, path });
+    } else {
+        try env.out.print("Adding the translation in {s}, which OpenReliant doesn't know.\n", .{path});
+    }
+    const present = try folderEntries(io, arena, target, "");
+    for (translated, modules) |name, module| {
+        const spelled = for (present) |entry| {
+            if (entry.kind == .file and std.ascii.eqlIgnoreCase(entry.name, name)) break entry.name;
+        } else name;
+        try target.writeFile(io, .{ .sub_path = spelled, .data = module });
+        try env.out.print("  {s}\n", .{spelled});
+    }
     try env.out.flush();
 }
 
@@ -1391,6 +1513,10 @@ test Options {
     try std.testing.expectError(error.Usage, Options.parse(&.{ "a", "b" }));
     try std.testing.expectError(error.Usage, Options.parse(&.{ "out", "--from" }));
     try std.testing.expectError(error.Usage, Options.parse(&.{ "--help", "out" }));
+    const translated_install = try Options.parse(&.{ "--translation", "es", "out" });
+    try std.testing.expectEqualStrings("es", translated_install.translation.?);
+    try std.testing.expectError(error.Usage, Options.parse(&.{ "out", "--translation" }));
+    try std.testing.expectError(error.Usage, Options.parse(&.{ "--translation", "a", "--translation", "b", "out" }));
 }
 
 test installPath {
@@ -1676,6 +1802,79 @@ test "installing the Russian release from its Wise installer" {
     defer test_run.deinit();
     try std.testing.expectEqual(1, try run(io, arena, .{ .directory = "games/other", .from = .{ "mounted", null } }, test_run.environment(tmp.dir, &.{}, &other)));
     try std.testing.expect(std.mem.find(u8, test_run.err.written(), "isn't a StarLancer disc") != null);
+}
+
+test "adding a translation to an install" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const patcher = openreliant.patcher;
+
+    // An install as Linux may hold it, its strings' module in small letters.
+    var files: [whole_game.len + 1]TestFile = undefined;
+    for (game_files, 0..) |name, at| files[at] = .{ .path = name, .data = "" };
+    files[game_files.len] = .{ .path = "language.dll", .data = "English strings" };
+    files[game_files.len + 1] = .{ .path = "ITACLANG.DLL", .data = "English ITAC" };
+    try testFolder(io, tmp.dir, "game", &files);
+
+    // A folder with the two modules: they replace the install's, under the names it has.
+    try testFolder(io, tmp.dir, "spanish", &.{
+        .{ .path = "LANGUAGE.DLL", .data = "textos" },
+        .{ .path = "itaclang.dll", .data = "ITAC en castellano" },
+        .{ .path = "leeme.txt", .data = "notes" },
+    });
+    {
+        var test_run: TestRun = .init(gpa);
+        defer test_run.deinit();
+        const code = try run(io, arena, .{ .directory = "game", .translation = "spanish" }, test_run.environment(tmp.dir, &.{}, &.{}));
+        try std.testing.expectEqualStrings("", test_run.err.written());
+        try std.testing.expectEqual(0, code);
+        try std.testing.expect(std.mem.indexOf(u8, test_run.out.written(), "which OpenReliant doesn't know") != null);
+        var game_dir = try tmp.dir.openDir(io, "game", .{});
+        defer game_dir.close(io);
+        try expectFile(io, game_dir, "language.dll", "textos");
+        try expectFile(io, game_dir, "ITACLANG.DLL", "ITAC en castellano");
+    }
+
+    // The program that makes them: each is a patch on the copy the program carries.
+    const english = "Launch all fighters";
+    const made = try patcher.testing.patcher(arena, &.{
+        .{ .name = "LANGUAGE.DLL.eng", .kind = .whole, .data = try patcher.testing.deflate(arena, english, false), .size = english.len },
+        .{ .name = "LANGUAGE.DLL", .kind = .patch, .data = try patcher.testing.patch(arena, &.{ 11 - 1, 0x80 | 0, 0x80 | 6 - 1 }, "pilots"), .size = 17 },
+        .{ .name = "ITACLANG.DLL.eng", .kind = .whole, .data = try patcher.testing.deflate(arena, english, true), .size = english.len },
+        .{ .name = "ITACLANG.DLL", .kind = .patch, .data = try patcher.testing.patch(arena, &.{ 6 - 1, 0x80 | 0 }, ""), .size = 6 },
+    });
+    try tmp.dir.writeFile(io, .{ .sub_path = "translation.exe", .data = made });
+    {
+        var test_run: TestRun = .init(gpa);
+        defer test_run.deinit();
+        const code = try run(io, arena, .{ .directory = "game", .translation = "translation.exe" }, test_run.environment(tmp.dir, &.{}, &.{}));
+        try std.testing.expectEqualStrings("", test_run.err.written());
+        try std.testing.expectEqual(0, code);
+        var game_dir = try tmp.dir.openDir(io, "game", .{});
+        defer game_dir.close(io);
+        try expectFile(io, game_dir, "language.dll", "Launch all pilots");
+        try expectFile(io, game_dir, "ITACLANG.DLL", "Launch");
+    }
+
+    // A folder without both modules, a file that is no such program, and a path that isn't there
+    // are refused, and the install keeps what it had.
+    try testFolder(io, tmp.dir, "half", &.{.{ .path = "LANGUAGE.DLL", .data = "only one" }});
+    try tmp.dir.writeFile(io, .{ .sub_path = "notes.txt", .data = "not a program" });
+    for ([_][]const u8{ "half", "notes.txt", "nowhere" }) |path| {
+        var test_run: TestRun = .init(gpa);
+        defer test_run.deinit();
+        const code = try run(io, arena, .{ .directory = "game", .translation = path }, test_run.environment(tmp.dir, &.{}, &.{}));
+        try std.testing.expectEqual(1, code);
+        try std.testing.expect(test_run.err.written().len != 0);
+        var game_dir = try tmp.dir.openDir(io, "game", .{});
+        defer game_dir.close(io);
+        try expectFile(io, game_dir, "language.dll", "Launch all pilots");
+    }
 }
 
 test "looking for disc 1 in the drives" {
