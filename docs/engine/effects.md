@@ -652,6 +652,10 @@ draws them alike.
 [`main/smoke.zig`](../../src/engine/game/main/smoke.zig) ports the smoke: the levels as `Level`, the
 pools as `Pools`, a ship's smoke as `Stream`, which its slot holds, and the pass as `frame`.
 
+In a network game each pilot's machine runs the pass itself, from the armour and shields the host
+sends for each ship (`network/flight_frame.zig`), as each machine of the original's network game
+runs it: `mission_frame`'s smoke has no test for a network session.
+
 ## Shockwaves
 
 `shockwave.cpp` keeps rings that spread out from an explosion. `shockwave_init` (`0x004A0D90`)
