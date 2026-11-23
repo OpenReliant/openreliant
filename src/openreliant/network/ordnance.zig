@@ -245,16 +245,12 @@ pub const Status = struct {
     incoming: bool,
     armed: u8,
     charges: [3]u8 = .{ 255, 255, 255 },
-    /// Whether the pilot's ECM and spectral shields are on, which the keys' sounds go by. The
-    /// cloak comes with the ship in the view.
-    ecm: bool = false,
-    spectral_shields: bool = false,
     ammo: [display.max_entries]?Ammo = @splat(null),
     held: lock.Lock = .{},
     panels: Panels = .{},
 
     const Ammo = struct { kind: missile.GameMissile, count: i16 };
-    const Flags = packed struct(u8) { incoming: bool, locking: bool, ecm: bool, spectral_shields: bool, reserved: u4 = 0 };
+    const Flags = packed struct(u8) { incoming: bool, locking: bool, reserved: u6 = 0 };
 
     /// A device's charge as its share of full, which the pilot's bars read.
     fn chargeShare(charge: game.ship_devices.Charge, device: game.ship_devices.Device) u8 {
@@ -277,8 +273,6 @@ pub const Status = struct {
                 chargeShare(charges.get(.cloak), .cloak),
                 chargeShare(charges.get(.spectral_shields), .spectral_shields),
             },
-            .ecm = object.flags.ecm,
-            .spectral_shields = object.flags.spectral_shields,
             .panels = .capture(&all.slots[slot]),
             .held = if (weapons.lock.phase == .idle) .{} else .{
                 .phase = weapons.lock.phase,
@@ -308,7 +302,7 @@ pub const Status = struct {
 
     pub fn write(status: *const Status, w: *std.Io.Writer) !void {
         try w.writeInt(u16, status.countermeasures, .little);
-        const flags: Flags = .{ .incoming = status.incoming, .locking = status.held.phase != .idle, .ecm = status.ecm, .spectral_shields = status.spectral_shields };
+        const flags: Flags = .{ .incoming = status.incoming, .locking = status.held.phase != .idle };
         try w.writeByte(@bitCast(flags));
         try w.writeByte(status.armed);
         for (status.ammo) |entry| {
@@ -332,8 +326,6 @@ pub const Status = struct {
         const flags: Flags = @bitCast(try r.takeByte());
         if (flags.reserved != 0) return error.InvalidWeaponStatus;
         status.incoming = flags.incoming;
-        status.ecm = flags.ecm;
-        status.spectral_shields = flags.spectral_shields;
         status.armed = try r.takeByte();
         var count: usize = 0;
         while (true) {

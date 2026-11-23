@@ -256,6 +256,7 @@ pub fn returnToBrowser(pilot: *Graphical, screen: *Connection, presentation: ?*P
     screen.ship_picker = null;
     screen.quit_prompt = null;
     screen.busy = false;
+    screen.waiting = null;
     screen.message = message;
     const result = pilot.campaign_result;
     pilot.stop(presentation);
@@ -433,6 +434,13 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
         return;
     }
     const local = if (pilot.client) |*active| active else null;
+    // Joined a server that starts its arena by itself, and it still waits for more pilots.
+    front.connection.waiting = if (local) |client| waiting: {
+        if (pilot.hosted != null or client.joined == null or client.latest != null or client.result_tick != null or front.connection.lobby != null) break :waiting null;
+        var joined: u8 = 0;
+        for (client.roster.pilots) |entry| joined += @intFromBool(entry != null);
+        break :waiting .{ .joined = @max(joined, 1), .limit = client.roster.limit };
+    } else null;
     if (pilot.hosted) |hosted| {
         if (front.connection.lobby) |lobby| if (lobby.mission == null) hosted.host.selectScenario(lobby.scenario);
         const result = hosted.host.pump() catch |err| {
