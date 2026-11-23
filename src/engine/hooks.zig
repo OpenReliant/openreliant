@@ -40,6 +40,36 @@ const movie = @import("game/xtrabits/movie.zig");
 const orders = ai.orders;
 const routines = ai.routines;
 
+/// A list of at most `capacity` values of `T`, which scripts get as a table of them in order, and
+/// can give as one. The engine's records use it for their lists, such as a ship type's parts that
+/// cloak (`cloak.Parts`).
+pub fn List(comptime T: type, comptime capacity: usize) type {
+    return struct {
+        items: [capacity]T = undefined,
+        len: usize = 0,
+
+        pub const Item = T;
+
+        const Self = @This();
+
+        pub fn append(list: *Self, item: T) void {
+            list.items[list.len] = item;
+            list.len += 1;
+        }
+
+        pub fn slice(list: *const Self) []const T {
+            return list.items[0..list.len];
+        }
+
+        /// Its items, and `fill` in the places after them.
+        pub fn padded(list: *const Self, fill: T) [capacity]T {
+            var all: [capacity]T = @splat(fill);
+            @memcpy(all[0..list.len], list.slice());
+            return all;
+        }
+    };
+}
+
 /// An object passed to scripts as an opaque handle. Retained references keep their identity even
 /// after the object leaves the mission.
 pub const Object = struct {

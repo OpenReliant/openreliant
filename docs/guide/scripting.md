@@ -1160,7 +1160,13 @@ fly with the fighters' flight model, and only fighters turn on a fighter that hi
 ([Retaliation](../engine/orders.md#retaliation)). OpenReliant adds `landing`, how the player's ship
 lands on ships of the type ([Ship types](modding.md#ship-types)): the Reliant's and the Yamato's
 landings, as in the game, and nil for the other types. A load script can give a type a landing
-([Landing on another carrier](missions.md#landing-on-another-carrier)).
+([Landing on another carrier](missions.md#landing-on-another-carrier)). It also adds `cloaking_parts`, the
+names of the parts of the type's model that cloak, for a type that cloaks only some of them, as the
+Kafelnikof hides its machinery and leaves its rock in sight
+([Which objects cloak](../engine/cloak.md#which-objects-cloak)). It's nil for a type that cloaks
+whole, which is every type but the Kafelnikof to start with. A list holds at most 16 names of at
+most 31 bytes, and assigning a list replaces it. A ship of such a type doesn't wobble or shimmer as
+it cloaks, and its model still needs the cloak's flag (`sltool shp from-obj --cloak`).
 
 A pilot's face (`Face`) has `name`, the id of the string the radio's window shows over the face,
 and the film the face plays for each way it moves as the pilot speaks: `talking`, `laughing`,

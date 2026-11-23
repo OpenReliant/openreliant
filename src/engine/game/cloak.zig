@@ -31,6 +31,8 @@ const create = @import("create.zig");
 const ease = @import("../genilib/interf/ease.zig");
 const Random = @import("../random.zig").Random;
 const sound3d = @import("sound3d.zig");
+const hooks = @import("../hooks.zig");
+const launch = @import("launch.zig");
 const srofiles = @import("srofiles.zig");
 
 // --- The cloak --------------------------------------------------------------------------------
@@ -114,7 +116,7 @@ fn cloakOn(world: gameobj.World, index: u16) void {
     slot.object.flags.cloaked = true;
     slot.cloak = .{ .came_at = world.clock.frame_start };
     const model = if (slot.model) |*live| live else return;
-    seeThrough(model, slot.object.type.base() == .kafelnikof);
+    seeThrough(model, slot.cloaking_parts);
     shimmerOn(model, world.random);
     sound3d.playIn(world, null, null, index, .cloak01, 1, sound3d.fxClass(all, index));
 }
@@ -182,19 +184,19 @@ pub fn frame(slot: *create.Slot, now: i32) void {
         cloak.shimmer = 1;
         cloak.hull = 0;
     }
-    if (slot.model) |*model| step(model, cloak.*, ticks, slot.object.type.base() == .kafelnikof);
+    if (slot.model) |*model| step(model, cloak.*, ticks, slot.cloaking_parts != null);
 }
 
 /// The work the game does as it draws each part of `model` that has a shimmer
 /// (`cloak_shimmer_callback`, `cloak_hull_callback`), for `ticks`: the shimmer turns, unless the
-/// cloak's shimmer is nothing or the object is the Kafelnikof (`PartCloak.swirl`), and while the
-/// hull is clear, what hits showed of a part that cloaks fades (`PartCloak.fade`).
-fn step(model: *objects.Model, cloak: Cloak, ticks: i32, kafelnikof: bool) void {
-    const Step = struct { cloak: Cloak, ticks: i32, kafelnikof: bool };
-    eachCloaking(model, Step{ .cloak = cloak, .ticks = ticks, .kafelnikof = kafelnikof }, struct {
+/// cloak's shimmer is nothing or the object cloaks only some of its parts (`PartCloak.swirl`), and
+/// while the hull is clear, what hits showed of a part that cloaks fades (`PartCloak.fade`).
+fn step(model: *objects.Model, cloak: Cloak, ticks: i32, partly: bool) void {
+    const Step = struct { cloak: Cloak, ticks: i32, partly: bool };
+    eachCloaking(model, Step{ .cloak = cloak, .ticks = ticks, .partly = partly }, struct {
         fn visit(stepping: Step, _: *objects.Model.Part, effect: *PartCloak) void {
             if (!effect.shimmer_made) return;
-            if (stepping.cloak.shimmer != 0 and !stepping.kafelnikof) effect.swirl(stepping.ticks, stepping.cloak.shimmer);
+            if (stepping.cloak.shimmer != 0 and !stepping.partly) effect.swirl(stepping.ticks, stepping.cloak.shimmer);
             if (effect.cloaks and stepping.cloak.hull == 0) effect.fade(stepping.ticks);
         }
     }.visit);
@@ -208,11 +210,11 @@ const shear_rates = [3]f32{ 20, 26, 14 };
 const shear_starts = [3]f32{ 0, 2.8, 0.9 };
 
 /// `cloak_wobble` (`0x004639B0`), in `mission_frame`'s pass before the camera's frame, for the
-/// object in `slot`, where it is cloaked and not the Kafelnikof, at tick `now`: while its cloak
-/// changes, its frame, as drawn, shears a little and back, three ways at their own rates, swelling
-/// and dying away over the change.
+/// object in `slot`, where it is cloaked and cloaks whole (`Parts`), at tick `now`: while its
+/// cloak changes, its frame, as drawn, shears a little and back, three ways at their own rates,
+/// swelling and dying away over the change.
 pub fn wobble(slot: *create.Slot, now: i32) void {
-    if (slot.object.type.base() == .kafelnikof) return;
+    if (slot.cloaking_parts != null) return;
     const cloak = slot.cloak orelse return;
     const since = cloak.since(now);
     if (since > change_ticks) return;
@@ -238,9 +240,9 @@ const struck_falloff: f32 = 0.45;
 /// `cloak_reveal` (`0x00463AF0`): a hit at `at` on the object in slot `index`, where it is
 /// cloaked, shows its hull round the point (`cloak_node_reveal`, `0x004629D0`): each vertex of a
 /// part that cloaks within `struck_reach` of the object's radius is the more solid the nearer it
-/// stands, up to whole. The Kafelnikof's parts go by their own smallest extent, not the radius. A
-/// shot spent on the shields shows it, and one on a component, the Nova Cannon's beam, and a
-/// shield's flare.
+/// stands, up to whole. The parts of an object that cloaks only some of them, such as the
+/// Kafelnikof, go by their own smallest extent, not the radius. A shot spent on the shields shows
+/// it, and one on a component, the Nova Cannon's beam, and a shield's flare.
 ///
 /// **Fix:** the game shows the hit on the vertices of the level each part was drawn at last, in
 /// one set of colours that all its levels share, so what a hit showed moves to other vertices
@@ -252,7 +254,7 @@ pub fn reveal(world: gameobj.World, index: u16, at: Vector) void {
     const cloak = if (slot.cloak) |*kept| kept else return;
     cloak.struck_at = world.clock.frame_start;
     const model = if (slot.model) |*live| live else return;
-    const struck: Struck = .{ .at = at, .radius = slot.object.radius, .kafelnikof = slot.object.type.base() == .kafelnikof };
+    const struck: Struck = .{ .at = at, .radius = slot.object.radius, .partly = slot.cloaking_parts != null };
     eachCloaking(model, struck, struct {
         fn visit(hit: Struck, part: *objects.Model.Part, effect: *PartCloak) void {
             if (effect.cloaks) effect.show(hit, part.object.levels, part.object.place());
@@ -261,39 +263,77 @@ pub fn reveal(world: gameobj.World, index: u16, at: Vector) void {
 }
 
 /// A hit that shows a cloaked hull (`reveal`): where it struck, the object's radius, and whether
-/// the object is the Kafelnikof.
+/// the object cloaks only some of its parts.
 const Struck = struct {
     at: Vector,
     radius: f32,
-    kafelnikof: bool,
+    partly: bool,
 
-    /// The size a level showing `mesh` goes by: the object's radius, or on the Kafelnikof the
-    /// mesh's smallest extent.
+    /// The size a level showing `mesh` goes by: the object's radius, or on an object that cloaks
+    /// only some of its parts the mesh's smallest extent.
     fn size(struck: Struck, mesh: *const srapiext.Mesh) f32 {
-        if (!struck.kafelnikof) return struck.radius;
+        if (!struck.partly) return struck.radius;
         const extent = mesh.bounds[1] - mesh.bounds[0];
         return @min(@min(extent[0], extent[1]), extent[2]);
     }
 };
 
-/// The Kafelnikof's parts that cloak, where every other object cloaks whole
-/// (`kafelnikof_cloaking_parts`, `0x004E1998`).
-const kafelnikof_cloaks = [_][]const u8{ "Kaf bot vent", "Kaf comms twr", "Kaf ext vent", "Kaf frnt vent", "Kaf land plat", "Kaf shield gen", "Kaf top vent" };
+/// The longest name a part on a list of parts that cloak can have, and how many a list holds
+/// (`Parts`). The game's list holds seven names of up to 19 bytes.
+pub const part_name_size = 32;
+pub const max_parts = 16;
 
-/// Whether the part named `name` cloaks, on the Kafelnikof or another (`cloak_node_cloaks`,
-/// `0x00463C30`).
-fn cloaks(kafelnikof: bool, name: []const u8) bool {
-    if (!kafelnikof) return true;
-    for (kafelnikof_cloaks) |listed| if (std.mem.eql(u8, name, listed)) return true;
+/// The names of the parts of a ship type's model that cloak, where the type cloaks only some of
+/// them (`Stats.cloaking_parts`). Such an object doesn't wobble or shimmer as it cloaks, and a hit
+/// shows a part through its cloak by the part's own size (`Struck`).
+///
+/// **Improvement:** the game lists the Kafelnikof's parts alone, and goes by the type's number
+/// (`kafelnikof_cloaking_parts`, `0x004E1998`, 20 bytes a name); OpenReliant keeps a list in each
+/// type's record, which mods can change (`records.ship_types`).
+pub const Parts = hooks.List([part_name_size]u8, max_parts);
+
+/// The Kafelnikof's parts that cloak (`kafelnikof_cloaking_parts`).
+const kafelnikof_parts: Parts = named(&.{ "Kaf bot vent", "Kaf comms twr", "Kaf ext vent", "Kaf frnt vent", "Kaf land plat", "Kaf shield gen", "Kaf top vent" });
+
+/// A list of the parts `names`.
+fn named(comptime names: []const []const u8) Parts {
+    var parts: Parts = .{};
+    for (names) |name| {
+        var bytes: [part_name_size]u8 = @splat(0);
+        @memcpy(bytes[0..name.len], name);
+        parts.append(bytes);
+    }
+    return parts;
+}
+
+/// The parts of the game's type `ship_type` that cloak, where it cloaks only some: the
+/// Kafelnikof's.
+pub fn originalParts(ship_type: gameobj.GameType) ?*const Parts {
+    return if (ship_type == .kafelnikof) &kafelnikof_parts else null;
+}
+
+/// The parts of a ship of type `ship_type` that cloak before scripts change them
+/// (`create.typeRecords`): the game's for one of its types (`originalParts`), and its base's for
+/// a type a mod adds that keeps its base's model, whose parts the list names.
+pub fn partsOf(ship_type: gameobj.Type) ?Parts {
+    const game_type = if (ship_type.added()) |added| (if (launch.launchesAsBase(ship_type)) added.base else return null) else ship_type.base();
+    return if (originalParts(game_type)) |parts| parts.* else null;
+}
+
+/// Whether the part named `name` cloaks: any part of an object that cloaks whole, and on one that
+/// cloaks only some, those on its list `parts` (`cloak_node_cloaks`, `0x00463C30`).
+fn cloaks(parts: ?*const Parts, name: []const u8) bool {
+    const listed = parts orelse return true;
+    for (listed.slice()) |*entry| if (std.mem.eql(u8, name, std.mem.sliceTo(entry, 0))) return true;
     return false;
 }
 
 /// `cloak_node_see_through` (`0x00462B80`): each part of `model`, and of the models it carries,
 /// that cloaks is drawn see-through, its own colours clear.
-fn seeThrough(model: *objects.Model, kafelnikof: bool) void {
-    eachCloaking(model, kafelnikof, struct {
-        fn visit(on_kafelnikof: bool, part: *objects.Model.Part, effect: *PartCloak) void {
-            effect.cloaks = cloaks(on_kafelnikof, effect.name);
+fn seeThrough(model: *objects.Model, parts: ?*const Parts) void {
+    eachCloaking(model, parts, struct {
+        fn visit(listed: ?*const Parts, part: *objects.Model.Part, effect: *PartCloak) void {
+            effect.cloaks = cloaks(listed, effect.name);
             if (!effect.cloaks) return;
             part.object.levels = effect.see_through;
             effect.clearHull();
@@ -352,7 +392,7 @@ fn eachCloaking(model: *objects.Model, context: anytype, comptime visit: fn (@Ty
 }
 
 /// A part of a model that can cloak, as its cloak draws it (`srofiles.Cloaking`): its name, which
-/// says whether it cloaks on the Kafelnikof; its own levels and those seen through; its hull's own
+/// says whether it cloaks on an object that cloaks only some of its parts; its own levels and those seen through; its hull's own
 /// colours, which it is drawn see-through by; and its shimmer (`node + 0x0C`), with its own colours
 /// and texture coordinates.
 pub const PartCloak = struct {
@@ -514,13 +554,14 @@ pub fn shimmerColour(strength: f32) [3]f32 {
 
 /// What a cloaked object's part draws, as `node_draw` does with flag `0x80`: its shimmer, where it
 /// has one, placed where the part stands (`cloak_shimmer_callback`, `0x00463B20`), unless the
-/// cloak's shimmer is nothing or the object is the Kafelnikof; and its hull, see-through
+/// cloak's shimmer is nothing or the object cloaks only some of its parts; and its hull, see-through
 /// (`cloak_hull_callback`, `0x00463B90`), which the original leaves out on its software renderer.
 /// While the game is paused, both are drawn as they stand. The cloak's frame turns the shimmer and
 /// fades the hull (`frame`).
 pub const Drawing = struct {
     cloak: *const Cloak,
-    kafelnikof: bool,
+    /// Whether the object cloaks only some of its parts (`Parts`).
+    partly: bool,
 
     /// The shimmer to add for `part`, drawn in `view`, or null.
     pub fn shimmer(drawing: Drawing, part: *objects.Model.Part, view: *const objects.View) ?*srapiext.MeshObject {
@@ -528,7 +569,7 @@ pub const Drawing = struct {
         if (!effect.shimmer_made) return null;
         effect.shimmer.position = part.object.position;
         effect.shimmer.orientation = part.object.orientation;
-        if (!view.paused and (drawing.cloak.shimmer == 0 or drawing.kafelnikof)) return null;
+        if (!view.paused and (drawing.cloak.shimmer == 0 or drawing.partly)) return null;
         return &effect.shimmer;
     }
 
@@ -673,8 +714,8 @@ test wobble {
     try std.testing.expectEqual(math.identity, slot.drawn.orientation);
     wobble(slot, change_ticks + 1);
     try std.testing.expectEqual(math.identity, slot.drawn.orientation);
-    // The Kafelnikof never wobbles.
-    slot.object.type = .of(.kafelnikof);
+    // An object that cloaks only some of its parts, such as the Kafelnikof, never wobbles.
+    slot.cloaking_parts = &kafelnikof_parts;
     wobble(slot, change_ticks / 3);
     try std.testing.expectEqual(math.identity, slot.drawn.orientation);
 }
@@ -724,8 +765,8 @@ test "frame turns the shimmer and fades the hull for the ticks since the last" {
     frame(slot, change_ticks + 50);
     try std.testing.expectApproxEqAbs(0.5, effect.hull_colours[0][0][3], 1e-6);
     try std.testing.expectApproxEqAbs(@cos(50 * swirl_rate), effect.shimmer_uv[0][0], 1e-6);
-    // The Kafelnikof's shimmer doesn't turn.
-    slot.object.type = .of(.kafelnikof);
+    // The shimmer of an object that cloaks only some of its parts doesn't turn.
+    slot.cloaking_parts = &kafelnikof_parts;
     frame(slot, change_ticks + 100);
     try std.testing.expectApproxEqAbs(@cos(50 * swirl_rate), effect.shimmer_uv[0][0], 1e-6);
     try std.testing.expectEqual(0, effect.hull_colours[0][0][3]);
@@ -741,7 +782,7 @@ test Drawing {
     set(stage.mission.world(), stage.index, true);
     frame(slot, change_ticks / 2);
     part.object.position = .{ 1, 2, 3 };
-    var drawing: Drawing = .{ .cloak = &slot.cloak.?, .kafelnikof = false };
+    var drawing: Drawing = .{ .cloak = &slot.cloak.?, .partly = false };
     var view: objects.View = .{};
 
     // Halfway on: the shimmer where the part stands, and the hull half solid.
@@ -749,8 +790,8 @@ test Drawing {
     try std.testing.expectEqual(part.object.position, shimmer.position);
     drawing.hull(part, &view);
     try std.testing.expectApproxEqAbs(0.5, part.object.colour[3], 1e-6);
-    // The Kafelnikof shows no shimmer, but while the game is paused it is drawn as it stands.
-    drawing.kafelnikof = true;
+    // An object that cloaks only some of its parts shows no shimmer, but while the game is paused it is drawn as it stands.
+    drawing.partly = true;
     try std.testing.expectEqual(null, drawing.shimmer(part, &view));
     view.paused = true;
     try std.testing.expect(drawing.shimmer(part, &view) != null);
@@ -773,7 +814,7 @@ test "PartCloak.show" {
     defer effect.deinit(gpa);
     var shown = effect;
     // A hit on a corner shows it on each level, wherever that level lists it.
-    shown.show(.{ .at = fine.positions[0], .radius = 100, .kafelnikof = false }, &levels, .{});
+    shown.show(.{ .at = fine.positions[0], .radius = 100, .partly = false }, &levels, .{});
     try std.testing.expectEqual(1, shown.hull_colours[0][0][3]);
     try std.testing.expectEqual(0, shown.hull_colours[0][3][3]);
     try std.testing.expectEqual(0, shown.hull_colours[1][0][3]);
