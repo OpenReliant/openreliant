@@ -677,9 +677,6 @@ fn presentWeapons(frame: *FlightFrame, status: ?wire.ordnance.Status) void {
         const charges = &all.player_states[all.player].charges;
         for (std.enums.values(game.ship_devices.Device), shown.charges) |device, share|
             charges.getPtr(device).ticks = @intFromFloat(@as(f32, @floatFromInt(share)) / 255 * @as(f32, @floatFromInt(device.spec().full)));
-        // Whether its ECM and spectral shields are on, which their keys' sounds go by.
-        slot.object.flags.ecm = shown.ecm;
-        slot.object.flags.spectral_shields = shown.spectral_shields;
     }
     const decoys_before = slot.object.countermeasures;
     weapons.ring = if (status) |shown| shown.ring() else .{};

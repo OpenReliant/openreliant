@@ -2025,7 +2025,7 @@ test "ordnance orders address both ship lifetimes and carry bounded cockpit comm
 test "a view can carry private ordnance and cockpit panel readings" {
     var buffer: [capacity]u8 = undefined;
     var view: Snapshot = .{ .tick = 1, .scenario = .asteroid_field, .ships = @splat(null) };
-    view.weapons = .{ .countermeasures = 3, .incoming = true, .armed = 1, .ecm = true, .spectral_shields = true };
+    view.weapons = .{ .countermeasures = 3, .incoming = true, .armed = 1 };
     view.weapons.?.ammo[0] = .{ .kind = .screamer, .count = 0 };
     view.weapons.?.ammo[1] = .{ .kind = .raptor, .count = 2 };
     view.weapons.?.held = .{ .phase = .locked, .count = 0, .ticks = 12, .point = .{ 3, 8, 21 } };
