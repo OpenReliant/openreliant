@@ -176,6 +176,13 @@ Each of the game's variables, `game_variables[n]`, is a `GameVariableRecord` wit
 | `attempt` | number, or nil | The value each attempt at a mission starts it at; nil where the campaign keeps it from one mission to the next, as it keeps the campaign's flags. |
 | `saved` | boolean | Whether a saved game keeps it. |
 
+Each of the missiles the loadout offers, `loadout_missiles[n]`, is a `LoadoutMissile` with these fields:
+
+| Field | Type | What it is |
+|---|---|---|
+| `name` | string | Its name, such as `jack_hammer`. It can't be changed. |
+| `limit` | number | How many of it a ship can carry. The game allows 3 Jack Hammers and 999 of each other missile. A mod's missile uses the limit of the missile it's based on. |
+
 ### `openreliant.hooks`
 
 Handlers on the game's functions and events. For global and object scripts.

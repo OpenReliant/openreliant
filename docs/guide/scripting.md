@@ -1145,8 +1145,9 @@ The package also holds the campaign's order of missions, `campaign`
 `killboard` ([The KILLBOARD's pilots](#the-killboards-pilots)), the combat maneuvers,
 `maneuvers` ([Combat maneuvers](#combat-maneuvers)), the planets, `planets` ([Planets](#planets)),
 the CD player's tracks, `cd_player` ([The CD player's tracks](#the-cd-players-tracks)), the
-rooms' views, `room_views` ([The rooms' views](#the-rooms-views)), and what the campaign does with
-the game's variables, `game_variables` ([The game's variables](#the-games-variables)).
+rooms' views, `room_views` ([The rooms' views](#the-rooms-views)), what the campaign does with
+the game's variables, `game_variables` ([The game's variables](#the-games-variables)), and the
+loadout's missiles, `loadout_missiles` ([The loadout's missiles](#the-loadouts-missiles)).
 
 Records are looked up by number or by name, with the field names of the [stat
 tables](../formats/stats.md). The definitions file for editors ([Editors](#editors)) lists every
@@ -1601,6 +1602,30 @@ records.game_variables.countdown = { attempt = 60 }
   ([Saved games](../formats/save.md#in-openreliant)).
 - Scripts read and set the values in a mission that runs with `world.variable` and
   `world.set_variable` ([Objects](#objects)).
+
+### The loadout's missiles
+
+`records.loadout_missiles` holds the game's ten missiles as the loadout offers them, numbered from
+0 (the Screamer) to 9 (the fuel pod). A script also finds one by its name, such as `jack_hammer`.
+Each has:
+
+- `name`, its name. It can't be changed.
+- `limit`, how many of it a ship can carry. The game allows 3 Jack Hammers and 999 of each other
+  missile.
+
+The loadout hides a missile once the ship carries that many, so a load script can raise or lower
+how many a pilot takes:
+
+```lua
+local records = require("openreliant.records")
+
+-- As many Jack Hammers as the ship has hardpoints.
+records.loadout_missiles.jack_hammer.limit = 999
+```
+
+- A mod's missile uses the limit of the missile it's based on, but is counted separately.
+- In a network game, the host checks each pilot's loadout against its own limits, so every pilot
+  needs the same mods.
 
 ## Saved games
 

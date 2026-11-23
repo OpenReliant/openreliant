@@ -39,6 +39,10 @@
 //! place too ([#1167](https://github.com/OpenReliant/openreliant/issues/1167),
 //! [#1169](https://github.com/OpenReliant/openreliant/issues/1169),
 //! [#1322](https://github.com/OpenReliant/openreliant/issues/1322)).
+//!
+//! `loadout_missiles` holds the game's missiles in the loadout, with how many of each a ship can
+//! carry. Load scripts can change these limits
+//! ([#1555](https://github.com/OpenReliant/openreliant/issues/1555)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -48,6 +52,7 @@ const stats = openreliant.stats;
 const game = openreliant.engine.game;
 const language = game.language;
 const gameflow = game.gameflow;
+const loadout_tables = openreliant.engine.interface.loadout.tables;
 const vm = openreliant.engine.vm;
 const luau = @import("luau.zig");
 const State = luau.State;
@@ -62,10 +67,11 @@ pub const planets = @import("records/planets.zig");
 pub const cd_player = @import("records/cd_player.zig");
 pub const room_views = @import("records/room_views.zig");
 pub const game_variables = @import("records/game_variables.zig");
+pub const loadout_missiles = @import("records/loadout_missiles.zig");
 
 /// The tables whose entries have named fields (`records/table.zig`), each a module that declares
 /// `script_name`, `list_name`, `Field`, `TypeOf`, `about`, `each` and `entries_about`.
-pub const field_tables = .{ missions, killboard, maneuvers, planets, cd_player, room_views, game_variables };
+pub const field_tables = .{ missions, killboard, maneuvers, planets, cd_player, room_views, game_variables, loadout_missiles };
 
 /// The proxies for records.
 pub const Values = bind.Binding(&.{ stats.Ship, game.create.combat_stats.Static, stats.Gun, stats.Missile, stats.Pilot, game.pilots.FaceRecord }, @backingInt(runtime.Tag.record_value), "record");
@@ -119,6 +125,9 @@ pub const Records = struct {
     /// (`gameflow.addModVariables`), which the game takes once the load scripts have run
     /// (`gameflow.installVariables`).
     game_variables: *[vm.Variables.count]gameflow.VariableRecord,
+    /// How many of each of the game's missiles a ship can carry. The loadout uses these limits once
+    /// the load scripts have run (`interface.loadout.tables.installLimits`).
+    loadout_missiles: *[loadout_tables.missile_count]u16,
     /// Where text from scripts is allocated. It must live as long as the game's original strings.
     arena: Allocator,
 
@@ -140,6 +149,7 @@ pub const Records = struct {
         cd_player: []const game.interface.cd_player.Track = &game.interface.cd_player.original,
         room_views: game.interface.rooms.Views = game.interface.rooms.views.views,
         game_variables: *const [vm.Variables.count]gameflow.VariableRecord = &gameflow.VariableRecord.original,
+        loadout_missiles: *const [loadout_tables.missile_count]u16 = &loadout_tables.missile_limits,
     };
 
     /// Copies `tables` into `arena`.
@@ -161,6 +171,7 @@ pub const Records = struct {
             .cd_player = try arena.dupe(game.interface.cd_player.Track, tables.cd_player),
             .room_views = tables.room_views,
             .game_variables = try gameVariables(arena, tables.game_variables),
+            .loadout_missiles = (try arena.dupe(u16, tables.loadout_missiles))[0..loadout_tables.missile_count],
             .arena = arena,
         };
     }
@@ -215,6 +226,7 @@ pub const Records = struct {
         saved.cd_player_held = records.cd_player;
         saved.room_views = records.room_views;
         saved.game_variables = records.game_variables.*;
+        saved.loadout_missiles = records.loadout_missiles.*;
         inline for (comptime std.enums.values(Set), 0..) |set, made| {
             errdefer inline for (comptime std.enums.values(Set)[0..made]) |done| gpa.free(@field(saved, @tagName(done)));
             @field(saved, @tagName(set)) = try gpa.dupe(set.Element(), @field(records, @tagName(set)));
@@ -249,6 +261,7 @@ pub const Records = struct {
         cd_player_held: []game.interface.cd_player.Track,
         room_views: game.interface.rooms.Views,
         game_variables: [vm.Variables.count]gameflow.VariableRecord,
+        loadout_missiles: [loadout_tables.missile_count]u16,
 
         pub fn restore(saved: Snapshot, records: *Records) void {
             inline for (comptime std.enums.values(Set)) |set| @memcpy(@field(records, @tagName(set)), @field(saved, @tagName(set)));
@@ -264,6 +277,7 @@ pub const Records = struct {
             @memcpy(records.cd_player, saved.cd_player);
             records.room_views = saved.room_views;
             records.game_variables.* = saved.game_variables;
+            records.loadout_missiles.* = saved.loadout_missiles;
         }
 
         pub fn deinit(saved: Snapshot, gpa: Allocator) void {
@@ -389,8 +403,9 @@ pub fn register(state: *State) void {
 /// campaign's missions (`campaign`), the settings of each (`missions`), the KILLBOARD's pilots
 /// (`killboard`), the combat maneuvers (`maneuvers`), the planets (`planets`), the colour of their
 /// light (`planet_light`), the CD player's tracks (`cd_player`) and the rooms' views
-/// (`room_views`) and what the campaign does with the game's variables (`game_variables`), which
-/// scripts can change only if `writable`. Call `register` first.
+/// (`room_views`), what the campaign does with the game's variables (`game_variables`) and the
+/// loadout's missiles (`loadout_missiles`), which scripts can change only if `writable`. Call
+/// `register` first.
 pub fn push(state: *State, records: *Records, writable: bool) void {
     state.newTable(0, std.enums.values(Set).len + field_tables.len);
     inline for (comptime std.enums.values(Set)) |set| {
@@ -888,11 +903,13 @@ test "Records.snapshot" {
     records.text[0] = "y";
     records.campaign = try .of(&.{1});
     records.missions[11].carrier = .yamato;
+    records.loadout_missiles[@backingInt(loadout_tables.Missile.jack_hammer)] = 999;
     saved.restore(&records);
     try std.testing.expectEqual(0, records.guns[0].range);
     try std.testing.expectEqualStrings("x", records.text[0]);
     try std.testing.expectEqual(game.gameflow.Order.original, records.campaign);
     try std.testing.expectEqual(.reliant, records.missions[11].carrier);
+    try std.testing.expectEqual(3, records.loadout_missiles[@backingInt(loadout_tables.Missile.jack_hammer)]);
 }
 
 test "the field names scripts see don't change" {
