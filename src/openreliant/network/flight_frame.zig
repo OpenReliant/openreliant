@@ -321,6 +321,8 @@ pub const CombatAssets = struct {
     audio: ?Audio = null,
     explosions: game.explode.Settings,
     particles: game.particles.Pool.Settings,
+    /// How the damaged ships' smoke is sent and drawn, as in single player.
+    smoke: game.particles.Pool.Settings,
     /// The local cockpit, which the client loads for its own ship once it is known, as a
     /// mission's start does in single player (`start.cockpit`); null where there is none.
     cockpit: ?*game.main.cockpit.Cockpit = null,
@@ -379,6 +381,7 @@ pub fn enableCombat(frame: *FlightFrame, assets: CombatAssets, types: game.creat
     var kept: game.create.TypeSet = .empty;
     frame.drawn.effects.explosions.?.debris = .load(types, &kept);
     frame.drawn.effects.particles = try .load(gpa, assets.textures, .standard, assets.particles);
+    frame.drawn.effects.smoke = try .load(gpa, assets.textures, assets.smoke);
     frame.drawn.effects.sparks = try .create(gpa, assets.textures);
     frame.drawn.effects.shockwaves = try .create(gpa, assets.textures, .round);
     frame.drawn.effects.flash = .{};
@@ -405,6 +408,7 @@ pub fn destroy(frame: *FlightFrame) void {
     if (frame.projectiles) |*shown| shown.deinit();
     if (frame.drawn.effects.explosions) |*effects| effects.deinit();
     if (frame.drawn.effects.particles) |*particles| particles.deinit();
+    if (frame.drawn.effects.smoke) |*smoke| smoke.deinit();
     if (frame.drawn.effects.sparks) |*sparks| sparks.deinit();
     if (frame.drawn.effects.shockwaves) |*rings| rings.deinit(gpa);
     if (frame.drawn.effects.ion_cannons) |*cannons| cannons.deinit();
@@ -745,6 +749,7 @@ pub fn world(frame: *FlightFrame) game.gameobj.World {
         .radio = if (frame.drawn.radio) |*radio| radio else null,
         .explosions = if (frame.drawn.effects.explosions) |*effects| effects else null,
         .particles = if (frame.drawn.effects.particles) |*particles| particles else null,
+        .smoke = if (frame.drawn.effects.smoke) |*smoke| smoke else null,
         .shockwaves = if (frame.drawn.effects.shockwaves) |*rings| rings else null,
         .flash = if (frame.drawn.effects.flash) |*flash| flash else null,
         .sparks = if (frame.drawn.effects.sparks) |*sparks| sparks else null,
@@ -941,6 +946,10 @@ pub fn present(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: w
     if (scene.sparks) |sparks| sparks.frame(clock);
     if (scene.explosions) |effects| effects.frame(scene);
     if (scene.particles) |particles| particles.frame(clock);
+    // The damaged ships' smoke, which follows the armour and shields the host sends
+    // (`mission_frame`'s pass, `smoke.frame`).
+    if (scene.smoke) |pools| pools.frame(clock);
+    game.main.smoke.frame(scene);
     if (scene.shockwaves) |rings| rings.frame(scene);
     for (all.slots[0..wire.slots]) |*slot| {
         if (slot.cloak != null) game.cloak.frame(slot, clock.frame_start);
@@ -2020,4 +2029,26 @@ test "a pilot out of the game watches the others in turn" {
     snapshot.ships[0].?.dying = true;
     try frame.apply(&snapshot, admission, local, no_models);
     try std.testing.expectEqual(0, frame.death_view.?.subject);
+}
+
+test "a client follows a damaged ship's smoke from the armour and shields the host sends" {
+    const gpa = std.testing.allocator;
+    var random: engine.random.Random = .{};
+    const local = try game.create.Objects.create(gpa, &random);
+    defer local.destroy();
+    const tables = game.create.testing.tables();
+    const frame = try create(gpa, local, &tables);
+    defer frame.destroy();
+    const no_models = game.create.testing.no_models;
+    const admission: wire.Admission = .{ .slot = 1, .generation = 2 };
+    var snapshot: wire.Snapshot = .{ .tick = 1, .ships = @splat(null), .objectives = .none };
+    // The other pilot's ship has its shields down and a third of its armour left: it burns.
+    snapshot.ships[0] = .{ .generation = 1, .position = .{ 3, 4, 5 }, .armor = .all(10) };
+    snapshot.ships[1] = .{ .generation = 2, .position = .{ 8, 0, 1 }, .shields = .all(48), .armor = .all(30) };
+    // The first frame starts the clock, and the next runs the smoke's pass.
+    try frame.present(&snapshot, admission, local, no_models, 0);
+    try frame.present(&snapshot, admission, local, no_models, 20_000);
+    const all = frame.drawn.objects;
+    try std.testing.expectEqual(.burning, all.slots[0].object.smoke_level);
+    try std.testing.expectEqual(.none, all.slots[1].object.smoke_level);
 }
