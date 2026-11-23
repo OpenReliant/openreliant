@@ -37,6 +37,12 @@ object whose type has one cloaks like the Kafelnikof. Only the Kafelnikof's reco
 start with, and mods can give one to any type
 ([The records](../guide/scripting.md#the-records)).
 
+**Improvement:** the game lets nothing aim at a cloaked object (`order_target_valid`). OpenReliant
+lets ships aim at a component of a cloaked object whose part is in sight: one its type's list
+leaves out, such as the Kafelnikof's turrets, or one a script has brought out of the cloak with
+`uncloak_component` (`cloak.uncloakPart`), which shows the part as it is uncloaked until the object
+cloaks again.
+
 ## The cloak's record
 
 `object_cloak` allocates `0x2C` bytes at `GameObject + 0x63C`, which stay until the cloak has gone.

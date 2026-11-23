@@ -21,6 +21,7 @@ const gameobj = @import("gameobj.zig");
 const Routine = gameobj.Routine;
 const camera = @import("camera.zig");
 const create = @import("create.zig");
+const cloak = @import("cloak.zig");
 const math = @import("../surrender/math.zig");
 const Vector = math.Vector;
 const motion = @import("motion.zig");
@@ -1144,7 +1145,9 @@ pub const target_barred: GameObject.Flags = .{
 
 /// `order_target_valid` (`0x00401870`): whether an order's target can still be aimed at. The object
 /// must be targetable and none of `target_barred`, save the flags in `allowed`, and a component
-/// must be one the object has and neither hidden nor spent (`objects.Model.Part.standing`).
+/// must be one the object has and neither hidden nor spent (`objects.Model.Part.standing`). A
+/// cloaked object's component whose part the cloak leaves in sight can be aimed at
+/// (`cloak.inSight`).
 pub fn targetValid(all: *const create.Objects, target: aigeneric.Target, allowed: GameObject.Flags) bool {
     return ValidTarget.of(all, target, allowed) != null;
 }
@@ -1169,11 +1172,14 @@ pub const ValidTarget = struct {
         const slot = &all.slots[index];
         const object = &slot.object;
         if (!object.flags.targetable) return null;
-        if (object.flags.without(allowed).within(target_barred).any()) return null;
+        const barred = object.flags.without(allowed).within(target_barred);
+        if (barred.without(.{ .cloaked = true }).any()) return null;
         const valid: ValidTarget = .{ .target = target, .slot = index, .reference = .of(all, index) };
-        const component = target.part() orelse return valid;
+        const component = target.part() orelse return if (barred.cloaked) null else valid;
         const part = slot.component(component) orelse return null;
-        return if (part.standing()) valid else null;
+        if (!part.standing()) return null;
+        // A part that a cloak leaves in sight can be aimed at (`cloak.inSight`).
+        return if (!barred.cloaked or cloak.inSight(part)) valid else null;
     }
 };
 

@@ -524,6 +524,8 @@ declare extern type Object with
     function destroy(self): boolean
     --- Destroys its component number `component`, counting from 0, the same way a hit that takes its last armour does: the component blows up and takes the rest of its assembly with it, its damaged model shows in its place, and losing a hull part ends the ship. Returns false if the component is already destroyed, or the object is exploding or jumping. Global scripts can destroy any object's components, and an object's scripts their own.
     function destroy_component(self, component: number): boolean
+    --- Brings its component number `component`, counting from 0, out of its cloak while it's cloaked: the part shows as it does uncloaked, with no shimmer, and ships can aim at it, until the object cloaks again. Returns false if the object isn't cloaked, or the component is destroyed or already in sight, as a part its type's `cloaking_parts` leaves out is. Global scripts can uncloak any object's components, and an object's scripts their own.
+    function uncloak_component(self, component: number): boolean
 end
 declare extern type Missile with
     --- Its type, such as `raptor`, or the qualified name of one a mod adds.
