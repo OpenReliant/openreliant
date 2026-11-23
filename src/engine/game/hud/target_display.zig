@@ -27,6 +27,7 @@ const six_beacons = @import("../dmscenarios/six_beacons.zig");
 const tag_bomb = @import("../dmscenarios/tag_bomb.zig");
 const vampires = @import("../dmscenarios/vampires.zig");
 const shp = @import("../../../formats/shp.zig");
+const cloak = @import("../cloak.zig");
 const create = @import("../create.zig");
 const hud = @import("../hud.zig");
 const language = @import("../language.zig");
@@ -78,9 +79,10 @@ pub const Scene = struct {
 
     /// What the small form shows now: nothing for a target it hides (`hidden`).
     pub fn small(scene: Scene) ?Small {
-        const index = ((scene.state.target orelse return null).resolve(scene.all) orelse return null).slot;
+        const valid = (scene.state.target orelse return null).resolve(scene.all) orelse return null;
+        const index = valid.slot;
         const slot = &scene.all.slots[index];
-        if (hidden(slot)) return null;
+        if (hidden(slot, valid.target.part())) return null;
         const status = hud.ShipStatus.ofTarget(slot, .{ .counts = &scene.state.events.target_hits, .seen = &scene.drawing.target_hits });
         scene.drawing.flashes.target_hits = status.hits;
         const binding = scene.all.playerBinding(index);
@@ -117,11 +119,18 @@ pub fn showsSubtarget(slot: *const create.Slot) bool {
     };
 }
 
-/// Whether the small form hides the target of `slot`: a cloaked hostile one. The game also closes
-/// the form then (`0x00487BBB`), but that never happens: the display only keeps a target the
-/// player can aim at (`hud.State.followTarget`), which a cloaked hostile isn't.
-pub fn hidden(slot: *const create.Slot) bool {
-    return slot.object.flags.cloaked and slot.object.side == .hostile;
+/// Whether the small form hides the target of `slot`, aimed at its component `component` or at it
+/// whole: a cloaked hostile one. The game also closes the form then (`0x00487BBB`), but that never
+/// happens: the display only keeps a target the player can aim at (`hud.State.followTarget`),
+/// which a cloaked hostile isn't in the game.
+///
+/// **Improvement:** OpenReliant lets the player aim at a component of a cloaked object that is in
+/// sight (`cloak.inSight`), such as one a script has brought out of the cloak, and the small form
+/// shows it.
+pub fn hidden(slot: *const create.Slot, component: ?u16) bool {
+    if (!slot.object.flags.cloaked or slot.object.side != .hostile) return false;
+    const part = slot.component(component orelse return true) orelse return true;
+    return !cloak.inSight(part);
 }
 
 /// What both forms show of the target: its type's name, and its range and speed.

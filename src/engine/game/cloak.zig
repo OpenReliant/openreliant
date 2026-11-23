@@ -746,12 +746,20 @@ test uncloakPart {
     set(stage.mission.world(), stage.index, true);
     try std.testing.expect(!inSight(part));
     try std.testing.expect(!ai.targetValid(all, .at(stage.index, 0), .{}));
+    slot.object.side = .hostile;
+    try std.testing.expect(@import("hud/target_display.zig").hidden(slot, 0));
+    slot.object.side = .friendly;
     try std.testing.expect(uncloakPart(slot, part));
     try std.testing.expect(inSight(part) and !part.cloak.?.shimmer_made);
     try std.testing.expectEqual(part.cloak.?.own.ptr, part.object.levels.ptr);
     try std.testing.expectEqual(1, part.object.colour[3]);
     try std.testing.expect(ai.targetValid(all, .at(stage.index, 0), .{}));
     try std.testing.expect(!ai.targetValid(all, .at(stage.index, null), .{}));
+    // A hostile's small target form shows the component in sight, and still hides the ship whole.
+    const target_display = @import("hud/target_display.zig");
+    slot.object.side = .hostile;
+    try std.testing.expect(!target_display.hidden(slot, 0));
+    try std.testing.expect(target_display.hidden(slot, null));
     // Once out, it stays out.
     try std.testing.expect(!uncloakPart(slot, part));
 }
