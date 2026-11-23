@@ -14,8 +14,8 @@
 //!
 //! In a network game the original also waits for every player at each step (`ai_sequence_sync`)
 //! and sends the cannon's turn and kill to the other players. OpenReliant's host runs the cannon
-//! for every pilot, so it has neither. **Unverified:** the towers that give up a long search in a
-//! network game ([#1541](https://github.com/OpenReliant/openreliant/issues/1541)).
+//! for every pilot, so it has neither. It also has no use for the branch that makes the other
+//! machines drop the order when the machine that runs a tower gives up its search (`0x0040D3E8`).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -85,8 +85,11 @@ const nearest_player: f32 = 8000;
 const close_mission_nearest: f32 = 110000;
 
 /// How long the cannon searches for its lock, in ticks, before it gives up (`0x0040D866`).
+///
+/// **Fix:** the original lets the search run on for good in a co-op network session, where the
+/// test passes only in a single-player game and on the host of a multiplayer mission
+/// (`0x0040D84E`). OpenReliant's cannon gives up in every game.
 const longest_search = 2500;
-const arena_search = 2000; // dark_reign cancel, 0x0040D866
 
 /// The targeting laser (`Ioncannon Mesh1`): a star of `laser_blades` over `laser2`, lit by colours
 /// of its own, `laser_width` wide either side, or `victorious_laser_width` at the Victorious
@@ -911,8 +914,7 @@ pub fn update(ctx: Context, index: u16) void {
     }
 
     record.searching +%= ticks;
-    const timeout: i32 = if (arenaTower(world, index)) arena_search else longest_search;
-    if (step.before(.glow) and record.searching > timeout) return stop(ctx, index, cannons);
+    if (step.before(.glow) and record.searching > longest_search) return stop(ctx, index, cannons);
 
     switch (step) {
         .start => advance(state, now),

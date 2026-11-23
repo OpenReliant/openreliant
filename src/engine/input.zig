@@ -2225,11 +2225,11 @@ const gone_pause = 500;
 /// open, Betty says so where the armed type has run out, and the display counts one off. The
 /// player's Kamov, in mission 25, launches a torpedo from its tubes instead (`launchCarried`).
 ///
-/// In a multiplayer game the original also takes the missile from a power-up, uncloaks a ship that
-/// launches from under the cloak, and tells the other machines of a Kamov's launch. OpenReliant's
+/// In a multiplayer game the original also takes the missile from a power-up, and tells the other
+/// machines of a Kamov's launch. OpenReliant's
 /// arena gives the power-up's missile (`deathmatch/powerups.zig`), and its host sends each pilot
-/// what it sees in place of the message. **Unverified:** the launch from under the cloak
-/// ([#1541](https://github.com/OpenReliant/openreliant/issues/1541)).
+/// what it sees in place of the message. In a multiplayer mission a cloaked ship launches with
+/// its cloak still on: the original makes the cloak's test only outside one (`0x00412A16`).
 pub fn launchMissile(world: gameobj.World, index: u16) void {
     const all = world.objects;
     const weapons = &all.player_states[all.player].weapons;

@@ -333,9 +333,17 @@ pub fn launched(world: gameobj.World, index: u16) void {
 
 /// `event_jumped_in` (`0x0045B300`): the object in slot `index` has jumped in (`jump.inUpdate`).
 /// Its ship's JumpedIn, with the ship, goes on to its groups.
+///
+/// In a network session, `order_jump_in` first posts the same event for the ship in slot 0, with
+/// that ship as its value, when the ship that jumped in is the first pilot's still flying
+/// (`0x00416CD7`). A script that waits for the player's JumpedIn then goes on after the first
+/// pilot is lost.
 pub fn jumpedIn(world: gameobj.World, index: u16) void {
+    if (leads(world, index)) if (world.events) |events| if (events.shipOf(0)) |mission_pilot| {
+        var values = [_]u32{events.value(0)};
+        events.postGroup(mission_pilot, .{ .condition = .jumped_in, .values = &values });
+    };
     postNaming(world, index, .jumped_in, index, .{ .object = .of(index) });
-    leadArrival(world, index, index, .jumped_in);
 }
 
 /// `event_fixed_gate_jumped_in` (`0x0045ABD0`): the object in slot `index` has come in through the
@@ -346,13 +354,23 @@ pub fn fixedGateJumpedIn(world: gameobj.World, index: u16, gate: u16) void {
     leadArrival(world, index, gate, .fixed_gate_jumped_in);
 }
 
+/// Whether the ship in slot `index` is that of the pilot who leads a co-op mission in the first
+/// pilot's place: the first still flying (`input.missionLead`), in a slot other than 0.
+fn leads(world: gameobj.World, index: u16) bool {
+    if (world.damage_rules != .cooperative or index == 0) return false;
+    const lead = @import("../../input.zig").missionLead(world.objects) orelse return false;
+    return lead.participant.slot == index;
+}
+
 /// The host keeps the campaign's slot-zero triggers when another pilot takes over the flight.
 /// Their arrival advances those triggers. Their own event has already reached their groups.
+///
+/// **Improvement:** the original does this for JumpedIn alone (`jumpedIn`). It posts
+/// FixedGateJumpedIn for the ship that came through and no other (`0x0042108D`, `0x00422D19`), so
+/// a script that waits for the player's ship at a fixed gate stops once the first pilot is lost.
 fn leadArrival(world: gameobj.World, index: u16, named: u16, condition: dte.Condition) void {
-    if (world.damage_rules != .cooperative or index == 0) return;
+    if (!leads(world, index)) return;
     const events = world.events orelse return;
-    const lead = @import("../../input.zig").missionLead(world.objects) orelse return;
-    if (lead.participant.slot != index) return;
     const mission_pilot = events.shipOf(0) orelse return;
     var values = [_]u32{events.value(named)};
     events.post(mission_pilot, .{ .condition = condition, .values = &values });

@@ -281,6 +281,11 @@ pass-through slot:
 - any other goes on the second, where the ship lists no components, while the ship is on course to
   hit it within 50 steps by 2000 (`ai_collision_course`, `0x00401980`).
 
+In a multiplayer mission it also skips a pair of a pilot's ship, in slots 0 to 7, and a beacon or
+the comms relay, whichever of the two is scanning (`0x00492269`, `0x00492296`). `create_object`
+marks those two types at `GameObject + 0x624` (`0x00467854`, `0x004678A1`): the pilots fly into
+them, so neither steers round the other.
+
 `ai_collision_course` first asks that the two be within reach of each other over the steps, at
 their cruise speeds, with both radii and the margin. Against a target without components, the
 target must then lie ahead of the ship, and the ship close on it by its velocity less twice the
