@@ -3642,4 +3642,14 @@ test "a headless host fits and drains devices independently for two pilots" {
     try std.testing.expect(all.submitPlayerCommand(sources[1], .{ .devices = spectral }));
     input.multiplayerControlOrder(mission.orders().inStep(), second);
     try std.testing.expect(shielded.object.flags.spectral_shields);
+
+    // In an arena the cloak's and the spectral shields' keys do nothing, and ECM's still works.
+    var arena = mission.orders();
+    arena.world.damage_rules = .{ .arena = null };
+    const ecm_before = shielded.object.flags.ecm;
+    try std.testing.expect(all.submitPlayerCommand(sources[1], .{ .devices = .full }));
+    input.multiplayerControlOrder(arena.inStep(), second);
+    try std.testing.expect(shielded.object.flags.spectral_shields);
+    try std.testing.expect(!shielded.object.flags.cloaked);
+    try std.testing.expect(shielded.object.flags.ecm != ecm_before);
 }

@@ -117,8 +117,9 @@ its upload is what it was with the original's step. Each client flies the step b
 itself. An input repeats the six steps before it, and the host keeps 64 timed inputs for a pilot:
 the 120 ms and 1.28 seconds that three and 32 of the original's steps covered.
 
-Missile launches, countermeasures, the missile ring and the cockpit's gun and power keys still
-travel in a reliable weapon order without a tick, with the target they belong to. A terminal
+Missile launches, countermeasures, the missile ring, the cockpit's gun and power keys and the
+three device keys (ECM, CLOAK SHIP and SPECTRAL SHIELDS) travel in a reliable weapon order
+without a tick, with the target they belong to. A terminal
 client, which flies no simulation of its own, sends inputs without a tick: its presses go by a
 reliable message and the host flies them at its next step.
 
@@ -205,6 +206,13 @@ The host fits them from the ship definition and model, then checks fitting and c
 accepting an activation. It consumes each device press once. The game frame advances the
 charges even on a headless host. Empty devices switch off and recharge. An empty cloak starts
 decloaking, including when its charge runs out during activation.
+
+A pilot who joined sends each device key's press to the host, which switches the device over.
+The host follows the original's rules for a multiplayer mission, an arena: CLOAK SHIP does nothing
+there (`player_cloak_set`, `0x004153EA`), where the cloak is a power-up's, and SPECTRAL SHIELDS is
+passed over (`0x00414E92`). ECM has no such test and works in every game. In a co-op mission all
+three work, and the views carry whether each pilot's ship is cloaked, as they do in an arena with
+power-ups.
 
 The HUD and scripting instruments read the displayed participant's charges from the snapshot.
 Local input keeps its existing device timing and presentation. The rules and original addresses

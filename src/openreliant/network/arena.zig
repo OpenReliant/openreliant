@@ -468,6 +468,7 @@ pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire
     if (stock_mode) if (order) |weapons| {
         if (weapons.aim.reuse == pilot.ship.reuse) {
             submitted.cockpit = weapons.cockpit;
+            submitted.devices = weapons.presses.devices();
             if (weapons.aim.script_aim == all.player_states[slot].script_aim) {
                 const target = arena.weaponTarget(slot, weapons.aim);
                 const ship = &all.slots[slot];

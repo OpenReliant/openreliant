@@ -516,6 +516,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             const multiplayer_ordnance = client.latest.?.hasOrdnance();
             const cooperative = client.latest.?.mission != null;
             var cockpit: game.players.CockpitCommand = .{};
+            var asked: game.ship_devices.Requests = .empty;
             // MATCH SPEED is read ahead of the targeting keys, as the simulation's pass reads
             // it before `hud_target_keys` runs: a key both use is the pilot's to match with.
             const match_pressed = devices.active(.match_speed, true);
@@ -555,9 +556,18 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 .multiplayer = true,
                 .cooperative = cooperative,
                 .submitted = &cockpit,
+                .asked = &asked,
                 .world = scene,
                 .all = all,
             });
+            // CLOAK SHIP, which the simulation's pass reads in single player (`playerWeapons`):
+            // the host cloaks the ship, and its views bring the cloak back.
+            if (cooperative and devices.active(.cloak_ship, true) and scene.view() != .director and
+                game.cloak.canCloak(&all.slots[all.player]))
+            {
+                asked.insert(.cloak);
+                game.hud.beep(scene, if (all.slots[all.player].object.flags.cloaked) .off else .on);
+            }
             if (cooperative and devices.active(.jump_drive, true)) client.requestCrewAction(.jump);
             const held = engine.input.sampleFlight(scene.player, devices, &pilot.stick, scene.player.viewing.view);
             client.setFlight(held);
@@ -577,7 +587,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
                 const weapons = engine.input.sampleOrdnance(scene.player, devices);
                 if (weapons.rotate_missiles != null and display.windows.open(.missiles, false))
                     display.windows.status.getPtr(.missiles).held = true;
-                client.setWeapons(.{ .aim = flight.weaponAim(), .presses = .from(weapons), .cockpit = cockpit });
+                client.setWeapons(.{ .aim = flight.weaponAim(), .presses = wire.ordnance.Presses.from(weapons).asking(asked), .cockpit = cockpit });
             }
         } else {
             client.releaseFlight();
