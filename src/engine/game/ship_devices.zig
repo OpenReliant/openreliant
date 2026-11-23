@@ -98,9 +98,14 @@ test {
 pub const Control = enum { local, host };
 
 /// Requests from a bound pilot. The host checks fitting and remaining charge before activation.
+///
+/// In an arena the cloak and the spectral shields stay as they are: the original's CLOAK SHIP
+/// does nothing in a multiplayer mission (`player_cloak_set`, `0x004153EA`), where the cloak is a
+/// power-up's, and its SPECTRAL SHIELDS key is passed over (`0x00414E92`). ECM has no such test.
 pub fn toggle(world: gameobj.World, index: u16, kind: Device) void {
     const all = world.objects;
     if (!all.hasBoundPlayerShip(index)) return;
+    if (world.damage_rules == .arena and kind != .ecm) return;
     const slot = &all.slots[index];
     const object = &slot.object;
     const charges = &all.player_states[index].charges;

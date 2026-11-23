@@ -43,6 +43,18 @@ test "a target change drops the old launch but preserves the pilot's countermeas
     try std.testing.expect(pending.presses.launch);
 }
 
+test "a pilot's device presses travel with the order, and two presses cancel" {
+    var presses = Presses.from(.{ .launch_missile = true }).asking(.init(.{ .ecm = true, .cloak = true }));
+    try std.testing.expect(presses.launch and presses.reserved == 0);
+    try std.testing.expectEqual(game.ship_devices.Requests.init(.{ .ecm = true, .cloak = true }), presses.devices());
+    // Read back from its byte on the wire.
+    const read: Presses = @bitCast(@as(u8, @bitCast(presses)));
+    try std.testing.expectEqual(presses.devices(), read.devices());
+    // ECM pressed again before the order is sent switches it back; the shields' key adds its own.
+    presses.merge(.{ .ecm = true, .spectral_shields = true });
+    try std.testing.expectEqual(game.ship_devices.Requests.init(.{ .cloak = true, .spectral_shields = true }), presses.devices());
+}
+
 pub const Aim = struct {
     reuse: u32,
     target: ?game.gameobj.ObjectRef = null,
@@ -57,7 +69,12 @@ pub const Presses = packed struct(u8) {
     launch: bool = false,
     countermeasures: bool = false,
     rotation: u2 = 0,
-    reserved: u4 = 0,
+    /// The pilot's ECM, CLOAK SHIP and SPECTRAL SHIELDS presses, each of which asks the host to
+    /// switch the device over. The host decides whether the ship carries it and the game allows it.
+    ecm: bool = false,
+    cloak: bool = false,
+    spectral_shields: bool = false,
+    reserved: u1 = 0,
 
     pub fn from(command: game.players.WeaponCommand) Presses {
         return .{
@@ -86,6 +103,24 @@ pub const Presses = packed struct(u8) {
         pending.launch = pending.launch or next.launch;
         pending.countermeasures = pending.countermeasures or next.countermeasures;
         if (next.rotation != 0) pending.rotation = next.rotation;
+        // Two presses of a device's key before a send switch it over and back.
+        pending.ecm = pending.ecm != next.ecm;
+        pending.cloak = pending.cloak != next.cloak;
+        pending.spectral_shields = pending.spectral_shields != next.spectral_shields;
+    }
+
+    /// The devices the pilot asks the host to switch over.
+    pub fn devices(presses: Presses) game.ship_devices.Requests {
+        return .init(.{ .ecm = presses.ecm, .cloak = presses.cloak, .spectral_shields = presses.spectral_shields });
+    }
+
+    /// The presses with the pilot's requests for `asked` added.
+    pub fn asking(presses: Presses, asked: game.ship_devices.Requests) Presses {
+        var with = presses;
+        with.ecm = asked.contains(.ecm);
+        with.cloak = asked.contains(.cloak);
+        with.spectral_shields = asked.contains(.spectral_shields);
+        return with;
     }
 };
 

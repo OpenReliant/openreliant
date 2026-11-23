@@ -2716,6 +2716,9 @@ pub const FrameKeys = struct {
     cooperative: bool = false,
     /// A network flight sends ship changes to the host. COMMS uses the chat controls.
     submitted: ?*players.CockpitCommand = null,
+    /// A network flight asks the host to switch the ship's devices over, and gathers what the
+    /// pilot asked here.
+    asked: ?*ship_devices.Requests = null,
     /// The world the keys' sounds are heard in; null where nothing is heard.
     world: ?gameobj.World = null,
     /// The objects, among which PRIMARY TARGET aims the player; null where there are none, as in
@@ -2856,10 +2859,12 @@ pub fn frameKeys(keys: FrameKeys) void {
             hud.beep(keys.world, if (object.gun_mode.synchronised) .on else .off);
         }
     }
-    if (keys.submitted == null and devices.active(.ecm, true) and charges.get(.ecm).setting != .absent) {
+    // ECM works in every game: the original's key has no test for a network game or an arena
+    // (`0x004148F9`, `player_ecm_set`).
+    if (devices.active(.ecm, true) and charges.get(.ecm).setting != .absent) {
         const on = !object.flags.ecm;
         hud.beep(keys.world, if (on) .on else .off);
-        setEcm(charges, object, on);
+        if (keys.asked) |asked| asked.insert(.ecm) else if (keys.submitted == null) setEcm(charges, object, on);
     }
     for ([_]controls.Action{ .damage_window, .damage_window_locked }) |action| {
         if (!devices.active(action, true)) continue;
@@ -2919,13 +2924,19 @@ pub fn frameKeys(keys: FrameKeys) void {
             player.power_held = true;
         }
     }
-    if (!multiplayer and devices.active(.spectral_shields, true) and
+    // SPECTRAL SHIELDS is passed over in a multiplayer mission, an arena (`0x00414E92`), and
+    // works in a co-op network game, where the host switches them.
+    if ((!multiplayer or keys.cooperative) and devices.active(.spectral_shields, true) and
         charges.get(.spectral_shields).setting != .absent)
     {
         const on = !object.flags.spectral_shields;
         hud.beep(keys.world, if (on) .on else .off);
         betty.sayIn(keys.world, spectral_shields_said.of(on));
-        setSpectralShields(charges, object, on, if (keys.all) |all| .{ .all = all, .index = all.player } else null);
+        if (keys.asked) |asked| {
+            asked.insert(.spectral_shields);
+        } else if (!multiplayer) {
+            setSpectralShields(charges, object, on, if (keys.all) |all| .{ .all = all, .index = all.player } else null);
+        }
     }
 }
 

@@ -19,7 +19,7 @@ pub const Debrief = campaign.Debrief;
 pub const DebriefChoice = campaign.DebriefChoice;
 pub const NextMission = campaign.NextMission;
 pub const CampaignCheckpoint = campaign.Checkpoint;
-pub const revision: u16 = 41;
+pub const revision: u16 = 42;
 pub const Team = engine.game.players.ArenaTeam;
 
 fn readTeam(reader: *std.Io.Reader) !Team {
@@ -566,6 +566,12 @@ const Mode = struct {
     fn hasOrdnance(mode: Mode) bool {
         return mode.scenario != null or mode.mission;
     }
+
+    /// Whether a pilot's ship can be cloaked: by an arena's power-up, or in a co-op mission by
+    /// the pilot of a ship that carries a cloak.
+    fn sendsCloaks(mode: Mode) bool {
+        return mode.mission or (mode.scenario != null and mode.scenario.?.hasPowerUps());
+    }
 };
 
 const ShipFlags = packed struct(u8) {
@@ -660,7 +666,7 @@ fn writeShips(w: *std.Io.Writer, ships: []const ?Ship, mode: Mode) !void {
                 for (spin.turn) |angle| try w.writeInt(i16, angle, .little);
             }
         }
-        if (mode.scenario != null and mode.scenario.?.hasPowerUps()) try w.writeByte(@intFromBool(ship.cloaked));
+        if (mode.sendsCloaks()) try w.writeByte(@intFromBool(ship.cloaked));
     }
 }
 
@@ -712,7 +718,7 @@ fn readShips(r: *std.Io.Reader, ships: []?Ship, mode: Mode) !void {
                 if (spin.left != 0) ship.spin = spin;
             }
         }
-        if (mode.scenario != null and mode.scenario.?.hasPowerUps()) ship.cloaked = switch (try r.takeByte()) {
+        if (mode.sendsCloaks()) ship.cloaked = switch (try r.takeByte()) {
             0 => false,
             1 => true,
             else => return error.InvalidSnapshot,
