@@ -741,13 +741,7 @@ fn drawArena(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
     try description_arrows.draw(canvas, art, lobby.description_hover);
     if (host) try arena_start.draw(canvas, art, lobby.hover == .launch, lobby.role.host.can_launch);
     const top: Label = if (host) .{ .english = "START", .installed = 0x5B6 } else .{ .english = "WAITING", .installed = 0x30E };
-    // **Improvement:** a dedicated server has no host to wait for. Its lobby waits for pilots.
-    const bottom: Label = if (host)
-        .{ .english = "GAME", .installed = 0x5B7 }
-    else if (lobby.dedicated)
-        .{ .english = "FOR PILOTS" }
-    else
-        .{ .english = "FOR HOST", .installed = 0x30F };
+    const bottom: Label = if (host) .{ .english = "GAME", .installed = 0x5B7 } else .{ .english = "FOR HOST", .installed = 0x30F };
     try write(canvas, .{ 496, 384 }, top, ui.blue, .left);
     try write(canvas, .{ 496, 396 }, bottom, ui.blue, .left);
 }

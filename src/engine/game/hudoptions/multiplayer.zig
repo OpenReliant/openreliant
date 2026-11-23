@@ -35,6 +35,8 @@ pub const Match = struct {
     teams: hud.standings.TeamBoard = .{},
     players: []const ?Player,
     paused_by: ?[]const u8 = null,
+    /// The round has ended, and the screen holds its final standings.
+    round_over: bool = false,
     can_continue: bool = true,
 };
 
@@ -162,12 +164,14 @@ pub const State = struct {
             .match => |game| {
                 var controls = buttons;
                 controls[1].style.dimmed = !game.can_continue;
-                const title = if (game.paused_by != null) paused else .none;
+                const title = if (game.paused_by != null and !game.round_over) paused else .none;
                 _ = try style.draw(&controls, title, pointing);
                 const rule = screenRow(canvas.window, canvas.share, 0.2);
-                if (title == .none) try canvas.text(canvas.fonts.large, .{ 320, rule - 32 }, "MATCH MENU", menu.orange, .centre);
+                if (title == .none) try canvas.text(canvas.fonts.large, .{ 320, rule - 32 }, if (game.round_over) "ROUND OVER" else "MATCH MENU", menu.orange, .centre);
                 var notice: [160]u8 = undefined;
-                const context = if (game.paused_by) |name|
+                const context = if (game.round_over)
+                    "Final standings"
+                else if (game.paused_by) |name|
                     std.fmt.bufPrint(&notice, "{s}: {s}", .{ name, pause_notice.text(canvas.strings.*) }) catch pause_notice.text(canvas.strings.*)
                 else
                     "Match in progress";

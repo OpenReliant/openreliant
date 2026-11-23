@@ -36,6 +36,12 @@ const timeout = 5 * std.time.us_per_s;
 const loading_timeout = 60 * std.time.us_per_s;
 const held_input_timeout = 250 * std.time.us_per_ms;
 const paused_roster_interval = std.time.us_per_s;
+/// How long a server that plays round after round holds a finished round with the final
+/// standings up, before it goes back to the lobby.
+/// **Improvement:** the original's arenas never end by themselves. It shows the scoreboard while
+/// its key is held, on the pause page, and while a pilot watches their own ship's end
+/// (`hud_draw`, `0x0048458C`).
+const standings_hold = 6 * std.time.us_per_s;
 // pause_screen_multiplayer (0x0048E62D) shows a drop control past 100 game ticks of round-trip time.
 const slow_round_trip = 100 * std.time.ms_per_s / game.main.ticks_per_second;
 const packets_per_tick = 4;
@@ -149,6 +155,8 @@ renew_at: i64 = 0,
 final_tick: ?u32 = null,
 final_receipts: usize = 0,
 drain_until: i64 = 0,
+/// When the finished round's standings come down and the lobby opens; null while a round plays.
+round_over_until: ?i64 = null,
 
 pub fn now(host: *const Host) i64 {
     return Io.Clock.awake.now(host.io).toMicroseconds();
@@ -622,7 +630,7 @@ pub fn status(host: *Host, conn: net.Connection, event: net.Status, name: ?[]con
 
 /// The player's local LAN host alone can stop the simulation. The network keeps running.
 pub fn setPaused(host: *Host, paused: bool) void {
-    if (!host.lan_only or host.start != .launched or host.tick == host.arena_floor or host.final_tick != null or host.paused == paused) return;
+    if (!host.lan_only or host.start != .launched or host.tick == host.arena_floor or host.final_tick != null or host.round_over_until != null or host.paused == paused) return;
     host.paused = paused;
     host.paused_view_pending = paused;
     host.roster_dirty = true;
@@ -1024,6 +1032,7 @@ fn publishRoster(host: *Host) !void {
     host.roster_dirty = false;
     var roster: wire.Roster = .{
         .paused = host.paused,
+        .round_over = host.round_over_until != null,
         .briefing = host.campaign_briefing,
         .dedicated = !host.lan_only,
         .limit = host.player_limit,
@@ -1555,6 +1564,12 @@ pub fn pump(host: *Host) !enum { running, finished } {
         if (movie.waiting.count() != 0 and time < movie.until) return .running;
         host.campaign_movie = null;
     }
+    if (host.round_over_until) |until| {
+        if (time < until and host.playingCount() != 0) return .running;
+        host.round_over_until = null;
+        try host.returnToArenaLobby();
+        return .running;
+    }
     if (host.paused) return .running;
     if (host.campaign_briefing) {
         if (host.start == .automatic and host.playingCount() == 0) {
@@ -1635,7 +1650,13 @@ pub fn pump(host: *Host) !enum { running, finished } {
         rounds.completed += 1;
     };
     if (capped and host.repeat_rounds) {
-        try host.returnToArenaLobby();
+        // Every pilot sees the same final scores: the round stops here, and its last view goes
+        // out before the roster that says it is over.
+        host.paused = true;
+        host.paused_view_pending = true;
+        host.roster_dirty = true;
+        host.round_over_until = time + standings_hold;
+        host.clearFlightControls();
         return .running;
     }
     const delivery: Delivery = if (capped) .final else if (mission_ended) .debrief else .flight;

@@ -44,10 +44,6 @@ pub const Label = widgets.Label;
 address: language.Text(max_target) = .{},
 message: Label = .{},
 busy: bool = false,
-/// Set while the pilot has joined a server that starts its arena by itself and waits for more
-/// pilots: the list then says so in place of the servers.
-/// **Improvement:** OpenReliant's own, for its dedicated servers.
-waiting: ?Waiting = null,
 host_available: bool = false,
 discovery_available: bool = false,
 refresh_requested: bool = false,
@@ -68,18 +64,6 @@ help: tooltips.Tooltips = .{},
 shown_help: ?tooltips.Tooltip = null,
 protocol: ?u16 = null,
 compatibility_help: [80]u8 = undefined,
-
-/// How many pilots have joined the server waited on, and how many it takes.
-pub const Waiting = struct {
-    joined: u8,
-    limit: u8,
-
-    /// The lines the list shows while the pilot waits.
-    fn lines(waiting: Waiting, buffer: *[24]u8) [3][]const u8 {
-        const count = std.fmt.bufPrint(buffer, "{d} / {d} JOINED", .{ waiting.joined, waiting.limit }) catch unreachable;
-        return .{ "WAITING FOR PILOTS", count, "MAIN MENU TO LEAVE" };
-    }
-};
 
 pub fn updateHelp(screen: *Connection, at: [2]i32, window: [2]u32, ticks: u32) void {
     screen.shown_help = null;
@@ -379,16 +363,6 @@ fn drawBrowser(screen: *const Connection, canvas: ui.Canvas, art: *hud.Art, layo
 
 fn drawList(screen: *const Connection, canvas: ui.Canvas, layout: Layout) !void {
     const font = canvas.fonts.small;
-    if (screen.waiting) |waiting| {
-        var buffer: [24]u8 = undefined;
-        const centre = layout.list.centre();
-        const lines = waiting.lines(&buffer);
-        for (lines, 0..) |line, row| {
-            const y = centre[1] + (@as(i32, @intCast(row)) - 1) * (Layout.row_height + 4) - Layout.row_height / 2;
-            try canvas.text(font, .{ centre[0], y }, line, if (row == 2) ui.blue else ui.white, .centre);
-        }
-        return;
-    }
     var column_names: [headers.len][]const u8 = undefined;
     for (&column_names, headers) |*name, label| name.* = label.text(canvas.strings.*);
     try cells(canvas, layout, layout.list.y + 3, column_names, hud.rgb(0x85A7B5), null);
@@ -593,13 +567,4 @@ test "browser panels, columns of controls and hit targets keep their alignment" 
 
 test {
     std.testing.refAllDecls(@This());
-}
-
-test "Waiting.lines" {
-    var buffer: [24]u8 = undefined;
-    const lines = (Waiting{ .joined = 1, .limit = 8 }).lines(&buffer);
-    try std.testing.expectEqualStrings("WAITING FOR PILOTS", lines[0]);
-    try std.testing.expectEqualStrings("1 / 8 JOINED", lines[1]);
-    // The longest count still fits.
-    _ = (Waiting{ .joined = 255, .limit = 255 }).lines(&buffer);
 }

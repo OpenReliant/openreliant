@@ -151,10 +151,14 @@ Joining the lobby updates the roster. In flight, an arriving pilot adds the orig
 (`net_receive_game_message`, 0x004B6F80, case 6). `mp_player_departed` (0x004B6890) uses
 installed string 0x562 in the lobby and 0x328 on the flight HUD. OpenReliant sends the name and
 admission from the host, so a departure still identifies the right pilot if the slot fills again.
-**Improvement:** a guest's lobby says WAITING FOR HOST (strings `0x30E` and `0x30F`). A dedicated
-server has no host, so its lobby says WAITING FOR PILOTS. A dedicated server that starts its arena
-by itself has no lobby: a pilot who joins it before enough others have sees WAITING FOR PILOTS and
-how many have joined in place of the server list, and MAIN MENU leaves.
+**Improvement:** the original's arenas never end by themselves, and it has no screen for a round's
+end. It draws the scoreboard (`mp_draw_scoreboard`, `0x004AF650`) in three places: while its key
+is held, and in a multiplayer mission while the view is one of the death views, 8, `0x1A` or
+`0x1B` (`hud_draw`, `0x0048458C`); and on the pause page (`pause_screen_multiplayer`,
+`0x0048E510`). OpenReliant's servers can play timed rounds one after another. When such a round
+ends, the host stops it for six seconds (`server.standings_hold`) and every pilot's pause page
+shows ROUND OVER over the final standings, which are the same for all since the round has
+stopped. Then the lobby opens.
 
 The lobby shows system lines in its chat log. The [multiplayer pause screen](pause-menu.md#multiplayer-9)
 keeps recent flight chat and pilot notices, including messages sent during a shared pause.
