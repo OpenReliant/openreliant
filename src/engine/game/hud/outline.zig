@@ -49,7 +49,7 @@ pub const BuiltIn = enum {
     /// The font that holds the letters of the game's text in `page`.
     pub fn of(page: language.Page) BuiltIn {
         return switch (page) {
-            .western => .newtown,
+            .western, .central_european => .newtown,
             .cyrillic => .play_bold,
         };
     }
@@ -58,6 +58,16 @@ pub const BuiltIn = enum {
         return switch (font) {
             .newtown => newtown,
             .play_bold => play_bold,
+        };
+    }
+
+    /// The built-in font that lends its glyph for a letter this one lacks: Newtown has none of
+    /// the letters with a caron or an acute that Slovak and Czech add to Latin-1, such as `č` and
+    /// `ĺ`, and Play Bold has them all.
+    fn spare(font: BuiltIn) ?BuiltIn {
+        return switch (font) {
+            .newtown => .play_bold,
+            .play_bold => null,
         };
     }
 
@@ -193,10 +203,9 @@ pub const Fit = struct {
     /// For each character, the horizontal middle of its ink in the bitmap glyph, from the glyph's
     /// left edge; null for a character without ink.
     middles: [codes]?f32,
-    /// For each character, how wide its ink is in the bitmap glyph, for a mod's font, each of
-    /// whose glyphs is drawn no wider than that (`render`); 0 for a character that keeps the
-    /// outline font's width.
-    widths: [codes]f32 = @splat(0),
+    /// For each character, how wide its ink is in the bitmap glyph: its glyph is drawn no wider
+    /// than that (`render`). 0 for a character without ink.
+    inks: [codes]f32 = @splat(0),
 
     /// Fits `face` over `font`, whose bytes cover pixels as `cover` says, by the height of the
     /// first of `references` that both fonts have, measured from the bitmap's ink and the outline,
@@ -214,7 +223,7 @@ pub const Fit = struct {
                 const shown = font.glyph(code) orelse continue;
                 const across = inkSpan(cover, shown.pixels, shown.width, .across) orelse continue;
                 middle.* = (across[0] + across[1]) / 2;
-                if (heft.narrows()) fit.widths[code] = across[1] - across[0];
+                fit.inks[code] = across[1] - across[0];
             }
             if (heft.narrows()) fit.across = try narrowed(rasterizer, face, font, cover, fit.em, fit.weight, gpa);
             return fit;
@@ -482,6 +491,10 @@ pub const Outline = struct {
     /// built in, and whose face `Outlines` keeps.
     file: ?[]u8,
     fit: Fit,
+    /// A second face, which `Outlines` keeps, whose glyph is drawn for a character `face` lacks;
+    /// and how many times `face`'s size it is drawn at, so that its capitals come out as tall.
+    spare: ?Face = null,
+    spare_scale: f32 = 1,
     atlases: [max_sizes]?Atlas = @splat(null),
     /// The textures of atlases that outgrew them, kept until the next frame starts, as the frame
     /// that replaced them may have drawn them before (`startFrame`).
@@ -641,16 +654,28 @@ fn render(outline: *Outline, slot: *?Atlas, gpa: Allocator, size: u32) Error!voi
     var widest: u32 = 0;
     for (fit.middles, &drawn, &glyphs, 0..) |middle, *bitmap, *glyph, code| {
         if (middle == null) continue;
-        var made = try rasterizer.draw(face, language.toUnicode(@intCast(code)), em, fit.weight, fit.across, gpa) orelse {
-            glyph.* = .bitmap;
-            continue;
+        const character = language.toUnicode(@intCast(code));
+        // A character the face lacks comes from the spare face where that has it, at the size
+        // that matches, and else keeps its bitmap glyph.
+        var from = face;
+        var at = em;
+        var made = try rasterizer.draw(face, character, em, fit.weight, fit.across, gpa) orelse borrowed: {
+            from = outline.spare orelse {
+                glyph.* = .bitmap;
+                continue;
+            };
+            at = em * outline.spare_scale;
+            break :borrowed try rasterizer.draw(from, character, at, fit.weight, fit.across, gpa) orelse {
+                glyph.* = .bitmap;
+                continue;
+            };
         };
         // A glyph still wider than the bitmap glyph's ink would run into its neighbours, which
         // stand where the bitmap font put them, so it is drawn again as wide as that ink.
-        const room = fit.widths[code] * em / fit.em;
+        const room = fit.inks[code] * em / fit.em;
         if (room > 0 and @as(f32, @floatFromInt(made.width)) > room + within_room) {
             const fitted = @max(fit.across * room / @as(f32, @floatFromInt(made.width)), fit.across * narrowest);
-            if (try rasterizer.draw(face, language.toUnicode(@intCast(code)), em, fit.weight, fitted, gpa)) |again| {
+            if (try rasterizer.draw(from, character, at, fit.weight, fitted, gpa)) |again| {
                 made.deinit(gpa);
                 made = again;
             }
@@ -740,6 +765,8 @@ pub const Outlines = struct {
     carried: BuiltIn = .newtown,
     /// Its face, opened when the first font it replaces is opened.
     built_in: ?Face = null,
+    /// The face of the font that lends it the letters it lacks (`BuiltIn.spare`), opened with it.
+    spare: ?Face = null,
     fonts: std.ArrayList(Font) = .empty,
 
     /// A bitmap font that has been opened, by the name the archives look it up by, and the outline
@@ -766,6 +793,7 @@ pub const Outlines = struct {
         }
         outlines.fonts.deinit(gpa);
         if (outlines.built_in) |face| outlines.rasterizer.?.close(face);
+        if (outlines.spare) |face| outlines.rasterizer.?.close(face);
         outlines.* = undefined;
     }
 
@@ -833,8 +861,26 @@ pub const Outlines = struct {
         };
         outlines.built_in = face;
         const outline = try outlines.fitted(rasterizer, face, null, font, cover, carried.heft(), carried.name()) orelse return null;
+        if (carried.spare()) |lender| {
+            if (outlines.spare == null) outlines.spare = rasterizer.open(lender.file());
+            if (outlines.spare) |other| if (spareScale(rasterizer, face, other)) |scale| {
+                outline.spare = other;
+                outline.spare_scale = scale;
+            };
+        }
         log.info("{s} uses {s}, with strokes {d:.3} em {s}", .{ member, carried.name(), @abs(outline.fit.weight), if (outline.fit.weight < 0) "narrower" else "wider" });
         return outline;
+    }
+
+    /// How many times the size of `face` to draw `other` at so that its capitals are as tall: the
+    /// heights of the first of `references` both have, one over the other. Null if they share none.
+    fn spareScale(rasterizer: Rasterizer, face: Face, other: Face) ?f32 {
+        for (references) |letter| {
+            const own = rasterizer.top(face, letter) orelse continue;
+            const lent = rasterizer.top(other, letter) orelse continue;
+            if (own > 0 and lent > 0) return own / lent;
+        }
+        return null;
     }
 
     /// Makes the outline font for `face`, which reads `file`, over the bitmap font `font`. Null,
@@ -984,16 +1030,17 @@ test narrowed {
     const fit = (try Fit.of(wider.rasterizer(), wider.rasterizer().open("face").?, font, &level_cover, .own, gpa)).?;
     try std.testing.expectApproxEqAbs(0.8, fit.across, 0.02);
     // Each character's own room is kept too, for the glyphs still wider than it.
-    try std.testing.expectEqual(4, fit.widths['H']);
+    try std.testing.expectEqual(4, fit.inks['H']);
     // Far wider ones stop at the narrowest a font is drawn.
     var widest: testing.Boxes = .{ .wide = 1.5 };
     try std.testing.expectEqual(narrowest, (try Fit.of(widest.rasterizer(), widest.rasterizer().open("face").?, font, &level_cover, .own, gpa)).?.across);
-    // A font as narrow as the bitmap one, or narrower, keeps its width, and so does Newtown.
+    // A font as narrow as the bitmap one, or narrower, keeps its width, and so does Newtown as a
+    // whole: only its glyphs wider than their room are drawn narrower.
     var slim: testing.Boxes = .{ .wide = 0.5 };
     try std.testing.expectEqual(1, (try Fit.of(slim.rasterizer(), slim.rasterizer().open("face").?, font, &level_cover, .own, gpa)).?.across);
     const built_in = (try Fit.of(wider.rasterizer(), wider.rasterizer().open("face").?, font, &level_cover, .bitmap, gpa)).?;
     try std.testing.expectEqual(1, built_in.across);
-    try std.testing.expectEqual(0, built_in.widths['H']);
+    try std.testing.expectEqual(4, built_in.inks['H']);
 }
 
 test weighed {
@@ -1129,7 +1176,8 @@ test Outlines {
         const blufont = (try outlines.of(hud.Resources.font_name, font, &level_cover)).?;
         try std.testing.expectEqual(itacbig.face, blufont.face);
         try std.testing.expectEqual(null, try outlines.of("font_01.fnt", font, &level_cover));
-        try std.testing.expectEqual(2, boxes.open_faces);
+        // The two faces, and Play Bold, which lends Newtown the letters it lacks.
+        try std.testing.expectEqual(3, boxes.open_faces);
     }
     try std.testing.expectEqual(0, boxes.open_faces);
     // Without a rasterizer, every font keeps its bitmap glyphs.
@@ -1142,6 +1190,10 @@ test BuiltIn {
     // Newtown has no Cyrillic letters, so a Cyrillic game gets Play Bold, which is also narrowed.
     try std.testing.expectEqual(BuiltIn.newtown, BuiltIn.of(.western));
     try std.testing.expectEqual(BuiltIn.play_bold, BuiltIn.of(.cyrillic));
+    // A Central European game keeps Newtown, and borrows the letters it lacks.
+    try std.testing.expectEqual(BuiltIn.newtown, BuiltIn.of(.central_european));
+    try std.testing.expectEqual(BuiltIn.play_bold, BuiltIn.newtown.spare().?);
+    try std.testing.expectEqual(null, BuiltIn.play_bold.spare());
     try std.testing.expect(!BuiltIn.newtown.heft().narrows());
     try std.testing.expect(BuiltIn.play_bold.heft().narrows());
     try std.testing.expect(BuiltIn.play_bold.heft().weighs());

@@ -5,6 +5,7 @@ This guide covers installing, configuring, and playing OpenReliant.
 ## Table of contents
 
 - [Installation](installation.md): Requirements, installing from retail StarLancer discs or disc images, and running the game.
+- [Supported editions](editions.md): The releases and fan translations OpenReliant plays, with the text, voices and movies of each.
 - [Controllers and input](controllers.md): Setting up gamepads, flight sticks, and HOTAS hardware, default bindings, and settings.
 - [Configuration and options](configuration.md): Command-line options, graphics and sound settings, difficulty levels, starlancer.ini, and the check for newer releases.
 - [What mods can do](what-mods-can-do.md): Every modding feature on one page, with where it's explained and an example mod that shows it.

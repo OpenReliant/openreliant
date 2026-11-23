@@ -67,11 +67,13 @@ A Zig built for Intel Macs runs under Rosetta on Apple silicon and builds for In
 
 ## Installing the game's files
 
-`openreliant install [--from <disc>]... [--force] <directory>` makes the same install as a full install with the original installer, without writing to the registry or the system's folders:
+`openreliant install [--from <disc>]... [--translation <files>] [--force] <directory>` makes the same install as a full install with the original installer, without writing to the registry or the system's folders:
 
 1. From disc 1, it unpacks `LANCER.CAB` into the directory, without the cabinet's top-level `CAB` folder, and copies the files from the disc's `GAME/CAB` folder next to them.
 2. It copies disc 1's archive, `GAME/CD1.HOG`, next to them as `CD1.HOG`.
 3. It copies disc 2's archive, `GAME/CD2.HOG`, as `CD2.HOG`.
+
+`--translation` then writes a fan translation's two modules of strings over the install's, from a folder that holds them or from the Slovak translation's patcher ([Fan translations](../formats/translations.md)). Without discs it adds the translation to the install already in the directory.
 
 The result is the directory `openreliant` runs from, and it is the same on every system. The discs' archives hold the movies, the briefings (`.box`) and the debriefings' lines (`.mp3`), with the sprites and the sound banks of the screens that show them. `make game` uses the installer to create `game/install`. For user walkthroughs, see [User guide: Installation](../guide/installation.md).
 

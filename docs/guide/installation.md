@@ -55,20 +55,14 @@ If you have disc images or folders with the discs' files, name them with `--from
 
 #### Releases
 
-The installer knows a release by the size of disc 1's `LANCER.CAB`, and says which one it is as it installs:
+The installer knows the English, French, German and Russian releases, and says which one it found
+as it installs. [Supported editions](editions.md) lists every release and fan translation
+OpenReliant plays, with what each brings and how the installer knows it.
 
-| Release | Size of `LANCER.CAB` |
-|---|---|
-| English | 226,746,308 bytes |
-| French | 222,899,028 bytes |
-| German | 226,777,854 bytes |
+A French or German copy plays in its language: its text, its voices and its movies.
 
-The English discs sold in North America and in Europe share one cabinet. A French or German copy
-plays in its language: its text, its voices and its movies.
-
-The Russian release by 7 Wolf comes on one disc, with the whole game in `setup.EXE`
-(639,042,179 bytes) in place of the cabinet. The installer knows it by that file, and takes the
-disc as a folder or as an image, a Nero `.nrg` among them:
+The Russian release by 7 Wolf comes on one disc, with the whole game in `setup.EXE` in place of
+`LANCER.CAB`. The installer takes the disc as a folder or as an image, a Nero `.nrg` among them:
 
 ```bash
 ./openreliant install --from Starlancer.nrg StarLancer
@@ -84,6 +78,28 @@ If the installer doesn't recognize your disc because it's from another release, 
 ```
 
 Please also open an issue on GitHub saying which release you have and the size the installer gives for `LANCER.CAB`, so it can be added to the list.
+
+#### Adding a fan translation
+
+A fan translation changes the game's text. The voices and the movies stay as they are. OpenReliant
+knows the Spanish translation by Clan DLAN and the Slovak translation
+([Supported editions](editions.md#fan-translations)).
+
+Name the translation with `--translation`: the folder that holds its `LANGUAGE.DLL` and
+`ITACLANG.DLL`, or the program that installs it. OpenReliant reads that program and never runs
+it. With the discs, the game is installed and translated in one go:
+
+```bash
+./openreliant install --from "StarLancer Disc 1.bin" --from "StarLancer Disc 2.bin" --translation StarLancer_SK.exe StarLancer
+```
+
+Without discs, the translation is added to the game already in the folder:
+
+```bash
+./openreliant install --translation spanish-files StarLancer
+```
+
+The English text is replaced. To go back, install disc 1 again.
 
 ### 4. Launch the game
 

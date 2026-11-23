@@ -35,6 +35,7 @@ pub const wave = @import("formats/wave.zig");
 /// Windows executables: the game binary and its libraries.
 pub const pe = @import("formats/pe.zig");
 pub const wise = @import("formats/wise.zig");
+pub const patcher = @import("formats/patcher.zig");
 
 /// Images: the ones the tools write, and the pictures in mods, some compressed for the GPU.
 pub const png = @import("formats/png.zig");
