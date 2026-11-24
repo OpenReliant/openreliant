@@ -78,9 +78,6 @@ pub const Tag = enum(luau.Tag) {
     /// The game's variables (`records.game_variables`), and one of them.
     game_variables = 22,
     game_variable = 23,
-    /// The loadout's missiles (`records.loadout_missiles`), and one of them.
-    loadout_missiles = 24,
-    loadout_missile = 25,
 };
 
 /// What an object script's context runs on: an object of the mission, a missile in flight, or a

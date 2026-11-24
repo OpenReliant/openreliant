@@ -7,19 +7,54 @@
 //! underscore, which are hidden because they hold unknown or unused data. Array elements are
 //! indexed from 1. Writes are type-checked, and unknown field names are errors, so that typos are
 //! reported.
+//!
+//! A root's proxy can also show fields that OpenReliant keeps beside the value rather than in it
+//! (`Attachment`), such as the loadout's limit beside a missile's stats, so that a record with a
+//! fixed file layout can still get new fields.
 
 const std = @import("std");
 const luau = @import("luau.zig");
 const State = luau.State;
 const values = @import("values.zig");
 
-/// Proxies for the types in `roots` and every struct and array inside them. The proxies use the
-/// userdata tag `tag`, and Luau's `typeof` returns `name` for them.
-pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime name: [:0]const u8) type {
+/// Fields kept beside each value of a root type, which its proxies show after the value's own.
+pub const Attachment = struct {
+    /// The root type.
+    root: type,
+    /// The struct of the fields kept beside each value.
+    Fields: type,
+};
+
+/// Proxies for the types in `roots` and every struct and array inside them, with the fields
+/// `attachments` keep beside some roots. The proxies use the userdata tag `tag`, and Luau's
+/// `typeof` returns `name` for them.
+pub fn Binding(comptime roots: []const type, comptime attachments: []const Attachment, comptime tag: luau.Tag, comptime name: [:0]const u8) type {
     return struct {
         /// Every type a proxy can stand for: the roots first, then the structs and arrays inside
-        /// them.
-        pub const kinds: []const type = gather(roots);
+        /// them and inside the fields kept beside them.
+        pub const kinds: []const type = gather(roots, attachments);
+
+        /// The struct of the fields kept beside each `T`, or void if it has none.
+        pub fn Beside(comptime T: type) type {
+            for (attachments) |attachment| {
+                if (attachment.root == T) return attachment.Fields;
+            }
+            return void;
+        }
+
+        /// The fields scripts see in a `T`'s proxy: its own, then those kept beside it.
+        pub fn fieldsOf(comptime T: type) []const values.Field {
+            comptime {
+                return values.shownFields(T) ++ besideFields(T);
+            }
+        }
+
+        /// The fields kept beside each `T`, none if it has none.
+        fn besideFields(comptime T: type) []const values.Field {
+            comptime {
+                return if (Beside(T) == void) &.{} else values.shownFields(Beside(T));
+            }
+        }
 
         /// One tag per entry of `kinds`, so that switching on a proxy's kind covers them all.
         const Kind = kind: {
@@ -31,6 +66,8 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
 
         const Proxy = struct {
             address: *anyopaque,
+            /// The fields kept beside the value (`Beside`), if the proxy shows them.
+            beside: ?*anyopaque,
             kind: Kind,
             writable: bool,
 
@@ -53,14 +90,24 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
 
         /// Pushes a proxy for `value`. Scripts can change it only if `writable`.
         pub fn push(state: *State, comptime T: type, value: *T, writable: bool) void {
-            const proxy = state.newUserdata(Proxy, tag);
-            proxy.* = .{ .address = value, .kind = kindOf(T), .writable = writable };
+            pushBeside(state, T, value, null, writable);
         }
 
-        /// Sets the fields of `value` from the table at `table`, checking each one as a single
-        /// write would. Keys in `skipped` are ignored.
-        pub fn assign(state: *State, comptime T: type, value: *T, table: i32, comptime skipped: []const []const u8) void {
-            assignTable(state, T, value, state.absolute(table), skipped);
+        /// Pushes a proxy for `value` that also shows the fields kept beside it, `beside`.
+        pub fn pushAttached(state: *State, comptime T: type, value: *T, beside: *Beside(T), writable: bool) void {
+            pushBeside(state, T, value, beside, writable);
+        }
+
+        fn pushBeside(state: *State, comptime T: type, value: *T, beside: ?*anyopaque, writable: bool) void {
+            const proxy = state.newUserdata(Proxy, tag);
+            proxy.* = .{ .address = value, .beside = beside, .kind = kindOf(T), .writable = writable };
+        }
+
+        /// Sets the fields of `value`, and those kept beside it in `beside` if given, from the
+        /// table at `table`, checking each one as a single write would. Keys in `skipped` are
+        /// ignored.
+        pub fn assign(state: *State, comptime T: type, value: *T, beside: ?*Beside(T), table: i32, comptime skipped: []const []const u8) void {
+            assignTable(state, T, value, beside, state.absolute(table), skipped);
         }
 
         /// The value behind the proxy at `at`, or null if it isn't a proxy for a `T`.
@@ -68,6 +115,14 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
             const proxy = state.toUserdata(Proxy, at, tag) orelse return null;
             if (proxy.kind != kindOf(T)) return null;
             return @ptrCast(@alignCast(proxy.address));
+        }
+
+        /// The fields kept beside the value of the proxy at `at`, or null if it isn't a proxy for
+        /// a `T` that shows them.
+        pub fn besidePointer(state: *State, comptime T: type, at: i32) ?*Beside(T) {
+            const proxy = state.toUserdata(Proxy, at, tag) orelse return null;
+            if (proxy.kind != kindOf(T)) return null;
+            return besideOf(T, proxy.beside);
         }
 
         fn kindOf(comptime T: type) Kind {
@@ -83,7 +138,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
             switch (proxy.kind) {
                 inline else => |kind| {
                     const T = kinds[@backingInt(kind)];
-                    pushKey(state, T, @ptrCast(@alignCast(proxy.address)), proxy.writable, 2);
+                    pushKey(state, T, @ptrCast(@alignCast(proxy.address)), proxy.beside, proxy.writable, 2);
                 },
             }
             return 1;
@@ -96,7 +151,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
             switch (proxy.kind) {
                 inline else => |kind| {
                     const T = kinds[@backingInt(kind)];
-                    setKey(state, T, @ptrCast(@alignCast(proxy.address)), 2, 3);
+                    setKey(state, T, @ptrCast(@alignCast(proxy.address)), proxy.beside, 2, 3);
                 },
             }
             return 0;
@@ -116,7 +171,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
             switch (proxy.kind) {
                 inline else => |kind| {
                     const T = kinds[@backingInt(kind)];
-                    return pushNext(state, T, @ptrCast(@alignCast(proxy.address)), proxy.writable);
+                    return pushNext(state, T, @ptrCast(@alignCast(proxy.address)), proxy.beside, proxy.writable);
                 },
             }
         }
@@ -129,7 +184,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
                     const T = kinds[@backingInt(kind)];
                     const len = switch (@typeInfo(T)) {
                         .array => |array| array.len,
-                        else => comptime values.shownFields(T).len,
+                        else => if (besideOf(T, proxy.beside) == null) comptime values.shownFields(T).len else comptime fieldsOf(T).len,
                     };
                     state.pushNumber(@floatFromInt(len));
                 },
@@ -154,13 +209,22 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
             return 1;
         }
 
-        fn pushKey(state: *State, comptime T: type, value: *T, writable: bool, key: i32) void {
+        /// The fields kept beside a `T`, given as `beside`, if it has them.
+        fn besideOf(comptime T: type, beside: ?*anyopaque) ?*Beside(T) {
+            if (comptime Beside(T) == void) return null;
+            return @ptrCast(@alignCast(beside orelse return null));
+        }
+
+        fn pushKey(state: *State, comptime T: type, value: *T, beside: ?*anyopaque, writable: bool, key: i32) void {
             switch (@typeInfo(T)) {
                 .@"struct" => {
                     const field_name = state.toString(key) orelse state.raise("{s}: expected a field name, got {s}", .{ comptime noun(T), state.typeName(key) });
                     inline for (comptime values.shownFields(T)) |field| {
                         if (std.mem.eql(u8, field_name, field.name)) return pushField(state, T, value, field, writable);
                     }
+                    if (besideOf(T, beside)) |kept| inline for (comptime besideFields(T)) |field| {
+                        if (std.mem.eql(u8, field_name, field.name)) return pushField(state, Beside(T), kept, field, writable);
+                    };
                     state.raise("{s} has no field '{s}'", .{ comptime noun(T), field_name });
                 },
                 .array => |array| {
@@ -171,13 +235,16 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
             }
         }
 
-        fn setKey(state: *State, comptime T: type, value: *T, key: i32, given: i32) void {
+        fn setKey(state: *State, comptime T: type, value: *T, beside: ?*anyopaque, key: i32, given: i32) void {
             switch (@typeInfo(T)) {
                 .@"struct" => {
                     const field_name = state.toString(key) orelse state.raise("{s}: expected a field name, got {s}", .{ comptime noun(T), state.typeName(key) });
                     inline for (comptime values.shownFields(T)) |field| {
-                        if (std.mem.eql(u8, field_name, field.name)) return setField(state, T, value, field, given);
+                        if (std.mem.eql(u8, field_name, field.name)) return setField(state, T, value, field, given, comptime noun(T));
                     }
+                    if (besideOf(T, beside)) |kept| inline for (comptime besideFields(T)) |field| {
+                        if (std.mem.eql(u8, field_name, field.name)) return setField(state, Beside(T), kept, field, given, comptime noun(T));
+                    };
                     state.raise("{s} has no field '{s}'", .{ comptime noun(T), field_name });
                 },
                 .array => |array| {
@@ -188,25 +255,36 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
             }
         }
 
-        fn pushNext(state: *State, comptime T: type, value: *T, writable: bool) i32 {
+        fn pushNext(state: *State, comptime T: type, value: *T, beside: ?*anyopaque, writable: bool) i32 {
             switch (@typeInfo(T)) {
                 .@"struct" => {
-                    const fields = comptime values.shownFields(T);
+                    const own = comptime values.shownFields(T);
+                    const kept = besideOf(T, beside);
+                    // The fields kept beside the value come after its own, where the proxy shows
+                    // them.
+                    const shown = if (kept == null) own.len else comptime fieldsOf(T).len;
                     // The field after the given one, or the first if none is given.
                     var after: usize = 0;
                     if (state.toString(2)) |previous| {
-                        after = fields.len;
-                        inline for (fields, 0..) |field, at| {
-                            if (std.mem.eql(u8, previous, field.name)) after = at + 1;
+                        after = shown;
+                        inline for (comptime fieldsOf(T), 0..) |field, at| {
+                            if (at < shown and std.mem.eql(u8, previous, field.name)) after = at + 1;
                         }
                     }
-                    inline for (fields, 0..) |field, at| {
+                    inline for (own, 0..) |field, at| {
                         if (after == at) {
                             state.pushString(field.name);
                             pushField(state, T, value, field, writable);
                             return 2;
                         }
                     }
+                    if (kept) |added| inline for (comptime besideFields(T), own.len..) |field, at| {
+                        if (after == at) {
+                            state.pushString(field.name);
+                            pushField(state, Beside(T), added, field, writable);
+                            return 2;
+                        }
+                    };
                     return 0;
                 },
                 .array => |array| {
@@ -234,9 +312,10 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
             values.push(state, field.type, @field(value.*, field.name));
         }
 
-        /// Sets a struct field from the value at `given`.
-        fn setField(state: *State, comptime T: type, value: *T, comptime field: values.Field, given: i32) void {
-            const label = comptime noun(T) ++ "." ++ field.name;
+        /// Sets a struct field from the value at `given`. `owner` names the struct in error
+        /// messages.
+        fn setField(state: *State, comptime T: type, value: *T, comptime field: values.Field, given: i32, comptime owner: []const u8) void {
+            const label = owner ++ "." ++ field.name;
             if (comptime isAggregate(field.type)) return setValue(state, field.type, &@field(value.*, field.name), given, label);
             @field(value.*, field.name) = values.read(state, field.type, given, label);
         }
@@ -246,19 +325,19 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
         fn setValue(state: *State, comptime T: type, value: *T, given: i32, comptime label: []const u8) void {
             if (comptime isAggregate(T)) {
                 if (state.typeOf(given) != .table) state.raise("{s}: expected a table, got {s}", .{ label, state.typeName(given) });
-                return assignTable(state, T, value, state.absolute(given), &.{});
+                return assignTable(state, T, value, null, state.absolute(given), &.{});
             }
             value.* = values.read(state, T, given, label);
         }
 
-        fn assignTable(state: *State, comptime T: type, value: *T, table: i32, comptime skipped: []const []const u8) void {
+        fn assignTable(state: *State, comptime T: type, value: *T, beside: ?*anyopaque, table: i32, comptime skipped: []const []const u8) void {
             state.pushNil();
             while (state.next(table)) {
                 defer state.pop(1);
                 if (state.toString(-2)) |key| {
                     if (comptime skipped.len > 0) if (isSkipped(key, skipped)) continue;
                 }
-                setKey(state, T, value, -2, -1);
+                setKey(state, T, value, beside, -2, -1);
             }
         }
 
@@ -298,11 +377,16 @@ fn isAggregate(comptime T: type) bool {
     };
 }
 
-/// Every struct and array reachable from `roots` through visible fields, the roots first.
-fn gather(comptime roots: []const type) []const type {
+/// Every struct and array reachable from `roots` through visible fields, the roots first, then
+/// those reachable from the fields `attachments` keep beside them.
+fn gather(comptime roots: []const type, comptime attachments: []const Attachment) []const type {
     comptime {
         var found: []const type = &.{};
         for (roots) |root| found = add(found, root);
+        for (attachments) |attachment| {
+            if (std.mem.findScalar(type, roots, attachment.root) == null) @compileError(@typeName(attachment.root) ++ " is not one of the binding's roots");
+            for (values.shownFields(attachment.Fields)) |field| found = add(found, field.type);
+        }
         return found;
     }
 }
@@ -371,7 +455,7 @@ test "a proxy reads and writes a struct in place" {
         counts: [2]u16,
         _unread: [4]u8,
     };
-    const Values = Binding(&.{Gun}, 1, "value");
+    const Values = Binding(&.{Gun}, &.{}, 1, "value");
     // The gun, its damage and its counts. The name is a string.
     try std.testing.expectEqual(3, Values.kinds.len);
 
@@ -427,7 +511,7 @@ test "a proxy reads and writes a struct in place" {
 
 test "a read-only proxy can't be changed" {
     const Sample = extern struct { x: f32 };
-    const Values = Binding(&.{Sample}, 1, "value");
+    const Values = Binding(&.{Sample}, &.{}, 1, "value");
     const state = State.create(luau.testing.allocate, null).?;
     defer state.close();
     state.openLibraries();
@@ -440,6 +524,38 @@ test "a read-only proxy can't be changed" {
     try run(thread, "assert(sample.x == 1)");
     try expectError(thread, "sample.x = 2", "this value is read-only");
     try std.testing.expectEqual(1, sample.x);
+}
+
+test "a proxy shows the fields kept beside its value" {
+    const Sample = extern struct { x: f32 };
+    const Kept = struct { most: ?u16 = null };
+    const Values = Binding(&.{Sample}, &.{.{ .root = Sample, .Fields = Kept }}, 1, "value");
+    try std.testing.expectEqual(2, comptime Values.fieldsOf(Sample).len);
+    const state = State.create(luau.testing.allocate, null).?;
+    defer state.close();
+    state.openLibraries();
+    Values.register(state);
+    state.sandbox();
+    var sample: Sample = .{ .x = 1 };
+    var kept: Kept = .{ .most = 3 };
+    const thread = state.newSandboxedThread();
+    Values.pushAttached(thread, Sample, &sample, &kept, true);
+    thread.setGlobal("sample");
+    // A proxy without them shows only the value's own fields.
+    Values.push(thread, Sample, &sample, true);
+    thread.setGlobal("plain");
+    try run(thread,
+        \\assert(sample.x == 1 and sample.most == 3 and #sample == 2 and #plain == 1)
+        \\local seen = {}
+        \\for name, value in sample do table.insert(seen, name) end
+        \\assert(table.concat(seen, ",") == "x,most")
+        \\sample.most = nil
+        \\sample.x = 2
+    );
+    try std.testing.expectEqual(null, kept.most);
+    try std.testing.expectEqual(2, sample.x);
+    try expectError(thread, "sample.most = -1", "Sample.most: expected a whole number");
+    try expectError(thread, "local x = plain.most", "Sample has no field 'most'");
 }
 
 /// Runs `source`, failing the test if it raises an error.

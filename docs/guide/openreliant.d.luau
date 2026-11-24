@@ -619,6 +619,7 @@ declare extern type MissileRecord with
     decoy_chance: number
     lock_range: number
     component_damage: number
+    loadout_limit: number?
 end
 declare extern type Pilot with
     name: string
@@ -721,10 +722,6 @@ declare extern type GameVariableRecord with
     attempt: number?
     saved: boolean
 end
-declare extern type LoadoutMissile with
-    name: string
-    limit: number
-end
 export type Records = {
     ships: { [number | string]: Ship },
     ship_types: { [number | string]: ShipTypeRecord },
@@ -752,8 +749,6 @@ export type Records = {
     room_views: { [number]: RoomView },
     --- What the campaign does with each of the game's variables, by its number from 0 or by its name. Load scripts change their fields.
     game_variables: { [number | string]: GameVariableRecord },
-    --- The game's missiles in the loadout, by their number from 0 or by their name, such as `jack_hammer`. Load scripts change their fields.
-    loadout_missiles: { [number | string]: LoadoutMissile },
 }
 
 -- The packages made from declarations. `openreliant.self` is the script's own Object.

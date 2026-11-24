@@ -88,7 +88,7 @@ pub fn available(tier: u2, known: []const tables.Missile, carried: *const Carrie
     var set: Offered = .empty;
     for (known) |missile| {
         const index = @backingInt(missile);
-        if (missile.offeredAt(tier) and carried[index] < missile.limit()) set.set(index);
+        if (missile.offeredAt(tier) and missile.allows(carried[index] + 1)) set.set(index);
     }
     return set;
 }

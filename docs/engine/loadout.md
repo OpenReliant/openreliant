@@ -131,7 +131,7 @@ A marker (`marker_create`, `0x00444BB0`) is a square 0.7 by 1.12 of `hpoints` ov
 
 A missile's icon is the missile's model loaded with its red textures, lit and opaque at 0.007, reached by the green and the ambient lights. Each missile the tier offers has its slot of the arc (`loadout_missile_slots`, `0x004EA480`), and its icon is shown and clickable while fewer than its limit are on the ship or flying to it or back: three Jack Hammers, any number of the rest (`missiles_available`, `0x0044B870`).
 
-**Improvement:** mods can change each missile's limit with `records.loadout_missiles` ([The loadout's missiles](../guide/scripting.md#the-loadouts-missiles)). The original's limits are fixed.
+**Improvement:** mods can change each missile's limit, or lift it, with its record's `loadout_limit` ([The records](../guide/scripting.md#the-records)). The original's limits are fixed.
 
 ### Fitting the missiles
 
