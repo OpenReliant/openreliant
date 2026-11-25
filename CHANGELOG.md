@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.0-rc.3](https://github.com/OpenReliant/openreliant/compare/v1.1.0-rc.2...v1.1.0-rc.3) (2026-11-25)
+
+
+### Features
+
+* mods can change how many of each missile the loadout allows ([#1556](https://github.com/OpenReliant/openreliant/issues/1556)) ([fa97212](https://github.com/OpenReliant/openreliant/commit/fa97212ecb485040aa1349db3e78292963b092b2)), closes [#1555](https://github.com/OpenReliant/openreliant/issues/1555)
+* play the Spanish and Slovak fan translations ([#1561](https://github.com/OpenReliant/openreliant/issues/1561)) ([1c279c0](https://github.com/OpenReliant/openreliant/commit/1c279c01c7c63af788c3b8293b993e0d27749865)), closes [#1560](https://github.com/OpenReliant/openreliant/issues/1560)
+* scripts bring one component of a cloaked ship out of its cloak ([#1567](https://github.com/OpenReliant/openreliant/issues/1567)) ([c533b57](https://github.com/OpenReliant/openreliant/commit/c533b5760eed4e211f55deeaa981c02669f938bb)), closes [#1566](https://github.com/OpenReliant/openreliant/issues/1566)
+* ship types list the parts that cloak, and the Kafelnikof's go see-through ([#1564](https://github.com/OpenReliant/openreliant/issues/1564)) ([00e2c7a](https://github.com/OpenReliant/openreliant/commit/00e2c7a764cf0ec2674e90c099eb609b8b6e908a)), closes [#1563](https://github.com/OpenReliant/openreliant/issues/1563) [#1565](https://github.com/OpenReliant/openreliant/issues/1565)
+
+
+### Fixes
+
+* the small target form shows a component out of its ship's cloak ([#1569](https://github.com/OpenReliant/openreliant/issues/1569)) ([a2e02e3](https://github.com/OpenReliant/openreliant/commit/a2e02e3d781a90f8d27f8bcca3ff865285b08d24)), closes [#1568](https://github.com/OpenReliant/openreliant/issues/1568)
+
 ## [1.1.0-rc.2](https://github.com/OpenReliant/openreliant/compare/v1.1.0-rc.1...v1.1.0-rc.2) (2026-11-23)
 
 
