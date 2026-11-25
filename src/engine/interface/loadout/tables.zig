@@ -591,10 +591,20 @@ pub const Missile = enum(u8) {
         return tier >= first;
     }
 
-    /// The most of it a ship carries and has in flight at once (`missile_limits`): a mod's its
-    /// base's.
-    pub fn limit(missile: Missile) u16 {
-        return missile_limits[@backingInt(missile.base())];
+    /// How many of this missile a ship can carry, or null for no limit: the original's limit
+    /// (`missile_limits`), or the one the load scripts set (`installLoadouts`). A mod's missile
+    /// starts with its base's limit.
+    pub fn limit(missile: Missile) ?u16 {
+        const number: usize = @intCast(@backingInt(missile.missileType()));
+        if (number < installed_loadouts.len) return installed_loadouts[number].loadout_limit;
+        // A mod's missile, when the loadouts installed don't include the mods' missiles.
+        return original_loadouts[@intCast(@backingInt(missile.base().missileType()))].loadout_limit;
+    }
+
+    /// Whether a ship can carry `count` of this missile (`limit`).
+    pub fn allows(missile: Missile, count: u16) bool {
+        const most = missile.limit() orelse return true;
+        return count <= most;
     }
 
     /// The missile a hardpoint's id names for the loadout, which takes the id's word as its own
@@ -770,9 +780,43 @@ pub const missiles_by_tier: [tier_count]MissileSet = cumulative: {
     break :cumulative sets;
 };
 
-/// The most of each missile a ship carries and has in flight at once (`0x004EA458`):
-/// `missiles_available` (`0x0044B870`) hides a missile's icon while it is at its limit.
+/// How many of each missile a ship can carry (`0x004EA458`). `missiles_available` (`0x0044B870`)
+/// hides a missile's icon once the ship has that many, counting the copies still flying to it.
 pub const missile_limits = [missile_count]u16{ 999, 999, 999, 3, 999, 999, 999, 999, 999, 999 };
+
+/// The limit the original gives every missile but the Jack Hammer (`missile_limits`). No ship has
+/// that many hardpoints, so it means no limit.
+const no_limit: u16 = 999;
+
+/// What the loadout does with a missile type, beside the type's stats. Scripts see these fields
+/// among the fields of the missile's record (`records.missiles`).
+pub const MissileLoadout = struct {
+    /// How many of the missile a ship can carry, or null for no limit.
+    loadout_limit: ?u16 = null,
+};
+
+/// What the original's loadout does with each of the game's missile types, by its number: three
+/// Jack Hammers, and no limit on the others (`missile_limits`).
+pub const original_loadouts: [additions.missiles.first]MissileLoadout = loadouts: {
+    var made: [additions.missiles.first]MissileLoadout = @splat(.{});
+    for (std.enums.values(Missile)) |missile| {
+        const most = missile_limits[@backingInt(missile)];
+        made[@intCast(@backingInt(missile.missileType()))] = .{ .loadout_limit = if (most == no_limit) null else most };
+    }
+    break :loadouts made;
+};
+
+/// What the loadout does with each missile type, by its number: the original's, or what the load
+/// scripts set (`records.missiles`), the mods' missiles included.
+///
+/// **Improvement:** the original's limits are fixed. OpenReliant lets mods change them.
+var installed_loadouts: []const MissileLoadout = &original_loadouts;
+
+/// Makes `loadouts` the ones the loadout uses, once the load scripts have run. They must outlive
+/// every use.
+pub fn installLoadouts(loadouts: []const MissileLoadout) void {
+    installed_loadouts = loadouts;
+}
 
 /// The slot of `arc_slots` each missile's icon takes on the missiles page, by campaign tier
 /// (`0x004EA480`, read at `0x00448837` and `0x004495E2`), or null (-1) where the tier doesn't offer
@@ -1087,7 +1131,7 @@ test "the mods' missiles" {
     try std.testing.expectEqual(2, rail.firstTier());
     try std.testing.expect(!rail.offeredAt(1) and rail.offeredAt(3));
     try std.testing.expectEqual(Missile.raptor.firstTier(), pod.firstTier());
-    try std.testing.expectEqual(missile_limits[@backingInt(Missile.bandit)], rail.limit());
+    try std.testing.expectEqual(Missile.bandit.limit(), rail.limit());
     // On the arc, in the slots the game's missiles leave free.
     var slots: [missile_count + 2]?u8 = undefined;
     try std.testing.expectEqual(0, arcSlots(3, known, &slots));
@@ -1148,4 +1192,21 @@ test placements {
         .{ camera_angles[1], 0x3D89374C },           .{ camera_angles[2], 0x3CF5C28F },
     };
     for (bits) |pair| try std.testing.expectEqual(pair[1], @as(u32, @bitCast(pair[0])));
+}
+
+test installLoadouts {
+    defer installLoadouts(&original_loadouts);
+    // The original allows three Jack Hammers, and any number of the other missiles.
+    try std.testing.expectEqual(3, Missile.jack_hammer.limit());
+    try std.testing.expect(Missile.jack_hammer.allows(3) and !Missile.jack_hammer.allows(4));
+    try std.testing.expectEqual(null, Missile.havoc.limit());
+    try std.testing.expect(Missile.havoc.allows(std.math.maxInt(u16)));
+    // A mod can raise a limit, and give one to a missile that has none.
+    var loadouts = original_loadouts;
+    loadouts[@intCast(@backingInt(missiles_mod.Type.of(.jack_hammer)))].loadout_limit = 20;
+    loadouts[@intCast(@backingInt(missiles_mod.Type.of(.fuel_pod)))].loadout_limit = 1;
+    installLoadouts(&loadouts);
+    try std.testing.expectEqual(20, Missile.jack_hammer.limit());
+    try std.testing.expectEqual(1, Missile.fuel_pod.limit());
+    try std.testing.expectEqual(null, Missile.havoc.limit());
 }

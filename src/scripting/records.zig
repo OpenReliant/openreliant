@@ -39,6 +39,10 @@
 //! place too ([#1167](https://github.com/OpenReliant/openreliant/issues/1167),
 //! [#1169](https://github.com/OpenReliant/openreliant/issues/1169),
 //! [#1322](https://github.com/OpenReliant/openreliant/issues/1322)).
+//!
+//! A missile's record also shows `loadout_limit`, how many of it a ship can carry, which OpenReliant
+//! keeps beside the stat file's record (`missile_loadouts`). Load scripts can change it
+//! ([#1555](https://github.com/OpenReliant/openreliant/issues/1555)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -48,6 +52,7 @@ const stats = openreliant.stats;
 const game = openreliant.engine.game;
 const language = game.language;
 const gameflow = game.gameflow;
+const loadout_tables = openreliant.engine.interface.loadout.tables;
 const vm = openreliant.engine.vm;
 const luau = @import("luau.zig");
 const State = luau.State;
@@ -67,8 +72,13 @@ pub const game_variables = @import("records/game_variables.zig");
 /// `script_name`, `list_name`, `Field`, `TypeOf`, `about`, `each` and `entries_about`.
 pub const field_tables = .{ missions, killboard, maneuvers, planets, cd_player, room_views, game_variables };
 
-/// The proxies for records.
-pub const Values = bind.Binding(&.{ stats.Ship, game.create.combat_stats.Static, stats.Gun, stats.Missile, stats.Pilot, game.pilots.FaceRecord }, @backingInt(runtime.Tag.record_value), "record");
+/// The proxies for records. A missile's also shows what the loadout does with it.
+pub const Values = bind.Binding(
+    &.{ stats.Ship, game.create.combat_stats.Static, stats.Gun, stats.Missile, stats.Pilot, game.pilots.FaceRecord },
+    &.{.{ .root = stats.Missile, .Fields = loadout_tables.MissileLoadout }},
+    @backingInt(runtime.Tag.record_value),
+    "record",
+);
 
 /// Editable copies of the game's tables.
 pub const Records = struct {
@@ -119,6 +129,10 @@ pub const Records = struct {
     /// (`gameflow.addModVariables`), which the game takes once the load scripts have run
     /// (`gameflow.installVariables`).
     game_variables: *[vm.Variables.count]gameflow.VariableRecord,
+    /// What the loadout does with each missile, one for each of `missiles`, which scripts see
+    /// among the missile's fields. The loadout uses them once the load scripts have run
+    /// (`interface.loadout.tables.installLoadouts`).
+    missile_loadouts: []loadout_tables.MissileLoadout,
     /// Where text from scripts is allocated. It must live as long as the game's original strings.
     arena: Allocator,
 
@@ -161,6 +175,7 @@ pub const Records = struct {
             .cd_player = try arena.dupe(game.interface.cd_player.Track, tables.cd_player),
             .room_views = tables.room_views,
             .game_variables = try gameVariables(arena, tables.game_variables),
+            .missile_loadouts = try missileLoadouts(arena, tables.missiles.len),
             .arena = arena,
         };
     }
@@ -171,6 +186,17 @@ pub const Records = struct {
         const made = try arena.create([vm.Variables.count]gameflow.VariableRecord);
         made.* = original.*;
         gameflow.addModVariables(made);
+        return made;
+    }
+
+    /// What the loadout does with each of `missile_count` missiles: the original's for the game's
+    /// missiles, and their base's for those the mods add (`additions.missiles`).
+    fn missileLoadouts(arena: Allocator, missile_count: usize) Allocator.Error![]loadout_tables.MissileLoadout {
+        const known = try game.additions.missiles.records(loadout_tables.MissileLoadout, arena, &loadout_tables.original_loadouts, 0);
+        const made = try arena.alloc(loadout_tables.MissileLoadout, missile_count);
+        const kept = @min(missile_count, known.len);
+        @memcpy(made[0..kept], known[0..kept]);
+        @memset(made[kept..], .{});
         return made;
     }
 
@@ -195,6 +221,15 @@ pub const Records = struct {
         return @min(held, table.load().capacity() + added);
     }
 
+    /// The fields kept beside the record of `set` at `place`, which scripts see among its own
+    /// (`Values.Beside`), if it has them: what the loadout does with a missile.
+    fn besides(records: *Records, comptime set: Set, place: usize) ?*Values.Beside(set.Element()) {
+        return switch (set) {
+            .missiles => if (place < records.missile_loadouts.len) &records.missile_loadouts[place] else null,
+            else => null,
+        };
+    }
+
     /// Saves a copy of all tables, which `Snapshot.restore` puts back if a script fails.
     pub fn snapshot(records: Records, gpa: Allocator) Allocator.Error!Snapshot {
         var saved: Snapshot = undefined;
@@ -215,6 +250,8 @@ pub const Records = struct {
         saved.cd_player_held = records.cd_player;
         saved.room_views = records.room_views;
         saved.game_variables = records.game_variables.*;
+        saved.missile_loadouts = try gpa.dupe(loadout_tables.MissileLoadout, records.missile_loadouts);
+        errdefer gpa.free(saved.missile_loadouts);
         inline for (comptime std.enums.values(Set), 0..) |set, made| {
             errdefer inline for (comptime std.enums.values(Set)[0..made]) |done| gpa.free(@field(saved, @tagName(done)));
             @field(saved, @tagName(set)) = try gpa.dupe(set.Element(), @field(records, @tagName(set)));
@@ -249,6 +286,7 @@ pub const Records = struct {
         cd_player_held: []game.interface.cd_player.Track,
         room_views: game.interface.rooms.Views,
         game_variables: [vm.Variables.count]gameflow.VariableRecord,
+        missile_loadouts: []loadout_tables.MissileLoadout,
 
         pub fn restore(saved: Snapshot, records: *Records) void {
             inline for (comptime std.enums.values(Set)) |set| @memcpy(@field(records, @tagName(set)), @field(saved, @tagName(set)));
@@ -264,6 +302,7 @@ pub const Records = struct {
             @memcpy(records.cd_player, saved.cd_player);
             records.room_views = saved.room_views;
             records.game_variables.* = saved.game_variables;
+            @memcpy(records.missile_loadouts, saved.missile_loadouts);
         }
 
         pub fn deinit(saved: Snapshot, gpa: Allocator) void {
@@ -273,6 +312,7 @@ pub const Records = struct {
             gpa.free(saved.maneuvers);
             gpa.free(saved.planets);
             gpa.free(saved.cd_player);
+            gpa.free(saved.missile_loadouts);
         }
     };
 };
@@ -514,12 +554,14 @@ fn newIndex(state: *State) i32 {
                 const T = set.Element();
                 const record = &@field(records, @tagName(set))[place];
                 if (state.typeOf(3) != .table) state.raise("{t}: expected a table of fields, got {s}", .{ set, state.typeName(3) });
+                const beside = records.besides(set, place);
                 if (state.rawGetField(3, "template") != .nil) {
                     const template = Values.pointer(state, T, -1) orelse state.raise("template must be a record from {t}", .{set});
                     record.* = template.*;
+                    if (beside) |kept| kept.* = (Values.besidePointer(state, T, -1) orelse kept).*;
                 }
                 state.pop(1);
-                Values.assign(state, T, record, 3, &.{"template"});
+                Values.assign(state, T, record, beside, 3, &.{"template"});
             }
         },
     }
@@ -588,10 +630,12 @@ fn placeOf(state: *State, records: Records, comptime set: Set, key: i32) ?usize 
     return if (place < records.count(set)) place else null;
 }
 
-/// Pushes a record: a proxy for a stat record, or a UTF-8 string for text.
+/// Pushes a record: a proxy for a stat record, with the fields kept beside it if it has them, or a
+/// UTF-8 string for text.
 fn pushRecord(state: *State, records: *Records, comptime set: Set, place: usize, writable: bool) void {
     const held = @field(records, @tagName(set));
     if (comptime set.isText()) return pushText(state, held[place]);
+    if (records.besides(set, place)) |beside| return Values.pushAttached(state, set.Element(), &held[place], beside, writable);
     Values.push(state, set.Element(), &held[place], writable);
 }
 
@@ -877,22 +921,69 @@ test "the pilots' faces" {
     try bind.testing.expectSourceError(thread, "records.faces[1] = { template = records.text }", "template must be a record from faces");
 }
 
+test "a missile's record holds its loadout limit" {
+    // A mod's missile on the Jack Hammer, which starts with its base's limit.
+    var added = [_]game.additions.missiles.Added{.{ .name = "a:hammer", .mod = "a", .base = .jack_hammer, .extra = .{} }};
+    game.additions.missiles.install(&added);
+    defer game.additions.missiles.reset();
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var missiles: [game.additions.missiles.first + added.len]stats.Missile = @splat(std.mem.zeroes(stats.Missile));
+    var held: Records = try .init(arena.allocator(), .{ .ships = &.{}, .ship_types = &.{}, .guns = &.{}, .missiles = &missiles, .pilots = &.{}, .faces = &.{}, .text = &.{}, .itac_text = &.{} });
+    const state = State.create(luau.testing.allocate, null).?;
+    defer state.close();
+    state.openLibraries();
+    register(state);
+    push(state, &held, true);
+    state.setGlobal("records");
+    state.sandbox();
+    const thread = state.newSandboxedThread();
+
+    try bind.testing.runSource(thread,
+        \\local missiles = records.missiles
+        \\assert(missiles.jack_hammer.loadout_limit == 3 and missiles.havoc.loadout_limit == nil)
+        \\assert(missiles["a:hammer"].loadout_limit == 3)
+        \\-- It comes last among the record's fields.
+        \\local names = {}
+        \\for name in missiles.screamer do table.insert(names, name) end
+        \\assert(#names == #missiles.screamer and names[#names] == "loadout_limit")
+        \\missiles.jack_hammer.loadout_limit = nil
+        \\missiles.havoc = { loadout_limit = 4 }
+        \\missiles.raptor = { template = missiles.havoc }
+        \\missiles["a:hammer"].loadout_limit = 6
+    );
+    const limit = struct {
+        fn of(records: Records, missile: game.missiles.GameMissile) ?u16 {
+            return records.missile_loadouts[@intCast(@backingInt(missile))].loadout_limit;
+        }
+    }.of;
+    try std.testing.expectEqual(null, limit(held, .jack_hammer));
+    try std.testing.expectEqual(4, limit(held, .havoc));
+    try std.testing.expectEqual(4, limit(held, .raptor));
+    try std.testing.expectEqual(6, held.missile_loadouts[game.additions.missiles.first].loadout_limit);
+    try bind.testing.expectSourceError(thread, "records.missiles.screamer.loadout_limit = -1", "MissileRecord.loadout_limit");
+    try bind.testing.expectSourceError(thread, "records.missiles.screamer.loadout_limit = 'many'", "MissileRecord.loadout_limit");
+}
+
 test "Records.snapshot" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     var guns: [1]stats.Gun = @splat(std.mem.zeroes(stats.Gun));
-    var records: Records = try .init(arena.allocator(), .{ .ships = &.{}, .ship_types = &.{}, .guns = &guns, .missiles = &.{}, .pilots = &.{}, .faces = &.{}, .text = &.{"x"}, .itac_text = &.{} });
+    var missiles: [game.additions.missiles.first]stats.Missile = @splat(std.mem.zeroes(stats.Missile));
+    var records: Records = try .init(arena.allocator(), .{ .ships = &.{}, .ship_types = &.{}, .guns = &guns, .missiles = &missiles, .pilots = &.{}, .faces = &.{}, .text = &.{"x"}, .itac_text = &.{} });
     const saved = try records.snapshot(std.testing.allocator);
     defer saved.deinit(std.testing.allocator);
     records.guns[0].range = 5;
     records.text[0] = "y";
     records.campaign = try .of(&.{1});
     records.missions[11].carrier = .yamato;
+    records.missile_loadouts[@intCast(@backingInt(game.missiles.GameMissile.jack_hammer))].loadout_limit = null;
     saved.restore(&records);
     try std.testing.expectEqual(0, records.guns[0].range);
     try std.testing.expectEqualStrings("x", records.text[0]);
     try std.testing.expectEqual(game.gameflow.Order.original, records.campaign);
     try std.testing.expectEqual(.reliant, records.missions[11].carrier);
+    try std.testing.expectEqual(3, records.missile_loadouts[@intCast(@backingInt(game.missiles.GameMissile.jack_hammer))].loadout_limit);
 }
 
 test "the field names scripts see don't change" {
@@ -901,14 +992,14 @@ test "the field names scripts see don't change" {
         .{ stats.Ship, "name,max_speed,inertia,yaw_rate,yaw_inertia,pitch_rate,pitch_inertia,roll_rate,roll_inertia,shield_power,armor_class,afterburner_fuel,shield_recharge,gun_energy,gun_recharge,rounds" },
         .{ stats.Gun, "name,range,speed,damage,fire_rate,shot_energy" },
         .{ stats.Damage, "shield,hull" },
-        .{ stats.Missile, "name,speed,turn_rate,flight_time,damage,lock_time,decoy_chance,lock_range,component_damage" },
+        .{ stats.Missile, "name,speed,turn_rate,flight_time,damage,lock_time,decoy_chance,lock_range,component_damage,loadout_limit" },
         .{ stats.Pilot, "name,tier_a,tier_b,tier_c,skill" },
         .{ game.pilots.FaceRecord, "name,talking,laughing,squadron,dying" },
         .{ game.create.combat_stats.Static, "targetable,name,class,side,display,landing,cloaking_parts" },
     };
     inline for (expected) |pinned| {
         comptime var names: []const u8 = "";
-        inline for (comptime values.shownFields(pinned[0]), 0..) |field, at| names = names ++ (if (at == 0) "" else ",") ++ field.name;
+        inline for (comptime Values.fieldsOf(pinned[0]), 0..) |field, at| names = names ++ (if (at == 0) "" else ",") ++ field.name;
         try std.testing.expectEqualStrings(pinned[1], names);
     }
     try std.testing.expectEqual(1, Set.guns.first());

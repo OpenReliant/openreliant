@@ -619,6 +619,7 @@ declare extern type MissileRecord with
     decoy_chance: number
     lock_range: number
     component_damage: number
+    loadout_limit: number?
 end
 declare extern type Pilot with
     name: string

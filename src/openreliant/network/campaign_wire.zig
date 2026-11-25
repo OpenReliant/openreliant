@@ -66,7 +66,7 @@ pub const CampaignLoadout = struct {
             if (kind != missile.missileType() or !missile.offeredAt(0)) return false;
             const count = &fitted[@backingInt(missile)];
             count.* += 1;
-            if (count.* > missile.limit()) return false;
+            if (!missile.allows(count.*)) return false;
         }
         return true;
     }

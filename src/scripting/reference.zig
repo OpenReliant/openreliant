@@ -161,7 +161,7 @@ fn gather(comptime T: type, comptime seen: Gathered) Gathered {
             if (std.mem.findScalar(type, seen.tables, T) != null) break :fields seen;
             var next = seen;
             if (!isRecord(T)) next.tables = next.tables ++ .{T};
-            for (values.shownFields(T)) |field| next = gather(field.type, next);
+            for (if (isRecord(T)) records.Values.fieldsOf(T) else values.shownFields(T)) |field| next = gather(field.type, next);
             break :fields next;
         },
         .@"union" => |info| variants: {
@@ -366,7 +366,7 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
     inline for (comptime records.Values.kinds) |T| {
         if (@typeInfo(T) != .@"struct") continue;
         try w.print("declare extern type {s} with\n", .{comptime bind.noun(T)});
-        inline for (comptime values.shownFields(T)) |field| try w.print("    {s}: {s}\n", .{ field.name, comptime luauType(field.type) });
+        inline for (comptime records.Values.fieldsOf(T)) |field| try w.print("    {s}: {s}\n", .{ field.name, comptime luauType(field.type) });
         try w.writeAll("end\n");
     }
     inline for (field_tables) |Table| {
