@@ -98,11 +98,15 @@ pub const Stats = struct {
     /// where it cloaks whole. Each points into the type records it was loaded from
     /// (`loadTypes`), or at the game's list.
     cloaking_parts: [max_ship_types]?*const cloak.Parts,
+    /// OpenReliant's own: whether the player's ship of each type carries blind fire, which each new
+    /// object of the type starts with (`Slot.blind_fire`).
+    blind_fire: [max_ship_types]bool,
 
     /// The tables as the executable holds them before `stats_load_ships` runs: every figure zero,
     /// and each record's own words, how the AI turns the type and what its combat record says it
-    /// is, with the landing the game offers on it (`ailand.Style.original`) and the parts that cloak
-    /// on it (`cloak.originalParts`).
+    /// is, with the landing the game offers on it (`ailand.Style.original`), the parts that cloak
+    /// on it (`cloak.originalParts`) and whether the player's ship of the type carries blind fire
+    /// (`main.originalBlindFire`).
     pub const initial: Stats = built: {
         @setEvalBranchQuota(ship_type_count * 30);
         var tables: Stats = .{
@@ -110,6 +114,7 @@ pub const Stats = struct {
             .combat = @splat(std.mem.zeroes(ShipCombat)),
             .landing = @splat(null),
             .cloaking_parts = @splat(null),
+            .blind_fire = @splat(false),
         };
         for (tables.flight[0..ship_type_count], 0..) |*flight, ship_type| flight.turns = flight_stats.turns(ship_type);
         for (tables.combat[0..ship_type_count], combat_stats.ship_types) |*record, static| record.take(static);
@@ -117,6 +122,7 @@ pub const Stats = struct {
             landing.* = ailand.Style.original(@fromBackingInt(ship_type));
             parts.* = cloak.originalParts(@fromBackingInt(ship_type));
         }
+        for (tables.blind_fire[0..ship_type_count], 0..) |*blind_fire, ship_type| blind_fire.* = main.originalBlindFire(@fromBackingInt(ship_type));
         break :built tables;
     };
 
@@ -157,17 +163,19 @@ pub const Stats = struct {
     }
 
     /// OpenReliant's: gives each type the words of its type record (`typeRecords`), which the mods'
-    /// scripts can change (`records.ship_types`), the landing the record offers, and the parts that
-    /// cloak on it, which the tables point to in `types`: the records outlive the tables' use of
-    /// them, and change only between missions.
+    /// scripts can change (`records.ship_types`), the landing the record offers, the parts that
+    /// cloak on it, which the tables point to in `types`, and whether the player's ship of the type
+    /// carries blind fire. The records outlive the tables' use of them, and change only between
+    /// missions.
     ///
     /// **Improvement:** the game keeps them fixed in its executable.
     pub fn loadTypes(tables: *Stats, types: []const combat_stats.Static) void {
         const count = @min(types.len, max_ship_types);
-        for (tables.combat[0..count], tables.landing[0..count], tables.cloaking_parts[0..count], types[0..count]) |*record, *landing, *parts, *static| {
+        for (tables.combat[0..count], tables.landing[0..count], tables.cloaking_parts[0..count], tables.blind_fire[0..count], types[0..count]) |*record, *landing, *parts, *blind_fire, *static| {
             record.take(static.*);
             landing.* = static.landing;
             parts.* = if (static.cloaking_parts) |*listed| listed else null;
+            blind_fire.* = static.blind_fire;
         }
     }
 
@@ -187,8 +195,9 @@ pub const Stats = struct {
 /// The type records that the mods' scripts can change (`records.ship_types`, `Stats.loadTypes`):
 /// the words the executable holds for each of the game's types (`combat_stats.Static`), then one
 /// for each type a mod adds, copied from its base's, with its own name where the mod gives one.
-/// Each holds the landing its type offers before scripts change it (`ailand.Style.of`), and the
-/// parts of its model that cloak (`cloak.partsOf`).
+/// Each holds the landing its type offers before scripts change it (`ailand.Style.of`), the parts
+/// of its model that cloak (`cloak.partsOf`), and whether the player's ship of the type carries
+/// blind fire (`main.playerShip`), so a mod's type has the blind fire its manifest gives.
 pub fn typeRecords(arena: Allocator) Allocator.Error![]combat_stats.Static {
     const made = try additions.ships.records(combat_stats.Static, arena, &combat_stats.ship_types, 0);
     for (made[additions.ships.first..], additions.ships.all()) |*record, added| {
@@ -198,6 +207,7 @@ pub fn typeRecords(arena: Allocator) Allocator.Error![]combat_stats.Static {
         const ship_type: gameobj.Type = @fromBackingInt(@as(u32, @intCast(number)));
         record.landing = ailand.Style.of(ship_type);
         record.cloaking_parts = cloak.partsOf(ship_type);
+        record.blind_fire = if (main.playerShip(ship_type)) |ship| ship.blind_fire else false;
     }
     return made;
 }
@@ -510,6 +520,9 @@ pub const Slot = struct {
     /// OpenReliant's own: the parts of its model that cloak, where it cloaks only some, as its
     /// type's record lists them (`Stats.cloaking_parts`); null where it cloaks whole.
     cloaking_parts: ?*const cloak.Parts = null,
+    /// OpenReliant's own: whether it carries blind fire as the player's ship, as its type's record
+    /// says (`Stats.blind_fire`); false for a stand-in.
+    blind_fire: bool = false,
     /// Its type's model as loaded (`GameObject.model`), and the nodes of the model's parts, which
     /// hang from its root; null for a stand-in, or a type the game has no model for.
     type: ?*const Type = null,
@@ -1288,10 +1301,17 @@ test "Stats.loadTypes" {
     // And the Kafelnikof alone cloaks only some of its parts.
     try std.testing.expectEqual(7, tables.cloaking_parts[@backingInt(gameobj.GameType.kafelnikof)].?.len);
     try std.testing.expectEqual(null, tables.cloaking_parts[victorious]);
+    // The game's blind fire: the Predator and its twin carry it, the Naginata and the Victorious don't.
+    const naginata = @backingInt(gameobj.GameType.naginata);
+    try std.testing.expect(tables.blind_fire[@backingInt(gameobj.GameType.predator)]);
+    try std.testing.expect(tables.blind_fire[@backingInt(gameobj.GameType.t_predator)]);
+    try std.testing.expect(!tables.blind_fire[naginata] and !tables.blind_fire[victorious]);
     types[shuttle].class = .fighter;
     types[shuttle].side = .neutral;
     types[victorious].landing = .bay;
+    types[naginata].blind_fire = true;
     tables.loadTypes(&types);
+    try std.testing.expect(tables.blind_fire[naginata]);
     try std.testing.expectEqual(.fighter, tables.combat[shuttle].class);
     try std.testing.expectEqual(.neutral, tables.combat[shuttle].side);
     try std.testing.expectEqual(ailand.Style.bay, tables.landing[victorious].?);
@@ -1317,6 +1337,9 @@ test typeRecords {
         // Based on the Kafelnikof: in its model, and in a model of its own.
         .{ .name = "a:hideout", .mod = "a", .base = .kafelnikof, .extra = .{ .model = "Kafelnikof.SHP" } },
         .{ .name = "a:rock", .mod = "a", .base = .kafelnikof, .extra = .{ .model = "rock.shp" } },
+        // Based on the Naginata, with blind fire; and on the Predator, without.
+        .{ .name = "a:sight", .mod = "a", .base = .naginata, .extra = .{ .model = "JLF_Nagi.SHP", .blind_fire = true } },
+        .{ .name = "a:dim", .mod = "a", .base = .predator, .extra = .{ .model = "USLF_prd.SHP", .blind_fire = false } },
     };
     additions.ships.install(&list);
     defer additions.ships.reset();
@@ -1342,6 +1365,13 @@ test typeRecords {
     try std.testing.expectEqual(null, made[@backingInt(gameobj.GameType.predator)].cloaking_parts);
     try std.testing.expectEqual(kafelnikof.len, made[additions.ships.first + 4].cloaking_parts.?.len);
     try std.testing.expectEqual(null, made[additions.ships.first + 5].cloaking_parts);
+    // The game's ships carry the game's blind fire, and a mod's type its base's or the one it gives.
+    try std.testing.expect(made[@backingInt(gameobj.GameType.predator)].blind_fire);
+    try std.testing.expect(!made[@backingInt(gameobj.GameType.naginata)].blind_fire);
+    try std.testing.expect(!made[@backingInt(gameobj.GameType.reliant)].blind_fire);
+    try std.testing.expect(pot.blind_fire);
+    try std.testing.expect(made[additions.ships.first + 6].blind_fire);
+    try std.testing.expect(!made[additions.ships.first + 7].blind_fire);
 }
 
 test "ShipCombat.nameString" {
@@ -1683,6 +1713,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
         object.radius = stand_in_radius;
         slot.landing = null;
         slot.cloaking_parts = null;
+        slot.blind_fire = false;
         hooks.tell(all, .object_added, .{ .object = .of(index) });
         return index;
     };
@@ -1693,6 +1724,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     slot.flight = &tables.flight[stats_type];
     slot.landing = tables.landing[stats_type];
     slot.cloaking_parts = tables.cloaking_parts[stats_type];
+    slot.blind_fire = tables.blind_fire[stats_type];
     slot.motion = .forward;
     object.side = @fromBackingInt(@backingInt(combat.side));
 

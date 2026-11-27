@@ -152,6 +152,15 @@ pub const Offer = struct {
     }
 };
 
+/// Gives each offer the blind fire that its type's record gives it (`create.Stats.blind_fire`),
+/// which the specials line shows.
+///
+/// **Improvement:** the original's specials are fixed. OpenReliant lets mods change blind fire
+/// (`records.ship_types`).
+pub fn fitBlindFire(offered: []Offer, stats: *const create.Stats) void {
+    for (offered) |*offer| offer.record.specials.blind_fire = stats.blind_fire[offer.ship_type];
+}
+
 /// The ship a saved game keeps for the loadout's chosen `ship_type` (`campaign_saved_ship`): a
 /// mod's ship type as its base, so that the save stays one the original reads.
 pub fn savedShip(ship_type: create.TypeIndex) u8 {
@@ -1209,4 +1218,22 @@ test installLoadouts {
     try std.testing.expectEqual(20, Missile.jack_hammer.limit());
     try std.testing.expectEqual(1, Missile.fuel_pod.limit());
     try std.testing.expectEqual(null, Missile.havoc.limit());
+}
+
+test fitBlindFire {
+    const gpa = std.testing.allocator;
+    const stats = try gpa.create(create.Stats);
+    defer gpa.destroy(stats);
+    stats.* = .initial;
+    var buffer: [arc_slot_count]Offer = undefined;
+    const offered, _ = offers(0, ship_count, &buffer);
+    // The game's own specials, as the original lists them.
+    fitBlindFire(offered, stats);
+    for (offered, ships) |offer, record| try std.testing.expectEqual(record.specials, offer.record.specials);
+    // A record that fits blind fire to the Naginata and takes it off the Predator.
+    stats.blind_fire[@backingInt(gameobj.GameType.naginata)] = true;
+    stats.blind_fire[@backingInt(gameobj.GameType.predator)] = false;
+    fitBlindFire(offered, stats);
+    try std.testing.expect(offered[1].record.specials.blind_fire and offered[1].record.specials.spectral_shields);
+    try std.testing.expect(!offered[0].record.specials.blind_fire);
 }

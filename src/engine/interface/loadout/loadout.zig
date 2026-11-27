@@ -671,6 +671,7 @@ pub const Loadout = struct {
             if (left_out > 0) log.warn("{d} of the mods' ship types are left out of the loadout: the arc has no room for them", .{left_out});
             break :offered .{ offered, .tier };
         };
+        tables.fitBlindFire(offers[0..offered.len], context.stats);
         loadout.* = .{
             .context = context,
             .arena = .init(gpa),

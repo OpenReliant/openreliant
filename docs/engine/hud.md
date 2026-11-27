@@ -731,6 +731,10 @@ starts on; a ship whose model can cloak (header flag 2) carries a cloak. Ship ty
 `0xFF`, whose models are the first twelve's `t_` twins, count as the same twelve. The same switch
 picks the cockpit's frame model ([`main.zig`](../../src/engine/game/main.zig)).
 
+**Improvement:** OpenReliant takes blind fire from the ship type's record (`blind_fire`), which
+starts as the game has it and which mods' load scripts can change
+([The records](../guide/scripting.md#the-records)). The loadout lists it with the ship's specials.
+
 `frame_controls` reads the device keys after the camera's and the targeting keys
 (`hud_target_keys`, `0x0048B6B0`, where SMART TARGET flips `smart_targeting`):
 

@@ -2373,6 +2373,26 @@ pub fn cockpitShip(all: *const create.Objects, ship_type: gameobj.Type) ?PlayerS
     return playerShip(ship_type);
 }
 
+/// The ship the start fits for the player's ship in slot `index`, of `ship_type` (`cockpitShip`),
+/// with blind fire where its type's record gives it (`create.Slot.blind_fire`). In mission 25's
+/// first part, the Kamov carries none.
+///
+/// **Improvement:** the original fits blind fire to the ships of `player_ships` that carry it.
+/// OpenReliant takes it from the type records, which mods can change (`records.ship_types`).
+pub fn fittedShip(all: *const create.Objects, index: u16, ship_type: gameobj.Type) ?PlayerShip {
+    var ship = cockpitShip(all, ship_type) orelse return null;
+    if (!all.kamovPart()) ship.blind_fire = all.slots[index].blind_fire;
+    return ship;
+}
+
+/// Whether the original fits blind fire to the player's ship of `ship_type`: the ships of
+/// `player_ships` that carry it, and their twins. The type records start from this
+/// (`create.combat_stats.Static.blind_fire`).
+pub fn originalBlindFire(ship_type: gameobj.GameType) bool {
+    if (!ship_type.playerFlies()) return false;
+    return player_ships[ship_type.untwinned().number()].blind_fire;
+}
+
 /// The player's ship of `ship_type`, a twin as the ship it twins (`gameobj.GameType.untwinned`), or
 /// null for a type the start has none for. A type a mod adds is its base, or its template where it
 /// names no base, with the cockpit, blind fire and spectral shields its manifest gives
@@ -2649,7 +2669,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
 
     const player = &all.slots[all.player];
     const player_type = all.slotType(all.player, if (try loaded.bound.file.player()) |record| @fromBackingInt(record.kind) else player.object.type);
-    const ship = cockpitShip(all, player_type);
+    const ship = fittedShip(all, all.player, player_type);
     if (start.cockpit) |shown| try shown.load(start.types.resources, start.types.textures, ship, start.types.models);
     if (start.display) |display| fitDevices(&all.player_states[all.player].charges, display, ship, if (player.type) |loaded_type| loaded_type.model.header.flags.cloak else false);
     all.fitPlayerWeapons(all.player);
@@ -2762,6 +2782,32 @@ test cockpitShip {
     all.mission25_second_part = true;
     try std.testing.expectEqualDeep(playerShip(.of(.phoenix)).?, cockpitShip(all, .of(.phoenix)).?);
     try std.testing.expectEqual(null, cockpitShip(all, .of(.kamov)));
+}
+
+test fittedShip {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    // The ship's blind fire comes from its object, which takes it from its type's record, so a mod
+    // can fit it to the Naginata and take it off the Predator.
+    all.slots[0].blind_fire = true;
+    try std.testing.expect(fittedShip(all, 0, .of(.naginata)).?.blind_fire);
+    all.slots[0].blind_fire = false;
+    try std.testing.expect(!fittedShip(all, 0, .of(.predator)).?.blind_fire);
+    try std.testing.expectEqual(null, fittedShip(all, 0, .of(.yamato)));
+    // Mission 25's Kamov carries none.
+    all.mission_number = 25;
+    all.slots[0].blind_fire = true;
+    try std.testing.expect(!fittedShip(all, 0, .of(.kamov)).?.blind_fire);
+}
+
+test originalBlindFire {
+    try std.testing.expect(originalBlindFire(.predator) and originalBlindFire(.t_predator));
+    try std.testing.expect(originalBlindFire(.phoenix));
+    for ([_]gameobj.GameType{ .naginata, .grendel, .crusader, .mirage, .tempest, .wolverine, .reliant }) |ship_type| {
+        try std.testing.expect(!originalBlindFire(ship_type));
+    }
 }
 
 test "a mod's ship type has its own cockpit and devices" {

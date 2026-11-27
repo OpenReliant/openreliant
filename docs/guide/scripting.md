@@ -1168,6 +1168,18 @@ whole, which is every type but the Kafelnikof to start with. A list holds at mos
 most 31 bytes, and assigning a list replaces it. A ship of such a type doesn't wobble or shimmer as
 it cloaks, and its model still needs the cloak's flag (`sltool shp from-obj --cloak`).
 
+OpenReliant also adds `blind_fire`, whether the player's ship of the type carries blind fire. It
+starts as in the game: the Predator, the Coyote, the Patriot, the Reaper, the Shroud and the Phoenix
+carry it, and their twins too. A mod's type starts with its base's, or with what its `BlindFire`
+key gives ([Ship types](modding.md#ship-types)). A load script can give blind fire to any ship the
+player flies, or take it away. The loadout lists it among the ship's specials, and the ship carries
+it in the mission. Blind fire still aims only the fighters' guns, not the Nova Cannon
+([Shots](../engine/guns.md#shots)).
+
+```lua
+records.ship_types.naginata.blind_fire = true
+```
+
 A pilot's face (`Face`) has `name`, the id of the string the radio's window shows over the face,
 and the film the face plays for each way it moves as the pilot speaks: `talking`, `laughing`,
 `squadron` (the 45th's own pilot, in most faces) and `dying`. A film is the name of a face film
