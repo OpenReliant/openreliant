@@ -134,6 +134,12 @@ campaign_directory: ?Io.Dir = null,
 campaign_record: ?game.gameflow.Campaign = null,
 campaign_wing: game.pilots.Wingmen = .{},
 campaign_rescues: CoopRescues = .{},
+/// The difficulty a co-op campaign's missions are flown at: the hosting pilot's, or a dedicated
+/// server's `Difficulty`.
+///
+/// **Improvement:** the original starts every network campaign mission on Easy (WinMain
+/// `0x004A99F3`).
+campaign_difficulty: game.collision.Difficulty = .easy,
 campaign_movie: ?Movie = null,
 split_restart: ?struct { variables: @import("openreliant").engine.vm.Variables, wing: game.pilots.Wingmen } = null,
 debrief: ?Results = null,
@@ -1598,7 +1604,7 @@ pub fn pump(host: *Host) !enum { running, finished } {
                 peer.attempt_rescues = peer.rescues;
             }
         }
-        host.arena = try staging.prepareCampaign(.{ .number = pending.number, .after = host.tick, .second_part = pending.second_part }, host.io, pending.directory, &host.campaign_record.?, &host.campaign_wing);
+        host.arena = try staging.prepareCampaign(.{ .number = pending.number, .after = host.tick, .second_part = pending.second_part }, host.io, pending.directory, &host.campaign_record.?, &host.campaign_wing, host.campaign_difficulty);
         host.campaign_start = null;
         staging.destroy();
         const expires = host.now() + timeout;

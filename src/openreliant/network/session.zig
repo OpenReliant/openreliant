@@ -66,6 +66,8 @@ pub const HostOptions = struct {
     teams: bool = false,
     arena_options: @import("openreliant").engine.game.deathmatch.Options = .{},
     repeat_rounds: bool = false,
+    /// The difficulty a co-op campaign's missions are flown at.
+    difficulty: @import("openreliant").engine.game.collision.Difficulty = .easy,
     invite_address: ?std.Io.net.IpAddress = null,
     advertise: ?Advertiser.Config = null,
     /// The name the game shows in LAN lists, or null to stay out of them.
@@ -260,6 +262,7 @@ pub fn serve(io: std.Io, gpa: std.mem.Allocator, directory: std.Io.Dir, identity
         .arena_teams = options.teams,
         .arena_options = options.arena_options,
         .repeat_rounds = options.repeat_rounds,
+        .campaign_difficulty = options.difficulty,
         .start = if (wait_in_lobby) .{ .lobby = .{ .scenario = scenario.? } } else .automatic,
         .signer = if (server) |*automatic| automatic else null,
         .campaign_start = if (options.mission) |mission| .{ .number = mission, .directory = game_directory } else null,

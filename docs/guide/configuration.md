@@ -425,6 +425,7 @@ your pilots can reach. Allow incoming UDP on `Port` and use the same port if you
 | `Teams` | `0` | Set to `1` for team play in Asteroid Field, Dark Reign, Tag Bomb or Hunt the Shadow. Pilots can choose their team in the lobby during the countdown |
 | `AiTurrets` | `0` | Set to `1` to keep the mission's AI turret settings in stock deathmatch arenas |
 | `TargetPlayers` | `1` | Set to `0` to make new fighters untargetable in stock deathmatch arenas |
+| `Difficulty` | `easy` | The difficulty of co-op missions: `easy`, `medium` or `hard`. It sets how hard hits land on the pilots' ships and their shots on the enemy |
 | `RepeatRounds` | `1` for stock deathmatch, `0` otherwise | A stock arena returns to the lobby after a timed round or when everyone leaves. The same countdown starts the next round. Set to `0` to exit after the first timed round |
 
 The dedicated server takes no pilot slot. When co-op's countdown ends, the server opens the

@@ -361,7 +361,10 @@ const player_share: f32 = 0.5;
 pub const DamageRules = union(enum) {
     /// The standalone campaign uses the local pilot's slot.
     campaign,
-    /// The original starts network campaign missions on Easy (WinMain `0x004A99F3`).
+    /// A network campaign mission, at the difficulty its host set (`World.difficulty`).
+    ///
+    /// **Improvement:** the original starts every network campaign mission on Easy (WinMain
+    /// `0x004A99F3`), whatever the host's difficulty.
     cooperative,
     /// Arenas use full damage by default. The host can opt into a difficulty grade.
     arena: ?Difficulty,
@@ -379,8 +382,7 @@ pub fn byDifficulty(world: gameobj.World, index: u16, kind: Kind, value: f32) f3
     if (hooks.enter(.damage_by_difficulty, byDifficulty, .{ world, index, kind, value })) |result| return result;
     const all = world.objects;
     const difficulty: Difficulty = switch (world.damage_rules) {
-        .campaign => world.difficulty,
-        .cooperative => .easy,
+        .campaign, .cooperative => world.difficulty,
         .arena => |grade| grade orelse return value,
     };
     const pilot = if (world.damage_rules == .campaign) index == all.player else all.playerBinding(index) != null;
@@ -1534,13 +1536,18 @@ test "hosted damage rules do not depend on the viewer" {
     }
 
     all.slots[second].object.side = .hostile;
-    world.difficulty = .hard;
     for ([_]u16{ first, second, enemy }) |viewer| {
         all.player = viewer;
         world.damage_rules = .cooperative;
+        // Every pilot's ship and every hostile take the host's difficulty, whoever watches.
+        world.difficulty = .easy;
         try std.testing.expectEqual(37.5, byDifficulty(world, first, .collision, 100));
         try std.testing.expectEqual(37.5, byDifficulty(world, second, .collision, 100));
         try std.testing.expectEqual(150, byDifficulty(world, enemy, .bullet, 100));
+        world.difficulty = .hard;
+        try std.testing.expectEqual(75, byDifficulty(world, first, .collision, 100));
+        try std.testing.expectEqual(75, byDifficulty(world, second, .collision, 100));
+        try std.testing.expectEqual(75, byDifficulty(world, enemy, .bullet, 100));
         world.damage_rules = .{ .arena = null };
         try std.testing.expectEqual(100, byDifficulty(world, first, .collision, 100));
         try std.testing.expectEqual(100, byDifficulty(world, second, .bullet, 100));
