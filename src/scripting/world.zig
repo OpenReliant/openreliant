@@ -14,6 +14,8 @@ const Call = api.Call;
 const handles = @import("objects.zig");
 const missile_handles = @import("missiles.zig");
 const game = @import("game.zig");
+const util = @import("util.zig");
+const math = engine.surrender.math;
 
 /// What `openreliant.world` holds.
 pub const package = struct {
@@ -25,6 +27,7 @@ pub const package = struct {
     pub const set_objective = api.Function("Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names.", &.{ "objective", "state" }, setObjective);
     pub const variable = api.Function("The value of the game's variable `name` in the mission that runs, as the mission's script reads it. Nil between missions.", &.{"name"}, readVariable);
     pub const set_variable = api.Function("Sets the game's variable `name` to `value` in the mission that runs, as the mission's script sets it. The campaign keeps the value from one mission to the next where it keeps the variable. Returns false between missions.", &.{ "name", "value" }, setVariable);
+    pub const set_escort_marker = api.Function("Puts the escort marker, the red rings and chevrons that a mission's SetEscortPoint shows the player, on `object`: at `offset` in its frame (x to its right, y down and z forward of it), turned by `orientation` in that frame, so that the player flies through it along its z axis. The marker follows the object as it moves and turns. Without `offset` and `orientation`, it stands on the object itself, as SetEscortPoint puts it. Nil takes the marker away. A mission's SetEscortPoint for the player's ship replaces it. Returns false between missions.", &.{ "object", "offset", "orientation" }, setEscortMarker);
     pub const set_player_carrier = api.Function("Makes `ship` the player's carrier (`player_carrier`): PERMISSION TO LAND asks it, its bridge answers, and the player's ship lands on it where it offers a landing (its `landing`). Nil leaves the player without a carrier. Returns false between missions.", &.{"ship"}, setPlayerCarrier);
 
     pub const player = api.Field(?Object, "The player's ship, while a mission runs; nil between missions.", struct {
@@ -61,6 +64,27 @@ fn participantShip(call: Call, id: []const u8) ?Object {
 fn setPlayerCarrier(call: Call, ship: ?Object) bool {
     const orders = call.runtime().orders orelse return false;
     orders.world.player.carrier = if (ship) |carrier| .of(orders.world.objects, carrier.slot()) else null;
+    return true;
+}
+
+/// `world.set_escort_marker(object, offset, orientation)`: the player's escort point
+/// (`GameObject.escort_point`), as a mission's `SetEscortPoint` sets it, and where the marker stands
+/// in its frame (`create.Objects.escort_place`), which the marker's frame reads
+/// (`create.escort.Marker.frame`).
+fn setEscortMarker(call: Call, object: ?Object, offset: ?@Vector(3, f32), orientation: ?util.Orientation) bool {
+    const orders = call.runtime().orders orelse return false;
+    const all = orders.world.objects;
+    const player = &all.slots[all.player].object;
+    const on = object orelse {
+        player.escort_point = .none;
+        all.escort_place = null;
+        return true;
+    };
+    player.escort_point = .of(on.slot());
+    all.escort_place = if (offset == null and orientation == null) null else .{
+        .position = offset orelse @splat(0),
+        .orientation = if (orientation) |turned| math.orthonormalize(turned.matrix()) else math.identity,
+    };
     return true;
 }
 

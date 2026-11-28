@@ -1387,8 +1387,12 @@ fn fire(call: Call, game: aigeneric.Context) void {
 /// `cmd_SetEscortPoint` (`0x004592F0`, command `0x31`) and `cmd_SetEscortPoint_ship`
 /// (`0x00459310`), for each ship the first argument names (`perShip`): the ship's escort point
 /// becomes the object the command's second argument names, or none (`GameObject.escort_point`).
+/// For the player's ship, OpenReliant also drops the place a script gave the marker
+/// (`create.Objects.escort_place`), so that the marker stands on the new object itself.
 fn setEscortPointShip(call: Call, ship: Ship) void {
-    ship.slot.object.escort_point = .from(call.argumentShip(ship.game.world.objects, 0));
+    const all = ship.game.world.objects;
+    ship.slot.object.escort_point = .from(call.argumentShip(all, 0));
+    if (ship.index == all.player) all.escort_place = null;
 }
 
 /// `cmd_SetNavPoint` (`0x00459270`, command `0x30`) and `cmd_SetNavPoint_ship` (`0x00459290`), for

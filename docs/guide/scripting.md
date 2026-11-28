@@ -1038,6 +1038,29 @@ The objectives' names come from the game's table, by the mission's number. A cam
 can come from its record ([Each mission of the campaign](#each-mission-of-the-campaign)), and a game
 mode's mission's from the mode ([Game modes](#game-modes)).
 
+### The escort marker
+
+A mission's `SetEscortPoint` shows the player a red marker, rings and chevrons to fly through, on
+an object. `world.set_escort_marker(object, offset, orientation)` shows it from a global or mission
+script, at a point in the object's frame: x to its right, y down and z forward. The player flies
+through it along its z axis, which the chevrons point along, and it follows the object as it moves.
+
+```lua
+local world = require("openreliant.world")
+
+-- A marker 3000 ahead of the carrier's nose and 500 above it, turned to face the carrier, so that
+-- the player flies through it toward the bow.
+local back = { right = vector.create(-1, 0, 0), down = vector.create(0, 1, 0), forward = vector.create(0, 0, -1) }
+world.set_escort_marker(world.player_carrier, vector.create(0, -500, 3000), back)
+
+-- Later, take it away.
+world.set_escort_marker(nil)
+```
+
+- Without `offset` and `orientation`, the marker stands on the object, as `SetEscortPoint` puts it.
+- The marker shows only in the views from the cockpit, as in the game.
+- A mission's `SetEscortPoint` for the player's ship replaces it.
+
 ## Events
 
 Scripts send each other events: `core.send_global_event(name, data)` to the global and mission

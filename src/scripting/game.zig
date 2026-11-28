@@ -1468,6 +1468,44 @@ test "scripts list a ship's parts, destroy it, and set the player's targets" {
     try std.testing.expect(slot.object.flags.exploding);
 }
 
+test "a script puts the escort marker at a place off a ship, and takes it away" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local world = require("openreliant.world")
+                \\return {
+                \\    engine_handlers = {
+                \\        on_mission_start = function()
+                \\            local sabre = world.objects()[2]
+                \\            local back = { right = vector.create(-1, 0, 0), down = vector.create(0, 1, 0), forward = vector.create(0, 0, -2) }
+                \\            assert(world.set_escort_marker(sabre, vector.create(0, -500, 3000), back))
+                \\        end,
+                \\        on_update = function()
+                \\            assert(world.set_escort_marker(nil))
+                \\        end,
+                \\    },
+                \\}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    fixture.begin();
+    fixture.game.scripts.started(.{ .number = 5, .file = "mission5.dte" });
+    const all = fixture.mission.objects;
+    try std.testing.expectEqual(fixture.sabre, all.slots[all.player].object.escort_point.index().?);
+    const place = all.escort_place.?;
+    try std.testing.expectEqual(@Vector(3, f32){ 0, -500, 3000 }, place.position);
+    // The forward axis made unit length.
+    try std.testing.expectEqual(@Vector(3, f32){ 0, 0, -1 }, openreliant.engine.surrender.math.forward(place.orientation));
+    fixture.game.scripts.update(0.01);
+    try std.testing.expectEqual(null, all.slots[all.player].object.escort_point.index());
+    try std.testing.expectEqual(null, all.escort_place);
+}
+
 test "a script lets the player land on a ship, and makes it the player's carrier" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{.{
