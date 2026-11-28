@@ -448,6 +448,14 @@ game message payload bytes sent and received. `openreliant_simulation_slow_ticks
 that took more than twice the normal tick budget. The exporter handles scrapes outside the
 simulation loop.
 
+To see what a host needs before you choose a machine for it, run
+`python3 scripts/measure-server.py <openreliant> <game folder> deathmatch` with a build that has
+multiplayer. It starts a host on this machine with these metrics on, joins it with eight terminal
+pilots who fire and turn at random, and once they fly, prints the host's CPU use, memory, step
+time and traffic every 10 seconds. Use `coop` for four pilots in Mission 1, and `--help` for the
+other options. On Windows the pilots can't fire: the terminal client reads keys from the console,
+so the script can't send them.
+
 ### Optional managed identity
 
 For an operator-managed transport identity, add `[Identity]` and set both keys below.
