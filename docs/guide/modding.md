@@ -998,7 +998,9 @@ a Yamato and the Reliant's for any other carrier, a mod's too
 ([#1340](https://github.com/OpenReliant/openreliant/issues/1340)). In a bay, the ship flies in at
 gate 0. A mission can land the ship at another gate, and at a moment of its own, with
 `SetAI(player, "land", 1, component(carrier, gate))`
-([Landing](../engine/orders.md#landing)). A mission can also let the player land on a ship that
+([Landing](../engine/orders.md#landing)). On the Reliant and the Yamato, a land order aimed at a
+component also starts the landing at once, and a script can do the same with
+`world.player:give_order("land", carrier, 0)`. A mission can also let the player land on a ship that
 offers no landing, such as the Victorious, or keep the player off one that does
 ([Landing on another carrier](missions.md#landing-on-another-carrier)).
 
