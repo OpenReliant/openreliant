@@ -436,7 +436,12 @@ pub const Ship = struct {
 
     pub const unknown_ping = std.math.maxInt(u16);
 
+    /// The bytes a ship takes while it flies. A dying ship takes `spin_size` more, which the
+    /// datagram's budget (`capacity`) has no room for with every pilot dying at once: a view
+    /// that then doesn't fit goes without its pilot's private readings (`Message.encodeView`).
     const encoded_size = @sizeOf(u64) + @sizeOf(u32) + 1 + 19 * @sizeOf(f32) + 4 * @sizeOf(i8) + 2 * @sizeOf(u8) + 3 * @sizeOf(i16) + 3 * @sizeOf(i32) + 2 * @sizeOf(u16) + 2;
+    /// A dying ship's spin-out: the ticks left, the trail and the three turns.
+    const spin_size = @sizeOf(u16) + 1 + 3 * @sizeOf(i16);
 
     pub fn face(ship: *Ship, orientation: engine.surrender.math.Matrix) void {
         ship.angles = packFacing(orientation);
@@ -1393,6 +1398,27 @@ pub const Message = union(enum(u8)) {
         return w.buffered();
     }
 
+    /// `encode` for a view, which always fits `buffer`, a datagram's `capacity`. Where the
+    /// whole view doesn't, because pilots' ships spin out (`Ship.spin_size`), it goes without
+    /// the pilot's private readings, the weapons and the power-up held, which the next view
+    /// that fits brings again. Every ship still travels.
+    pub fn encodeView(message: Message, buffer: *[capacity]u8) ![]const u8 {
+        return message.encode(buffer) catch |err| switch (err) {
+            error.WriteFailed => {
+                var bare = message;
+                switch (bare) {
+                    .view, .finished, .campaign_result => |*view| {
+                        view.weapons = null;
+                        view.power = null;
+                    },
+                    else => return err,
+                }
+                return bare.encode(buffer);
+            },
+            else => return err,
+        };
+    }
+
     pub fn decode(bytes: []const u8) !Message {
         if (bytes.len > capacity) return error.MessageTooLarge;
         var r = std.Io.Reader.fixed(bytes);
@@ -1991,6 +2017,59 @@ test "asteroid views include the stock mode and keep absent rock slots" {
     scenery.rocks.angles[1] = null;
     scenery.mines[powerups.mine_count - 1] = .{ .position = .{ 100, 200, -300 }, .angles = .{ 10, -15, 20 }, .reuse = 19 };
     try std.testing.expectEqualDeep(scenery, (try Message.decode(try (Message{ .scenery = scenery }).encode(&buffer))).scenery);
+}
+
+test "a view too large for a datagram goes without its private readings, and keeps every ship" {
+    var buffer: [capacity]u8 = undefined;
+    const spin: engine.game.aiexplode.Spin = .{ .left = 300, .trail = 40, .turn = .{ 100, -200, 300 } };
+    const ship: Ship = .{ .generation = 1, .position = @splat(0), .dying = true, .spin = spin, .cloaked = true, .ping_ms = 40 };
+    // The fullest private readings: every missile entry, and a lock held.
+    var weapons: ordnance.Status = .{ .countermeasures = 3, .incoming = true, .armed = 1 };
+    for (&weapons.ammo) |*entry| entry.* = .{ .kind = .raptor, .count = 2 };
+    weapons.held = .{ .phase = .locked, .count = 0, .ticks = 12, .point = .{ 3, 8, 21 } };
+    // Dark Reign with teams carries the most beside the ships: the scores, the relay, the
+    // cannon's shot and a power-up.
+    var teams: Teams = undefined;
+    for (&teams.values) |*score| score.* = .{ .kills = 1, .deaths = 1 };
+    const dark_reign: Snapshot = .{
+        .tick = 900,
+        .scenario = .dark_reign,
+        .ships = @splat(ship),
+        .teams = teams,
+        .objectives = .{ .dark_reign = .{ .relay = .{ .loose = .{ 1, 2, 3 } }, .yaw = 5, .shot = .{ .target = 1, .step = .destroy, .elapsed = 9 } } },
+        .weapons = weapons,
+        .power = .{ .kind = .cloak, .since = 4 },
+    };
+    // Eight dying ships and the fullest readings are more than a datagram holds.
+    try std.testing.expectError(error.WriteFailed, (Message{ .view = dark_reign }).encode(&buffer));
+    var bare = dark_reign;
+    bare.weapons = null;
+    bare.power = null;
+    try std.testing.expectEqualDeep(bare, (try Message.decode(try (Message{ .view = dark_reign }).encodeView(&buffer))).view);
+    // A view that fits keeps its readings.
+    var flying = dark_reign;
+    flying.ships = @splat(.{ .generation = 1, .position = @splat(0) });
+    try std.testing.expectEqualDeep(flying, (try Message.decode(try (Message{ .view = flying }).encodeView(&buffer))).view);
+    // Every stock arena, as full, still sends every ship.
+    for (std.enums.values(Scenario)) |scenario| {
+        var view = dark_reign;
+        view.scenario = scenario;
+        view.teams = if (scenario.record().teams == .none) null else teams;
+        view.power = if (scenario.hasPowerUps()) dark_reign.power else null;
+        // Only an arena with power-ups sends a cloak.
+        for (&view.ships) |*entry| entry.*.?.cloaked = scenario.hasPowerUps();
+        view.objectives = switch (scenario.record().rules) {
+            .deathmatch, .asteroid_field => .none,
+            .six_beacons => .{ .six_beacons = @splat(.{ .loose = .{ 1, 2, 3 } }) },
+            .dark_reign => dark_reign.objectives,
+            .tag_bomb => .{ .tag_bomb = .{ .carrier = 1, .remaining = 9 } },
+            .hunt_the_shadow => .{ .hunt_the_shadow = 1 },
+            .vampires => .{ .vampires = .{ .mask = 3 } },
+        };
+        if (scenario == .nuclear_threat) view.blast = .{ .owner = 1, .started = 1700, .size = 2, .position = .{ 1, 2, 3 }, .angles = .{ 1, 2, 3 } };
+        const sent = (try Message.decode(try (Message{ .view = view }).encodeView(&buffer))).view;
+        try std.testing.expectEqualDeep(view.ships, sent.ships);
+    }
 }
 
 test "a dying ship's spin-out round-trips and a spin past its longest is refused" {

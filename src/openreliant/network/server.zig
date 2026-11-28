@@ -1183,7 +1183,7 @@ const Delivery = enum {
 };
 
 /// A pilot gets the same private cockpit readings during a pause as in flight.
-fn sendView(host: *const Host, view: *wire.Snapshot, slot: u8, delivery: Delivery, buffer: []u8) !void {
+fn sendView(host: *const Host, view: *wire.Snapshot, slot: u8, delivery: Delivery, buffer: *[wire.capacity]u8) !void {
     const all = host.arena.mission.objects;
     if (view.mission) |*mission| {
         const state = &all.player_states[slot];
@@ -1204,7 +1204,7 @@ fn sendView(host: *const Host, view: *wire.Snapshot, slot: u8, delivery: Deliver
         .final => .{ .finished = view.* },
         .debrief, .split_result => .{ .campaign_result = view.* },
     };
-    try host.channel().sendBytes(host.peers[slot].?.conn, try message.encode(buffer), delivery != .flight);
+    try host.channel().sendBytes(host.peers[slot].?.conn, try message.encodeView(buffer), delivery != .flight);
     if (delivery == .flight and ship) try host.sendOwnFlight(slot, buffer);
 }
 
@@ -1520,8 +1520,24 @@ fn beginMovie(host: *Host, time: i64) void {
     host.sendCampaignPhase(.{ .campaign_movie = host.tick });
 }
 
+/// Whether a host goes on, or its session is over.
+pub const Pumped = enum { running, finished };
+
+/// `pump`, for a caller that comes round less often than the host steps, such as once a drawn
+/// frame: it takes every step that is due, so the game keeps its speed whatever the frame rate.
+/// A host more than `max_late_steps` behind starts its schedule over (`pump`), which bounds the
+/// steps of one call.
+pub fn pumpDue(host: *Host) !Pumped {
+    var steps: usize = 0;
+    while (true) {
+        if (try host.pump() == .finished) return .finished;
+        steps += 1;
+        if (steps > max_late_steps or host.final_tick != null or host.now() < host.next_step) return .running;
+    }
+}
+
 /// Services a host without waiting for the next tick. The caller polls transport callbacks.
-pub fn pump(host: *Host) !enum { running, finished } {
+pub fn pump(host: *Host) !Pumped {
     host.answerDiscovery();
     const time = host.now();
     if (host.final_tick != null) {
