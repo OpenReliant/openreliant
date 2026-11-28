@@ -130,11 +130,16 @@ pub const Marker = struct {
     /// ring but the first and each place of chevrons takes its red from it; drawn along the line
     /// from the camera, at `camera_at`, no farther than `reach`; and it goes into the world's layer
     /// in the four views from the cockpit.
+    ///
+    /// **Improvement:** a script can stand the marker at a place in the escort point's frame
+    /// (`create.Objects.escort_place`, `world.set_escort_marker`), such as an approach point off a
+    /// carrier, and the marker then follows the object as it moves and turns.
     pub fn frame(marker: *Marker, gpa: Allocator, scene: *srcore.Scene, all: *const Objects, camera_at: Vector, view: camera.View, ticks: i32) Allocator.Error!void {
         const point = all.slots[all.player].object.escort_point.index() orelse return;
         const drawn = all.slots[point].drawn;
-        marker.object.position = drawn.position;
-        marker.object.orientation = drawn.orientation;
+        const placed = if (all.escort_place) |local| local.within(drawn) else drawn;
+        marker.object.position = placed.position;
+        marker.object.orientation = placed.orientation;
         marker.clock = @mod(marker.clock + ticks, pulse_ticks);
         for (1..rings) |ring| {
             const phase = first_ring_phase - phase_step * @as(i32, @intCast(ring - 1));
@@ -282,4 +287,32 @@ test "Marker.frame stands it on the escort point, pulses it, and draws it from t
     // The pulse comes round every 300 ticks.
     try marker.frame(gpa, &scene, mission.objects, @splat(0), .chase, 300);
     try std.testing.expectEqual(150, marker.clock);
+}
+
+test "Marker.frame stands it at a script's place in the escort point's frame" {
+    const gpa = std.testing.allocator;
+    const gameobj = @import("../gameobj.zig");
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const player = try mission.add(.of(.predator), .{ 0, 0, 0 });
+    const carrier = try mission.add(.of(.reliant), .{ 0, 0, 10000 });
+    mission.objects.player = player;
+    const marker: *Marker = try .create(gpa);
+    defer marker.destroy(gpa);
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+
+    // The carrier turned a quarter turn about its Y axis: its nose points along the world's X axis.
+    const turned = math.rotation(.y, std.math.pi / 2.0);
+    mission.slot(player).object.escort_point = .of(carrier);
+    mission.slot(carrier).drawn = .{ .position = .{ 0, 0, 10000 }, .orientation = turned };
+    // A point 2000 ahead of the carrier's nose, the marker turned to face back along it.
+    const back = math.rotation(.y, std.math.pi);
+    mission.objects.escort_place = .{ .position = .{ 0, 0, 2000 }, .orientation = back };
+    try marker.frame(gpa, &scene, mission.objects, @splat(0), .cockpit, 0);
+    const ahead = math.transform(turned, .{ 0, 0, 2000 });
+    try math.testing.expectVectorWithin(Vector{ 0, 0, 10000 } + ahead, marker.object.position, 1e-2);
+    // The marker's own Z axis points back at the carrier.
+    try math.testing.expectVectorWithin(-math.normalize(ahead), math.forward(marker.object.orientation), 1e-5);
 }

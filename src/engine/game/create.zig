@@ -778,6 +778,11 @@ pub const Objects = struct {
     /// makes in the slot after the mission's ships, and which the Yamato's launch moves beside the
     /// player's bay; null until a mission's start makes it.
     camera_marker: ?u16 = null,
+    /// OpenReliant's: where the escort point's marker stands in the frame of the player's escort
+    /// point, which a script sets with `world.set_escort_marker`; null stands it on the object
+    /// itself, as the game does. A mission's `SetEscortPoint` for the player's ship and a mission's
+    /// start clear it.
+    escort_place: ?math.Place = null,
     /// `bombard_planet` (`0x005531A8`): the slot of the last Titan made, on which Planet Bombard's
     /// flashes burst (`environfx.bombard`); null until one is made.
     bombarded: ?u16 = null,
@@ -911,6 +916,7 @@ pub const Objects = struct {
         all.arena_boundary = null;
         for (&all.player_states) |*state| state.resetMission();
         all.camera_marker = null;
+        all.escort_place = null;
         all.bombarded = null;
         all.in_stalag = false;
         // The game lets the exhaust's list go as the mission before ends (`exhaust_ships_reset`).

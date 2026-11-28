@@ -220,6 +220,12 @@ band's middle, to 0.25 at least. The band reaches the next ring or place of chev
 OpenReliant builds the marker once for the run. Drawing keeps it, and starts its clock again as it
 takes up each mission's start ([Cues](loop.md#game-frames-and-drawn-frames)).
 
+**Improvement:** a script can put the marker at a point near an object rather than on the object
+itself (`world.set_escort_marker`), for example an approach point off a carrier. The point and the
+marker's turn are given in the object's frame, so the marker follows the object as it moves and
+turns. A mission's `SetEscortPoint` for the player's ship, or a new mission, puts the marker back
+on the object itself.
+
 ## Rules by mission number
 
 The game singles some missions out by their numbers:

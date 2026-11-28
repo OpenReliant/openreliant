@@ -791,6 +791,8 @@ export type World = {
     variable: (name: GameVariable) -> number?,
     --- Sets the game's variable `name` to `value` in the mission that runs, as the mission's script sets it. The campaign keeps the value from one mission to the next where it keeps the variable. Returns false between missions.
     set_variable: (name: GameVariable, value: number) -> boolean,
+    --- Puts the escort marker, the red rings and chevrons that a mission's SetEscortPoint shows the player, on `object`: at `offset` in its frame (x to its right, y down and z forward of it), turned by `orientation` in that frame, so that the player flies through it along its z axis. The marker follows the object as it moves and turns. Without `offset` and `orientation`, it stands on the object itself, as SetEscortPoint puts it. Nil takes the marker away. A mission's SetEscortPoint for the player's ship replaces it. Returns false between missions.
+    set_escort_marker: (object: Object?, offset: vector?, orientation: Orientation?) -> boolean,
     --- Makes `ship` the player's carrier (`player_carrier`): PERMISSION TO LAND asks it, its bridge answers, and the player's ship lands on it where it offers a landing (its `landing`). Nil leaves the player without a carrier. Returns false between missions.
     set_player_carrier: (ship: Object?) -> boolean,
 }
@@ -1214,6 +1216,7 @@ export type Interfaces = {
         set_objective: (objective: number, state: ObjectiveState) -> boolean,
         variable: (name: GameVariable) -> number?,
         set_variable: (name: GameVariable, value: number) -> boolean,
+        set_escort_marker: (object: Object?, offset: vector?, orientation: Orientation?) -> boolean,
         set_player_carrier: (ship: Object?) -> boolean,
     },
     Campaign: {
