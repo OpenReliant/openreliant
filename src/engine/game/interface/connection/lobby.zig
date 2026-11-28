@@ -17,6 +17,7 @@ const tooltips = @import("../../itac/tooltips.zig");
 const Label = widgets.Label;
 const Lobby = @This();
 const ArenaOptions = @import("../../deathmatch.zig").Options;
+const Difficulty = @import("../../collision.zig").Difficulty;
 pub const History = chat_panel.History;
 
 const Crew = @import("debrief_crew.zig");
@@ -59,7 +60,7 @@ const Role = union(enum) {
     },
     guest,
 };
-const Control = enum { back, main_menu, quit, launch, new_campaign, load_campaign, ready, remove, ship, team, ai_turrets, target_players, teams, mode, setup };
+const Control = enum { back, main_menu, quit, launch, new_campaign, load_campaign, difficulty, ready, remove, ship, team, ai_turrets, target_players, teams, mode, setup };
 
 role: Role,
 roster: []const ?Pilot,
@@ -74,6 +75,11 @@ ready: Crew.Pilots = .empty,
 scenario: scenarios.Scenario = .asteroid_field,
 mission: ?u16 = null,
 loaded_campaign: bool = false,
+/// The difficulty the host flies the co-op campaign at, which DIFFICULTY steps through.
+///
+/// **Improvement:** the original flies every network campaign on Easy, and its lobby has no
+/// such field.
+difficulty: Difficulty = .easy,
 ship: scenarios.Fighter = .predator,
 teams: bool = false,
 options: ArenaOptions = .{},
@@ -230,6 +236,8 @@ fn drawSwatch(canvas: ui.Canvas, team: Team, box: ui.Rect, inset: i16) void {
 const coop_lead: Field = .{ .box = .{ .x = 45, .y = 179, .width = 149, .height = 21 }, .label = role_label };
 const coop_game: Field = .{ .box = .{ .x = 45, .y = 217, .width = 149, .height = 21 }, .label = game_label };
 const coop_mission: Field = .{ .box = .{ .x = 201, .y = 217, .width = 84, .height = 21 }, .label = .{ .english = "MISSION", .installed = 0xE5 } };
+/// OpenReliant's own field, over MISSION and as wide: the host's difficulty for the campaign.
+const coop_difficulty: Field = .{ .box = .{ .x = coop_mission.box.x, .y = coop_lead.box.y, .width = coop_mission.box.width, .height = 21 }, .label = .{ .english = "DIFFICULTY" } };
 const arena_lead: Field = .{ .box = .{ .x = 45, .y = 164, .width = 149, .height = 21 }, .label = role_label };
 
 /// The button that opens the host setup, where the host's port is shown otherwise.
@@ -314,6 +322,7 @@ pub fn updateHelp(lobby: *Lobby, at: ?[2]i32, ticks: u32) void {
         .{ .rect = coop_remove.box, .string = 0x595, .fallback = "Click to remove the player currently selected in Players box from the session." },
         .{ .rect = coop_new.box, .string = 0x596, .fallback = "Click to start a new game" },
         .{ .rect = coop_load.box, .string = 0x597, .fallback = "Click to bring up a list of saved games." },
+        .{ .rect = coop_difficulty.box, .string = 0, .fallback = "Click to change the difficulty." },
     };
     const arena = [_]tooltips.Tooltip{
         .{ .rect = ship_arrow.box, .string = 0x5A3, .fallback = "Click to select a list of ships to fly" },
@@ -385,6 +394,7 @@ fn controlAt(lobby: *const Lobby, at: [2]i32) ?Control {
     if (coop and lobby.role == .host) {
         if (coop_new.box.holds(at)) return .new_campaign;
         if (coop_load.box.holds(at)) return .load_campaign;
+        if (coop_difficulty.box.holds(at)) return .difficulty;
     }
     if (!coop and (ship_field.box.holds(at) or ship_arrow.box.holds(at))) return .ship;
     if (!coop and lobby.teams and (team_field.box.holds(at) or team_arrow.box.holds(at))) return .team;
@@ -581,6 +591,10 @@ pub fn frame(lobby: *Lobby, mouse: ui.Pointer, keys: *input.Keyboard, typed: *Ty
         .launch => .launch,
         .new_campaign => .new_campaign,
         .load_campaign => .load_campaign,
+        .difficulty => next: {
+            lobby.difficulty = harder(lobby.difficulty);
+            break :next null;
+        },
         .ready => .{ .ready = !lobby.isReady(lobby.local_slot) },
         .remove => .{ .remove = lobby.selectedPilot().? },
         .ship => .choose_ship,
@@ -684,6 +698,7 @@ fn drawCoop(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
     const lit = lobby.hover == .launch or lobby.hover == .ready;
     try coop_start.draw(canvas, art, lit, !host or lobby.role.host.can_launch);
     if (host) {
+        try coop_difficulty.draw(canvas, difficultyName(lobby.difficulty).text(canvas.strings.*), lobby.hover == .difficulty);
         try coop_new.draw(canvas, art, !lobby.loaded_campaign or lobby.hover == .new_campaign, true);
         try write(canvas, .{ 499, 300 }, .{ .english = "NEW", .installed = 0x148 }, ui.blue, .left);
         try coop_load.draw(canvas, art, lobby.loaded_campaign or lobby.hover == .load_campaign, true);
@@ -696,6 +711,25 @@ fn drawCoop(lobby: *const Lobby, canvas: ui.Canvas, art: *hud.Art) !void {
     } else {
         try write(canvas, .{ 494, 390 }, if (lobby.isReady(lobby.local_slot)) unready_label else ready_label, ui.blue, .left);
     }
+}
+
+/// The difficulty after `difficulty` as the field steps: easy, medium, hard, and round to easy,
+/// as SET GAME DIFFICULTY's right arrow steps it (`pilot_roster.DifficultyDialog`).
+fn harder(difficulty: Difficulty) Difficulty {
+    return switch (difficulty) {
+        .easy => .medium,
+        .medium => .hard,
+        .hard, _ => .easy,
+    };
+}
+
+/// The difficulty's name, with the strings of SET GAME DIFFICULTY's table (`0x00430C6E`).
+fn difficultyName(difficulty: Difficulty) Label {
+    return switch (difficulty) {
+        .easy => .{ .english = "EASY", .installed = 0x2A7 },
+        .medium, _ => .{ .english = "MEDIUM", .installed = 0x11C },
+        .hard => .{ .english = "HARD", .installed = 0x2A8 },
+    };
 }
 
 /// `session_loadout_draw` (0x0044CB60) places setup controls and chat beside the pilot list.
@@ -833,6 +867,24 @@ test "the retail lobby gates launch, host options and guest readiness" {
     lobby.mission = 1;
     try std.testing.expectEqual(Control.ready, lobby.controlAt(coop_start.box.centre()).?);
     try std.testing.expectEqual(null, lobby.controlAt(ship_field.box.centre()));
+}
+
+test "the co-op host's DIFFICULTY field steps the difficulty, and a guest has none" {
+    const crew = [_]?Pilot{ .{ .generation = 1 }, .{ .generation = 2 } };
+    var lobby: Lobby = .{ .role = .{ .host = .{ .port = 27020 } }, .roster = &crew, .local_slot = 0, .mission = 1 };
+    try std.testing.expectEqual(Control.difficulty, lobby.controlAt(coop_difficulty.box.centre()).?);
+    try std.testing.expectEqual(Difficulty.easy, lobby.difficulty);
+    for ([_]Difficulty{ .medium, .hard, .easy }) |next| {
+        lobby.difficulty = harder(lobby.difficulty);
+        try std.testing.expectEqual(next, lobby.difficulty);
+    }
+    try std.testing.expectEqualStrings("HARD", difficultyName(.hard).english);
+    // A guest's lobby, and an arena's, have no such field.
+    lobby.role = .guest;
+    try std.testing.expectEqual(null, lobby.controlAt(coop_difficulty.box.centre()));
+    lobby.role = .{ .host = .{ .port = 27020 } };
+    lobby.mission = null;
+    try std.testing.expect(lobby.controlAt(coop_difficulty.box.centre()) != Control.difficulty);
 }
 
 test "the retail roster fits all stock slots and scrolls within its frame" {

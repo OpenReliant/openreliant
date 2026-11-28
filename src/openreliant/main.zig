@@ -1378,6 +1378,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                             coop_saving = .init(front.pilot);
                             pilot_profile.saveWith(front.pilot.call_sign.slice());
                             network_pilot.hostLan(io, gpa, directory, &front.connection, &front.pilot.call_sign, kind, directory_servers);
+                            // A co-op lobby starts on the pilot's own difficulty.
+                            if (front.connection.lobby) |*lobby| lobby.difficulty = front.pilot.difficulty;
                         }
                         continue;
                     },
@@ -1386,7 +1388,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         continue;
                     },
                     .launch_session => {
-                        if (network_enabled) network_pilot.launch(&front.connection, front.pilot.difficulty);
+                        if (network_enabled) network_pilot.launch(&front.connection);
                         continue;
                     },
                     .new_coop_campaign, .loaded_coop_campaign => {
