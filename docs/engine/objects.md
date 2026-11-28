@@ -663,6 +663,13 @@ scales damage (`damage_by_difficulty`, `0x00463D70`):
 | Medium | ×1 | ×0.5 |
 | Hard | ×0.75 | ×0.75 |
 
+In a co-op campaign the host's difficulty scales the damage for the whole crew: a shot on a hostile
+object, and anything on a pilot's ship (`collision.DamageRules.cooperative`). A hosting pilot's is
+the one SET GAME DIFFICULTY or `--difficulty` set, easy until then, and a dedicated server's is its
+`Difficulty` ([Configuration](../guide/configuration.md)). **Improvement:** the original starts
+every network campaign mission on Easy (WinMain `0x004A99F3`). The arenas take damage unscaled, as
+in the original.
+
 `object_damage` (`0x00463EE0`) scales what the shield takes, but reckons what passes through from
 the damage before the scaling. `object_armor_damage` scales its damage twice, once for
 `recent_damage` and that again for the armour, and `component_damage` (`0x004645C0`) once. So at

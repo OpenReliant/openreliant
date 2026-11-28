@@ -21,6 +21,8 @@ const Campaign = struct {
     ready_since: u32 = 0,
     finished: bool = false,
     started_after: u32 = 0,
+    /// The difficulty the host set, which every pilot's hits go by (`collision.byDifficulty`).
+    difficulty: game.collision.Difficulty = .easy,
 
     fn say(context: *anyopaque, tick: i32, line: game.radio.RoutedLine) void {
         const campaign: *Campaign = @ptrCast(@alignCast(context));
@@ -241,7 +243,8 @@ pub fn leastPopulatedTeam(arena: *const Arena, joining: u8) wire.Team {
 }
 
 /// Start a campaign mission from the installed data and bind its created ships to the lobby crew.
-pub fn prepareCampaign(staging: *const Arena, leg: wire.NextMission, io: std.Io, directory: std.Io.Dir, checkpoint: *const game.gameflow.Campaign, wingmen: *const game.pilots.Wingmen) !*Arena {
+/// It is flown at `difficulty`, the host's.
+pub fn prepareCampaign(staging: *const Arena, leg: wire.NextMission, io: std.Io, directory: std.Io.Dir, checkpoint: *const game.gameflow.Campaign, wingmen: *const game.pilots.Wingmen, difficulty: game.collision.Difficulty) !*Arena {
     const gpa = staging.mission.objects.gpa;
     const arena = try create(gpa, .training, io, directory);
     errdefer arena.destroy();
@@ -256,6 +259,7 @@ pub fn prepareCampaign(staging: *const Arena, leg: wire.NextMission, io: std.Io,
         .radio = .openAt(gpa, io, directory, game.radio.speech_archive, game.hudmovie.archive_path),
         .cues = .{ .gpa = gpa },
         .started_after = leg.after,
+        .difficulty = difficulty,
     };
     campaign.radio.output = .{ .context = campaign, .send = Campaign.say };
     arena.campaign = campaign;
@@ -328,7 +332,7 @@ fn world(arena: *Arena) game.gameobj.World {
     scene.arena_options = arena.options;
     if (arena.campaign) |campaign| {
         scene.damage_rules = .cooperative;
-        scene.difficulty = .easy;
+        scene.difficulty = campaign.difficulty;
         scene.touchdown = .original;
         scene.gates = &campaign.gates;
         scene.display = &campaign.display;

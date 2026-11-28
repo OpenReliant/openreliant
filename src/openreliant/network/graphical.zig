@@ -189,9 +189,12 @@ pub fn hostLan(pilot: *Graphical, io: std.Io, gpa: std.mem.Allocator, directory:
     };
 }
 
-pub fn launch(pilot: *Graphical, screen: *Connection) void {
+/// The host's LAUNCH: an arena as the lobby has it, or the co-op campaign's mission at
+/// `difficulty`, the hosting pilot's (`Host.campaign_difficulty`).
+pub fn launch(pilot: *Graphical, screen: *Connection, difficulty: game.collision.Difficulty) void {
     const hosted = pilot.hosted orelse return;
     const lobby = screen.lobby orelse return;
+    hosted.host.campaign_difficulty = difficulty;
     if (lobby.mission == null) hosted.host.selectScenario(lobby.scenario);
     hosted.launch() catch |err| {
         std.log.warn("could not load the multiplayer mission: {s}", .{@errorName(err)});

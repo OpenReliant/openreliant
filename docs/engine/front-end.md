@@ -153,6 +153,10 @@ The deathmatch host can change **AI Turrets**, **Target Players** and, in modes 
 (`session_loadout_screen`, 0x0044C14B and 0x0044C179). The host keeps the settings when the group
 returns to setup for another match.
 
+**Improvement:** the campaign is flown at the host's difficulty: the one SET GAME DIFFICULTY or
+`--difficulty` set, easy until then ([Damage](objects.md)). The original flies every network
+campaign on Easy. The lobby has no control for it yet.
+
 The co-op lobby shows nine chat lines and the deathmatch lobby six, as variants 0 and 2 of
 `multiplayer_chat_panel` (0x004AE2D0) do. The stock arrows scroll the last 30 lines. Click the
 field or press Enter to start typing, then press Enter to send. Escape leaves the field. The

@@ -2172,7 +2172,7 @@ pub const World = struct {
     player: *input.Player,
     /// The mission's clocks, whose `frame_start` the game's code reads as a global.
     clock: *const Clock,
-    /// The standalone campaign difficulty (`collision.byDifficulty`).
+    /// The campaign's difficulty, a network campaign's as its host set it (`collision.byDifficulty`).
     difficulty: collision.Difficulty = .medium,
     /// The host selects these rules for the mission before stepping the simulation.
     damage_rules: collision.DamageRules = .campaign,

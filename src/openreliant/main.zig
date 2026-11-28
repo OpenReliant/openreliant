@@ -1386,7 +1386,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         continue;
                     },
                     .launch_session => {
-                        if (network_enabled) network_pilot.launch(&front.connection);
+                        if (network_enabled) network_pilot.launch(&front.connection, front.pilot.difficulty);
                         continue;
                     },
                     .new_coop_campaign, .loaded_coop_campaign => {

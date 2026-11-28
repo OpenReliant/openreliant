@@ -9,6 +9,7 @@ const wire = @import("wire.zig");
 const LaunchWait = @import("launch_wait.zig");
 const ArenaOptions = @import("openreliant").engine.game.deathmatch.Options;
 const Advertiser = @import("advertise.zig");
+const Difficulty = @import("openreliant").engine.game.collision.Difficulty;
 
 const default_config = "server.ini";
 const max_config_size = 16 * 1024;
@@ -26,6 +27,7 @@ const Config = struct {
     teams: bool,
     arena_options: ArenaOptions,
     repeat_rounds: bool,
+    difficulty: Difficulty,
     identity: ?session.Identity,
     advertise: ?Advertiser.Config,
     /// The name in LAN lists, or null to stay out of them.
@@ -91,6 +93,12 @@ const Config = struct {
         } else .{};
         if (teams and (mode.scenario() == null or mode.scenario().?.record().teams == .none)) return error.InvalidTeamArena;
         if (repeat_rounds and mode.scenario() == null) return error.InvalidRepeatRounds;
+        // A co-op campaign's difficulty: easy, as the original flies every network campaign,
+        // unless the server sets another.
+        const difficulty: Difficulty = if (profile.value("Server", "Difficulty")) |value|
+            std.meta.stringToEnum(Difficulty, value) orelse return error.InvalidDifficulty
+        else
+            .easy;
         const root = profile.value("Identity", "RootPublicKey");
         const certificate = profile.value("Identity", "Certificate");
         const managed: ?session.Identity = if (root == null and certificate == null) null else identity: {
@@ -119,6 +127,7 @@ const Config = struct {
             .teams = teams,
             .arena_options = arena_options,
             .repeat_rounds = repeat_rounds,
+            .difficulty = difficulty,
             .identity = managed,
             .advertise = if (profile.value("Server", "DirectoryServers")) |origins| .{
                 .origins = origins,
@@ -168,6 +177,7 @@ pub fn run(io: std.Io, gpa: std.mem.Allocator, args: []const [:0]const u8) !void
         .teams = config.teams,
         .arena_options = config.arena_options,
         .repeat_rounds = config.repeat_rounds,
+        .difficulty = config.difficulty,
         .invite_address = config.invite_address,
         .advertise = config.advertise,
         .lan_name = config.lan_name,
@@ -254,4 +264,8 @@ test "dedicated activation and metrics have independent settings" {
     try std.testing.expectEqual(4, coop.launch_wait.minimum);
     try std.testing.expectEqual(0, coop.launch_wait.delay_us);
     try std.testing.expect(!coop.repeat_rounds);
+    // Co-op is easy, as in the original, unless the server sets its difficulty.
+    try std.testing.expectEqual(.easy, coop.difficulty);
+    try std.testing.expectEqual(.hard, (try Config.parse(.{ .text = "[Server]\nMission=1\nDifficulty=hard" })).difficulty);
+    try std.testing.expectError(error.InvalidDifficulty, Config.parse(.{ .text = "[Server]\nMission=1\nDifficulty=brutal" }));
 }
