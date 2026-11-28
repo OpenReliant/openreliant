@@ -94,6 +94,10 @@ pub fn emit(w: *Io.Writer, types: []const Static) Io.Writer.Error!void {
         \\    /// game keeps in its code for the Kafelnikof alone. The records start from the game's
         \\    /// (`cloak.partsOf`). Null where it cloaks whole.
         \\    cloaking_parts: ?cloak.Parts = null,
+        \\    /// OpenReliant's own: whether the player's ship of the type carries blind fire, which the game
+        \\    /// keeps in its code for the ships the player flies. The records start from the game's
+        \\    /// (`main.playerShip`).
+        \\    blind_fire: bool = false,
         \\}};
         \\
         \\/// Every ship type's, by its number.

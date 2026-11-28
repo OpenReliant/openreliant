@@ -1367,7 +1367,7 @@ pub fn apply(frame: *FlightFrame, snapshot: *const wire.Snapshot, admission: wir
             frame.host_ship_reuse[index] = ship.reuse;
             if (index == admission.slot) {
                 _ = try game.aigeneric.push(.of(scene), index, .player_control, .none);
-                game.main.fitDevices(&all.player_states[index].charges, &frame.drawn.display, game.main.cockpitShip(all, ship.kind()), false);
+                game.main.fitDevices(&all.player_states[index].charges, &frame.drawn.display, game.main.fittedShip(all, index, ship.kind()), false);
             } else {
                 // Another pilot's ship flies by the host's echo of their command, under the
                 // order the host flies it with (Rocket League GDC 2018).

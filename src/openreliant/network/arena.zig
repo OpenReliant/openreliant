@@ -476,7 +476,7 @@ pub fn input(arena: *Arena, slot: u8, command: engine.input.flight.Command, fire
                 // set the aim itself (`hud.blind_fire_reach`'s box, `0x0046` by `0x0032`, of
                 // the middle). The host asks the same of the lead point against the ship's
                 // nose, wide enough that no honest shot is refused.
-                const fitted = if (game.main.cockpitShip(all, ship.object.type)) |definition| definition.blind_fire else false;
+                const fitted = if (game.main.fittedShip(all, slot, ship.object.type)) |definition| definition.blind_fire else false;
                 const display: game.hud.State = .{ .blind_fire_fitted = fitted, .blind_fire = weapons.aim.blind_fire };
                 const allowed = if (target) |aim| allowed: {
                     const valid = game.ai.ValidTarget.of(all, aim.resolve(all).?, .{}) orelse break :allowed false;

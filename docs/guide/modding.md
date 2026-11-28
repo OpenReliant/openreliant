@@ -962,6 +962,8 @@ When the player flies it, it can also give:
   its loop doesn't click.
 - `BlindFire` and `SpectralShields`, `yes` or `no`, whether it carries blind fire and spectral
   shields. Without them, it carries what its base carries. The loadout lists them with its specials.
+  A load script can also change blind fire on any ship type, the game's included
+  (`records.ship_types`, [The records](scripting.md#the-records)).
 
 A mission can put the player in a ship type based on a ship the player can't fly, such as the
 Basilisk. The player flies it with a cockpit only if it gives `Cockpit`. Its base has no wire frame,
