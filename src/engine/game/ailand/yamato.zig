@@ -91,11 +91,16 @@ const lowered_wait: i32 = 400;
 
 /// `land_yamato_init` (`0x0040EB60`): the first step, due `ailand.wait` ticks on; for the player's
 /// ship, the landing bay made in the cutaway slot, passing through everything.
+///
+/// **Improvement:** a Land order aimed at one of the Yamato's components, rather than the whole
+/// ship, begins at once, as a landing in a bay does (`bay.init`). PERMISSION TO LAND aims at the
+/// whole ship, so it still waits. The ship still lands on the same pad, whatever the component.
 pub fn init(ctx: Context, index: u16) void {
     const world = ctx.world;
-    const state = &world.objects.slots[index].state.land;
+    const slot = &world.objects.slots[index];
+    const state = &slot.state.land;
     state.step = .of(Step.waiting);
-    state.due = world.clock.frame_start + ailand.wait;
+    state.due = world.clock.frame_start + if (slot.orders[0].target.isWhole()) ailand.wait else 0;
     if (index != world.objects.player) return;
     const bay = create.make(world, create.cutaway_slot, .of(.yamato_landing_bay)) catch |err| {
         log.warn("the Yamato's landing bay is left out: {s}", .{@errorName(err)});
@@ -360,4 +365,20 @@ test "the player's ship lands on a pad of the Yamato's landing bay, and the miss
     try std.testing.expectEqual(0, variables.mission_over);
     mission.ordersAfter(ctx, player, 1);
     try std.testing.expectEqual(1, variables.mission_over);
+}
+
+test "a landing aimed at one of the Yamato's components begins at once" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var world = mission.world();
+    world.spawn = mission.spawn(create.testing.no_models);
+    const ctx: Context = .of(world);
+    const player = try mission.add(.of(.predator), @splat(0));
+    const yamato = try mission.add(.of(.yamato), .{ 0, 0, 50000 });
+    try std.testing.expect(try aigeneric.pushShip(ctx, player, .land, yamato, 0));
+    mission.clock.frame_start = 1000;
+    init(ctx, player);
+    try std.testing.expectEqual(1000, mission.slot(player).state.land.due);
 }

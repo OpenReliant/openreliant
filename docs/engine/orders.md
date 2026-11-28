@@ -801,6 +801,12 @@ there is no carrier. A script can make another ship the player's carrier
 hook). The game's missions launch the player only from the Reliant and the Yamato, so they land as
 they do in the game.
 
+**Improvement:** on the Reliant and the Yamato too, a Land order aimed at one of the carrier's
+components starts at once, instead of 700 ticks later. PERMISSION TO LAND aims at the whole
+carrier, so it still waits. A script can then start the landing when it wants, for example once
+the player's ship reaches an approach point: `ship:give_order("land", carrier, 0)`. The ship
+lands in the same place whatever the component.
+
 **Improvement:** a ship that offers a bay's landing (`bay`) takes the player's ship into a hangar
 bay that ships launch from ([Hangar bays](launch.md#hangar-bays)), such as the Victorious or a
 mod's carrier, so that PERMISSION TO LAND can end a mod's mission there. The landing aims at a

@@ -75,6 +75,12 @@ const down_at: f32 = -100;
 /// the player's ship is being sent home for its friendly fire. Where the carrier's model lacks the
 /// doors of its first launch tube (`launch.reliant.tubeMiddle`), as a ship a mod or a script gives
 /// the Reliant's landing can, the landing is none, and the log says so.
+///
+/// **Improvement:** a Land order aimed at one of the carrier's components, rather than the whole
+/// carrier, begins at once, as a landing in a bay does (`bay.init`). PERMISSION TO LAND aims at the
+/// whole carrier, so it still waits. A script or a mission can then start the landing at its own
+/// moment, such as once the player's ship reaches an approach point. The ship still lands in the
+/// first tube, whatever the component.
 pub fn init(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const state = &all.slots[index].state.land;
@@ -90,7 +96,8 @@ pub fn init(ctx: Context, index: u16) void {
         all.player_states[index].membership.joined.ending
     else
         mission.player.ending;
-    state.due = mission.clock.frame_start + if (ending.sentHome()) 0 else ailand.wait;
+    const at_once = ending.sentHome() or !all.slots[index].orders[0].target.isWhole();
+    state.due = mission.clock.frame_start + if (at_once) 0 else ailand.wait;
 }
 
 /// `land_reliant_update` (`0x0040F940`): a step of the Reliant's landing (`Step`).
@@ -391,6 +398,26 @@ test "a ship sent home for its friendly fire lands at once" {
     try reliant_model.fit(gpa, mission.slot(reliant));
     try std.testing.expect(try aigeneric.pushShip(ctx, player, .land, reliant, null));
     mission.player.ending = .friendly_fire;
+    mission.clock.frame_start = 1000;
+    aigeneric.objectOrders(ctx, player);
+    const state = &mission.slot(player).state.land;
+    try std.testing.expectEqual(1000, state.due);
+    try std.testing.expectEqual(Step.approaching, state.step.as(Step));
+}
+
+test "a landing aimed at one of the Reliant's components begins at once" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var reliant_model: reliant_launch.testing.Reliant = undefined;
+    try reliant_model.init(gpa);
+    defer reliant_model.deinit(gpa);
+    const ctx = mission.orders();
+    const player = try mission.add(.of(.predator), @splat(0));
+    const reliant = try mission.add(.of(.reliant), .{ 0, 0, 50000 });
+    try reliant_model.fit(gpa, mission.slot(reliant));
+    try std.testing.expect(try aigeneric.pushShip(ctx, player, .land, reliant, 0));
     mission.clock.frame_start = 1000;
     aigeneric.objectOrders(ctx, player);
     const state = &mission.slot(player).state.land;
