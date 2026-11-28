@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.0-rc.4](https://github.com/OpenReliant/openreliant/compare/v1.1.0-rc.3...v1.1.0-rc.4) (2026-11-28)
+
+
+### Features
+
+* a land order aimed at a component of the Reliant or the Yamato starts at once ([#1572](https://github.com/OpenReliant/openreliant/issues/1572)) ([35debaa](https://github.com/OpenReliant/openreliant/commit/35debaa2df29f599a7de2a72ac51c3aa9f7bd339))
+* fly a co-op campaign at the host's difficulty ([#1576](https://github.com/OpenReliant/openreliant/issues/1576)) ([05593d8](https://github.com/OpenReliant/openreliant/commit/05593d8c4783427af7a55f5c2778731f658d9283)), closes [#1575](https://github.com/OpenReliant/openreliant/issues/1575)
+
+
+### Fixes
+
+* keep a slow client and a slow host in step, and send a view too large for a datagram ([#1578](https://github.com/OpenReliant/openreliant/issues/1578)) ([9357036](https://github.com/OpenReliant/openreliant/commit/9357036cc59e2ad0dbe9f6e68b6df4e590b7d17c)), closes [#1577](https://github.com/OpenReliant/openreliant/issues/1577)
+
 ## [1.1.0-rc.3](https://github.com/OpenReliant/openreliant/compare/v1.1.0-rc.2...v1.1.0-rc.3) (2026-11-25)
 
 
