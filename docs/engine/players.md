@@ -117,6 +117,20 @@ its upload is what it was with the original's step. Each client flies the step b
 itself. An input repeats the six steps before it, and the host keeps 64 timed inputs for a pilot:
 the 120 ms and 1.28 seconds that three and 32 of the original's steps covered.
 
+A game a player hosts steps from its drawn frames. Each frame takes every step that is due
+(`Host.pumpDue`), so the game keeps its speed when the host draws fewer than 50 frames a second.
+A host more than five steps behind starts its schedule over.
+
+A client reads its messages once a frame. It reads past the ones that leave the frame nothing to
+do, the host's state of its own ship and the echo of the pilots' commands (`Client.Event.taken`),
+up to sixteen a frame, since the host sends 75 of those a second.
+
+A view is one datagram (`wire.capacity`). A dying ship's spin-out adds nine bytes to its ship, so
+a full arena with most of its pilots dying at once can be more than a datagram holds. Such a view
+goes without the pilot's private readings, the weapons and the power-up held
+(`wire.Message.encodeView`), and the next view that fits brings them again. Every ship still
+travels.
+
 Missile launches, countermeasures, the missile ring, the cockpit's gun and power keys and the
 three device keys (ECM, CLOAK SHIP and SPECTRAL SHIELDS) travel in a reliable weapon order
 without a tick, with the target they belong to. A terminal

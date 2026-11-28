@@ -197,7 +197,11 @@ pub fn flightReady(client: *Client, io: Io) !void {
 }
 
 pub const Event = union(enum) {
+    /// Nothing waits to be read.
     idle,
+    /// A message was read that leaves the caller nothing to do, such as the host's state of the
+    /// pilot's own ship. More may wait behind it.
+    taken,
     admitted,
     lobby,
     beacon_notice: wire.BeaconNotice,
@@ -412,6 +416,14 @@ pub fn poll(client: *Client, io: Io) !Event {
     if (!reachable) return .idle;
     var buffer: [wire.capacity]u8 = undefined;
     const message = try net.receive(client.conn, &buffer) orelse return .idle;
+    // A message that needs no event is still one read: the caller reads on (`Event.taken`).
+    const event = try client.take(message, now);
+    return if (event == .idle) .taken else event;
+}
+
+/// Takes one message from the host, and says what it leaves the caller to do: `idle` for one
+/// that only updates what the client holds, or that it passes over.
+fn take(client: *Client, message: wire.Message, now: i64) !Event {
     switch (message) {
         .joined => |entry| {
             if (!client.sent_join or client.joined != null) return error.UnexpectedAdmission;
@@ -633,6 +645,14 @@ pub const History = struct {
     }
 };
 
+test "the host's echo of the commands is taken without an event, and an older one is passed over" {
+    var client: Client = .{ .expected_host = null, .joined = .{ .slot = 1, .generation = 7 } };
+    try std.testing.expectEqual(.idle, try client.take(.{ .commands = .{ .tick = 40, .carried = 2 } }, 0));
+    try std.testing.expectEqual(40, client.commands.?.tick);
+    try std.testing.expectEqual(.idle, try client.take(.{ .commands = .{ .tick = 38, .carried = 1 } }, 0));
+    try std.testing.expectEqual(2, client.commands.?.carried);
+}
+
 test "the flown history hands out the steps before and after a tick" {
     var history: History = .{};
     var tick: i32 = 4;
@@ -757,7 +777,7 @@ pub fn drive(client: *Client, io: Io, controls: Controls, leave_after: ?u32) !vo
         switch (event) {
             .combat => std.debug.print("combat page\n", .{}),
             .projectiles => std.debug.print("projectiles page\n", .{}),
-            .idle, .scene_page, .scenery, .campaign_line => {},
+            .idle, .taken, .scene_page, .scenery, .campaign_line => {},
             .mission_music => |cue| {
                 _ = client.music.take();
                 std.debug.print("mission music {s} {s}\n", .{ if (cue.now) "now" else "fade", cue.track.slice() });

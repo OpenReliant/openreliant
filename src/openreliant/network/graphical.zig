@@ -19,6 +19,10 @@ const Graphical = @This();
 const Connection = game.interface.Connection;
 const combat_messages_per_frame = 8;
 const messages_per_frame = combat_messages_per_frame + wire.ordnance.Page.pages;
+/// The most messages a frame reads that leave it nothing to do (`Client.Event.taken`): the
+/// host's state of the pilot's own ship and its echo of the pilots' commands, three every two
+/// steps. Sixteen cover a frame a tenth of a second long.
+const quiet_messages_per_frame = 16;
 const FlightNotice = union(enum) {
     beacon: wire.BeaconNotice,
     uber_kill: wire.UberKillNotice,
@@ -222,7 +226,7 @@ pub const Briefing = struct {
     fn update(briefing: *Briefing) !void {
         const pilot = briefing.pilot;
         if (pilot.hosted) |hosted| {
-            if (try hosted.host.pump() == .finished) return error.SessionEnded;
+            if (try hosted.host.pumpDue() == .finished) return error.SessionEnded;
             hosted.share();
         }
         const client = &pilot.client.?;
@@ -443,7 +447,7 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
     } else null;
     if (pilot.hosted) |hosted| {
         if (front.connection.lobby) |lobby| if (lobby.mission == null) hosted.host.selectScenario(lobby.scenario);
-        const result = hosted.host.pump() catch |err| {
+        const result = hosted.host.pumpDue() catch |err| {
             std.log.warn("LAN game ended: {s}", .{@errorName(err)});
             pilot.showSessionLoss(&front.connection, presentation, .{ .english = "The LAN game stopped" });
             return;
@@ -603,8 +607,13 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
         }
     }
     const shared_before = pilot.sharedPaused();
-    // Catch up after a slow render without letting a busy connection hold the frame.
-    for (0..messages_per_frame) |_| {
+    // Catch up after a slow render without letting a busy connection hold the frame. A message
+    // that leaves nothing to do here, such as the host's state of the pilot's own ship, is read
+    // past: stopping at one would leave the rest for the next frame, and the host sends more of
+    // them in a second than a display at 60 Hz draws frames.
+    var events: usize = 0;
+    var quiet: usize = 0;
+    while (events < messages_per_frame and quiet < quiet_messages_per_frame) {
         const event = client.poll(io) catch |err| {
             const message: Connection.Label = switch (err) {
                 error.IncompatibleProtocol => .{ .english = "Incompatible multiplayer protocol" },
@@ -617,9 +626,10 @@ pub fn update(pilot: *Graphical, io: std.Io, front: *engine.genilib.interf.Inter
             pilot.showSessionLoss(&front.connection, presentation, message);
             return;
         };
+        if (event == .taken) quiet += 1 else events += 1;
         switch (event) {
             .idle => break,
-            .projectiles, .scene_page, .scenery, .campaign_movie, .mission_music => {},
+            .taken, .projectiles, .scene_page, .scenery, .campaign_movie, .mission_music => {},
             .campaign_result => {
                 const mission = client.latest.?.mission.?;
                 if (mission.ending_scene != .none) {
